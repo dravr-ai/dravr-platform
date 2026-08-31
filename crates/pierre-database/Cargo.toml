@@ -26,8 +26,9 @@ pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.4" }
 
 # Async runtime and traits
+# "sync" backs the OnceCell holding the test factory's serialized schema image
 async-trait = "0.1"
-tokio = { version = "1.50", features = ["time"] }
+tokio = { version = "1.50", features = ["time", "sync"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

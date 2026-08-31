@@ -11,13 +11,20 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::env;
+
 use anyhow::Result;
 use chrono::Utc;
-use pierre_core::models::{Activity, ActivityBuilder, SportType, User};
+use pierre_core::models::{Activity, ActivityBuilder, SportType, User, UserOAuthToken};
+use pierre_database::backends::factory::Database;
 use pierre_intelligence::{
     insights::ActivityContext, ActivityAnalyzer, FitnessLevel, MetricsCalculator, TimeAvailability,
     UserFitnessProfile, UserPreferences,
 };
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use serde_json::json;
+use sqlx::Row;
+use uuid::Uuid;
 
 mod common;
 use common::*;
@@ -412,6 +419,272 @@ async fn test_goal_tracking_integration() -> Result<()> {
                 .performance_indicators
                 .efficiency_score
                 .is_some()
+    );
+
+    Ok(())
+}
+
+/// A goal created by `set_goal` is findable by `track_progress`.
+///
+/// `track_progress` looks a goal up by `goal_data.goal_id`, so the id the
+/// creation path generates has to live inside the stored JSON. When it did
+/// not, the lookup key was absent from every row on every backend and the tool
+/// answered "Goal not found" for goals it had just created — the whole feature
+/// was unreachable. This drives both halves through the production path: the
+/// `set_goal` tool creates, then the `track_progress` tool reads the goal's own
+/// type, target and timeframe back out of the store, then the repository
+/// updates progress against the same id.
+#[tokio::test]
+async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
+    // The activity fetch that follows the goal lookup builds a real Strava
+    // provider. Point it at a closed local port so the fetch fails at once and
+    // the tool reports progress over zero activities, instead of the suite
+    // reaching out to strava.com.
+    env::set_var("PIERRE_STRAVA_API_BASE_URL", "http://127.0.0.1:1/api/v3");
+    common::init_server_config();
+    common::init_test_http_clients();
+
+    let resources = common::create_test_server_resources().await?;
+    let database = resources.coach.database.clone();
+    let (user_id, _user, tenant_id) =
+        common::create_test_user_with_plan(&database, "goal-tracker@example.com", "starter")
+            .await?;
+
+    // The dispatch chokepoint refuses provider-requiring tools for an athlete
+    // with no data source at all, which would short-circuit before the goal
+    // lookup this test is about.
+    let now = Utc::now();
+    database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant_id.to_string(),
+            provider: "strava".to_owned(),
+            access_token: "test_access_token".to_owned(),
+            refresh_token: Some("test_refresh_token".to_owned()),
+            token_type: "Bearer".to_owned(),
+            expires_at: Some(now + chrono::Duration::hours(6)),
+            scope: Some("activity:read_all".to_owned()),
+            provider_user_id: None,
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await?;
+
+    let executor = UniversalToolExecutor::new(resources);
+
+    let created = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "set_goal".to_owned(),
+            parameters: json!({
+                "goal_type": "distance",
+                "target_value": 100.0,
+                "timeframe": "month",
+                "title": "100 km this month"
+            }),
+            user_id: user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(tenant_id.to_string()),
+            progress_token: None,
+            cancellation_token: None,
+            progress_reporter: None,
+        })
+        .await?;
+    assert!(
+        created.success,
+        "set_goal must succeed: {:?}",
+        created.error
+    );
+    let goal_id = created.result.as_ref().unwrap()["goal_id"]
+        .as_str()
+        .expect("set_goal returns the created goal's id")
+        .to_owned();
+
+    let tracked = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "track_progress".to_owned(),
+            parameters: json!({ "goal_id": goal_id, "provider": "strava" }),
+            user_id: user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(tenant_id.to_string()),
+            progress_token: None,
+            cancellation_token: None,
+            progress_reporter: None,
+        })
+        .await?;
+    assert!(
+        tracked.success,
+        "track_progress must find the goal set_goal just created: {:?}",
+        tracked.error
+    );
+
+    // Every field below is read back out of the stored goal, so they are the
+    // proof the lookup hit the right row rather than a default-shaped miss.
+    let progress = tracked.result.as_ref().unwrap();
+    assert_eq!(progress["goal_id"].as_str(), Some(goal_id.as_str()));
+    assert_eq!(progress["goal_type"].as_str(), Some("distance"));
+    assert_eq!(progress["target_value"].as_f64(), Some(100.0));
+    assert_eq!(progress["timeframe"].as_str(), Some("month"));
+    assert_eq!(progress["unit"].as_str(), Some("km"));
+    assert_eq!(progress["days_remaining"].as_u64(), Some(30));
+    assert_eq!(progress["summary"]["total_activities"].as_u64(), Some(0));
+
+    // The same id addresses the row for writes: progress recorded against it
+    // lands in the stored goal with the percentage derived from its target.
+    let repos = database.repositories();
+    repos
+        .profiles
+        .update_goal_progress(&goal_id, user_id, 25.0)
+        .await?;
+
+    let goals = repos.profiles.get_goals(user_id).await?;
+    assert_eq!(goals.len(), 1);
+    assert_eq!(goals[0]["goal_id"].as_str(), Some(goal_id.as_str()));
+    assert_eq!(goals[0]["current_value"].as_f64(), Some(25.0));
+    assert_eq!(goals[0]["progress_percentage"].as_f64(), Some(25.0));
+
+    Ok(())
+}
+
+/// The exact backfill statement each backend ships, so the test exercises the
+/// migration rather than a paraphrase that could drift from it.
+const SQLITE_GOAL_ID_BACKFILL_SQL: &str =
+    include_str!("../../../migrations/20260831000002_goal_data_goal_id_backfill.sql");
+#[cfg(feature = "postgresql")]
+const POSTGRES_GOAL_ID_BACKFILL_SQL: &str =
+    include_str!("../../../migrations_pg/20260831000002_goal_data_goal_id_backfill.sql");
+
+/// Insert a goal row carrying exactly `goal_data`, bypassing `create_goal` —
+/// the point is to plant the shape rows written before the id was embedded had.
+async fn plant_goal_row(db: &Database, id: &str, user_id: Uuid, goal_data: &serde_json::Value) {
+    const SQL: &str = "INSERT INTO goals (id, user_id, goal_data, created_at, updated_at) \
+                       VALUES ($1, $2, $3, $4, $4)";
+    let now = Utc::now();
+    match db {
+        Database::SQLite(d) => {
+            sqlx::query(SQL)
+                .bind(id)
+                .bind(user_id.to_string())
+                .bind(serde_json::to_string(goal_data).unwrap())
+                .bind(now.to_rfc3339())
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(d) => {
+            sqlx::query(SQL)
+                .bind(id)
+                .bind(user_id)
+                .bind(goal_data)
+                .bind(now)
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Run the backfill statement the backend ships.
+async fn run_goal_id_backfill(db: &Database) {
+    match db {
+        Database::SQLite(d) => {
+            sqlx::query(SQLITE_GOAL_ID_BACKFILL_SQL)
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(d) => {
+            sqlx::query(POSTGRES_GOAL_ID_BACKFILL_SQL)
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Read one goal row's stored JSON by row id.
+async fn read_goal_row(db: &Database, id: &str) -> serde_json::Value {
+    const SQL: &str = "SELECT goal_data FROM goals WHERE id = $1";
+    match db {
+        Database::SQLite(d) => {
+            let row = sqlx::query(SQL).bind(id).fetch_one(d.pool()).await.unwrap();
+            let stored: String = row.get("goal_data");
+            serde_json::from_str(&stored).unwrap()
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(d) => {
+            let row = sqlx::query(SQL).bind(id).fetch_one(d.pool()).await.unwrap();
+            row.get("goal_data")
+        }
+    }
+}
+
+/// The shipped backfill migration stamps `goal_data.goal_id` on rows that lack
+/// it and leaves rows that already carry one alone.
+///
+/// Goals written before the id was embedded are unreachable to
+/// `track_progress`, which finds a goal by that key; deployed databases hold
+/// those rows, so the fix is only complete once they carry it too. The
+/// untouched row doubles as the idempotence check — re-running the migration
+/// must not rewrite a goal that already identifies itself.
+#[tokio::test]
+async fn test_goal_id_backfill_migration() -> Result<()> {
+    let database = create_test_database().await?;
+    let (user_id, _user) = create_test_user(&database).await?;
+
+    let legacy_id = Uuid::new_v4().to_string();
+    plant_goal_row(
+        &database,
+        &legacy_id,
+        user_id,
+        &json!({
+            "goal_type": "distance",
+            "target_value": 100.0,
+            "timeframe": "month",
+            "title": "Written before the id was embedded"
+        }),
+    )
+    .await;
+
+    let stamped_id = Uuid::new_v4().to_string();
+    plant_goal_row(
+        &database,
+        &stamped_id,
+        user_id,
+        &json!({
+            "goal_id": "already-identified",
+            "goal_type": "frequency",
+            "target_value": 12.0,
+            "timeframe": "month",
+            "title": "Written with the id embedded"
+        }),
+    )
+    .await;
+
+    run_goal_id_backfill(&database).await;
+
+    let backfilled = read_goal_row(&database, &legacy_id).await;
+    assert_eq!(
+        backfilled["goal_id"].as_str(),
+        Some(legacy_id.as_str()),
+        "the backfill copies the row id into the stored JSON"
+    );
+    assert_eq!(
+        backfilled["title"].as_str(),
+        Some("Written before the id was embedded"),
+        "the backfill leaves the rest of the goal untouched"
+    );
+
+    let untouched = read_goal_row(&database, &stamped_id).await;
+    assert_eq!(
+        untouched["goal_id"].as_str(),
+        Some("already-identified"),
+        "a goal that already identifies itself is left alone, so re-running is a no-op"
     );
 
     Ok(())

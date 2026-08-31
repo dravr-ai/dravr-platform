@@ -651,6 +651,7 @@ async fn test_update_coach() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap();
@@ -717,6 +718,7 @@ async fn test_update_coach_partial() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap()
@@ -752,7 +754,13 @@ async fn test_update_coach_not_found() {
     };
 
     let result = manager
-        .update("nonexistent-id", test_user_id(), test_tenant(), &update)
+        .update(
+            "nonexistent-id",
+            test_user_id(),
+            test_tenant(),
+            &update,
+            None,
+        )
         .await
         .unwrap();
 
@@ -2853,6 +2861,7 @@ async fn test_update_coach_adds_structured_fields() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap()
@@ -3172,6 +3181,7 @@ async fn test_update_coach_writes_max_tool_iterations() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap()
@@ -3242,6 +3252,7 @@ async fn test_update_coach_preserves_max_tool_iterations_when_absent() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap()
@@ -3307,6 +3318,7 @@ async fn test_update_coach_clears_max_tool_iterations_on_an_explicit_null() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap()

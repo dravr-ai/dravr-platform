@@ -177,6 +177,7 @@ async fn test_auto_version_on_update() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap();
@@ -213,6 +214,7 @@ async fn test_auto_version_on_update() {
             test_user_id(),
             test_tenant(),
             &update2,
+            None,
         )
         .await
         .unwrap();
@@ -282,6 +284,7 @@ async fn test_get_versions() {
             test_user_id(),
             test_tenant(),
             &update1,
+            None,
         )
         .await
         .unwrap();
@@ -310,6 +313,7 @@ async fn test_get_versions() {
             test_user_id(),
             test_tenant(),
             &update2,
+            None,
         )
         .await
         .unwrap();
@@ -379,6 +383,7 @@ async fn test_get_versions_with_limit() {
                 test_user_id(),
                 test_tenant(),
                 &update,
+                None,
             )
             .await
             .unwrap();
@@ -448,6 +453,7 @@ async fn test_get_specific_version() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap();
@@ -606,6 +612,7 @@ async fn test_revert_to_version() {
             test_user_id(),
             test_tenant(),
             &update1,
+            None,
         )
         .await
         .unwrap();
@@ -687,6 +694,7 @@ async fn test_revert_creates_new_version() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap();
@@ -917,6 +925,7 @@ async fn test_different_content_different_hash() {
             test_user_id(),
             test_tenant(),
             &update1,
+            None,
         )
         .await
         .unwrap();
@@ -945,6 +954,7 @@ async fn test_different_content_different_hash() {
             test_user_id(),
             test_tenant(),
             &update2,
+            None,
         )
         .await
         .unwrap();
@@ -1076,24 +1086,15 @@ async fn test_update_with_change_summary() {
         success_criteria: None,
         max_tool_iterations: FieldUpdate::Keep,
     };
-    // The repository trait snapshots on `update` without a summary; a caller
-    // that wants the change described snapshots first through
-    // `create_version`, so version 1 is the pre-update snapshot with its
-    // summary and the update's own snapshot follows it.
-    manager
-        .create_version(
-            &coach.id.to_string(),
-            test_user_id(),
-            Some("Changed title for clarity"),
-        )
-        .await
-        .unwrap();
+    // `update` snapshots the pre-update state as version 1 and records the
+    // summary on that snapshot, on both backends.
     manager
         .update(
             &coach.id.to_string(),
             test_user_id(),
             test_tenant(),
             &update,
+            Some("Changed title for clarity"),
         )
         .await
         .unwrap();
@@ -1351,6 +1352,7 @@ async fn test_revert_denied_for_non_owner_leaves_coach_unchanged() {
             test_user_id(),
             test_tenant(),
             &update,
+            None,
         )
         .await
         .unwrap();

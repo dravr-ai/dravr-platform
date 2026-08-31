@@ -640,10 +640,10 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
                 success_criteria: None,
                 max_tool_iterations: FieldUpdate::Keep,
             };
-
             let manager = ctx.resources.coaches_manager();
+            // The tool schema carries no change-summary argument.
             let coach = manager
-                .update(coach_id, user_id, tenant_id, &update_request)
+                .update(coach_id, user_id, tenant_id, &update_request, None)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to update coach: {e}")))?;
 

@@ -12,7 +12,8 @@ use dravr_cageux::models::activity::{Activity, ActivityBuilder, Lap};
 use dravr_cageux::models::sport::SportType;
 use pierre_fitness_compute::intervals::build_intervals;
 use pierre_fitness_compute::routes::{
-    build_route_summary, build_route_summary_from_streams, ClimbCategory,
+    build_route_summary, build_route_summary_from_streams, route_summary_from_cache,
+    stream_route_identity, ClimbCategory,
 };
 
 fn synthetic_activity_with_laps(laps: Vec<Lap>) -> Activity {
@@ -266,5 +267,91 @@ fn route_summary_serializes_without_nan_or_infinity_literals() {
     assert!(
         !json.contains("Infinity"),
         "encoded summary contained Infinity: {json}"
+    );
+}
+
+// ----------------------------------------------------------------------------
+// route_summaries cache plumbing — stream_route_identity + route_summary_from_cache
+// ----------------------------------------------------------------------------
+
+#[test]
+fn stream_route_identity_matches_full_build() {
+    let coords: Vec<(f64, f64)> = (0..8)
+        .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
+        .collect();
+    let altitudes: Vec<f32> = vec![100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0];
+    let (gpx_hash, point_count) =
+        stream_route_identity(&coords, &altitudes).expect("identity for a valid stream");
+    let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
+    assert_eq!(
+        gpx_hash, summary.gpx_hash,
+        "the identity hash must be the exact hash the full builder stamps — a divergence \
+         makes every cache probe miss (or worse, hit a different track's row)"
+    );
+    assert_eq!(point_count, summary.point_count);
+    assert_eq!(gpx_hash.len(), 64, "SHA-256 hex is 64 chars");
+}
+
+#[test]
+fn stream_route_identity_applies_the_builder_validity_gate() {
+    // Same gates as build_route_summary_from_streams: <2 paired points,
+    // or every point filtered out by the finite/range checks.
+    assert!(stream_route_identity(&[], &[]).is_none());
+    assert!(stream_route_identity(&[(46.0, -73.0)], &[100.0]).is_none());
+    let bad_lat = vec![(91.0, 0.0), (-91.0, 0.0)];
+    let altitudes = vec![100.0_f32, 110.0];
+    assert!(stream_route_identity(&bad_lat, &altitudes).is_none());
+    let coords_ok = vec![(46.000, -73.0), (46.001, -73.0)];
+    let alt_nan = vec![f32::NAN, 110.0];
+    assert!(stream_route_identity(&coords_ok, &alt_nan).is_none());
+}
+
+#[test]
+fn route_summary_from_cache_round_trips_the_stored_blobs() {
+    let coords: Vec<(f64, f64)> = (0..8)
+        .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
+        .collect();
+    let altitudes: Vec<f32> = vec![100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0];
+    let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
+    // The cache stores these two blobs; identity supplies hash + count.
+    let terrain_json = serde_json::to_string(&summary.terrain).expect("terrain json");
+    let climbs_json = serde_json::to_string(&summary.climbs).expect("climbs json");
+
+    let rebuilt = route_summary_from_cache(
+        &summary.gpx_hash,
+        summary.point_count,
+        &terrain_json,
+        &climbs_json,
+    )
+    .expect("cached row must rebuild");
+    assert_eq!(rebuilt.gpx_hash, summary.gpx_hash);
+    assert_eq!(rebuilt.point_count, summary.point_count);
+    assert!(
+        (rebuilt.terrain.total_distance_meters - summary.terrain.total_distance_meters).abs()
+            < f64::EPSILON
+    );
+    assert!(
+        (rebuilt.terrain.elevation_gain_meters - summary.terrain.elevation_gain_meters).abs()
+            < f64::EPSILON
+    );
+    assert_eq!(rebuilt.climbs.len(), summary.climbs.len());
+    for (r, s) in rebuilt.climbs.iter().zip(summary.climbs.iter()) {
+        assert_eq!(r.category, s.category);
+        assert_eq!(r.start_index, s.start_index);
+        assert_eq!(r.end_index, s.end_index);
+    }
+}
+
+#[test]
+fn route_summary_from_cache_rejects_a_row_of_another_shape() {
+    // A row written before a TerrainSummary/Climb shape change must read as
+    // a miss (None), never as a mangled summary.
+    assert!(route_summary_from_cache("hash", 10, "not json", "[]").is_none());
+    assert!(route_summary_from_cache("hash", 10, r#"{"unrelated": true}"#, "[]").is_none());
+    let valid_terrain = r#"{"total_distance_meters":5000.0,"flat_meters":1000.0,"rolling_meters":2000.0,"climb_meters":1500.0,"steep_meters":500.0,"elevation_gain_meters":250.0,"elevation_loss_meters":200.0}"#;
+    assert!(route_summary_from_cache("hash", 10, valid_terrain, r#"[{"bogus":1}]"#).is_none());
+    assert!(
+        route_summary_from_cache("hash", 10, valid_terrain, "[]").is_some(),
+        "a well-shaped row must rebuild"
     );
 }

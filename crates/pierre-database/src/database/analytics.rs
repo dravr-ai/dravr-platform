@@ -161,9 +161,18 @@ impl Database {
     pub async fn create_goal_impl(
         &self,
         user_id: Uuid,
-        goal_data: serde_json::Value,
+        mut goal_data: serde_json::Value,
     ) -> AppResult<String> {
         let goal_id = Uuid::new_v4().to_string();
+        // The stored JSON carries its own row id under `goal_id`: goal reads
+        // return `goal_data` exactly as stored, and progress tracking finds a
+        // goal by that key, so the id must live inside the JSON itself.
+        if let Some(goal_object) = goal_data.as_object_mut() {
+            goal_object.insert(
+                "goal_id".to_owned(),
+                serde_json::Value::String(goal_id.clone()),
+            );
+        }
         let goal_json = serde_json::to_string(&goal_data)?;
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -192,7 +201,7 @@ impl Database {
     pub async fn get_user_goals_impl(&self, user_id: Uuid) -> AppResult<Vec<serde_json::Value>> {
         let rows = sqlx::query(
             r"
-            SELECT id, goal_data FROM goals
+            SELECT goal_data FROM goals
             WHERE user_id = $1
             ORDER BY created_at DESC
             ",
@@ -202,17 +211,12 @@ impl Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get user goals: {e}")))?;
 
+        // Return `goal_data` exactly as stored — the same shape the PostgreSQL
+        // backend returns, so consumers see one contract on both backends.
         let mut goals = Vec::new();
         for row in rows {
-            let goal_id: String = row.get("id");
             let goal_json: String = row.get("goal_data");
-            let mut goal: serde_json::Value = serde_json::from_str(&goal_json)?;
-
-            // Add the goal ID to the JSON object
-            if let serde_json::Value::Object(ref mut map) = goal {
-                map.insert("id".into(), serde_json::Value::String(goal_id));
-            }
-
+            let goal: serde_json::Value = serde_json::from_str(&goal_json)?;
             goals.push(goal);
         }
 

@@ -11,7 +11,9 @@ use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_fitness_compute::intervals::build_intervals;
-use pierre_fitness_compute::routes::build_route_summary_from_streams;
+use pierre_fitness_compute::routes::{
+    build_route_summary_from_streams, route_summary_from_cache, stream_route_identity,
+};
 use serde_json::{json, Value};
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -221,10 +223,44 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
                 .altitude
                 .as_ref()
                 .ok_or_else(|| AppError::not_found("activity stream has no altitude"))?;
+            // Warm-cache path: the stream's cache identity (hash + point
+            // count) is computable without the terrain/climb analysis, so a
+            // matching `route_summaries` row serves the stored summary and
+            // skips the analysis and the write. Shared cache with
+            // GET /api/v1/endurance/routes/{activity_id}.
+            let (gpx_hash, point_count) =
+                stream_route_identity(coords, altitudes).ok_or_else(|| {
+                    AppError::not_found(
+                        "activity stream has fewer than 2 paired GPS+altitude points",
+                    )
+                })?;
+            if let Some((terrain_json, climbs_json)) = context
+                .resources
+                .repos()
+                .route_summaries
+                .get_route_summary(tenant_id, user_id, &activity_id, &gpx_hash)
+                .await?
+            {
+                // A stored row that no longer deserializes (the summary shape
+                // has evolved since it was written) is a cache miss: recompute
+                // below and the upsert overwrites the stale row.
+                if let Some(summary) =
+                    route_summary_from_cache(&gpx_hash, point_count, &terrain_json, &climbs_json)
+                {
+                    let payload = serde_json::to_value(&summary)
+                        .map_err(|e| AppError::internal(format!("serialize route summary: {e}")))?;
+                    return Ok(ToolResult::ok(payload));
+                }
+                tracing::warn!(
+                    %activity_id,
+                    "cached route summary no longer deserializes; recomputing"
+                );
+            }
             let summary = build_route_summary_from_streams(coords, altitudes).ok_or_else(|| {
-                AppError::not_found("activity stream has fewer than 2 paired GPS+altitude points")
+                AppError::invalid_input(
+                    "activity stream produced a route summary with non-finite metrics",
+                )
             })?;
-            // Cache write so the HTTP endpoint can short-circuit on the next call.
             let terrain_json = serde_json::to_string(&summary.terrain)
                 .map_err(|e| AppError::internal(format!("serialize terrain: {e}")))?;
             let climbs_json = serde_json::to_string(&summary.climbs)

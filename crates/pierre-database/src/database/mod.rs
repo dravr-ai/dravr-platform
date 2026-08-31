@@ -18,8 +18,6 @@ pub mod api_keys;
 pub mod chat;
 /// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
-/// Coach authors (creator profiles for Store)
-pub mod coach_authors;
 /// Catalogue handle assignment at Store approval time.
 pub(crate) mod coach_handle;
 /// Coaches (custom AI personas) storage and management
@@ -128,9 +126,6 @@ pub mod test_utils;
 pub use chat::{
     AddMessageParams, ChatManager, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
-};
-pub use coach_authors::{
-    CoachAuthor, CoachAuthorsManager, CreateAuthorRequest, UpdateAuthorRequest,
 };
 pub use coaches::{
     Coach, CoachCategory, CoachesManager, CreateCoachRequest, ListCoachesFilter, PublishStatus,

@@ -150,12 +150,12 @@ async fn approval_assigns_a_catalogue_unique_handle() {
             .execute(db.pool())
             .await
             .map(|_| ()),
-        // `coaches.user_id` is a `uuid` column on PostgreSQL; `tenant_id` is text.
+        // `coaches.user_id` and `tenant_id` are `uuid` columns on PostgreSQL.
         #[cfg(feature = "postgresql")]
         Database::PostgreSQL(db) => sqlx::query(CLASH)
             .bind(Uuid::new_v4().to_string())
             .bind(author_id)
-            .bind(tenant_id.to_string())
+            .bind(tenant_id.as_uuid())
             .execute(db.pool())
             .await
             .map(|_| ()),

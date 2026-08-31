@@ -203,7 +203,7 @@ impl CoachesRepository for PostgresDatabase {
         )
         .bind(id.to_string())
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .bind(&request.title)
         .bind(&request.description)
         .bind(effective_system_prompt)
@@ -303,7 +303,7 @@ impl CoachesRepository for PostgresDatabase {
         )
         .bind(coach_id)
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get coach: {e}")))?;
@@ -386,7 +386,7 @@ impl CoachesRepository for PostgresDatabase {
 
         let rows = sqlx::query(&query)
             .bind(user_id)
-            .bind(tenant_id.to_string())
+            .bind(tenant_id.as_uuid())
             .bind(limit_val)
             .bind(offset_val)
             .fetch_all(&self.pool)
@@ -454,15 +454,15 @@ impl CoachesRepository for PostgresDatabase {
         user_id: Uuid,
         tenant_id: TenantId,
         request: &UpdateCoachRequest,
+        change_summary: Option<&str>,
     ) -> AppResult<Option<Coach>> {
         // First get the existing coach
         let existing = self.get_by_id(coach_id, user_id, tenant_id).await?;
         let Some(existing) = existing else {
             return Ok(None);
         };
-
-        // Create a version snapshot BEFORE applying changes
-        self.create_coach_version_pg(coach_id, user_id, None)
+        // Snapshot BEFORE applying changes, carrying the caller's summary.
+        self.create_coach_version_pg(coach_id, user_id, change_summary)
             .await?;
 
         let now = Utc::now();
@@ -561,7 +561,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(now)
         .bind(coach_id)
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .bind(&startup_query)
         .bind(&data_requirements_json)
         .bind(&purpose)
@@ -592,7 +592,7 @@ impl CoachesRepository for PostgresDatabase {
         )
         .bind(coach_id)
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to delete coach: {e}")))?;
@@ -627,7 +627,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
@@ -673,7 +673,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
@@ -727,7 +727,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to count coaches: {e}")))?;
@@ -765,7 +765,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .bind(&search_pattern)
         .bind(limit_val)
         .bind(offset_val)
@@ -791,7 +791,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
@@ -888,7 +888,7 @@ impl CoachesRepository for PostgresDatabase {
         )
         .bind(content_hash)
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to find coach by content hash: {e}")))?;
@@ -924,7 +924,7 @@ impl CoachesRepository for PostgresDatabase {
         )
         .bind(id.to_string())
         .bind(admin_user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .bind(&request.title)
         .bind(&request.description)
         .bind(&request.system_prompt)
@@ -991,7 +991,7 @@ impl CoachesRepository for PostgresDatabase {
             ORDER BY created_at DESC
             ",
         )
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list system coaches: {e}")))?;
@@ -1016,7 +1016,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get system coach: {e}")))?;
@@ -1095,7 +1095,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(token_count_as_i32(token_count))
         .bind(now)
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update system coach: {e}")))?;
@@ -1116,7 +1116,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to delete system coach: {e}")))?;
@@ -1223,7 +1223,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
@@ -1266,7 +1266,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
@@ -1368,7 +1368,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(now)
         .bind(coach_id)
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to revert coach: {e}")))?;
@@ -1394,7 +1394,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get reverted coach: {e}")))?
@@ -1448,7 +1448,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get coach runtime context: {e}")))?;

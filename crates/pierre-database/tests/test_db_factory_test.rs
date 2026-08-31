@@ -20,6 +20,7 @@ use pierre_database::backends::factory::{Database, DatabaseType};
 use pierre_database::database::test_utils::{
     create_sqlite_test_db, create_test_db, create_test_db_url, create_test_db_with_key,
 };
+use pierre_database::DatabaseProvider;
 use std::env;
 
 fn expected_backend() -> DatabaseType {
@@ -115,6 +116,19 @@ async fn a_database_url_opens_a_migrated_database() {
 async fn explicit_sqlite_ignores_database_url() {
     let db = create_sqlite_test_db().await.expect("sqlite opens");
     assert_eq!(backend_of(&db), DatabaseType::SQLite);
+}
+
+/// The `SQLite` fast path clones a serialized image instead of migrating, so
+/// this proves the clone carries the complete migration ledger: `migrate()`
+/// re-validates every applied migration's checksum and would fail on a
+/// missing ledger (re-running DDL against existing tables) or on bytes that
+/// diverge from the embedded set.
+#[tokio::test]
+async fn a_factory_database_carries_the_full_migration_ledger() {
+    let db = create_test_db().await.expect("factory opens a database");
+    db.migrate()
+        .await
+        .expect("every embedded migration is recorded as applied");
 }
 
 async fn open(url: &str) -> Database {

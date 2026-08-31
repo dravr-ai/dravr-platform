@@ -17,7 +17,7 @@ use chrono::Utc;
 use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{
-    AddMessageParams, CoachingPersona, TenantId, User, UserStatus, UserTier,
+    AddMessageParams, CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
@@ -55,6 +55,21 @@ async fn seed_pg_user(db: &Database) -> Uuid {
     };
     db.repositories().users.create(&user).await.unwrap();
     user_id
+}
+
+/// Create a real tenants row — `coaches.tenant_id` is a foreign key to
+/// `tenants(id)` on both backends, so any tenant that owns a coach must exist.
+async fn seed_pg_tenant(db: &Database, owner_id: Uuid) -> TenantId {
+    let tenant = Tenant::new(
+        "Conversation List Tenant".to_owned(),
+        format!("conv-list-tenant-{}", Uuid::new_v4()),
+        None,
+        "starter".to_owned(),
+        owner_id,
+    );
+    let id = tenant.id;
+    db.repositories().tenants.create(&tenant).await.unwrap();
+    id
 }
 
 /// Publish a catalogue coach (which assigns its `@handle`) and install it for
@@ -155,11 +170,11 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     let repos = db.repositories();
 
     let author_id = seed_pg_user(&db).await;
-    let author_tenant = TenantId::generate();
+    let author_tenant = seed_pg_tenant(&db, author_id).await;
     let athlete_id = seed_pg_user(&db).await;
     let member_id = seed_pg_user(&db).await;
     let stranger_id = seed_pg_user(&db).await;
-    let tenant = TenantId::generate();
+    let tenant = seed_pg_tenant(&db, athlete_id).await;
     let athlete = athlete_id.to_string();
     let member = member_id.to_string();
 

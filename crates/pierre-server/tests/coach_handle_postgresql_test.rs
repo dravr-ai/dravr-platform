@@ -17,7 +17,7 @@ use chrono::Utc;
 use pierre_core::models::coaches::{
     CoachCategory, CoachHandle, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest,
 };
-use pierre_core::models::{CoachingPersona, TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
@@ -53,6 +53,21 @@ async fn seed_pg_user(db: &Database) -> Uuid {
     };
     db.repositories().users.create(&user).await.unwrap();
     user_id
+}
+
+/// Create a real tenants row — `coaches.tenant_id` is a foreign key to
+/// `tenants(id)` on both backends, so any tenant that owns a coach must exist.
+async fn seed_pg_tenant(db: &Database, owner_id: Uuid) -> TenantId {
+    let tenant = Tenant::new(
+        "Handle Test Tenant".to_owned(),
+        format!("handle-tenant-{}", Uuid::new_v4()),
+        None,
+        "starter".to_owned(),
+        owner_id,
+    );
+    let id = tenant.id;
+    db.repositories().tenants.create(&tenant).await.unwrap();
+    id
 }
 
 async fn publish_coach(db: &Database, author_id: Uuid, tenant_id: TenantId, title: &str) -> Uuid {
@@ -100,9 +115,9 @@ async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
     let repos = db.repositories();
 
     let author_id = seed_pg_user(&db).await;
-    let author_tenant = TenantId::generate();
+    let author_tenant = seed_pg_tenant(&db, author_id).await;
     let athlete_id = seed_pg_user(&db).await;
-    let athlete_tenant = TenantId::generate();
+    let athlete_tenant = seed_pg_tenant(&db, athlete_id).await;
     let bystander_id = seed_pg_user(&db).await;
 
     // Two coaches with the same title get distinct catalogue handles.
@@ -131,7 +146,7 @@ async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
     )
     .bind(Uuid::new_v4().to_string())
     .bind(author_id)
-    .bind(author_tenant.to_string())
+    .bind(author_tenant.as_uuid())
     .execute(pool)
     .await;
     let err = clash.expect_err("duplicate origin handle must violate idx_coaches_handle");
@@ -188,9 +203,9 @@ async fn test_pg_find_published_by_handle_resolves_the_origin_while_published() 
     let repos = db.repositories();
 
     let author_id = seed_pg_user(&db).await;
-    let author_tenant = TenantId::generate();
+    let author_tenant = seed_pg_tenant(&db, author_id).await;
     let athlete_id = seed_pg_user(&db).await;
-    let athlete_tenant = TenantId::generate();
+    let athlete_tenant = seed_pg_tenant(&db, athlete_id).await;
 
     let origin = publish_coach(&db, author_id, author_tenant, "Fuel Coach").await;
     let handle = CoachHandle::parse("fuel-coach").unwrap();
@@ -260,7 +275,7 @@ async fn test_pg_created_coach_takes_its_handle_at_creation_and_resolves() {
     let repos = db.repositories();
 
     let athlete_id = seed_pg_user(&db).await;
-    let athlete_tenant = TenantId::generate();
+    let athlete_tenant = seed_pg_tenant(&db, athlete_id).await;
     let bystander_id = seed_pg_user(&db).await;
 
     let created = repos

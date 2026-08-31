@@ -16,7 +16,9 @@ use pierre_fitness_compute::intervals::{build_intervals, IntervalsExport};
 use pierre_fitness_compute::latest_snapshot::{
     build_latest_snapshot, LatestSnapshot, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
 };
-use pierre_fitness_compute::routes::{build_route_summary_from_streams, RouteSummary};
+use pierre_fitness_compute::routes::{
+    build_route_summary_from_streams, route_summary_from_cache, stream_route_identity, RouteSummary,
+};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -131,18 +133,41 @@ async fn get_routes(
     let altitudes = stream.altitude.as_ref().ok_or_else(|| {
         AppError::not_found("activity stream has no altitude — terrain unavailable")
     })?;
-    // `build_route_summary_from_streams` returns `None` for any of:
-    // fewer than 2 paired points, every point filtered out by the lat/lon/
-    // finite gate, or a produced summary that contains a non-finite metric.
-    // All three are bad-input conditions for the user — surface as 400, not
-    // 404 — and crucially we do NOT write the cache row when this happens
-    // so a malformed stream can't poison subsequent reads on the same
-    // activity (Phase 3 risk #3).
-    let summary = build_route_summary_from_streams(coords, altitudes).ok_or_else(|| {
+    // The cache identity (hash of the validated points + their count) is
+    // computable without the terrain/climb analysis, so a warm cache serves
+    // the stored summary and skips the analysis and the write. A `None`
+    // identity means fewer than 2 paired points or every point filtered out
+    // by the lat/lon/finite gate — bad-input conditions for the user, so
+    // surface as 400, not 404, and write no cache row (a malformed stream
+    // must not poison subsequent reads on the same activity — Phase 3
+    // risk #3).
+    let (gpx_hash, point_count) = stream_route_identity(coords, altitudes).ok_or_else(|| {
         AppError::invalid_input(
             "activity stream produced no valid GPS+altitude points (fewer than 2 paired, \
              out-of-range lat/lon, or non-finite values)",
         )
+    })?;
+    if let Some((terrain_json, climbs_json)) = resources
+        .repos()
+        .route_summaries
+        .get_route_summary(tenant_id, user_id, &activity_id, &gpx_hash)
+        .await?
+    {
+        // A stored row that no longer deserializes (the summary shape has
+        // evolved since it was written) is a cache miss: recompute below and
+        // the upsert overwrites the stale row.
+        if let Some(summary) =
+            route_summary_from_cache(&gpx_hash, point_count, &terrain_json, &climbs_json)
+        {
+            return Ok(Json(summary));
+        }
+        tracing::warn!(%activity_id, "cached route summary no longer deserializes; recomputing");
+    }
+    // The remaining `None` from the full builder: the produced summary
+    // carries a non-finite metric — same bad-input stance, same no-write
+    // guarantee.
+    let summary = build_route_summary_from_streams(coords, altitudes).ok_or_else(|| {
+        AppError::invalid_input("activity stream produced a route summary with non-finite metrics")
     })?;
 
     // Cache write: terrain + climbs JSON keyed by gpx_hash.

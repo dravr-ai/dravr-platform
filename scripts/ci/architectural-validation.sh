@@ -317,7 +317,8 @@ if [ -n "$FACTORY_BYPASS" ]; then
     echo -e "${RED}❌ CRITICAL: $FACTORY_BYPASS_COUNT test site(s) open SQLite by hand instead of through test_utils::create_test_db${NC}"
     echo "$FACTORY_BYPASS"
     echo "   Use create_test_db()/create_test_db_with_key()/create_test_db_url() from"
-    echo "   pierre_database::database::test_utils, and the repository traits instead of a raw pool."
+    echo "   pierre_database::database::test_utils, and the repository traits instead of a raw pool:"
+    echo "   AdminConfigService::for_database(&db) for the admin-config service, db.repositories().<domain> for data access, and a match on the Database enum for genuinely raw SQL."
     echo "   A test of the SQLite backend itself belongs in a *_sqlite_test.rs file."
     fail_validation "Tests must open databases through the factory so the PostgreSQL lane runs PostgreSQL"
     exit 1

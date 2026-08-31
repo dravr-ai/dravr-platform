@@ -695,14 +695,15 @@ impl SeederRepository for PostgresDatabase {
         slug: &str,
         tenant_id: &str,
     ) -> AppResult<Option<(String, Option<String>)>> {
-        // coaches.id is TEXT
-        let row =
-            sqlx::query("SELECT id, content_hash FROM coaches WHERE slug = $1 AND tenant_id = $2")
-                .bind(slug)
-                .bind(tenant_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| AppError::database(format!("Failed to find coach by slug: {e}")))?;
+        // coaches.id is TEXT; tenant_id is UUID, so the string parameter is cast
+        let row = sqlx::query(
+            "SELECT id, content_hash FROM coaches WHERE slug = $1 AND tenant_id = $2::uuid",
+        )
+        .bind(slug)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to find coach by slug: {e}")))?;
 
         Ok(row.map(|r| {
             let id: String = r.get("id");
@@ -732,7 +733,7 @@ impl SeederRepository for PostgresDatabase {
     }
 
     async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()> {
-        // coaches.id is TEXT, user_id is UUID, tenant_id is TEXT
+        // coaches.id is TEXT, user_id and tenant_id are UUID
         // `source = 'contremaitre'` flags this row for the
         // prompt-assembly registry overlay — `resolve_coach_base_prompt`
         // in chat_pipeline/stages/prompt_assembly.rs reads the live
@@ -751,7 +752,7 @@ impl SeederRepository for PostgresDatabase {
         )
         .bind(&coach.id)
         .bind(coach.user_id)
-        .bind(coach.tenant_id.to_string())
+        .bind(coach.tenant_id)
         .bind(&coach.title)
         .bind(&coach.description)
         .bind(&coach.system_prompt)

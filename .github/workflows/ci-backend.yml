@@ -247,6 +247,10 @@ jobs:
           FAILED=0
           while IFS= read -r crate; do
               [ -z "$crate" ] && continue
+              if [ ! -d "crates/$crate" ]; then
+                  echo "crate $crate no longer exists in this tree; skipping"
+                  continue
+              fi
               echo "::group::cargo clippy -p $crate --all-targets --all-features"
               if ! cargo clippy -p "$crate" --all-targets --all-features -- -D warnings; then
                   echo "::error::clippy failed for $crate"
@@ -260,6 +264,12 @@ jobs:
           # is what makes this affordable here.
           while IFS= read -r target; do
               [ -z "$target" ] && continue
+              # A target derived from the diff may have been DELETED by the
+              # diff; cargo errors on a nonexistent test target, so skip it.
+              if [ ! -f "crates/pierre-server/tests/$target.rs" ]; then
+                  echo "test target $target no longer exists in this tree; skipping"
+                  continue
+              fi
               echo "::group::cargo clippy -p pierre_mcp_server --test $target"
               if ! cargo clippy -p pierre_mcp_server --test "$target" --all-features -- -D warnings; then
                   echo "::error::clippy failed for test target $target"

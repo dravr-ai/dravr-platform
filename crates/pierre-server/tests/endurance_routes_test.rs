@@ -148,6 +148,69 @@ async fn route_summary_is_tenant_scoped() {
     );
 }
 
+/// The exact sequence `GET /api/v1/endurance/routes/{activity_id}` and the
+/// `export_routes` tool run on a warm cache: derive the stream's identity
+/// without the analysis, probe the cache with it, rebuild the summary from
+/// the stored blobs. Exercised against the real backend so a stored-JSON
+/// normalization difference (e.g. `JSONB` key order / number formatting)
+/// that breaks reconstruction fails here.
+#[tokio::test]
+async fn cached_row_serves_the_summary_the_builder_produced() {
+    use pierre_fitness_compute::routes::{
+        build_route_summary_from_streams, route_summary_from_cache, stream_route_identity,
+    };
+
+    let db = make_test_db().await;
+    let tenant_id = TenantId::generate();
+    let user_id = Uuid::new_v4();
+    let activity_id = "act-warm";
+
+    let coords: Vec<(f64, f64)> = (0..8)
+        .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
+        .collect();
+    let altitudes: Vec<f32> = vec![100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0];
+    let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
+    let terrain_json = serde_json::to_string(&summary.terrain).expect("terrain json");
+    let climbs_json = serde_json::to_string(&summary.climbs).expect("climbs json");
+    db.repositories()
+        .route_summaries
+        .upsert_route_summary(
+            tenant_id,
+            user_id,
+            activity_id,
+            &summary.gpx_hash,
+            &terrain_json,
+            &climbs_json,
+        )
+        .await
+        .expect("upsert");
+
+    // Second sight of the same stream: identity alone must hit the row.
+    let (gpx_hash, point_count) =
+        stream_route_identity(&coords, &altitudes).expect("identity for a valid stream");
+    assert_eq!(gpx_hash, summary.gpx_hash, "identity hash == builder hash");
+    let (stored_terrain, stored_climbs) = db
+        .repositories()
+        .route_summaries
+        .get_route_summary(tenant_id, user_id, activity_id, &gpx_hash)
+        .await
+        .expect("get")
+        .expect("warm cache must hit");
+    let rebuilt = route_summary_from_cache(&gpx_hash, point_count, &stored_terrain, &stored_climbs)
+        .expect("stored blobs must rebuild the summary");
+    assert_eq!(rebuilt.point_count, summary.point_count);
+    assert_eq!(rebuilt.climbs.len(), summary.climbs.len());
+    assert!(
+        (rebuilt.terrain.total_distance_meters - summary.terrain.total_distance_meters).abs()
+            < 1e-9,
+        "terrain must survive the storage round trip"
+    );
+    assert!(
+        (rebuilt.terrain.elevation_gain_meters - summary.terrain.elevation_gain_meters).abs()
+            < 1e-9
+    );
+}
+
 #[tokio::test]
 async fn upsert_overwrites_existing_row() {
     let db = make_test_db().await;

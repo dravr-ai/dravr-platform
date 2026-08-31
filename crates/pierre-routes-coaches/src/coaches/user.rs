@@ -918,8 +918,10 @@ pub(super) async fn handle_update<C: CoachesCtx + MiddlewareCtx>(
 
     let manager = super::get_coaches_manager(&ctx);
     let request: UpdateCoachRequest = body.into();
+    // The HTTP body carries no change-summary field, so the version snapshot
+    // records an unsummarized edit.
     let coach = manager
-        .update(&id, auth.user_id, tenant_id, &request)
+        .update(&id, auth.user_id, tenant_id, &request, None)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
 

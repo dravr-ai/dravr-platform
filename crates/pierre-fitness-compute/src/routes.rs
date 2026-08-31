@@ -214,40 +214,96 @@ pub fn build_route_summary_from_streams(
     gps_coordinates: &[(f64, f64)],
     altitudes: &[f32],
 ) -> Option<RouteSummary> {
-    let n = gps_coordinates.len().min(altitudes.len());
-    if n < 2 {
-        return None;
-    }
-    let points: Vec<TrackPoint> = (0..n)
-        .filter_map(|idx| {
-            let (lat, lon) = gps_coordinates[idx];
-            let elevation_meters = f64::from(altitudes[idx]);
-            valid_point(lat, lon, elevation_meters)
-        })
-        .collect();
+    let points = stream_points(gps_coordinates, altitudes);
     if points.len() < 2 {
         return None;
     }
     let gradients = compute_gradients(&points);
     let terrain = build_terrain(&points, &gradients);
     let climbs = detect_climbs(&points, &gradients);
-    // Hash the synthesised "GPX" — pack the floats into stable bytes so
-    // (`tenant_id`, `user_id`, `activity_id`, `gpx_hash`) cache hits remain
-    // deterministic across repeated computes.
-    let mut hasher = Sha256::new();
-    for p in &points {
-        hasher.update(p.lat.to_le_bytes());
-        hasher.update(p.lon.to_le_bytes());
-        hasher.update(p.elevation_meters.to_le_bytes());
-    }
-    let gpx_hash = hex::encode(hasher.finalize());
     let summary = RouteSummary {
-        gpx_hash,
+        gpx_hash: hash_stream_points(&points),
         point_count: points.len(),
         terrain,
         climbs,
     };
     summary.validate()
+}
+
+/// Cache identity of a GPS+altitude stream.
+///
+/// Yields the `gpx_hash` that [`build_route_summary_from_streams`] would
+/// stamp on its summary plus the number of points it would consume —
+/// computed without running the gradient/terrain/climb analysis, so callers
+/// can probe the `route_summaries` cache before paying for the full build.
+///
+/// Returns `None` when fewer than two valid paired points survive the same
+/// validity gate the full builder applies (NaN / infinity, lat outside
+/// `[-90, 90]`, lon outside `[-180, 180]`).
+#[must_use]
+pub fn stream_route_identity(
+    gps_coordinates: &[(f64, f64)],
+    altitudes: &[f32],
+) -> Option<(String, usize)> {
+    let points = stream_points(gps_coordinates, altitudes);
+    if points.len() < 2 {
+        return None;
+    }
+    Some((hash_stream_points(&points), points.len()))
+}
+
+/// Rebuild a [`RouteSummary`] from a cached `route_summaries` row.
+///
+/// `terrain_json` / `climbs_json` are the blobs the cache stores;
+/// `gpx_hash` and `point_count` come from [`stream_route_identity`].
+/// Returns `None` when either blob no longer deserializes into the current
+/// [`TerrainSummary`] / [`Climb`] shapes (a row written before a shape
+/// change) or when the reconstruction carries a non-finite metric —
+/// callers treat that as a cache miss and recompute.
+#[must_use]
+pub fn route_summary_from_cache(
+    gpx_hash: &str,
+    point_count: usize,
+    terrain_json: &str,
+    climbs_json: &str,
+) -> Option<RouteSummary> {
+    let terrain: TerrainSummary = serde_json::from_str(terrain_json).ok()?;
+    let climbs: Vec<Climb> = serde_json::from_str(climbs_json).ok()?;
+    let summary = RouteSummary {
+        gpx_hash: gpx_hash.to_owned(),
+        point_count,
+        terrain,
+        climbs,
+    };
+    summary.validate()
+}
+
+/// Pair the GPS and altitude streams and keep only the valid points.
+///
+/// The slices must be aligned (same length); when they are not, the shorter
+/// slice's length wins. Points failing [`valid_point`] are dropped.
+fn stream_points(gps_coordinates: &[(f64, f64)], altitudes: &[f32]) -> Vec<TrackPoint> {
+    let n = gps_coordinates.len().min(altitudes.len());
+    (0..n)
+        .filter_map(|idx| {
+            let (lat, lon) = gps_coordinates[idx];
+            let elevation_meters = f64::from(altitudes[idx]);
+            valid_point(lat, lon, elevation_meters)
+        })
+        .collect()
+}
+
+/// Hash the synthesised "GPX" — pack the floats into stable bytes so
+/// (`tenant_id`, `user_id`, `activity_id`, `gpx_hash`) cache hits remain
+/// deterministic across repeated computes.
+fn hash_stream_points(points: &[TrackPoint]) -> String {
+    let mut hasher = Sha256::new();
+    for p in points {
+        hasher.update(p.lat.to_le_bytes());
+        hasher.update(p.lon.to_le_bytes());
+        hasher.update(p.elevation_meters.to_le_bytes());
+    }
+    hex::encode(hasher.finalize())
 }
 
 /// Returns a [`TrackPoint`] only when every coordinate is finite and within

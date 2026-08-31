@@ -205,7 +205,7 @@ pub(super) async fn list_hidden_coaches(
         ",
     )
     .bind(user_id)
-    .bind(tenant_id.to_string())
+    .bind(tenant_id.as_uuid())
     .fetch_all(pool)
     .await
     .map_err(|e| AppError::database(format!("Failed to list hidden coaches: {e}")))?;

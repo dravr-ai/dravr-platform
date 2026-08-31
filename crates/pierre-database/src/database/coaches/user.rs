@@ -304,32 +304,16 @@ impl CoachesManager {
         rows.iter().map(row_to_coach_list_item).collect()
     }
 
-    /// Update an existing coach
+    /// Update an existing coach.
     ///
-    /// Automatically creates a version snapshot before applying changes.
+    /// Automatically creates a version snapshot before applying changes;
+    /// `change_summary` is recorded on that snapshot (`None` records an
+    /// unsummarized edit), mirroring `CoachesRepository::update`.
     ///
     /// # Errors
     ///
     /// Returns an error if database operation fails or coach not found
     pub async fn update(
-        &self,
-        coach_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        request: &UpdateCoachRequest,
-    ) -> AppResult<Option<Coach>> {
-        self.update_with_summary(coach_id, user_id, tenant_id, request, None)
-            .await
-    }
-
-    /// Update an existing coach with a change summary
-    ///
-    /// Automatically creates a version snapshot before applying changes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails or coach not found
-    pub async fn update_with_summary(
         &self,
         coach_id: &str,
         user_id: Uuid,

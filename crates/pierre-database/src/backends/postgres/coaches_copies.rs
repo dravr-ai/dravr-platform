@@ -36,7 +36,7 @@ pub(super) async fn find_installed_by_handle(
     )
     .bind(user_id)
     .bind(handle.as_str())
-    .bind(tenant_id.to_string())
+    .bind(tenant_id.as_uuid())
     .fetch_optional(pool)
     .await
     .map_err(|e| AppError::database(format!("Failed to resolve coach by handle: {e}")))?;
@@ -89,7 +89,7 @@ pub(super) async fn fork_coach(
     )
     .bind(id.to_string())
     .bind(user_id)
-    .bind(tenant_id.to_string())
+    .bind(tenant_id.as_uuid())
     .bind(&source.title)
     .bind(&source.description)
     .bind(&source.system_prompt)

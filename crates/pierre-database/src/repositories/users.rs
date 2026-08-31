@@ -139,7 +139,11 @@ pub trait ProfileRepository: Send + Sync {
     async fn upsert_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()>;
     /// Get user profile data
     async fn get_profile(&self, user_id: Uuid) -> AppResult<Option<Value>>;
-    /// Create a new goal for a user
+    /// Create a new goal for a user, returning the generated goal id.
+    ///
+    /// The id is also embedded into the stored `goal_data` under `goal_id`,
+    /// so every goal a [`Self::get_goals`] read returns identifies itself —
+    /// progress tracking looks goals up by that key.
     async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String>;
     /// Get all goals for a user
     async fn get_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>>;

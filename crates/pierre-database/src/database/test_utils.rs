@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 use crate::backends::factory::Database;
-#[cfg(feature = "postgresql")]
-use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
 use std::env;
 #[cfg(not(feature = "postgresql"))]
@@ -47,6 +45,10 @@ pub async fn create_test_db() -> AppResult<Database> {
 /// exercise encryption, key rotation, or a second database opened under a
 /// different key.
 ///
+/// A `SQLite` database is cloned from a serialized image of a migrated
+/// database — built once per process by the first caller — rather than by
+/// running every embedded migration again.
+///
 /// # Errors
 ///
 /// Returns an error if database initialization fails, or if
@@ -54,24 +56,11 @@ pub async fn create_test_db() -> AppResult<Database> {
 /// `PostgreSQL` server.
 pub async fn create_test_db_with_key(encryption_key: Vec<u8>) -> AppResult<Database> {
     #[cfg(feature = "postgresql")]
-    {
-        if let Some(url) = postgres_test_url() {
-            return postgres::create_isolated_database(&url, encryption_key).await;
-        }
-        refuse_sqlite_when_postgres_required()?;
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
+    if let Some(url) = postgres_test_url() {
+        return postgres::create_isolated_database(&url, encryption_key).await;
     }
-
-    #[cfg(not(feature = "postgresql"))]
-    {
-        refuse_sqlite_when_postgres_required()?;
-        Database::new("sqlite::memory:", encryption_key).await
-    }
+    refuse_sqlite_when_postgres_required()?;
+    sqlite::create_isolated_database(encryption_key).await
 }
 
 /// A connection URL for a fresh, isolated test database.
@@ -164,20 +153,7 @@ impl TestDatabaseUrl {
 ///
 /// Returns an error if database initialization fails.
 pub async fn create_sqlite_test_db() -> AppResult<Database> {
-    #[cfg(feature = "postgresql")]
-    {
-        Database::new(
-            "sqlite::memory:",
-            DEFAULT_TEST_KEY.to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await
-    }
-
-    #[cfg(not(feature = "postgresql"))]
-    {
-        Database::new("sqlite::memory:", DEFAULT_TEST_KEY.to_vec()).await
-    }
+    sqlite::create_isolated_database(DEFAULT_TEST_KEY.to_vec()).await
 }
 
 /// `DATABASE_URL` when it points at a `PostgreSQL` server, else `None`.
@@ -207,6 +183,102 @@ fn refuse_sqlite_when_postgres_required() -> AppResult<()> {
         "{REQUIRE_POSTGRES_ENV} is set but {reason}; refusing to open SQLite in a lane that \
          advertises PostgreSQL"
     )))
+}
+
+mod sqlite {
+    //! Per-test in-memory `SQLite` databases cloned from a serialized image.
+    //!
+    //! Running the embedded migrations for every factory call cost seconds
+    //! per test at test-profile optimization levels. `SQLite` exposes
+    //! `sqlite3_serialize`/`sqlite3_deserialize`, so the first call in the
+    //! process migrates one throwaway database and serializes it; every
+    //! later call deserializes those bytes into a fresh in-memory database,
+    //! re-creating the finished schema in milliseconds. The image can never
+    //! go stale within a process because the embedded migration set is fixed
+    //! per binary — the `PostgreSQL` template's fingerprint solves the same
+    //! problem across processes, which `SQLite`'s process-local bytes never
+    //! face.
+
+    use super::DEFAULT_TEST_KEY;
+    use crate::backends::factory::Database;
+    use crate::backends::shared;
+    use crate::database::Database as SqliteDatabase;
+    use pierre_core::errors::{AppError, AppResult};
+    use sqlx::sqlite::{SqliteOwnedBuf, SqlitePoolOptions};
+    use std::collections::HashMap;
+    use tokio::sync::OnceCell;
+
+    /// Serialized form of a fully migrated, otherwise empty database, built
+    /// by the first factory call in the process and cloned by every later
+    /// one. `tokio`'s cell rather than `std`'s because the build is async;
+    /// racing first callers block on it and it runs exactly once.
+    static MIGRATED_IMAGE: OnceCell<Vec<u8>> = OnceCell::const_new();
+
+    /// Open a fresh in-memory database carrying the migrated schema, wrapped
+    /// under `encryption_key`.
+    pub(super) async fn create_isolated_database(encryption_key: Vec<u8>) -> AppResult<Database> {
+        let image = MIGRATED_IMAGE.get_or_try_init(build_image).await?;
+
+        // Deserializing swaps the database behind ONE connection, and an
+        // in-memory database is invisible to every other connection, so the
+        // pool is pinned to that single connection and never recycles it —
+        // a recycled connection would silently swap the test's data for an
+        // empty database. Concurrent statements queue on the one connection,
+        // which is how SQLite orders concurrent writers anyway.
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .connect("sqlite::memory:")
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Test DB: cannot open in-memory SQLite: {e}"))
+            })?;
+        let staged = SqliteOwnedBuf::try_from(image.as_slice()).map_err(|e| {
+            AppError::database(format!("Test DB: cannot stage the schema image: {e}"))
+        })?;
+        let mut conn = pool.acquire().await.map_err(|e| {
+            AppError::database(format!("Test DB: cannot reach the in-memory SQLite: {e}"))
+        })?;
+        conn.deserialize(None, staged, false).await.map_err(|e| {
+            AppError::database(format!("Test DB: cannot load the schema image: {e}"))
+        })?;
+        drop(conn);
+        Ok(Database::SQLite(wrap_migrated_pool(pool, encryption_key)))
+    }
+
+    /// Wrap a pool whose database already carries the fully migrated schema
+    /// — the clone-from-image path skips the migration run, so it fills the
+    /// backend's fields directly (a sibling module may touch them; production
+    /// construction stays in `Database::new`).
+    fn wrap_migrated_pool(
+        pool: sqlx::Pool<sqlx::Sqlite>,
+        encryption_key: Vec<u8>,
+    ) -> SqliteDatabase {
+        SqliteDatabase {
+            pool,
+            blind_index_key: encryption_key.clone(),
+            active_dek_version: shared::encryption::LEGACY_DEK_VERSION,
+            prior_dek_versions: HashMap::new(),
+            encryption_key,
+        }
+    }
+
+    /// Migrate one throwaway in-memory database and serialize its `main`
+    /// schema. Migrations write no encrypted data, so the throwaway's key is
+    /// irrelevant and one image serves every caller-supplied key.
+    async fn build_image() -> AppResult<Vec<u8>> {
+        let source = SqliteDatabase::new("sqlite::memory:", DEFAULT_TEST_KEY.to_vec()).await?;
+        let mut conn = source.pool().acquire().await.map_err(|e| {
+            AppError::database(format!("Test DB: cannot reach the image source: {e}"))
+        })?;
+        let image = conn.serialize(None).await.map_err(|e| {
+            AppError::database(format!(
+                "Test DB: cannot serialize the migrated schema: {e}"
+            ))
+        })?;
+        Ok(image.as_ref().to_vec())
+    }
 }
 
 #[cfg(feature = "postgresql")]

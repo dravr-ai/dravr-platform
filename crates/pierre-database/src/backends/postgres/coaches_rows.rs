@@ -49,12 +49,14 @@ pub(super) fn compute_request_hash(request: &CreateCoachRequest) -> String {
 
 /// Convert a `PostgreSQL` row to a `Coach` struct
 ///
-/// Reads PG-native types directly: `UUID` for `user_id`, `BOOLEAN` for `is_system`,
-/// `TIMESTAMPTZ` for `created_at`/`updated_at`. Coach id is stored as TEXT in PG
-/// but the model uses `Uuid`, so it is read as String and parsed.
+/// Reads PG-native types directly: `UUID` for `user_id`/`tenant_id`, `BOOLEAN`
+/// for `is_system`, `TIMESTAMPTZ` for `created_at`/`updated_at`. Coach id is
+/// stored as TEXT in PG but the model uses `Uuid`, so it is read as String and
+/// parsed; `tenant_id` is the reverse — a UUID column feeding a String field.
 pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
     let id_str: String = row.get("id");
     let user_id: Uuid = row.get("user_id");
+    let tenant_id: Uuid = row.get("tenant_id");
     let category_str: String = row.get("category");
     let tags_json: Option<String> = row.get("tags");
     let created_at: DateTime<Utc> = row.get("created_at");
@@ -113,7 +115,7 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
         id: Uuid::parse_str(&id_str)
             .map_err(|e| AppError::internal(format!("Invalid UUID: {e}")))?,
         user_id,
-        tenant_id: row.get("tenant_id"),
+        tenant_id: tenant_id.to_string(),
         title: row.get("title"),
         description: row.get("description"),
         system_prompt: row.get("system_prompt"),

@@ -975,8 +975,14 @@ impl ProfileRepository for PostgresDatabase {
         row.map_or_else(|| Ok(None), |row| Ok(Some(row.get("profile_data"))))
     }
 
-    async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String> {
+    async fn create_goal(&self, user_id: Uuid, mut goal_data: Value) -> AppResult<String> {
         let goal_id = Uuid::new_v4().to_string();
+        // The stored JSON carries its own row id under `goal_id`: goal reads
+        // return `goal_data` exactly as stored, and progress tracking finds a
+        // goal by that key, so the id must live inside the JSON itself.
+        if let Some(goal_object) = goal_data.as_object_mut() {
+            goal_object.insert("goal_id".to_owned(), Value::String(goal_id.clone()));
+        }
         let now = chrono::Utc::now();
 
         sqlx::query(

@@ -113,7 +113,7 @@ async fn ensure_catalogue_handle_pg(
         "SELECT title, slug, forked_from FROM coaches WHERE id = $1 AND tenant_id = $2",
     )
     .bind(coach_id)
-    .bind(tenant_id.to_string())
+    .bind(tenant_id.as_uuid())
     .fetch_optional(&mut *conn)
     .await
     .map_err(|e| AppError::database(format!("Failed to read coach for handle: {e}")))?
@@ -410,7 +410,7 @@ impl StoreListingsRepository for PostgresDatabase {
         )
         .bind(coach_id)
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to check coach ownership: {e}")))?;
@@ -1009,7 +1009,7 @@ impl StoreListingsRepository for PostgresDatabase {
             "SELECT id FROM coaches WHERE user_id = $1 AND tenant_id = $2 AND forked_from = $3",
         )
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .bind(source_coach_id)
         .fetch_optional(&self.pool)
         .await
@@ -1040,7 +1040,7 @@ impl StoreListingsRepository for PostgresDatabase {
         )
         .bind(id.to_string())
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .bind(&source.coach.title)
         .bind(&source.coach.description)
         .bind(&source.coach.system_prompt)
@@ -1085,7 +1085,7 @@ impl StoreListingsRepository for PostgresDatabase {
         ))
         .bind(id.to_string())
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch installed coach: {e}")))?;
@@ -1105,7 +1105,7 @@ impl StoreListingsRepository for PostgresDatabase {
         )
         .bind(coach_id)
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get coach: {e}")))?
@@ -1120,7 +1120,7 @@ impl StoreListingsRepository for PostgresDatabase {
         sqlx::query("DELETE FROM coaches WHERE id = $1 AND user_id = $2 AND tenant_id = $3")
             .bind(coach_id)
             .bind(user_id)
-            .bind(tenant_id.to_string())
+            .bind(tenant_id.as_uuid())
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to uninstall coach: {e}")))?;
@@ -1145,7 +1145,7 @@ impl StoreListingsRepository for PostgresDatabase {
             "
         ))
         .bind(user_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.as_uuid())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get installed coaches: {e}")))?;

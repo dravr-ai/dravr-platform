@@ -406,12 +406,14 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         tenant_id: TenantId,
         request: &UpdateCoachRequest,
+        change_summary: Option<&str>,
     ) -> AppResult<Option<Coach>> {
         let existing = CoachesRepository::get_by_id(self, coach_id, user_id, tenant_id).await?;
         let Some(existing) = existing else {
             return Ok(None);
         };
-        self.create_version(coach_id, user_id, None).await?;
+        self.create_version(coach_id, user_id, change_summary)
+            .await?;
 
         let now = Utc::now();
         let title = request.title.as_ref().unwrap_or(&existing.title);

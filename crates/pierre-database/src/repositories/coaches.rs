@@ -81,13 +81,18 @@ pub trait CoachesRepository: Send + Sync {
         coaches: &mut [CoachListItem],
         locale: &str,
     ) -> AppResult<()>;
-    /// Update an existing coach
+    /// Update an existing coach.
+    ///
+    /// Snapshots the pre-update state as a new version before applying the
+    /// changes; `change_summary` is recorded on that snapshot so the history
+    /// says what the edit was for. `None` records an unsummarized edit.
     async fn update(
         &self,
         coach_id: &str,
         user_id: Uuid,
         tenant_id: TenantId,
         request: &UpdateCoachRequest,
+        change_summary: Option<&str>,
     ) -> AppResult<Option<Coach>>;
     /// Delete a coach
     async fn delete(&self, coach_id: &str, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool>;
