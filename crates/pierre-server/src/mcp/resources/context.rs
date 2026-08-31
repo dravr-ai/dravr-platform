@@ -36,6 +36,7 @@ use dravr_contremaitre::system::{
 };
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
+#[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::viz_blocks;
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::McpBridgeProvider;
