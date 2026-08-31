@@ -262,6 +262,63 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-fil
 fi
 
 # ============================================================================
+# TIER 1f: --no-default-features dead_code probe (compiles ONLY changed crates)
+# ============================================================================
+# CI's feature-profiles job builds `-p pierre_mcp_server --no-default-features`
+# under RUSTFLAGS="-D warnings". An item whose SOLE caller sits behind a cargo
+# feature is unreachable there, so rustc's dead_code — a warning everywhere
+# else — is an error. No local gate sees it: per-crate clippy runs
+# --all-features, which turns the caller back on (carnet#153; the fix in
+# 6f18100f6 had to widen write_through_served_window to `pub`). `cargo check`
+# is enough — dead_code is a rustc lint, the clippy driver adds nothing here —
+# but only under RUSTFLAGS="-D warnings", CI's own env: a bare check exits 0 on
+# the exact failure being chased, and `cargo check` accepts no trailing lint
+# args (that idiom is clippy-only). The deny rides RUSTFLAGS, which changes
+# fingerprints, so the probe gets its own CARGO_TARGET_DIR — otherwise every
+# run would rebuild the crate's whole dep graph twice (once with the flag,
+# once without on the next dev build).
+#
+# The crates below are pierre-server's NON-OPTIONAL deps whose every feature is
+# forwarded from a pierre-server feature that --no-default-features turns off,
+# so a per-crate zero-feature build is exactly the unit CI compiles. Deliberate
+# exclusions:
+#   pierre-core / pierre-database / pierre-providers — pierre-server passes
+#     their features (or their defaults) unconditionally, so stripping locally
+#     is STRICTER than CI and would red on code CI never builds that way.
+#   pierre-chat-pipeline, pierre-commands, pierre-messaging and the other
+#     optional deps — absent from this profile entirely; the `production`
+#     matrix arm covers them, in CI.
+#   pierre-server itself — its unit is the whole graph, which is the cost this
+#     script exists to avoid. CI owns it.
+NO_DEFAULT_PROBE_CRATES="pierre-tool-runtime pierre-services pierre-routes-admin \
+pierre-routes-coaches pierre-runtime-context pierre-auth pierre-formatters"
+
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
+    TIER1F_CRATES=""
+    for c in $NO_DEFAULT_PROBE_CRATES; do
+        [[ -n "$(git diff --name-only "$BASE_REF" HEAD -- "crates/$c/src" 2>/dev/null)" ]] || continue
+        TIER1F_CRATES="$TIER1F_CRATES $c"
+    done
+    if [[ -n "$TIER1F_CRATES" ]]; then
+        echo "Tier 1f: --no-default-features probe"
+        echo "------------------------------------"
+        for c in $TIER1F_CRATES; do
+            echo "  RUSTFLAGS=\"-D warnings\" cargo check -p $c --no-default-features"
+            if ! CARGO_TARGET_DIR="$PROJECT_ROOT/target/t1f-probe" RUSTFLAGS="-D warnings" \
+                cargo check -p "$c" --no-default-features; then
+                echo ""
+                echo "FAIL: $c has an item unreachable with features off."
+                echo "  Its sole caller is behind a #[cfg(feature = ...)]. Either gate"
+                echo "  the item with the same cfg, or widen it to \`pub\` if its"
+                echo "  siblings are pub for the same reason."
+                exit 1
+            fi
+        done
+        echo ""
+    fi
+fi
+
+# ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of
 # every push:
@@ -498,7 +555,9 @@ echo ""
 echo "Duration: ${DURATION}s (~$((DURATION / 60))m $((DURATION % 60))s)"
 echo "Marker:   .git/validation-passed (valid for ${VALIDATION_TTL_MINUTES} minutes)"
 echo ""
-echo "Local validation covers fmt + architecture + secrets + vendor-readonly + infra only."
+echo "Local validation covers fmt + architecture + secrets + vendor-readonly + infra,"
+echo "plus two scoped compile probes: changed server-test clippy (Tier 1e) and the"
+echo "--no-default-features check on changed probe crates (Tier 1f)."
 echo "The heavy gates (clippy, deadlock, integration tests) run in CI on every push."
 echo ""
 
@@ -511,6 +570,14 @@ echo ""
 # and too_long_first_doc_paragraph among them — is invisible until CI reports,
 # and `cargo check` finds NONE of them. On 2026-08-26 that cost four
 # red-then-fix-then-wait cycles on main for four doc comments.
+#
+# Tier 1f narrows the --no-default-features blind spot but does not close it:
+# pierre-server's own cfg sites, the `production` feature matrix arm, and the
+# optional-dep crates stay CI-only (feature-profiles job), deliberately. It
+# probes the cargo-FEATURE axis only — the target-cfg axis (#[cfg(windows)],
+# the bd1afbb85 log_drain class) has no local gate at all: cross-compiling to
+# msvc is not feasible here, so the weekly cross-platform cron lane is the
+# only check on it.
 #
 # So this prints the exact scoped commands for what THIS diff touched. Running
 # them is a judgement call, not a gate: seconds on a warm target/, minutes on a
