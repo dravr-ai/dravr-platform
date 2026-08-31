@@ -509,6 +509,49 @@ jobs:
           echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
 
   # ---------------------------------------------------------------------------
+  # Mark the digest dev is serving so registry retention keeps it
+  # ---------------------------------------------------------------------------
+  tag-deployed-sciotte:
+    name: Tag Deployed Digest (sciotte, dev)
+    runs-on: ubuntu-latest
+    # Only after a deploy that actually passed its probe. `needs` is success-gated
+    # by default, so a rolled-back deploy anchors nothing — the tag must never
+    # point at an image the probe rejected.
+    needs: [image, deploy]
+
+    steps:
+      # image-publisher (artifactregistry.writer), not the dev deployer: the tag
+      # is written in the dravr-artifacts project, where the dev deployer has no
+      # write access. Same split as publish-images.yml's tag-deployed-dev.
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Tag the deployed sciotte digest
+        # Sciotte deploys by digest, so nothing on the serving image tells the
+        # cleanup policy to spare it: once two newer builds push it out of the
+        # recent-versions floor, the age rule deletes the image dev is running.
+        # `deployed-` is matched by the registry's keep-tags rule (infra/artifacts
+        # release_tag_prefixes), which wins over every delete rule, and the tfvars
+        # comment names this tag as what "carries the guarantee" that keep_count
+        # cannot. server and frontend have had it since publish-images.yml's
+        # tag-deployed-dev; sciotte never did, so its rollback anchor expired on
+        # the age window and the 2026-08-31 rollback failed with "Image not found"
+        # against a digest that had been serving since 08-24 (carnet#166).
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          PACKAGE="${IMAGE%@*}"
+          echo "Tagging ${IMAGE} as ${PACKAGE}:deployed-dev"
+          gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:deployed-dev" --quiet
+
+  # ---------------------------------------------------------------------------
   # Anything that stops the chain becomes a tracked issue
   # ---------------------------------------------------------------------------
   report-failure:

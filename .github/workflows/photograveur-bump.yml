@@ -457,6 +457,46 @@ jobs:
           echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
 
   # ---------------------------------------------------------------------------
+  # 6b. Mark the digest dev is serving so registry retention keeps it
+  # ---------------------------------------------------------------------------
+  tag-deployed-photograveur:
+    name: Tag Deployed Digest (photograveur, dev)
+    runs-on: ubuntu-latest
+    # Success-gated by default, so a rolled-back deploy anchors nothing — the tag
+    # must never point at an image the deploy rejected.
+    needs: [image, deploy]
+
+    steps:
+      # image-publisher (artifactregistry.writer), not the dev deployer: the tag
+      # is written in the dravr-artifacts project, where the dev deployer has no
+      # write access. Same split as publish-images.yml's tag-deployed-dev.
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Tag the deployed photograveur digest
+        # The deploy above captures the serving digest as its rollback target, but
+        # nothing marks that digest for the registry, so the cleanup policy is free
+        # to delete it once newer builds push it past the recent-versions floor —
+        # and a rollback to a deleted digest fails outright ("Image not found",
+        # observed on the sciotte lane 2026-08-31, carnet#166). `deployed-` is
+        # matched by the registry's keep-tags rule (infra/artifacts
+        # release_tag_prefixes) and wins over every delete rule; the tfvars comment
+        # names this tag as what carries the guarantee keep_count cannot.
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          PACKAGE="${IMAGE%@*}"
+          echo "Tagging ${IMAGE} as ${PACKAGE}:deployed-dev"
+          gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:deployed-dev" --quiet
+
+  # ---------------------------------------------------------------------------
   # 7. Ship the platform binary, which is where the geometry actually runs
   # ---------------------------------------------------------------------------
   #
