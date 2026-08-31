@@ -114,8 +114,11 @@ jobs:
 
       - name: Build MCP SDK (required for E2E tests)
         working-directory: sdk
+        # --ignore-scripts: sdk/package.json's `prepare` runs this same build
+        # as the last phase of `bun install`, so without it the SDK builds
+        # twice per job (carnet#161). Full rationale in cross-platform.yml.
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
 
       - name: Wait for PostgreSQL
