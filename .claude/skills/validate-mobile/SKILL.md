@@ -85,5 +85,4 @@ cd frontend-mobile && bun start  # Uses port 8082
 - No type regressions
 
 ## Related Skills
-- `frontend-design` - Design system compliance (shares brand colors)
 - `accessibility-check` - Accessibility audit (mobile accessibility)

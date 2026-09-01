@@ -80,6 +80,5 @@ cd frontend && bun run test:ui
 - No type regressions
 
 ## Related Skills
-- `frontend-design` - Design system compliance
 - `accessibility-check` - WCAG compliance audit
 - `design-review` - Visual consistency review
