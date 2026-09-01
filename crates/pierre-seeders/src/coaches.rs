@@ -7,7 +7,8 @@
 //! # Coach Markdown Seeder
 //!
 //! This binary loads coach definitions from markdown files and syncs them
-//! to the database. Coaches are defined in the dravr-contremaitre repo
+//! to the database. The checkout is the whole roster: a catalogue coach whose
+//! directory is gone is deleted on the next run, store listing included. Coaches are defined in the dravr-contremaitre repo
 //! under `prompts/coaches/<category>/<slug>/<locale>.md`, with `en.md` as
 //! the canonical source and per-locale siblings (e.g. `fr.md`) layered on
 //! top via [`pierre_database::CoachesRepository::apply_translations`].
@@ -27,7 +28,7 @@
 //! ```
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -71,6 +72,7 @@ struct SeedStats {
     unchanged: u32,
     relations_created: u32,
     store_published: u32,
+    pruned: u32,
     errors: Vec<String>,
 }
 
@@ -111,8 +113,8 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     finalize_stats(&stats)
 }
 
-/// Execute the four coach sync passes (canonical upsert, translation upsert, relations,
-/// store publishing) and return the accumulated stats.
+/// Execute the five coach sync passes (canonical upsert, translation upsert, relations,
+/// store publishing, retired-coach pruning) and return the accumulated stats.
 async fn run_coach_passes(
     repos: &RepositoryRegistry,
     coaches: &[CoachWithTranslations],
@@ -124,6 +126,7 @@ async fn run_coach_passes(
     sync_translations(repos, coaches, &slug_to_id, &mut stats, dry_run).await;
     sync_relations(repos, &canon, &slug_to_id, &mut stats, dry_run).await;
     publish_to_store(repos, &slug_to_id, admin, &mut stats, dry_run).await;
+    prune_retired(repos, coaches, admin, &mut stats, dry_run).await;
     stats
 }
 
@@ -283,7 +286,7 @@ async fn sync_relations(
     dry_run: bool,
 ) {
     info!("");
-    info!("=== Pass 2: Syncing Relations ===");
+    info!("=== Pass 3: Syncing Relations ===");
 
     for coach in coaches {
         process_coach_relations(repos, coach, slug_to_id, stats, dry_run).await;
@@ -387,6 +390,9 @@ fn log_coach_counts(stats: &SeedStats) {
     if stats.store_published > 0 {
         info!("Published: {} coaches to store", stats.store_published);
     }
+    if stats.pruned > 0 {
+        info!("Pruned: {} retired coaches", stats.pruned);
+    }
 }
 
 /// Print error list if any errors occurred
@@ -407,7 +413,7 @@ fn log_dry_run_status(dry_run: bool) {
     }
 }
 
-/// Publish seeded coaches to the store (Pass 3)
+/// Publish seeded coaches to the store (Pass 4)
 ///
 /// System coaches are auto-published so they appear in the Discover tab.
 /// Uses INSERT OR IGNORE to be idempotent on re-runs.
@@ -419,7 +425,7 @@ async fn publish_to_store(
     dry_run: bool,
 ) {
     info!("");
-    info!("=== Pass 3: Publishing to Store ===");
+    info!("=== Pass 4: Publishing to Store ===");
 
     for (slug, coach_id) in slug_to_id {
         publish_or_skip(repos, slug, coach_id, admin, stats, dry_run).await;
@@ -461,6 +467,114 @@ fn log_publish_result(slug: &str, result: AppResult<bool>, stats: &mut SeedStats
                 .errors
                 .push(format!("{slug}: store publish failed: {e}"));
         }
+    }
+}
+
+/// Delete catalogue-owned coaches whose markdown directory is gone (Pass 5).
+///
+/// The passes above only ever add or rewrite rows, so a coach retired from
+/// dravr-contremaitre used to keep its row — and its store listing — in every
+/// database forever. This pass diffs the tenant's catalogue-owned rows against
+/// the slugs discovered on disk and deletes the rest through the same
+/// repository method the admin console uses. The store listing, relations,
+/// translations and assignments follow by cascade; an athlete's installed
+/// copy keeps working because its `forked_from` pointer is set to NULL rather
+/// than deleted. A row a conversation or a group still references refuses to
+/// go: the database reports the constraint, the error is counted, and the seed
+/// job exits non-zero so the operator hears about it.
+async fn prune_retired(
+    repos: &RepositoryRegistry,
+    discovered: &[CoachWithTranslations],
+    admin: &AdminUser,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) {
+    info!("");
+    info!("=== Pass 5: Pruning Retired Coaches ===");
+
+    let Some(rows) = list_catalogue_rows(repos, admin, stats).await else {
+        return;
+    };
+    let keep = discovered_slugs(discovered);
+    for (coach_id, slug) in rows
+        .iter()
+        .filter(|(_, slug)| !keep.contains(slug.as_str()))
+    {
+        delete_retired(repos, coach_id, slug, admin.tenant_id, stats, dry_run).await;
+    }
+    log_pruned(stats.pruned);
+}
+
+/// The slugs present in the checkout — the roster every catalogue row must be on.
+fn discovered_slugs(discovered: &[CoachWithTranslations]) -> HashSet<&str> {
+    discovered
+        .iter()
+        .map(|c| c.canonical.frontmatter.name.as_str())
+        .collect()
+}
+
+/// Catalogue-owned `(id, slug)` rows in the admin tenant, or `None` once the
+/// listing error has been recorded — a prune that cannot see the roster must
+/// not guess at it.
+async fn list_catalogue_rows(
+    repos: &RepositoryRegistry,
+    admin: &AdminUser,
+    stats: &mut SeedStats,
+) -> Option<Vec<(String, String)>> {
+    match repos
+        .seeder
+        .seed_list_catalogue_coaches(&admin.tenant_id.to_string())
+        .await
+    {
+        Ok(rows) => Some(rows),
+        Err(e) => {
+            warn!("  ✗ Could not list catalogue coaches: {e}");
+            stats.errors.push(format!("prune: {e}"));
+            None
+        }
+    }
+}
+
+/// Delete one retired coach, or log what dry-run would delete.
+async fn delete_retired(
+    repos: &RepositoryRegistry,
+    coach_id: &str,
+    slug: &str,
+    tenant_id: TenantId,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) {
+    if dry_run {
+        info!("  Would delete: {slug} (no longer in the catalogue)");
+        stats.pruned += 1;
+        return;
+    }
+
+    let result = repos.coaches.delete_system_coach(coach_id, tenant_id).await;
+    log_delete_result(slug, result, stats);
+}
+
+/// Log and record the result of one retired-coach deletion
+fn log_delete_result(slug: &str, result: AppResult<bool>, stats: &mut SeedStats) {
+    match result {
+        Ok(true) => {
+            info!("  - {slug} (deleted, no longer in the catalogue)");
+            stats.pruned += 1;
+        }
+        Ok(false) => {
+            debug!("  = {slug} (already gone)");
+        }
+        Err(e) => {
+            warn!("  ✗ {slug} - Delete error: {e}");
+            stats.errors.push(format!("{slug}: delete failed: {e}"));
+        }
+    }
+}
+
+/// Log how many retired coaches were pruned
+fn log_pruned(count: u32) {
+    if count > 0 {
+        info!("  Pruned {} retired coach(es)", count);
     }
 }
 

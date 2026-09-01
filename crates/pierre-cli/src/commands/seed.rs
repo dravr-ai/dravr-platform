@@ -27,7 +27,7 @@ pub enum SeedCommand {
     /// Create admin and demo users for a fresh deployment (idempotent)
     Bootstrap(BootstrapArgs),
 
-    /// Load coach definitions from markdown files and sync to database
+    /// Load coach definitions from markdown files, sync them to the database, and delete catalogue coaches whose file is gone
     Coaches(CoachesArgs),
 
     /// Populate database with realistic demo data for dashboard testing

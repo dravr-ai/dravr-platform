@@ -224,4 +224,19 @@ pub trait SeederRepository: Send + Sync {
         &self,
         translation: &SeedCoachTranslation,
     ) -> AppResult<()>;
+
+    /// List every catalogue-owned system coach in a tenant as `(id, slug)`.
+    ///
+    /// Catalogue-owned means the row was written from a coach markdown file:
+    /// `source = 'contremaitre'`, or the transitional `'seed'` that the
+    /// source-column migration stamped on rows seeded before it existed and
+    /// that the seeder only re-stamps once the content hash changes.
+    /// Operator-authored system coaches (`source = 'custom'`) are never
+    /// listed. The coach seeder diffs this against the slugs it discovered on
+    /// disk and deletes the rest, so a coach retired from dravr-contremaitre
+    /// leaves every database instead of lingering in the store.
+    async fn seed_list_catalogue_coaches(
+        &self,
+        tenant_id: &str,
+    ) -> AppResult<Vec<(String, String)>>;
 }

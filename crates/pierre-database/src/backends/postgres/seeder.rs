@@ -732,6 +732,32 @@ impl SeederRepository for PostgresDatabase {
         }))
     }
 
+    async fn seed_list_catalogue_coaches(
+        &self,
+        tenant_id: &str,
+    ) -> AppResult<Vec<(String, String)>> {
+        // tenant_id is UUID on PostgreSQL, so the string parameter is cast
+        let rows = sqlx::query(
+            "SELECT id, slug FROM coaches \
+             WHERE tenant_id = $1::uuid AND is_system = TRUE AND slug IS NOT NULL \
+               AND source IN ('contremaitre', 'seed') \
+             ORDER BY slug",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list catalogue coaches: {e}")))?;
+
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let id: String = r.get("id");
+                let slug: String = r.get("slug");
+                (id, slug)
+            })
+            .collect())
+    }
+
     async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()> {
         // coaches.id is TEXT, user_id and tenant_id are UUID
         // `source = 'contremaitre'` flags this row for the
