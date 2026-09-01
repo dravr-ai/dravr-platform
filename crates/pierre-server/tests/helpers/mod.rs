@@ -15,5 +15,9 @@ pub mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_webhooks;
 pub mod notify_capture;
+/// A real adapter with only its outbound sends captured, for tests that
+/// drive the webhook route and must not depend on reaching a channel's API.
+#[cfg(feature = "client-messaging")]
+pub mod offline_channel;
 pub mod sciotte_mock;
 pub mod synthetic_data;

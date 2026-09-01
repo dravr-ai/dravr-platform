@@ -8,12 +8,12 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
+use axum::Extension;
 use axum::Json;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::factory::create_adapter_from_config;
 use pierre_middleware::redaction::mask_recipient;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,6 +23,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, error, field, info, warn, Instrument, Span};
 
+use super::adapter_factory::ChannelAdapterFactory;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 use crate::services::messaging_ingress::reactions;
@@ -148,6 +149,7 @@ pub async fn verify_webhook(
 )]
 pub async fn handle_webhook(
     State(resources): State<Arc<ServerContext>>,
+    Extension(adapters): Extension<Arc<dyn ChannelAdapterFactory>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
     body: Bytes,
@@ -176,7 +178,8 @@ pub async fn handle_webhook(
         }
     }
 
-    let verification = parse_and_verify(&resources, &channel, &headers, &body).await?;
+    let verification =
+        parse_and_verify(&resources, adapters.as_ref(), &channel, &headers, &body).await?;
 
     // Populate the parent span so downstream log lines (including those
     // emitted from the spawned dispatch task via `in_current_span`) carry
@@ -415,6 +418,7 @@ fn log_whatsapp_delivery_statuses(channel: &str, body: &Bytes) {
 /// passes identifies the tenant.
 async fn parse_and_verify(
     resources: &ServerContext,
+    adapters: &dyn ChannelAdapterFactory,
     channel: &str,
     headers: &HeaderMap,
     body: &Bytes,
@@ -437,7 +441,7 @@ async fn parse_and_verify(
     // tenants share an identity+secret and routing would be nondeterministic
     // (a cross-tenant message-leak path) — fail closed rather than route to
     // whichever config the DB happened to return first.
-    let matches = collect_verified_matches(channel_type, &configs, headers, body)?;
+    let matches = collect_verified_matches(adapters, channel_type, &configs, headers, body)?;
 
     let distinct_tenants: HashSet<TenantId> = matches.iter().map(|(t, _)| *t).collect();
     if distinct_tenants.len() > 1 {
@@ -514,6 +518,7 @@ type VerifiedMatch = (TenantId, Arc<dyn MessagingChannel>);
 /// verifies the webhook, paired with their owning tenant. Configs with missing
 /// credentials are skipped.
 fn collect_verified_matches(
+    adapters: &dyn ChannelAdapterFactory,
     channel_type: ChannelType,
     configs: &[Value],
     headers: &HeaderMap,
@@ -523,16 +528,8 @@ fn collect_verified_matches(
     for config in configs {
         let enriched = enrich_slack_bot_allow_list(channel_type, config);
         let adapter_config = enriched.as_ref().unwrap_or(config);
-        let adapter = match create_adapter_from_config(channel_type, adapter_config) {
-            Ok(a) => a,
-            Err(e) => {
-                debug!(
-                    channel = %channel_type,
-                    error = %e,
-                    "Skipping config with missing credentials"
-                );
-                continue;
-            }
+        let Some(adapter) = adapters.build(channel_type, adapter_config) else {
+            continue;
         };
 
         if adapter.verify_signature(headers, body).is_ok() {

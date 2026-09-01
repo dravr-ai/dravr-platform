@@ -10,6 +10,9 @@
 //! and channel configuration management. All config endpoints require JWT
 //! authentication. Webhook endpoints use channel-specific signature verification.
 
+/// How a verified webhook gets its channel adapter. Public so a route-driven
+/// test can supply a factory whose sends do not leave the process.
+pub mod adapter_factory;
 mod config;
 pub(crate) mod linking;
 /// The OAuth code-for-identity exchange and its endpoint pairing.
@@ -43,6 +46,8 @@ use std::sync::Arc;
 use std::env;
 
 use crate::mcp::resources::ServerContext;
+use adapter_factory::{ChannelAdapterFactory, ConfigChannelAdapters};
+use axum::Extension;
 use pierre_core::errors::AppError;
 
 /// Messaging gateway routes handler
@@ -51,6 +56,19 @@ pub struct MessagingRoutes;
 impl MessagingRoutes {
     /// Create all messaging routes
     pub fn routes(resources: Arc<ServerContext>) -> Router {
+        Self::routes_with_adapters(resources, Arc::new(ConfigChannelAdapters))
+    }
+
+    /// The same router, built against a caller-supplied adapter factory.
+    ///
+    /// Production goes through [`Self::routes`], which always supplies
+    /// [`ConfigChannelAdapters`]. This constructor exists so a test driving the
+    /// real webhook route can exercise our ingress without its outbound sends
+    /// leaving the process — see [`adapter_factory`] for why that matters.
+    pub fn routes_with_adapters(
+        resources: Arc<ServerContext>,
+        adapters: Arc<dyn ChannelAdapterFactory>,
+    ) -> Router {
         Router::new()
             // Webhook ingress (per-channel signature verification)
             .route(
@@ -96,6 +114,9 @@ impl MessagingRoutes {
             .route("/messaging/link/auth", post(linking::channel_link_auth))
             // Slack interactive actions (approve/reject from ops notifications)
             .route("/api/ops/slack/actions", post(handle_slack_ops_action))
+            // Constructor-time injection: the one factory this router will
+            // ever use, chosen by whoever built it.
+            .layer(Extension(adapters))
             .with_state(resources)
     }
 }

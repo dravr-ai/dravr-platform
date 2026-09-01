@@ -14,6 +14,7 @@ mod helpers;
 mod group_transcript_tests {
     use crate::common::create_test_server_resources_with_llm;
     use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::offline_channel::OfflineSendAdapters;
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
@@ -34,6 +35,7 @@ mod group_transcript_tests {
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::chat::ChatRoutes;
+    use pierre_mcp_server::routes::messaging::adapter_factory::ChannelAdapterFactory;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_messaging::channels::telegram::transport::TelegramTransport;
     use serde_json::{json, Value};
@@ -210,6 +212,9 @@ mod group_transcript_tests {
     /// group bound to the fixture chat.
     struct Scenario {
         resources: Arc<ServerContext>,
+        /// Builds the adapters this scenario's webhooks dispatch through, and
+        /// holds every message they would have delivered.
+        adapters: Arc<OfflineSendAdapters>,
         group_id: Uuid,
         tg_secret: &'static str,
         alice_id: Uuid,
@@ -391,6 +396,7 @@ mod group_transcript_tests {
             bob_auth,
             carol_id,
             dave_auth,
+            adapters: Arc::new(OfflineSendAdapters::default()),
         }
     }
 
@@ -400,7 +406,16 @@ mod group_transcript_tests {
         update_id: i64,
         message: serde_json::Value,
     ) -> StatusCode {
-        let router = MessagingRoutes::routes(Arc::clone(&scenario.resources));
+        // The offline factory builds the REAL Telegram adapter and wraps it, so
+        // signature verification and payload parsing are the production ones and
+        // only the outbound send is captured. Without this the turn attempts a
+        // live POST to api.telegram.org, which answers 401 in ~100ms on a
+        // developer's machine and hangs on a CI runner that cannot reach it —
+        // straight through the 10s budget the waits below allow (run 33462729445).
+        let router = MessagingRoutes::routes_with_adapters(
+            Arc::clone(&scenario.resources),
+            Arc::clone(&scenario.adapters) as Arc<dyn ChannelAdapterFactory>,
+        );
         let resp = AxumTestRequest::post("/api/messaging/webhook/telegram")
             .header("content-type", "application/json")
             .header("x-telegram-bot-api-secret-token", scenario.tg_secret)
@@ -549,6 +564,15 @@ mod group_transcript_tests {
         assert!(
             !body.to_string().contains(CAROL_MESSAGE),
             "an unconsented member's content must not fan out to others"
+        );
+
+        // Taking the network out must not quietly take delivery out with it:
+        // the turn still hands its reply to the channel, which is what the live
+        // transport used to prove by failing against api.telegram.org.
+        let delivered = scenario.adapters.sends();
+        assert!(
+            !delivered.is_empty(),
+            "the turn must still dispatch its reply through the channel"
         );
 
         // 4. Carol's membership stays visible even while her content is
