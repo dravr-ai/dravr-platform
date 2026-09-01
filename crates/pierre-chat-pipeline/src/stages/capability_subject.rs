@@ -356,6 +356,7 @@ async fn fetch_peer_subjects(
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&deps.ctx.tool_runtime))
             .with_conversation_id(input.conversation_id.clone())
+            .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             .with_turn_token(input.turn_id.0.to_string()),
     );
     for peer in peers {

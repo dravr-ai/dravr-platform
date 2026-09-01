@@ -123,7 +123,7 @@ pub use calibration::{CalibrationConditions, CalibrationTopic};
 pub use dossier::{Dossier, DossierFact};
 pub use onboarding::{
     CoverageMap, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, TopicSlug,
-    COMPLETION_RELEASE_WINDOW_MINUTES, MAX_PROBE_ATTEMPTS,
+    TopicVisibility, WalkAudience, COMPLETION_RELEASE_WINDOW_MINUTES, MAX_PROBE_ATTEMPTS,
 };
 pub use pillar::Pillar;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};

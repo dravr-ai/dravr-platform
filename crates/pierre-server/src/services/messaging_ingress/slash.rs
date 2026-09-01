@@ -181,9 +181,9 @@ pub(super) async fn try_handle_slash_command(
         .map_or(webhook_tenant_id, TenantId::from_uuid);
     // The tenant that owns this turn's session, conversation and messages.
     // `resolve_linked_session` files a DM under the user's own tenant and a
-    // shared room under the channel tenant so every member reads one
-    // conversation, and `persist_single_message` recomputes exactly this
-    // expression for the reads and writes it performs. Commands dispatched
+    // shared room under the channel tenant — each member holding their own
+    // conversation row there — and `persist_single_message` recomputes exactly
+    // this expression for the reads and writes it performs. Commands dispatched
     // below resolve `session.conversation` (and the coaching group it names)
     // with it; `user_tenant` stays the tenant for the caller's own data.
     // Without the split, a member of a shared bot's group looks the

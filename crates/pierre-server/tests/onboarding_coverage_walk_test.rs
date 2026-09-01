@@ -9,7 +9,8 @@
 
 use anyhow::Result;
 use pierre_core::models::{
-    CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, Pillar, TenantId, MAX_PROBE_ATTEMPTS,
+    CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, Pillar, TenantId, WalkAudience,
+    MAX_PROBE_ATTEMPTS,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
@@ -82,7 +83,10 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let cov = coverage(&repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 0);
     assert!(!cov.is_complete());
-    assert_eq!(cov.next_target(&[]), Some(CoverageTarget::NorthStar));
+    assert_eq!(
+        cov.next_target(&[], WalkAudience::Private),
+        Some(CoverageTarget::NorthStar)
+    );
 
     // Answer the North Star → next probe is the first pillar in canonical order.
     capture(
@@ -97,7 +101,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let cov = coverage(&repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 1);
     assert_eq!(
-        cov.next_target(&[]),
+        cov.next_target(&[], WalkAudience::Private),
         Some(CoverageTarget::Pillar(Pillar::TrainingAndMovement))
     );
 
@@ -132,7 +136,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
             i + 2
         );
         assert_eq!(
-            cov.next_target(&[]),
+            cov.next_target(&[], WalkAudience::Private),
             expected_next[i],
             "wrong next probe after covering {}",
             pillar.as_str()
@@ -143,7 +147,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let cov = coverage(&repos, tenant, user).await?;
     assert!(cov.is_complete(), "onboarding should be complete");
     assert_eq!(cov.covered_count(), 7);
-    assert_eq!(cov.next_target(&[]), None);
+    assert_eq!(cov.next_target(&[], WalkAudience::Private), None);
 
     Ok(())
 }
@@ -196,7 +200,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     );
     assert_eq!(cov.covered_count(), 6);
     assert_eq!(
-        cov.next_target(&[]),
+        cov.next_target(&[], WalkAudience::Private),
         Some(CoverageTarget::Pillar(Pillar::Fuelling))
     );
 
@@ -232,7 +236,7 @@ async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<
     let cov = coverage(&repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 0);
     assert_eq!(
-        cov.next_target(&reloaded.probed),
+        cov.next_target(&reloaded.probed, WalkAudience::Private),
         Some(CoverageTarget::Pillar(Pillar::TrainingAndMovement))
     );
 
@@ -248,7 +252,7 @@ async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<
     let exhausted =
         OnboardingState::from_column(Some(&exhausted.to_column()?)).expect("walk still active");
     assert_eq!(
-        cov.next_target(&exhausted.probed),
+        cov.next_target(&exhausted.probed, WalkAudience::Private),
         None,
         "every topic out of attempts must end the walk"
     );

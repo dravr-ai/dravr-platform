@@ -48,6 +48,18 @@ tokio::task_local! {
     /// entered) for MCP-direct / A2A / SSE calls that have no conversation.
     pub static CONVERSATION_ID: Option<String>;
 
+    /// Tenant that owns the originating conversation's row, for the in-flight
+    /// tool call.
+    ///
+    /// Scoped alongside [`CONVERSATION_ID`] and read back the same way. It
+    /// exists because the two tenants a chat turn carries can differ: a shared
+    /// room's conversation row lives under the channel/bot tenant while the
+    /// tool call runs under the athlete's own — so a tool that loads the
+    /// conversation under its own tenant alone misses the row on every room
+    /// turn. Absent for MCP-direct / A2A / SSE calls and equal to the caller's
+    /// tenant on DM and web turns.
+    pub static CONVERSATION_TENANT: Option<uuid::Uuid>;
+
     /// Guardian turn token for the in-flight tool call.
     ///
     /// Scoped by the executor
@@ -146,6 +158,11 @@ pub struct ToolExecutionContext {
     /// detached follow-up work (e.g. a background backfill push) back to the
     /// channel that triggered it.
     pub conversation_id: Option<String>,
+    /// Tenant that owns [`Self::conversation_id`]'s row, when the call was
+    /// surfaced from a chat turn. On a shared-room turn this is the channel
+    /// tenant while [`Self::tenant_id`] is the athlete's own; see
+    /// [`CONVERSATION_TENANT`].
+    pub conversation_tenant_id: Option<Uuid>,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
     is_admin: Option<bool>,
 }
@@ -173,6 +190,7 @@ impl ToolExecutionContext {
             resources,
             auth_method,
             conversation_id: None,
+            conversation_tenant_id: None,
             is_admin: None,
         }
     }
@@ -212,6 +230,7 @@ impl ToolExecutionContext {
             resources: resources.clone(),
             auth_method,
             conversation_id: CONVERSATION_ID.try_with(Clone::clone).ok().flatten(),
+            conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }
     }
@@ -235,6 +254,20 @@ impl ToolExecutionContext {
     pub fn with_conversation_id(mut self, conversation_id: String) -> Self {
         self.conversation_id = Some(conversation_id);
         self
+    }
+
+    /// The originating conversation as `(id, owning tenant)`, when this call
+    /// carries both — i.e. it was surfaced from a chat turn.
+    ///
+    /// This is what lets a tool consult the conversation row a shared room
+    /// files under the channel tenant, which the requester's own tenant never
+    /// resolves.
+    #[must_use]
+    pub fn conversation_ref(&self) -> Option<(&str, TenantId)> {
+        match (self.conversation_id.as_deref(), self.conversation_tenant_id) {
+            (Some(id), Some(tenant)) => Some((id, TenantId::from_uuid(tenant))),
+            _ => None,
+        }
     }
 
     /// Set admin status (cached to avoid repeated DB queries)
@@ -361,6 +394,7 @@ impl ToolExecutionContext {
             resources: self.resources.clone(),
             auth_method: self.auth_method,
             conversation_id: self.conversation_id.clone(),
+            conversation_tenant_id: self.conversation_tenant_id,
             is_admin: None, // Reset admin cache for new user
         }
     }
@@ -393,6 +427,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("request_id", &self.request_id)
             .field("auth_method", &self.auth_method)
             .field("conversation_id", &self.conversation_id)
+            .field("conversation_tenant_id", &self.conversation_tenant_id)
             .field("is_admin", &self.is_admin)
             .field("resources", &"<dyn ToolRuntime>")
             .finish()

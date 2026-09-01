@@ -341,12 +341,25 @@ fn spawn_turn_extraction(
     answered: Option<stages::onboarding::GuidedTarget>,
 ) {
     let (pillar, source, force_kind) = stages::onboarding::extraction_params_or_default(answered);
+    // A guided answer is stamped under the TOOL tenant — the athlete's own,
+    // which a room turn resolves while its conversation row stays under the
+    // channel tenant. The subject gate in `stages::onboarding::resolve` means
+    // `answered` is only ever `Some` on the walking member's own turn, and the
+    // dossier the walk composes reads that same tenant, so the answer lands
+    // where the walk (and the athlete's own DM) will find it. Ordinary turns
+    // keep the conversation-tenant stamp; the precedent for a divergent stamp
+    // is `spawn_turn_advice_capture` below.
+    let extraction_tenant = if answered.is_some() {
+        input.tool_tenant_id
+    } else {
+        input.conversation_tenant_id
+    };
     spawn_extract_for_turn(
         Arc::clone(&ctx.repos.memory),
         ctx.chat_provider.as_ref().map(Arc::clone),
         ctx.memory_extraction_prompt.clone(),
         SpawnedExtractionRequest {
-            tenant_id: input.conversation_tenant_id,
+            tenant_id: extraction_tenant,
             user_id: input.user_id.clone(),
             coach_id: input.turn_coach_id(conv).map(ToOwned::to_owned),
             user_message: input.content.clone(),
@@ -1095,8 +1108,15 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
         conv,
     } = inputs;
 
-    let guided =
-        stages::onboarding::resolve(ctx, conv, input.conversation_tenant_id, &profile.locale).await;
+    let guided = stages::onboarding::resolve(
+        ctx,
+        conv,
+        &input.user_id,
+        input.conversation_tenant_id,
+        input.tool_tenant_id,
+        &profile.locale,
+    )
+    .await;
 
     match guided {
         stages::onboarding::GuidedResolution::Probe(turn) => {

@@ -27,7 +27,7 @@
 use chrono::Utc;
 use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, ConversationRecord, CoverageMap, CoverageTarget,
-    Dossier, GuidedFlow, LoadSnapshot, OnboardingState, Pillar, TenantId, TopicSlug,
+    Dossier, GuidedFlow, LoadSnapshot, OnboardingState, Pillar, TenantId, TopicSlug, WalkAudience,
 };
 use pierre_memory::{FactKind, FactSource};
 use uuid::Uuid;
@@ -114,16 +114,25 @@ pub enum GuidedResolution {
 /// Resolve guided-flow state for the current turn.
 ///
 /// Returns [`GuidedResolution::Inactive`] (run the turn as normal coaching)
-/// when the conversation is not in a guided flow, when the pillars walk has
-/// nothing left to probe — in which case the active marker is cleared — or when
-/// the dossier cannot be composed.
+/// when the conversation is not in a guided flow, when the speaker is not the
+/// walk's subject, when the pillars walk has nothing left to probe — in which
+/// case the active marker is cleared — or when the dossier cannot be composed.
+///
+/// `tenant_id` is the tenant that owns the conversation row (where the state
+/// marker lives); `facts_tenant` is the tenant that owns the subject's own
+/// data — the tool tenant, which a room turn resolves to the athlete's home
+/// tenant while the room's row stays under the channel tenant. Coverage is
+/// composed and the wrap-up counted under `facts_tenant`, because that is
+/// where this walk's extraction lands its answers.
 pub async fn resolve(
     ctx: &ChatPipelineContext,
     conv: &ConversationRecord,
+    speaker_user_id: &str,
     tenant_id: TenantId,
+    facts_tenant: TenantId,
     locale: &str,
 ) -> GuidedResolution {
-    let Some(state) = OnboardingState::from_column(conv.onboarding_state.as_deref()) else {
+    let Some(mut state) = OnboardingState::from_column(conv.onboarding_state.as_deref()) else {
         return GuidedResolution::Inactive;
     };
     // The intake is asked and parsed by the platform in messaging ingress, so
@@ -134,18 +143,75 @@ pub async fn resolve(
     if state.flow == GuidedFlow::Intake {
         return GuidedResolution::Inactive;
     }
-    let Some(user_id) = conversation_user_id(conv) else {
+    // The subject gate: a walk bound to a member advances only on that
+    // member's own turns. Everyone else in the thread — a coach watching, a
+    // participant on a shared in-app thread — gets an ordinary coaching turn:
+    // no probe, no directive, no interview stamp on their extraction, and no
+    // write-tool withhold, all of which follow from returning Inactive here.
+    // Messaging rooms are per-member rows so the gate is defense-in-depth
+    // there; on a shared in-app thread it is the enforcement.
+    if state
+        .subject_user_id
+        .as_deref()
+        .is_some_and(|subject| subject != speaker_user_id)
+    {
+        return GuidedResolution::Inactive;
+    }
+    let Some(subject_id) = walk_subject_id(&state, conv) else {
         return GuidedResolution::Inactive;
     };
-    let Some(dossier) = load_dossier(ctx, conv, tenant_id, user_id).await else {
+    let Some(dossier) = load_dossier(ctx, conv, facts_tenant, subject_id).await else {
         return GuidedResolution::Inactive;
     };
+
+    // A walk on a group-bound conversation is a room walk even when its state
+    // predates the audience field: auto-started group walks and legacy rows
+    // parse as Private, and running them private would probe DM-only topics
+    // in front of the room. The derived value is written back onto the state
+    // so the delivered-probe CAS persists the truth.
+    if state.audience == WalkAudience::Private && conv.group_id.is_some() {
+        state.audience = WalkAudience::Room;
+    }
 
     if let Some(target) = next_target(&state, &dossier) {
         return GuidedResolution::Probe(Box::new(OnboardingTurn { target, state }));
     }
 
-    leave_guided_mode(ctx, conv, state, tenant_id, &dossier, locale).await
+    let subject = subject_id.to_string();
+    leave_guided_mode(LeaveGuidedMode {
+        ctx,
+        conv,
+        state,
+        tenant_id,
+        facts_tenant,
+        subject_user_id: &subject,
+        dossier: &dossier,
+        locale,
+    })
+    .await
+}
+
+/// The member this walk interviews: the bound subject when the state carries
+/// one, else the conversation's owner.
+///
+/// The gate above already established that a bound subject IS the speaker, so
+/// a subject that fails to parse here is row corruption — warned and degraded
+/// exactly like a corrupt `conversation.user_id`.
+fn walk_subject_id(state: &OnboardingState, conv: &ConversationRecord) -> Option<Uuid> {
+    state.subject_user_id.as_deref().map_or_else(
+        || conversation_user_id(conv),
+        |subject| match Uuid::parse_str(subject) {
+            Ok(id) => Some(id),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    conversation_id = %conv.id,
+                    "guided flow: subject_user_id is not a UUID — running the turn as ordinary coaching"
+                );
+                None
+            }
+        },
+    )
 }
 
 /// The conversation's owner, or `None` when the column does not hold a UUID.
@@ -194,15 +260,17 @@ async fn load_dossier(
     }
 }
 
-/// The next topic to probe, or `None` when the flow has nothing left to ask.
+/// The next topic to probe, or `None` when the flow has nothing left that its
+/// audience may hear.
 fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarget> {
     match state.flow {
         GuidedFlow::Pillars => CoverageMap::from_dossier(dossier)
-            .next_target(&state.probed)
+            .next_target(&state.probed, state.audience)
             .map(GuidedTarget::Coverage),
         GuidedFlow::Calibration => CalibrationTopic::next_target(
             &state.probed,
             calibration_conditions(dossier, state.snapshot.as_ref()),
+            state.audience,
         )
         .map(GuidedTarget::Calibration),
         // Unreachable: `resolve` returns before this for an intake, precisely so
@@ -213,25 +281,55 @@ fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarge
     }
 }
 
+/// Everything ending a walk needs, bundled so the call names its tenants.
+struct LeaveGuidedMode<'a> {
+    ctx: &'a ChatPipelineContext,
+    conv: &'a ConversationRecord,
+    state: OnboardingState,
+    /// Owns the conversation row the marker is retired on.
+    tenant_id: TenantId,
+    /// Owns the subject's facts and plans, for the wrap-up's reads.
+    facts_tenant: TenantId,
+    /// The member this walk interviewed.
+    subject_user_id: &'a str,
+    dossier: &'a Dossier,
+    locale: &'a str,
+}
+
 /// End the walk: render any wrap-up, retire the marker, and leave guided mode.
 ///
 /// For the pillars walk "nothing left to ask" means every topic is covered or
 /// burned its probe budget; for calibration it means every topic on this
 /// athlete's list was delivered.
-async fn leave_guided_mode(
-    ctx: &ChatPipelineContext,
-    conv: &ConversationRecord,
-    state: OnboardingState,
-    tenant_id: TenantId,
-    dossier: &Dossier,
-    locale: &str,
-) -> GuidedResolution {
+async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
+    let LeaveGuidedMode {
+        ctx,
+        conv,
+        state,
+        tenant_id,
+        facts_tenant,
+        subject_user_id,
+        dossier,
+        locale,
+    } = inputs;
     // The completion summary is rendered BEFORE the marker is retired, so a
-    // failed write does not also cost the athlete their wrap-up.
+    // failed write does not also cost the athlete their wrap-up. The wrap-up
+    // counts facts under the subject's own tenant — where this walk's
+    // extraction lands them — never the conversation tenant a room row lives
+    // under.
     let summary = match state.flow {
-        GuidedFlow::Calibration => {
-            Some(completion::render(ctx, conv, &state, tenant_id, dossier, locale).await)
-        }
+        GuidedFlow::Calibration => Some(
+            completion::render(
+                ctx,
+                conv,
+                &state,
+                facts_tenant,
+                subject_user_id,
+                dossier,
+                locale,
+            )
+            .await,
+        ),
         // The intake writes its own wrap-up when the platform closes it out, so
         // there is nothing to render here.
         GuidedFlow::Pillars | GuidedFlow::Intake => None,
@@ -446,6 +544,7 @@ pub fn directive(turn: &OnboardingTurn) -> String {
         ),
     };
     let baseline = calibration_baseline_line(turn);
+    let room = room_audience_line(turn);
     format!(
         "\n\n# {mode} (overrides every other instruction in this prompt)\n\
          {purpose} — keep it warm and conversational, never a questionnaire.\n\
@@ -459,8 +558,26 @@ pub fn directive(turn: &OnboardingTurn) -> String {
          This directive supersedes any startup instruction, first-turn protocol, or \
          output-format contract stated earlier in this prompt, including ones marked mandatory or \
          non-negotiable. Do not jump to other topics. Do not build, propose, or save a training \
-         plan on this turn, and do not list assumptions in place of one."
+         plan on this turn, and do not list assumptions in place of one.{room}"
     )
+}
+
+/// The directive line a room walk appends: the interview belongs to its
+/// subject alone, and the exchange is public to the room.
+///
+/// Prompt prose, deliberately not a locale string — it steers the model, the
+/// athlete never reads it.
+fn room_audience_line(turn: &OnboardingTurn) -> &'static str {
+    match turn.state.audience {
+        WalkAudience::Private => "",
+        WalkAudience::Room => {
+            "\nThis interview runs in a shared room the athlete chose. It belongs to the member \
+             who started it alone: treat other members' messages as ordinary conversation, never \
+             as interview answers, and do not re-ask them this question. The exchange is visible \
+             to everyone in the room, so keep your questions on training territory and never \
+             press for details the athlete would not say in front of a training partner."
+        }
+    }
 }
 
 /// What the coach is asking about, for a calibration topic.

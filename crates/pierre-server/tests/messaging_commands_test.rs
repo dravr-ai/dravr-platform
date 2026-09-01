@@ -2364,7 +2364,17 @@ mod command_tests {
             "commands/ catalog must load — otherwise this test asserts nothing"
         );
 
-        for trigger in ["/group respond", "/group coach", "/plan share"] {
+        // `/calibrate` and `/pillars` are room-visible on the same consent
+        // logic as `/plan share`, for an interview rather than a read: typing
+        // the command in the room IS the grant of a room-visible guided walk,
+        // whose opener must land in the room for the walk to be watchable.
+        for trigger in [
+            "/group respond",
+            "/group coach",
+            "/plan share",
+            "/calibrate",
+            "/pillars",
+        ] {
             let def = defs
                 .iter()
                 .find(|d| d.command == trigger)

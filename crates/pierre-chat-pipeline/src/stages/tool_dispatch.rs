@@ -113,6 +113,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
             .with_conversation_id(input.conversation_id.clone())
+            .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             // Guardian turn key = the per-utterance turn_id, so taint/budget
             // accumulate across THIS message's ReAct loop and reset next message
             // (not across the whole conversation). conversation_id stays above,

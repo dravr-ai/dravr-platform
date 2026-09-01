@@ -1,4 +1,4 @@
-// ABOUTME: /pillars handler — DM-only refusal, onboarding activation, persisted opener message
+// ABOUTME: /pillars handler — DM and room activation, arg screening, persisted opener message
 // ABOUTME: Content-asserting: real DB rows for onboarding_state + the assistant opener in history
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,10 +10,10 @@
 //! `/pillars` opens the guided profile walk. Three things must hold, and each is
 //! load-bearing for a defect the 2026-07-24 incident exposed:
 //!
-//! 1. **Direct messages only.** Slash replies from a shared room are rerouted to
-//!    a private chat, and extraction stamps facts under the *channel* tenant, so
-//!    a group walk would ask personal questions in DM and file the answers in a
-//!    fact space disjoint from the athlete's own dossier.
+//! 1. **A room walk is the athlete's own, and covers room-safe topics only.**
+//!    Typing `/pillars` in the room is the consent; the state binds the caller
+//!    as subject with a room audience, and the DM-only pillars can be neither
+//!    walked nor re-screened from there.
 //! 2. **The opener is persisted as an assistant message.** Without it the coach
 //!    receives the athlete's North Star answer with no question attached, and —
 //!    because that answer is then message #1 — the first-turn coach startup
@@ -27,7 +27,9 @@ use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_core::models::{
     CoverageTarget, OnboardingState, Pillar, TenantId, TopicSlug as OnboardingTopicSlug,
 };
+use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_runtime_context::CoachesCtx;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -89,7 +91,7 @@ fn ctx(
 }
 
 #[tokio::test]
-async fn pillars_in_a_group_refuses_and_writes_no_state() -> Result<()> {
+async fn pillars_in_a_group_activates_a_room_walk_bound_to_the_caller() -> Result<()> {
     let (resources, user_id, tenant, conversation_id) = setup().await?;
 
     let response = PillarsHandler
@@ -102,9 +104,17 @@ async fn pillars_in_a_group_refuses_and_writes_no_state() -> Result<()> {
         ))
         .await?;
 
+    // The room opener carries the visibility contract and still opens on the
+    // North Star; a walk that answered with the DM opener would never have
+    // told the athlete the room reads along.
     assert!(
-        response.text.contains("direct message"),
-        "group /pillars must point the athlete to a DM, got: {}",
+        response.text.contains("visible to everyone"),
+        "the room opener must state the exchange is room-visible, got: {}",
+        response.text
+    );
+    assert!(
+        response.text.contains("North Star"),
+        "the room opener must still ask the North Star question, got: {}",
         response.text
     );
 
@@ -115,9 +125,19 @@ async fn pillars_in_a_group_refuses_and_writes_no_state() -> Result<()> {
         .get_conversation(&conversation_id, &user_id.to_string(), tenant)
         .await?
         .expect("conversation");
-    assert!(
-        conv.onboarding_state.is_none(),
-        "a refused /pillars must not activate the walk"
+    let state = OnboardingState::from_column(conv.onboarding_state.as_deref())
+        .expect("room walk should be active");
+    assert_eq!(
+        state.subject_user_id.as_deref(),
+        Some(user_id.to_string().as_str()),
+        "the walk must bind the caller as its subject"
+    );
+    assert_eq!(
+        conv.onboarding_state
+            .as_deref()
+            .map(|raw| raw.contains("\"audience\":\"room\"")),
+        Some(true),
+        "the stored state must record the room audience — a default would walk private"
     );
 
     let history = resources
@@ -126,9 +146,81 @@ async fn pillars_in_a_group_refuses_and_writes_no_state() -> Result<()> {
         .chat
         .get_messages(&conversation_id, &user_id.to_string(), tenant)
         .await?;
+    assert_eq!(history.len(), 1, "the room opener must be persisted");
+    assert_eq!(history[0].content, response.text);
+    Ok(())
+}
+
+#[tokio::test]
+async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+
+    // Seed a Mental Resilience onboarding fact; the refusal must leave it
+    // standing — a re-screen that expired it would strand the athlete with a
+    // stale pillar no room walk can ever re-ask.
+    resources
+        .common
+        .repos
+        .memory
+        .upsert_user_fact(&UpsertUserFactParams {
+            tenant_id: tenant,
+            user_id: &user_id.to_string(),
+            coach_id: None,
+            scope: MemoryScope::User,
+            kind: FactKind::Preference,
+            pillar: Some(Pillar::MentalResilience),
+            subject: "you",
+            predicate: "manage stress with",
+            object: "evening walks",
+            confidence: 0.9,
+            source: FactSource::Onboarding,
+            valid_until: None,
+            source_msg_id: None,
+            embedding: None,
+        })
+        .await?;
+
+    for arg in ["mental", "substances", "full", "mental_resilience"] {
+        let mut room_ctx = ctx(
+            &resources,
+            user_id,
+            tenant,
+            Some(conversation_id.clone()),
+            false,
+        );
+        room_ctx.args = vec![(*arg).to_owned()];
+        let response = PillarsHandler.execute(&room_ctx).await?;
+        assert!(
+            response.text.contains("covered in private"),
+            "/pillars {arg} in a room must refuse toward a DM, got: {}",
+            response.text
+        );
+    }
+
+    // Nothing was expired and no walk opened.
+    let conv = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conversation_id, &user_id.to_string(), tenant)
+        .await?
+        .expect("conversation");
     assert!(
-        history.is_empty(),
-        "a refused /pillars must not persist an opener"
+        conv.onboarding_state.is_none(),
+        "a refused re-screen must not activate a walk"
+    );
+    let dossier = resources
+        .common
+        .repos
+        .dossier
+        .compose_dossier(tenant, user_id)
+        .await?;
+    assert!(
+        dossier
+            .pillars
+            .get(&Pillar::MentalResilience)
+            .is_some_and(|facts| facts.iter().any(|f| !f.stale)),
+        "the seeded mental fact must survive the refusal un-expired"
     );
     Ok(())
 }

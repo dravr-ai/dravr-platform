@@ -56,12 +56,12 @@ pub(super) struct ChannelChatRef<'a> {
 /// "Conversation not found" error reply.
 async fn resolve_session_conversation(
     resources: &ServerContext,
-    db: &dyn MessagingRepository,
     session: &Value,
     session_id: &str,
     user_id: &str,
     tenant_id: TenantId,
     channel_type: &str,
+    is_direct_message: bool,
 ) -> Result<String, AppError> {
     if let Some(id) = session["pierre_conversation_id"].as_str() {
         if resources
@@ -75,8 +75,16 @@ async fn resolve_session_conversation(
             return Ok(id.to_owned());
         }
     }
-    forge_fresh_session_conversation(resources, db, session_id, user_id, tenant_id, channel_type)
-        .await
+    forge_fresh_session_conversation(
+        resources,
+        resources.common.repos.messaging.as_ref(),
+        session_id,
+        user_id,
+        tenant_id,
+        channel_type,
+        is_direct_message,
+    )
+    .await
 }
 
 /// Create a fresh `chat_conversation` and repoint the session at it.
@@ -92,6 +100,7 @@ pub(super) async fn forge_fresh_session_conversation(
     user_id: &str,
     tenant_id: TenantId,
     channel_type: &str,
+    is_direct_message: bool,
 ) -> Result<String, AppError> {
     warn!(
         session_id = %session_id,
@@ -118,7 +127,7 @@ pub(super) async fn forge_fresh_session_conversation(
         record_coach_usage(resources, coach_id_str, user_id, tenant_id).await;
     }
     let new_id = conversation.conversation.id.clone();
-    start_guided_flow(resources, tenant_id, user_id, &new_id).await;
+    start_guided_flow(resources, tenant_id, user_id, &new_id, is_direct_message).await;
     stamp_channel_origin(
         resources.common.repos.chat.as_ref(),
         &new_id,
@@ -154,6 +163,46 @@ async fn walk_was_active(
         .is_some()
 }
 
+/// Whether the sender of an unaddressed room message is mid guided walk on
+/// their own conversation for this room.
+///
+/// The ambient gate calls this in mentions-mode rooms only, so the walker's
+/// answers dispatch without an @-mention while every other member's chatter
+/// stays silently captured. Sender-scoped by construction: room sessions are
+/// per-member, so the lookup can only ever find the sender's own walk. Any
+/// failure reads as "no walk" — the pre-feature behaviour.
+pub(super) async fn sender_room_walk_is_active(
+    resources: &ServerContext,
+    channel_tenant_id: TenantId,
+    channel_type: &str,
+    sender_id: &str,
+    chat_id: Option<&str>,
+) -> bool {
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+    let Ok(Some(session)) = db
+        .get_session_by_channel_identity(channel_tenant_id, channel_type, sender_id, chat_id)
+        .await
+    else {
+        return false;
+    };
+    let Some(conversation_id) = session["pierre_conversation_id"].as_str() else {
+        return false;
+    };
+    let Some(user_id) = session["user_id"].as_str() else {
+        return false;
+    };
+    resources
+        .common
+        .repos
+        .chat
+        .get_conversation(conversation_id, user_id, channel_tenant_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|conv| OnboardingState::from_column(conv.onboarding_state.as_deref()))
+        .is_some()
+}
+
 /// Handle the `/reset` (`/nouveau`, `/new`) command: rotate the messaging
 /// session onto a fresh conversation so a user can abandon a long or degraded
 /// thread without operator help. The previous conversation row is left intact
@@ -162,7 +211,6 @@ async fn walk_was_active(
 /// Addressed to `sender_id`; the caller applies thread/room recipient routing.
 pub(super) async fn handle_reset(
     resources: &ServerContext,
-    db: &dyn MessagingRepository,
     // The session's tenant (user's own for DMs) — the fresh conversation must be
     // forged here so the live dispatch, which reads under the same tenant, finds
     // it. Forging under the bot tenant would make every post-reset turn self-heal.
@@ -171,8 +219,10 @@ pub(super) async fn handle_reset(
     channel: &str,
     sender_id: &str,
     session: &ResolvedSession,
+    is_direct_message: bool,
 ) -> OutgoingMessage {
     let registry = &resources.mcp.messaging_strings_registry;
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let interrupted_walk = walk_was_active(resources, session, session_tenant_id).await;
     let body = match forge_fresh_session_conversation(
         resources,
@@ -181,6 +231,7 @@ pub(super) async fn handle_reset(
         &session.user_id,
         session_tenant_id,
         channel,
+        is_direct_message,
     )
     .await
     {
@@ -401,12 +452,12 @@ async fn resume_existing_session(
     // [`resolve_session_conversation`] for the full case analysis.
     let conversation = resolve_session_conversation(
         resources,
-        db,
         &session,
         &session_id,
         &user_id,
         tenant_id,
         channel_type,
+        is_direct_message,
     )
     .await?;
 
@@ -598,7 +649,14 @@ async fn open_new_session(
     }
 
     let conversation_id = conversation.conversation.id.clone();
-    start_guided_flow(resources, tenant_id, &user_id, &conversation_id).await;
+    start_guided_flow(
+        resources,
+        tenant_id,
+        &user_id,
+        &conversation_id,
+        is_direct_message,
+    )
+    .await;
     stamp_channel_origin(
         resources.common.repos.chat.as_ref(),
         &conversation_id,
@@ -885,12 +943,23 @@ pub async fn create_link_and_prompt(
 /// everything the coach reasons from. When the intake retires itself it hands
 /// the conversation to the pillar walk, so the walk is deferred here rather
 /// than skipped.
+///
+/// Direct messages only. A fresh GROUP conversation used to auto-start too,
+/// which wrote a subject-less walk under the bot tenant: the intake variant
+/// then never advanced (its ask path is DM-gated) and sat permanently active
+/// on the row, and the pillars variant probed the athlete in front of the
+/// room without them asking. A room walk exists now, and it is entered one
+/// way — the athlete typing `/calibrate` or `/pillars` there themselves.
 async fn start_guided_flow(
     resources: &ServerContext,
     tenant_id: TenantId,
     user_id: &str,
     conversation_id: &str,
+    is_direct_message: bool,
 ) {
+    if !is_direct_message {
+        return;
+    }
     if !maybe_start_intake(resources, user_id, conversation_id, tenant_id).await {
         maybe_start_pillar_walk(resources, tenant_id, user_id, conversation_id).await;
     }

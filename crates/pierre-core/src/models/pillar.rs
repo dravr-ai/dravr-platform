@@ -8,6 +8,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::onboarding::TopicVisibility;
+
 /// One of the six fitness-adapted health dimensions Dravr coaches across.
 ///
 /// This is the single source of truth for the pillar taxonomy: it backs the
@@ -92,6 +94,24 @@ impl Pillar {
             Self::RecoveryOptimisation => {
                 "recovery habits framed around performance — alcohol/substances, non-judgementally"
             }
+        }
+    }
+
+    /// Whether this pillar may be probed in a shared room the athlete chose
+    /// to walk in.
+    ///
+    /// Mental Resilience probes stress and psychological load; Recovery
+    /// Optimisation probes substance use. Both stay between the athlete and
+    /// the coach — a room walk never surfaces them, and `/pillars` in a room
+    /// points the athlete at a direct message for the two it leaves out.
+    #[must_use]
+    pub const fn visibility(self) -> TopicVisibility {
+        match self {
+            Self::TrainingAndMovement
+            | Self::Fuelling
+            | Self::SleepAndRecovery
+            | Self::CommunityAndConnection => TopicVisibility::RoomSafe,
+            Self::MentalResilience | Self::RecoveryOptimisation => TopicVisibility::DmOnly,
         }
     }
 

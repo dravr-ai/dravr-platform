@@ -503,6 +503,7 @@ pub(super) async fn run_verification_fetch(
     // accumulates on THIS message and resets next one.
     let executor = UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
         .with_conversation_id(input.conversation_id.clone())
+        .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
         .with_turn_token(input.turn_id.0.to_string());
 
     let request = UniversalRequest {
@@ -743,6 +744,7 @@ async fn fetch_peer_evidence(
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&deps.ctx.tool_runtime))
             .with_conversation_id(input.conversation_id.clone())
+            .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             .with_turn_token(input.turn_id.0.to_string()),
     );
     let group_id = conversation_group_id(deps, input).await;

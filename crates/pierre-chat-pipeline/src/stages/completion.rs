@@ -101,7 +101,8 @@ pub async fn render(
     ctx: &ChatPipelineContext,
     conv: &ConversationRecord,
     state: &OnboardingState,
-    tenant_id: TenantId,
+    facts_tenant: TenantId,
+    subject_user_id: &str,
     dossier: &Dossier,
     locale: &str,
 ) -> String {
@@ -121,8 +122,8 @@ pub async fn render(
         .repos
         .memory
         .list_user_facts_by_source(
-            tenant_id,
-            &conv.user_id,
+            facts_tenant,
+            subject_user_id,
             FactSource::Onboarding,
             LANDED_FETCH_LIMIT,
         )
@@ -172,8 +173,8 @@ pub async fn render(
         .repos
         .training_plans
         .get_active_plan(
-            &tenant_id.to_string(),
-            &conv.user_id,
+            &facts_tenant.to_string(),
+            subject_user_id,
             conv.coach_id.as_deref(),
         )
         .await

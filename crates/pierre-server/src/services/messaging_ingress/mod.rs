@@ -619,12 +619,12 @@ async fn persist_single_message(
         emit_messaging_intent(&session.user_id, tenant_id, channel, "reset");
         let mut reset_response = handle_reset(
             resources,
-            db,
             session_tenant_id,
             channel_type,
             channel,
             &message.sender_id,
             &session,
+            message.is_direct_message,
         )
         .await;
         reset_response.thread_id = thread_id;
@@ -844,14 +844,30 @@ async fn is_ambient_group_message(
     if content_body_text(&message.content).is_some_and(|t| t.trim_start().starts_with('/')) {
         return false;
     }
-    channel_group_respond_mode(
+    if channel_group_respond_mode(
         resources,
         tenant_id,
         channel,
         message.conversation_id.as_deref(),
     )
     .await
-        == GroupRespondMode::Mentions
+        != GroupRespondMode::Mentions
+    {
+        return false;
+    }
+    // A member mid guided walk answers the coach's question unaddressed — an
+    // interview that demanded an @-mention per answer would shed its athlete
+    // by question two. Only the walker is exempted: the lookup resolves the
+    // SENDER's own room session (rooms are per-member), so everyone else's
+    // unaddressed chatter stays silently captured.
+    !session::sender_room_walk_is_active(
+        resources,
+        tenant_id,
+        channel,
+        &message.sender_id,
+        message.conversation_id.as_deref(),
+    )
+    .await
 }
 
 /// Silently capture an ambient group message for the room transcript.

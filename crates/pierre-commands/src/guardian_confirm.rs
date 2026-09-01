@@ -165,7 +165,11 @@ async fn execute_confirmed(ctx: &PlatformCommandContext, action: &PendingGuardia
     let mut executor = UniversalExecutor::new(ctx.tool_runtime.clone())
         .with_turn_token(format!("confirm-{}", action.id));
     if let Some(conversation_id) = action.conversation_id.clone() {
-        executor = executor.with_conversation_id(conversation_id);
+        // The conversation tenant for this re-dispatch is the one the /confirm
+        // arrived under — same resolution the original turn's executor carried.
+        executor = executor
+            .with_conversation_id(conversation_id)
+            .with_conversation_tenant(ctx.conversation_tenant_id.as_uuid());
     }
 
     let request = UniversalRequest {

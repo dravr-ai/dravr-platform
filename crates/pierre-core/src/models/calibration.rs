@@ -19,7 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::onboarding::TopicSlug;
+use super::onboarding::{TopicSlug, TopicVisibility, WalkAudience};
 use super::Pillar;
 
 /// One question in the calibration interview.
@@ -229,18 +229,48 @@ impl CalibrationTopic {
         topics
     }
 
-    /// The next topic to probe: the first in ask order that has not been
-    /// delivered.
+    /// Whether this topic may be probed in a shared room the athlete chose
+    /// to calibrate in.
+    ///
+    /// Every current topic is room-safe: calibration probes training capacity
+    /// — load appetite, availability, recovery, what flares under load — the
+    /// working vocabulary of any shared ride, and the athlete typing
+    /// `/calibrate` in the room chose that room. Declared per topic all the
+    /// same, so a future sensitive topic must decide rather than inherit.
+    #[must_use]
+    pub const fn visibility(self) -> TopicVisibility {
+        match self {
+            Self::ProgressionIntent
+            | Self::BaselineConfirm
+            | Self::Availability
+            | Self::Injury
+            | Self::RpeHeadroom
+            | Self::RecoverySpeed
+            | Self::Fueling
+            | Self::EventDemand => TopicVisibility::RoomSafe,
+        }
+    }
+
+    /// The next topic to probe: the first in ask order, audible to the walk's
+    /// audience, that has not been delivered.
     ///
     /// Unlike the pillars walk there is no re-ask budget. Coverage cannot
     /// distinguish these topics from one another, so a second attempt could
     /// only be spent blindly; an answer that yielded no fact is caught by the
     /// completion check instead, which re-opens the safety-critical ones by
-    /// name. `None` means every topic has been asked.
+    /// name. `None` means every topic the audience may hear has been asked.
     #[must_use]
-    pub fn next_target(probed: &[TopicSlug], conditions: CalibrationConditions) -> Option<Self> {
+    pub fn next_target(
+        probed: &[TopicSlug],
+        conditions: CalibrationConditions,
+        audience: WalkAudience,
+    ) -> Option<Self> {
         Self::for_conditions(conditions)
             .into_iter()
+            .filter(|topic| match audience {
+                WalkAudience::Private => true,
+                WalkAudience::Room => topic.visibility() == TopicVisibility::RoomSafe,
+            })
             .find(|topic| !probed.iter().any(|slug| slug.as_str() == topic.as_str()))
     }
 }
@@ -249,6 +279,7 @@ impl CalibrationTopic {
 mod tests {
     use super::{CalibrationConditions, CalibrationTopic};
     use crate::models::onboarding::TopicSlug;
+    use crate::models::onboarding::{TopicVisibility, WalkAudience};
 
     fn probed(topics: &[CalibrationTopic]) -> Vec<TopicSlug> {
         topics.iter().map(|t| t.slug()).collect()
@@ -257,7 +288,11 @@ mod tests {
     #[test]
     fn intent_is_asked_first() {
         assert_eq!(
-            CalibrationTopic::next_target(&[], CalibrationConditions::default()),
+            CalibrationTopic::next_target(
+                &[],
+                CalibrationConditions::default(),
+                WalkAudience::Private
+            ),
             Some(CalibrationTopic::ProgressionIntent),
             "every later answer is interpreted against the progression intent"
         );
@@ -269,13 +304,13 @@ mod tests {
         let mut history = Vec::new();
         for expected in CalibrationTopic::CORE {
             assert_eq!(
-                CalibrationTopic::next_target(&history, conditions),
+                CalibrationTopic::next_target(&history, conditions, WalkAudience::Private),
                 Some(expected)
             );
             history.push(expected.slug());
         }
         assert_eq!(
-            CalibrationTopic::next_target(&history, conditions),
+            CalibrationTopic::next_target(&history, conditions, WalkAudience::Private),
             None,
             "the core interview ends after its six topics — there is no re-ask budget"
         );
@@ -323,7 +358,7 @@ mod tests {
         };
         let history = probed(&CalibrationTopic::CORE);
         assert_eq!(
-            CalibrationTopic::next_target(&history, conditions),
+            CalibrationTopic::next_target(&history, conditions, WalkAudience::Private),
             Some(CalibrationTopic::Fueling),
             "the core six are done but this athlete still owes the fueling answer"
         );
@@ -354,7 +389,11 @@ mod tests {
             TopicSlug::new("fuelling".to_owned()),
         ];
         assert_eq!(
-            CalibrationTopic::next_target(&stale, CalibrationConditions::default()),
+            CalibrationTopic::next_target(
+                &stale,
+                CalibrationConditions::default(),
+                WalkAudience::Private
+            ),
             Some(CalibrationTopic::ProgressionIntent)
         );
     }
@@ -422,5 +461,29 @@ mod tests {
                 topic.as_str()
             );
         }
+    }
+    #[test]
+    fn every_calibration_topic_declares_itself_room_safe() {
+        // Pins that adding a sensitive topic forces a conscious visibility
+        // decision: a new variant lands here red until someone chooses.
+        assert!(
+            CalibrationTopic::ALL
+                .into_iter()
+                .all(|t| t.visibility() == TopicVisibility::RoomSafe),
+            "a DM-only calibration topic exists now — decide what a room walk says about it"
+        );
+        assert_eq!(
+            CalibrationTopic::next_target(
+                &[],
+                CalibrationConditions::default(),
+                WalkAudience::Room
+            ),
+            CalibrationTopic::next_target(
+                &[],
+                CalibrationConditions::default(),
+                WalkAudience::Private
+            ),
+            "with every topic room-safe, both audiences must walk the same list"
+        );
     }
 }

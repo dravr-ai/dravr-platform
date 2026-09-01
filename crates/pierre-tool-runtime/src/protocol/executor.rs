@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
-use crate::context::{AuthMethod, CONVERSATION_ID, GUARDIAN_TURN_TOKEN};
+use crate::context::{AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GUARDIAN_TURN_TOKEN};
 use crate::conversions::RAISED_ERROR_CODE_KEY;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
 use crate::protocol::provider_helpers::no_provider_refusal;
@@ -168,6 +168,10 @@ pub struct UniversalExecutor {
     /// [`crate::context::ToolExecutionContext::from_tronc`] can recover it
     /// without extending the third-party tronc `ToolContext`.
     conversation_id: Option<String>,
+    /// Tenant owning `conversation_id`'s row, scoped into
+    /// [`crate::context::CONVERSATION_TENANT`] alongside it. `None` outside a
+    /// chat turn; differs from the call's own tenant on shared-room turns.
+    conversation_tenant_id: Option<uuid::Uuid>,
     /// Per-**utterance** token used solely as the Guardian's turn key so taint
     /// and per-turn budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -190,6 +194,7 @@ impl UniversalExecutor {
             intelligence_service,
             resources,
             conversation_id: None,
+            conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested UNTRUSTED_OUTPUT read
             // taints the SAME turn as its caller. Absent outside any tool scope
@@ -215,6 +220,16 @@ impl UniversalExecutor {
     #[must_use]
     pub fn with_conversation_id(mut self, conversation_id: String) -> Self {
         self.conversation_id = Some(conversation_id);
+        self
+    }
+
+    /// Bind the tenant that owns the originating conversation's row. The chat
+    /// pipeline calls this with `TurnInput.conversation_tenant_id` beside
+    /// [`Self::with_conversation_id`]; without it a room turn's tools cannot
+    /// resolve the conversation row the channel tenant owns.
+    #[must_use]
+    pub const fn with_conversation_tenant(mut self, tenant: uuid::Uuid) -> Self {
+        self.conversation_tenant_id = Some(tenant);
         self
     }
 
@@ -554,9 +569,12 @@ impl UniversalExecutor {
         let response = CONVERSATION_ID
             .scope(
                 self.conversation_id.clone(),
-                GUARDIAN_TURN_TOKEN.scope(
-                    Some(resolved_turn_token.clone()),
-                    tool.execute(&self.resources, &ctx, args),
+                CONVERSATION_TENANT.scope(
+                    self.conversation_tenant_id,
+                    GUARDIAN_TURN_TOKEN.scope(
+                        Some(resolved_turn_token.clone()),
+                        tool.execute(&self.resources, &ctx, args),
+                    ),
                 ),
             )
             .await;

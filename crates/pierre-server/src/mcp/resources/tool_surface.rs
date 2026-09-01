@@ -121,7 +121,7 @@ impl TurnToolSurface {
     /// coach that says "let me finish the interview first", and the cost of
     /// advertising is a plan written mid-interview.
     async fn walk_is_active(&self) -> bool {
-        guided_flow_is_active(&self.repos, None, self.tenant_id, &self.user_id)
+        guided_flow_is_active(&self.repos, None, None, self.tenant_id, &self.user_id)
             .await
             .unwrap_or(true)
     }

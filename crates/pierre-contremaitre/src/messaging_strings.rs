@@ -553,12 +553,18 @@ pub const KEY_TIMEZONE_INVALID: &str = "commands.timezone.invalid";
 /// Persisted as the conversation's first assistant message, so the coach sees
 /// the question it is credited with asking when the athlete's answer arrives.
 pub const KEY_PILLARS_OPENER: &str = "commands.pillars.opener";
-/// Key: `/pillars` refusal outside a 1:1 DM.
+/// Key: `/pillars` opener for a walk started in a shared room.
 ///
-/// The walk asks about motivations, sleep, stress and recovery habits; in a
-/// shared room the answers would be stamped under the channel tenant, a fact
-/// space disjoint from the athlete's own dossier.
-pub const KEY_PILLARS_DM_ONLY: &str = "commands.pillars.dm_only";
+/// Says out loud what the athlete just chose — the exchange is visible to the
+/// room and theirs alone to answer — and points them at a direct message for
+/// the two pillars a room walk never covers (stress/mind and recovery habits).
+pub const KEY_PILLARS_OPENER_ROOM: &str = "commands.pillars.opener_room";
+/// Key: `/pillars` re-screen refusal in a shared room.
+///
+/// `full` and the DM-only pillars (mental, substances) supersede facts a room
+/// walk can never re-ask, so those arguments are refused there — before any
+/// expiry runs — and the athlete is pointed at a direct message.
+pub const KEY_PILLARS_ARG_DM_ONLY: &str = "commands.pillars.arg_dm_only";
 
 /// Posted in a shared room when a command was answered in the caller's DM.
 ///
@@ -611,11 +617,11 @@ pub const KEY_INTAKE_COMPLETE_FLAGGED: &str = "messaging.intake.complete_flagged
 /// answer with no question attached, and the turn counts as message #1, which
 /// arms the first-turn startup prefetch.
 pub const KEY_CALIBRATE_OPENER: &str = "commands.calibrate.opener";
-/// Key: `/calibrate` refusal outside a 1:1 DM.
+/// Key: `/calibrate` opener for an interview started in a shared room.
 ///
-/// Same rationale as `/pillars`: in a shared room the answers would be stamped
-/// under the channel tenant, a fact space disjoint from the athlete's dossier.
-pub const KEY_CALIBRATE_DM_ONLY: &str = "commands.calibrate.dm_only";
+/// The private opener plus the visibility contract: the answers appear here,
+/// they are the caller's alone to give, and the room reads along.
+pub const KEY_CALIBRATE_OPENER_ROOM: &str = "commands.calibrate.opener_room";
 /// Key: `/calibrate` failure when the interview could not be activated.
 pub const KEY_CALIBRATE_START_FAILED: &str = "commands.calibrate.start_failed";
 /// Key: `/calibrate` completion header. `{0}` = answers captured, `{1}` = asked.
@@ -1032,7 +1038,8 @@ pub(crate) const FR_TIMEZONE_SET: &str = "Fuseau horaire réglé sur <b>{0}</b>.
 pub(crate) const FR_TIMEZONE_INVALID: &str = "Fuseau horaire invalide. Donne un nom IANA, par exemple : <code>/timezone America/Toronto</code>.";
 
 pub(crate) const FR_PILLARS_OPENER: &str = "On va construire ton profil ensemble — je te pose quelques questions, une à la fois. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?";
-pub(crate) const FR_PILLARS_DM_ONLY: &str = "Le profil se construit en privé. Écris-moi <code>/pillars</code> en message direct et on commence.";
+pub(crate) const FR_PILLARS_OPENER_ROOM: &str = "On construit ton profil ici, dans le groupe — tes réponses seront visibles par tout le monde, et c'est à toi seul de répondre. On couvre ta motivation, l'entraînement, l'alimentation, le sommeil et ton entourage ; le stress et les habitudes de récupération se font en privé — écris-moi <code>/pillars</code> en message direct pour ces deux-là. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?";
+pub(crate) const FR_PILLARS_ARG_DM_ONLY: &str = "Ces sujets-là se couvrent en privé. Écris-moi <code>/pillars</code> en message direct et on les reprend là-bas — rien n'a été modifié ici.";
 pub(crate) const FR_SLASH_ANSWERED_PRIVATELY: &str = "Je t'ai répondu en privé — c'est dans notre conversation directe. Une salle peut réunir plusieurs athlètes, alors les réponses personnelles n'y sont pas affichées.";
 
 pub(crate) const FR_INTAKE_OPENER: &str = "Pendant que j'y suis, quelques questions rapides — une minute, et tout le coaching à partir de là est plus précis et plus sûr.";
@@ -1060,7 +1067,7 @@ pub(crate) const FR_RESET_WALK_INTERRUPTED: &str =
     "\n\nTon profil était en cours — écris <code>/pillars</code> pour reprendre.";
 
 pub(crate) const FR_CALIBRATE_OPENER: &str = "On va calibrer la difficulté de ton entraînement. Je pars de tes données récentes et je te pose six questions courtes — une à la fois. Première : tu veux que ça devienne plus dur comment — plus d'heures, plus de séances dures, ou des sorties longues plus longues ?";
-pub(crate) const FR_CALIBRATE_DM_ONLY: &str = "Le calibrage se fait en privé. Écris-moi <code>/calibrate</code> en message direct et on commence.";
+pub(crate) const FR_CALIBRATE_OPENER_ROOM: &str = "On calibre ton entraînement ici, dans le groupe — tes réponses seront visibles par tout le monde, et c'est à toi seul de répondre. Six questions courtes, une à la fois. Première : tu veux que ça devienne plus dur comment — plus d'heures, plus de séances dures, ou des sorties longues plus longues ?";
 pub(crate) const FR_CALIBRATE_START_FAILED: &str =
     "Je n'ai pas réussi à démarrer le calibrage sur cette conversation. Réessaie dans un instant.";
 pub(crate) const FR_CALIBRATE_COMPLETE_HEADER: &str =
@@ -1369,7 +1376,8 @@ pub(crate) const EN_TIMEZONE_INVALID: &str =
     "Invalid timezone. Provide an IANA name, e.g. <code>/timezone America/Toronto</code>.";
 
 pub(crate) const EN_PILLARS_OPENER: &str = "Let's build your profile together — I'll ask about a few areas, one at a time. To start: what's the deeper reason you train — your North Star?";
-pub(crate) const EN_PILLARS_DM_ONLY: &str = "Profile building happens in private. Send me <code>/pillars</code> in a direct message and we'll start.";
+pub(crate) const EN_PILLARS_OPENER_ROOM: &str = "We're building your profile here in the group — your answers will be visible to everyone, and they're yours alone to give. We'll cover your motivation, training, fuelling, sleep and support network; stress and recovery habits stay private — send me <code>/pillars</code> in a direct message for those two. To start: what's the deeper reason you train — your North Star?";
+pub(crate) const EN_PILLARS_ARG_DM_ONLY: &str = "Those topics are covered in private. Send me <code>/pillars</code> in a direct message and we'll pick them up there — nothing was changed here.";
 pub(crate) const EN_SLASH_ANSWERED_PRIVATELY: &str = "I've answered you privately — it's in our direct chat. A room can hold several athletes, so personal answers aren't posted here.";
 
 pub(crate) const EN_INTAKE_OPENER: &str = "While I have you, a couple of quick questions — a minute, and every bit of coaching from here is sharper and safer.";
@@ -1401,7 +1409,7 @@ pub(crate) const EN_RESET_WALK_INTERRUPTED: &str =
     "\n\nYour profile walk was in progress — send <code>/pillars</code> to resume.";
 
 pub(crate) const EN_CALIBRATE_OPENER: &str = "Let's calibrate how hard your training should be. I'll start from your recent data and ask six short questions, one at a time. First: how do you want it to get harder — more hours, more hard days, or longer long sessions?";
-pub(crate) const EN_CALIBRATE_DM_ONLY: &str = "Calibration happens in private. Send me <code>/calibrate</code> in a direct message and we'll start.";
+pub(crate) const EN_CALIBRATE_OPENER_ROOM: &str = "We're calibrating your training here in the group — your answers will be visible to everyone, and they're yours alone to give. Six short questions, one at a time. First: how do you want it to get harder — more hours, more hard days, or longer long sessions?";
 pub(crate) const EN_CALIBRATE_START_FAILED: &str =
     "I couldn't start calibration on this conversation. Try again in a moment.";
 pub(crate) const EN_CALIBRATE_COMPLETE_HEADER: &str =
@@ -1682,7 +1690,8 @@ pub(crate) const ES_TIMEZONE_SET: &str = "Zona horaria establecida en <b>{0}</b>
 pub(crate) const ES_TIMEZONE_INVALID: &str = "Zona horaria no válida. Indica un nombre IANA, por ejemplo <code>/timezone America/Toronto</code>.";
 
 pub(crate) const ES_PILLARS_OPENER: &str = "Vamos a construir tu perfil juntos — te haré preguntas sobre algunos temas, uno a uno. Para empezar: ¿cuál es la razón profunda por la que entrenas, tu «North Star»?";
-pub(crate) const ES_PILLARS_DM_ONLY: &str = "El perfil se construye en privado. Escríbeme <code>/pillars</code> por mensaje directo y empezamos.";
+pub(crate) const ES_PILLARS_OPENER_ROOM: &str = "Vamos a construir tu perfil aquí, en el grupo — tus respuestas serán visibles para todos, y solo tú respondes. Cubriremos tu motivación, el entrenamiento, la alimentación, el sueño y tu entorno; el estrés y los hábitos de recuperación quedan en privado — escríbeme <code>/pillars</code> por mensaje directo para esos dos. Para empezar: ¿cuál es la razón profunda por la que entrenas, tu «North Star»?";
+pub(crate) const ES_PILLARS_ARG_DM_ONLY: &str = "Esos temas se cubren en privado. Escríbeme <code>/pillars</code> por mensaje directo y los retomamos allí — aquí no se ha cambiado nada.";
 pub(crate) const ES_SLASH_ANSWERED_PRIVATELY: &str = "Te he respondido en privado: está en nuestro chat directo. Una sala puede reunir a varios atletas, así que las respuestas personales no se publican aquí.";
 
 pub(crate) const ES_INTAKE_OPENER: &str = "Ya que estamos, unas preguntas rápidas: un minuto y todo el acompañamiento a partir de aquí será más preciso y más seguro.";
@@ -1713,7 +1722,7 @@ pub(crate) const ES_RESET_WALK_INTERRUPTED: &str =
     "\n\nTu perfil estaba en curso — escribe <code>/pillars</code> para continuar.";
 
 pub(crate) const ES_CALIBRATE_OPENER: &str = "Vamos a calibrar la dificultad de tu entrenamiento. Parto de tus datos recientes y te hago seis preguntas cortas, una a una. La primera: ¿cómo quieres que se ponga más duro — más horas, más días fuertes, o salidas largas más largas?";
-pub(crate) const ES_CALIBRATE_DM_ONLY: &str = "El calibrado se hace en privado. Escríbeme <code>/calibrate</code> por mensaje directo y empezamos.";
+pub(crate) const ES_CALIBRATE_OPENER_ROOM: &str = "Vamos a calibrar tu entrenamiento aquí, en el grupo — tus respuestas serán visibles para todos, y solo tú respondes. Seis preguntas cortas, una a una. La primera: ¿cómo quieres que se ponga más duro — más horas, más días fuertes, o salidas largas más largas?";
 pub(crate) const ES_CALIBRATE_START_FAILED: &str =
     "No pude iniciar el calibrado en esta conversación. Vuelve a intentarlo en un momento.";
 pub(crate) const ES_CALIBRATE_COMPLETE_HEADER: &str =
@@ -1994,7 +2003,8 @@ pub(crate) const DE_TIMEZONE_INVALID: &str =
     "Ungültige Zeitzone. Gib einen IANA-Namen an, z. B. <code>/timezone America/Toronto</code>.";
 
 pub(crate) const DE_PILLARS_OPENER: &str = "Wir bauen dein Profil gemeinsam auf — ich frage dich zu einigen Themen, eines nach dem anderen. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?";
-pub(crate) const DE_PILLARS_DM_ONLY: &str = "Das Profil entsteht privat. Schreib mir <code>/pillars</code> als Direktnachricht, dann legen wir los.";
+pub(crate) const DE_PILLARS_OPENER_ROOM: &str = "Wir bauen dein Profil hier in der Gruppe auf — deine Antworten sind für alle sichtbar, und nur du antwortest. Wir decken Motivation, Training, Ernährung, Schlaf und dein Umfeld ab; Stress und Erholungsgewohnheiten bleiben privat — schreib mir <code>/pillars</code> als Direktnachricht für diese beiden. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?";
+pub(crate) const DE_PILLARS_ARG_DM_ONLY: &str = "Diese Themen behandeln wir privat. Schreib mir <code>/pillars</code> als Direktnachricht, dann nehmen wir sie dort auf — hier wurde nichts geändert.";
 pub(crate) const DE_SLASH_ANSWERED_PRIVATELY: &str = "Ich habe dir privat geantwortet — es steht in unserem Direktchat. In einem Raum können mehrere Athleten sein, deshalb erscheinen persönliche Antworten hier nicht.";
 
 pub(crate) const DE_INTAKE_OPENER: &str = "Wo wir gerade dabei sind, ein paar kurze Fragen — eine Minute, und das gesamte Coaching ab hier ist genauer und sicherer.";
@@ -2023,7 +2033,7 @@ pub(crate) const DE_RESET_WALK_INTERRUPTED: &str =
     "\n\nDein Profil war in Arbeit — schreib <code>/pillars</code>, um weiterzumachen.";
 
 pub(crate) const DE_CALIBRATE_OPENER: &str = "Wir kalibrieren, wie hart dein Training sein soll. Ich gehe von deinen letzten Daten aus und stelle dir sechs kurze Fragen, eine nach der anderen. Zuerst: Wie soll es härter werden — mehr Stunden, mehr harte Tage, oder längere lange Einheiten?";
-pub(crate) const DE_CALIBRATE_DM_ONLY: &str = "Die Kalibrierung läuft privat. Schreib mir <code>/calibrate</code> als Direktnachricht, dann legen wir los.";
+pub(crate) const DE_CALIBRATE_OPENER_ROOM: &str = "Wir kalibrieren dein Training hier in der Gruppe — deine Antworten sind für alle sichtbar, und nur du antwortest. Sechs kurze Fragen, eine nach der anderen. Zuerst: Wie soll es härter werden — mehr Stunden, mehr harte Tage, oder längere lange Einheiten?";
 pub(crate) const DE_CALIBRATE_START_FAILED: &str =
     "Ich konnte die Kalibrierung in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal.";
 pub(crate) const DE_CALIBRATE_COMPLETE_HEADER: &str =
@@ -2307,7 +2317,8 @@ pub(crate) const PT_TIMEZONE_SET: &str = "Fuso horário definido para <b>{0}</b>
 pub(crate) const PT_TIMEZONE_INVALID: &str = "Fuso horário inválido. Indica um nome IANA, por exemplo <code>/timezone America/Toronto</code>.";
 
 pub(crate) const PT_PILLARS_OPENER: &str = "Vamos construir o teu perfil juntos — vou fazer-te perguntas sobre alguns temas, um a um. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?";
-pub(crate) const PT_PILLARS_DM_ONLY: &str = "O perfil constrói-se em privado. Escreve-me <code>/pillars</code> em mensagem direta e começamos.";
+pub(crate) const PT_PILLARS_OPENER_ROOM: &str = "Vamos construir o teu perfil aqui, no grupo — as tuas respostas ficam visíveis para todos, e só tu respondes. Cobrimos a motivação, o treino, a alimentação, o sono e o teu círculo; o stress e os hábitos de recuperação ficam em privado — escreve-me <code>/pillars</code> em mensagem direta para esses dois. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?";
+pub(crate) const PT_PILLARS_ARG_DM_ONLY: &str = "Esses temas cobrem-se em privado. Escreve-me <code>/pillars</code> em mensagem direta e retomamo-los lá — aqui nada foi alterado.";
 pub(crate) const PT_SLASH_ANSWERED_PRIVATELY: &str = "Respondi-te em privado — está na nossa conversa direta. Uma sala pode juntar vários atletas, por isso as respostas pessoais não aparecem aqui.";
 
 pub(crate) const PT_INTAKE_OPENER: &str = "Já agora, algumas perguntas rápidas — um minuto, e todo o acompanhamento a partir daqui é mais preciso e mais seguro.";
@@ -2338,7 +2349,7 @@ pub(crate) const PT_RESET_WALK_INTERRUPTED: &str =
     "\n\nO teu perfil estava em curso — escreve <code>/pillars</code> para retomar.";
 
 pub(crate) const PT_CALIBRATE_OPENER: &str = "Vamos calibrar a dificuldade do teu treino. Parto dos teus dados recentes e faço-te seis perguntas curtas, uma a uma. Primeira: como queres que fique mais duro — mais horas, mais dias fortes, ou saídas longas mais longas?";
-pub(crate) const PT_CALIBRATE_DM_ONLY: &str = "A calibração faz-se em privado. Escreve-me <code>/calibrate</code> em mensagem direta e começamos.";
+pub(crate) const PT_CALIBRATE_OPENER_ROOM: &str = "Vamos calibrar o teu treino aqui, no grupo — as tuas respostas ficam visíveis para todos, e só tu respondes. Seis perguntas curtas, uma a uma. Primeira: como queres que fique mais duro — mais horas, mais dias fortes, ou saídas longas mais longas?";
 pub(crate) const PT_CALIBRATE_START_FAILED: &str =
     "Não consegui iniciar a calibração nesta conversa. Tenta outra vez dentro de um momento.";
 pub(crate) const PT_CALIBRATE_COMPLETE_HEADER: &str =
@@ -2609,7 +2620,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_SET, "fr", FR_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "fr", FR_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "fr", FR_PILLARS_OPENER),
-    (KEY_PILLARS_DM_ONLY, "fr", FR_PILLARS_DM_ONLY),
+    (KEY_PILLARS_OPENER_ROOM, "fr", FR_PILLARS_OPENER_ROOM),
+    (KEY_PILLARS_ARG_DM_ONLY, "fr", FR_PILLARS_ARG_DM_ONLY),
     (KEY_SLASH_ANSWERED_PRIVATELY, "fr", FR_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "fr", FR_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "fr", FR_INTAKE_PERSONA),
@@ -2628,7 +2640,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_START_FAILED, "fr", FR_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "fr", FR_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "fr", FR_CALIBRATE_OPENER),
-    (KEY_CALIBRATE_DM_ONLY, "fr", FR_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_OPENER_ROOM, "fr", FR_CALIBRATE_OPENER_ROOM),
     (KEY_CALIBRATE_START_FAILED, "fr", FR_CALIBRATE_START_FAILED),
     (KEY_CALIBRATE_COMPLETE_HEADER, "fr", FR_CALIBRATE_COMPLETE_HEADER),
     (KEY_CALIBRATE_COMPLETE_MISSING, "fr", FR_CALIBRATE_COMPLETE_MISSING),
@@ -2851,7 +2863,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_SET, "en", EN_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "en", EN_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "en", EN_PILLARS_OPENER),
-    (KEY_PILLARS_DM_ONLY, "en", EN_PILLARS_DM_ONLY),
+    (KEY_PILLARS_OPENER_ROOM, "en", EN_PILLARS_OPENER_ROOM),
+    (KEY_PILLARS_ARG_DM_ONLY, "en", EN_PILLARS_ARG_DM_ONLY),
     (KEY_SLASH_ANSWERED_PRIVATELY, "en", EN_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "en", EN_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "en", EN_INTAKE_PERSONA),
@@ -2870,7 +2883,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_START_FAILED, "en", EN_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "en", EN_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "en", EN_CALIBRATE_OPENER),
-    (KEY_CALIBRATE_DM_ONLY, "en", EN_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_OPENER_ROOM, "en", EN_CALIBRATE_OPENER_ROOM),
     (KEY_CALIBRATE_START_FAILED, "en", EN_CALIBRATE_START_FAILED),
     (KEY_CALIBRATE_COMPLETE_HEADER, "en", EN_CALIBRATE_COMPLETE_HEADER),
     (KEY_CALIBRATE_COMPLETE_MISSING, "en", EN_CALIBRATE_COMPLETE_MISSING),
@@ -3092,7 +3105,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_SET, "es", ES_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "es", ES_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "es", ES_PILLARS_OPENER),
-    (KEY_PILLARS_DM_ONLY, "es", ES_PILLARS_DM_ONLY),
+    (KEY_PILLARS_OPENER_ROOM, "es", ES_PILLARS_OPENER_ROOM),
+    (KEY_PILLARS_ARG_DM_ONLY, "es", ES_PILLARS_ARG_DM_ONLY),
     (KEY_SLASH_ANSWERED_PRIVATELY, "es", ES_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "es", ES_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "es", ES_INTAKE_PERSONA),
@@ -3111,7 +3125,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_START_FAILED, "es", ES_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "es", ES_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "es", ES_CALIBRATE_OPENER),
-    (KEY_CALIBRATE_DM_ONLY, "es", ES_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_OPENER_ROOM, "es", ES_CALIBRATE_OPENER_ROOM),
     (KEY_CALIBRATE_START_FAILED, "es", ES_CALIBRATE_START_FAILED),
     (KEY_CALIBRATE_COMPLETE_HEADER, "es", ES_CALIBRATE_COMPLETE_HEADER),
     (KEY_CALIBRATE_COMPLETE_MISSING, "es", ES_CALIBRATE_COMPLETE_MISSING),
@@ -3334,7 +3348,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_SET, "de", DE_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "de", DE_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "de", DE_PILLARS_OPENER),
-    (KEY_PILLARS_DM_ONLY, "de", DE_PILLARS_DM_ONLY),
+    (KEY_PILLARS_OPENER_ROOM, "de", DE_PILLARS_OPENER_ROOM),
+    (KEY_PILLARS_ARG_DM_ONLY, "de", DE_PILLARS_ARG_DM_ONLY),
     (KEY_SLASH_ANSWERED_PRIVATELY, "de", DE_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "de", DE_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "de", DE_INTAKE_PERSONA),
@@ -3353,7 +3368,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_START_FAILED, "de", DE_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "de", DE_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "de", DE_CALIBRATE_OPENER),
-    (KEY_CALIBRATE_DM_ONLY, "de", DE_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_OPENER_ROOM, "de", DE_CALIBRATE_OPENER_ROOM),
     (KEY_CALIBRATE_START_FAILED, "de", DE_CALIBRATE_START_FAILED),
     (KEY_CALIBRATE_COMPLETE_HEADER, "de", DE_CALIBRATE_COMPLETE_HEADER),
     (KEY_CALIBRATE_COMPLETE_MISSING, "de", DE_CALIBRATE_COMPLETE_MISSING),
@@ -3576,7 +3591,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_SET, "pt", PT_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "pt", PT_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "pt", PT_PILLARS_OPENER),
-    (KEY_PILLARS_DM_ONLY, "pt", PT_PILLARS_DM_ONLY),
+    (KEY_PILLARS_OPENER_ROOM, "pt", PT_PILLARS_OPENER_ROOM),
+    (KEY_PILLARS_ARG_DM_ONLY, "pt", PT_PILLARS_ARG_DM_ONLY),
     (KEY_SLASH_ANSWERED_PRIVATELY, "pt", PT_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "pt", PT_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "pt", PT_INTAKE_PERSONA),
@@ -3595,7 +3611,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_START_FAILED, "pt", PT_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "pt", PT_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "pt", PT_CALIBRATE_OPENER),
-    (KEY_CALIBRATE_DM_ONLY, "pt", PT_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_OPENER_ROOM, "pt", PT_CALIBRATE_OPENER_ROOM),
     (KEY_CALIBRATE_START_FAILED, "pt", PT_CALIBRATE_START_FAILED),
     (KEY_CALIBRATE_COMPLETE_HEADER, "pt", PT_CALIBRATE_COMPLETE_HEADER),
     (KEY_CALIBRATE_COMPLETE_MISSING, "pt", PT_CALIBRATE_COMPLETE_MISSING),

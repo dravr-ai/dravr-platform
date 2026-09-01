@@ -27,16 +27,37 @@ use pierre_database::RepositoryRegistry;
 /// most recently updated one, so a running walk is always inside this window.
 const GUIDED_FLOW_SCAN_LIMIT: i64 = 50;
 
-/// `true` when a guided interview owns the turn and write tools are withheld.
+/// `true` when a guided interview owns the turn FOR THIS USER and write tools
+/// are withheld.
 ///
 /// The conversation is authoritative when the call arrives through the chat
-/// pipeline, which puts its id in scope. A `tools/call` on the `/mcp` endpoint
-/// has none, so the state is resolved from the athlete's conversations instead —
-/// the `conversation_id` argument is model-supplied and cannot be trusted to
+/// pipeline, which puts its id (and, since room walks exist, the tenant that
+/// owns its row) in scope. A `tools/call` on the `/mcp` endpoint has neither,
+/// so the state is resolved from the athlete's conversations instead — the
+/// `conversation_id` argument is model-supplied and cannot be trusted to
 /// answer a question about whether this same model may write.
+///
+/// `conversation_ref` is the `(id, owning tenant)` pair from
+/// [`crate::context::ToolExecutionContext::conversation_ref`]. It matters when
+/// `conv` is `None` despite a conversation id being in scope: a shared room
+/// files its row under the channel tenant, so the caller's own-tenant lookup
+/// missed it — this predicate then retries under the owning tenant, which is
+/// exactly the case where a room walk's withhold used to fall through to the
+/// scan and silently never fire.
+///
+/// A walk bound to a subject withholds from that member alone: everyone else
+/// on the thread is not mid-interview, and refusing the room's human coach a
+/// plan save because their athlete is calibrating would be the wrong refusal.
 ///
 /// Public so discovery and execution share one predicate: `/mcp` `tools/list`
 /// asks before advertising, `save_training_plan` before running.
+///
+/// LIMITATION(registre#168): a bare `/mcp` `tools/call` carries no
+/// conversation, and the fallback scan below runs under the caller's home
+/// tenant — so an active ROOM walk, whose row lives under the channel tenant,
+/// is invisible to `guided_flow_is_active` on that one path. The chat
+/// pipeline, the Guardian `/confirm` re-dispatch, and every other
+/// conversation-carrying call are covered.
 ///
 /// # Errors
 ///
@@ -45,19 +66,43 @@ const GUIDED_FLOW_SCAN_LIMIT: i64 = 50;
 pub async fn guided_flow_is_active(
     repos: &RepositoryRegistry,
     conv: Option<&ConversationRecord>,
+    conversation_ref: Option<(&str, TenantId)>,
     tenant: TenantId,
     user_id: &str,
 ) -> AppResult<bool> {
     if let Some(conv) = conv {
-        return Ok(OnboardingState::from_column(conv.onboarding_state.as_deref()).is_some());
+        return Ok(walk_binds(conv.onboarding_state.as_deref(), user_id));
+    }
+    if let Some((conv_id, conv_tenant)) = conversation_ref {
+        if conv_tenant != tenant {
+            if let Some(conv) = repos
+                .chat
+                .get_conversation(conv_id, user_id, conv_tenant)
+                .await?
+            {
+                return Ok(walk_binds(conv.onboarding_state.as_deref(), user_id));
+            }
+        }
     }
     let states = repos
         .chat
         .list_user_onboarding_states(user_id, tenant, GUIDED_FLOW_SCAN_LIMIT)
         .await?;
-    Ok(states
-        .iter()
-        .any(|raw| OnboardingState::from_column(Some(raw)).is_some()))
+    Ok(states.iter().any(|raw| walk_binds(Some(raw), user_id)))
+}
+
+/// Whether the stored column holds an active walk that binds `user_id`.
+///
+/// A walk with no subject predates the binding (or was auto-started) and
+/// belongs to the conversation's owner, which is who every pre-room caller
+/// asked about — so it binds.
+fn walk_binds(raw: Option<&str>, user_id: &str) -> bool {
+    OnboardingState::from_column(raw).is_some_and(|state| {
+        state
+            .subject_user_id
+            .as_deref()
+            .is_none_or(|subject| subject == user_id)
+    })
 }
 
 /// Tools withheld from the model while a guided conversational flow — today the

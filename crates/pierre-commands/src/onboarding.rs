@@ -5,11 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
-    KEY_PILLARS_DM_ONLY, KEY_PILLARS_OPENER, KEY_PILLARS_START_FAILED,
+    KEY_PILLARS_ARG_DM_ONLY, KEY_PILLARS_OPENER, KEY_PILLARS_OPENER_ROOM, KEY_PILLARS_START_FAILED,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::{AddMessageParams, GuidedFlow, OnboardingState, Pillar};
+use pierre_core::models::{
+    AddMessageParams, GuidedFlow, OnboardingState, Pillar, TopicVisibility, WalkAudience,
+};
 use pierre_messaging::commands::CommandResponse;
 use tracing::{info, warn};
 
@@ -76,16 +79,15 @@ fn unknown_pillar_error(arg: &str) -> AppError {
 /// Superseding is done via `expire_onboarding_facts` (sets `valid_until=now`),
 /// never deletion — the GDPR forget path stays separate.
 ///
-/// Direct messages only. Slash replies from a shared room are already rerouted
-/// to a private chat, so a group walk would ask the athlete about motivations,
-/// sleep and stress in DM while the extraction worker stamped their answers
-/// under the *channel* tenant — a fact space disjoint from their own dossier.
-///
-/// LIMITATION(registre#44): `PillarsHandler` has no group-context form, so an
-/// athlete cannot walk the pillars where their coach can see. The gate is the
-/// symptom, not the gap: per-member flow state, a speaker-scoped fact-write
-/// tenant, a room-visible reply path and an interview-visibility consent
-/// distinct from `peer_sharing_consent` all have to exist first.
+/// Works in a direct message and in a shared room alike. Typing the command in
+/// a room is the athlete's consent to a room-visible walk, and the walk binds
+/// to them alone — the state carries their `subject_user_id`, so their coach
+/// follows along read-only. A room walk covers only the room-safe topics
+/// ([`Pillar::visibility`]): Mental Resilience and Recovery Optimisation are
+/// never probed there, never named as arguments there, and never superseded
+/// from there — the opener points the athlete at a direct message for those
+/// two. The walk state and opener land on the conversation row's own tenant
+/// (the channel tenant in a room); the athlete's facts stay under their own.
 pub struct PillarsHandler;
 
 #[async_trait]
@@ -93,28 +95,46 @@ impl CommandHandler for PillarsHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
 
-        if !ctx.is_direct_message {
-            info!(
-                user_id = %ctx.user_id,
-                channel = %ctx.channel_type,
-                "/pillars refused outside a direct message"
-            );
-            return Ok(CommandResponse::rich_text(reg.render(
-                KEY_PILLARS_DM_ONLY,
-                &ctx.locale,
-                &[],
-            )));
-        }
-
         let conversation_id = ctx.conversation_id.as_deref().ok_or_else(|| {
             AppError::invalid_input("/pillars needs an active conversation to onboard into")
         })?;
         let repos = ctx.ctx.repos();
         let user = ctx.user_id.to_string();
+        let audience = if ctx.is_direct_message {
+            WalkAudience::Private
+        } else {
+            WalkAudience::Room
+        };
 
         // Re-screen scope: `full` expires all onboarding facts, a pillar name
         // expires that pillar's, bare `/pillars` supersedes nothing.
+        //
+        // A room refuses the re-screens a room walk cannot honour, BEFORE any
+        // expiry runs: a DM-only pillar named there would supersede facts the
+        // room walk then never re-asks, and `full` would do it to both at
+        // once. The refusal keys off the parsed pillar's visibility, not the
+        // spelling, so the canonical slugs are covered with the aliases.
         let arg = ctx.args.first().map(|s| s.trim().to_lowercase());
+        if audience == WalkAudience::Room {
+            let refused = match arg.as_deref() {
+                Some("full") => true,
+                Some(slug) => parse_pillar_arg(slug)
+                    .is_some_and(|p| p.visibility() == TopicVisibility::DmOnly),
+                None => false,
+            };
+            if refused {
+                info!(
+                    user_id = %ctx.user_id,
+                    arg = arg.as_deref().unwrap_or_default(),
+                    "/pillars re-screen refused in a shared room"
+                );
+                return Ok(CommandResponse::rich_text(reg.render(
+                    KEY_PILLARS_ARG_DM_ONLY,
+                    &ctx.locale,
+                    &[],
+                )));
+            }
+        }
         match arg.as_deref() {
             Some("full") => {
                 let n = repos
@@ -137,11 +157,23 @@ impl CommandHandler for PillarsHandler {
         // Activate onboarding mode on this conversation. The returned `bool`
         // reports whether a row actually matched: a tenant mismatch updates
         // nothing, and answering with the opener anyway would start a walk that
-        // no turn ever runs in.
-        let json = OnboardingState::start_now_column(GuidedFlow::Pillars);
+        // no turn ever runs in. Built explicitly rather than via
+        // `start_now_column` so the subject binding and audience are never
+        // dropped — a room activation that lost them would let any member's
+        // message advance the walk.
+        let state = OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Pillars)
+            .with_subject(user.clone())
+            .with_audience(audience);
+        let json = state
+            .to_column()
+            .map_err(|e| AppError::internal(format!("failed to serialize pillars state: {e}")))?;
         let activated = repos
             .chat
-            .set_conversation_onboarding_state(conversation_id, Some(&json), ctx.tenant_id)
+            .set_conversation_onboarding_state(
+                conversation_id,
+                Some(&json),
+                ctx.conversation_tenant_id,
+            )
             .await?;
         if !activated {
             warn!(
@@ -156,9 +188,13 @@ impl CommandHandler for PillarsHandler {
             )));
         }
 
-        info!(user_id = %ctx.user_id, "onboarding mode activated via /pillars");
+        info!(user_id = %ctx.user_id, audience = ?audience, "onboarding mode activated via /pillars");
 
-        let msg = reg.render(KEY_PILLARS_OPENER, &ctx.locale, &[]);
+        let opener_key = match audience {
+            WalkAudience::Private => KEY_PILLARS_OPENER,
+            WalkAudience::Room => KEY_PILLARS_OPENER_ROOM,
+        };
+        let msg = reg.render(opener_key, &ctx.locale, &[]);
 
         // Persist the opener as the conversation's first assistant message — a
         // scoped exception to slash-command ephemerality, for flow-opening
@@ -175,7 +211,7 @@ impl CommandHandler for PillarsHandler {
         // `get_conversation_history` — which filters on the conversation
         // tenant — actually sees it.
         let opener = AddMessageParams {
-            tenant_id: ctx.tenant_id,
+            tenant_id: ctx.conversation_tenant_id,
             conversation_id,
             user_id: &user,
             role: "assistant",

@@ -832,7 +832,14 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // surface, including a direct MCP call. Self scope only: a coach
             // saving for an athlete is not inside that athlete's profile walk.
             if scope.acting_for.is_none()
-                && guided_flow_is_active(repos, conv.as_ref(), tenant, &user_id).await?
+                && guided_flow_is_active(
+                    repos,
+                    conv.as_ref(),
+                    context.conversation_ref(),
+                    tenant,
+                    &user_id,
+                )
+                .await?
             {
                 return Err(AppError::invalid_input(
                     "this conversation is building the athlete's profile one topic at a time — \

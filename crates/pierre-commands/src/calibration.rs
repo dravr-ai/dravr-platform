@@ -7,10 +7,10 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
-    KEY_CALIBRATE_DM_ONLY, KEY_CALIBRATE_OPENER, KEY_CALIBRATE_START_FAILED,
+    KEY_CALIBRATE_OPENER, KEY_CALIBRATE_OPENER_ROOM, KEY_CALIBRATE_START_FAILED,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::{AddMessageParams, GuidedFlow, OnboardingState, Pillar};
+use pierre_core::models::{AddMessageParams, GuidedFlow, OnboardingState, Pillar, WalkAudience};
 use pierre_messaging::commands::CommandResponse;
 use pierre_services::recent_load::recent_load_snapshot;
 use serde_json::{json, Value};
@@ -36,17 +36,15 @@ const PROFILE_KEY_LAST_STARTED_AT: &str = "last_started_at";
 /// expects an adjustment to today's plan, not a six-question interview, so that
 /// alias is deliberately absent and discovery runs through the coach instead.
 ///
-/// Direct messages only, for the same reason as `/pillars`: slash replies from
-/// a shared room are rerouted to a private chat, so a group interview would ask
-/// the athlete about injuries and recovery in DM while the extraction worker
-/// stamped their answers under the *channel* tenant — a fact space disjoint
-/// from their own dossier.
-///
-/// LIMITATION(registre#44): `CalibrateHandler` has no group-context form, so an
-/// athlete cannot calibrate where their coach can see. Lifting the DM gate alone
-/// is not the fix: `OnboardingState` is one column on the shared conversation
-/// row, so a room admits a single walk and reads every member's next message as
-/// its answer.
+/// Works in a direct message and in a shared room alike. Typing the command in
+/// a room is the athlete's consent to a room-visible interview — the same
+/// per-invocation grant `/plan share` established — and the walk binds to them
+/// alone: the state carries their `subject_user_id`, so nobody else's message
+/// advances it, and their coach follows along read-only. The interview state
+/// and opener land on the conversation row's own tenant (the channel tenant in
+/// a room), while the athlete-scoped writes below — the supersession window,
+/// the profile stamp, the load snapshot — stay under the athlete's own tenant,
+/// which is also where the turn pipeline stamps every answer's extraction.
 pub struct CalibrateHandler;
 
 /// The previous interview's start, if this athlete has calibrated before.
@@ -83,19 +81,6 @@ fn profile_with_calibration_start(profile: Option<Value>, started_at: &str) -> V
 impl CommandHandler for CalibrateHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
-
-        if !ctx.is_direct_message {
-            info!(
-                user_id = %ctx.user_id,
-                channel = %ctx.channel_type,
-                "/calibrate refused outside a direct message"
-            );
-            return Ok(CommandResponse::rich_text(reg.render(
-                KEY_CALIBRATE_DM_ONLY,
-                &ctx.locale,
-                &[],
-            )));
-        }
 
         let conversation_id = ctx.conversation_id.as_deref().ok_or_else(|| {
             AppError::invalid_input("/calibrate needs an active conversation to interview in")
@@ -178,8 +163,18 @@ impl CommandHandler for CalibrateHandler {
             None
         });
 
+        // The subject binding is what keeps a shared thread's walk the caller's
+        // own; the audience records where they chose to run it, which is the
+        // consent record and what filters room-unsafe topics.
+        let audience = if ctx.is_direct_message {
+            WalkAudience::Private
+        } else {
+            WalkAudience::Room
+        };
         let state = OnboardingState::start(started_at.to_rfc3339(), GuidedFlow::Calibration)
-            .with_snapshot(snapshot);
+            .with_snapshot(snapshot)
+            .with_subject(user.clone())
+            .with_audience(audience);
         let json = state.to_column().map_err(|e| {
             AppError::internal(format!("failed to serialize calibration state: {e}"))
         })?;
@@ -187,9 +182,16 @@ impl CommandHandler for CalibrateHandler {
         // The returned `bool` reports whether a row actually matched: a tenant
         // mismatch updates nothing, and answering with the opener anyway would
         // start an interview that no turn ever runs in.
+        // The conversation row lives under the conversation's own tenant — the
+        // caller's in a DM, the channel tenant in a shared room — and the
+        // update matches only there.
         let activated = repos
             .chat
-            .set_conversation_onboarding_state(conversation_id, Some(&json), ctx.tenant_id)
+            .set_conversation_onboarding_state(
+                conversation_id,
+                Some(&json),
+                ctx.conversation_tenant_id,
+            )
             .await?;
         if !activated {
             warn!(
@@ -204,9 +206,19 @@ impl CommandHandler for CalibrateHandler {
             )));
         }
 
-        info!(user_id = %ctx.user_id, "calibration interview activated via /calibrate");
+        info!(
+            user_id = %ctx.user_id,
+            audience = ?audience,
+            "calibration interview activated via /calibrate"
+        );
 
-        let msg = reg.render(KEY_CALIBRATE_OPENER, &ctx.locale, &[]);
+        // The room opener says out loud what the athlete just chose: the
+        // exchange is visible here, and it is theirs alone to answer.
+        let opener_key = match audience {
+            WalkAudience::Private => KEY_CALIBRATE_OPENER,
+            WalkAudience::Room => KEY_CALIBRATE_OPENER_ROOM,
+        };
+        let msg = reg.render(opener_key, &ctx.locale, &[]);
 
         // Persist the opener as an assistant message, for the same two reasons
         // `/pillars` does: the coach otherwise receives the athlete's first
@@ -214,7 +226,7 @@ impl CommandHandler for CalibrateHandler {
         // it cannot see, and with no history row that answer is message #1,
         // which arms the first-turn startup prefetch.
         let opener = AddMessageParams {
-            tenant_id: ctx.tenant_id,
+            tenant_id: ctx.conversation_tenant_id,
             conversation_id,
             user_id: &user,
             role: "assistant",

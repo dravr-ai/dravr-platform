@@ -68,6 +68,40 @@ pub enum GuidedFlow {
     Intake,
 }
 
+/// Whether a guided-interview topic may be probed where other people read
+/// the exchange.
+///
+/// Declared per topic, never inferred, and the default is [`Self::DmOnly`]:
+/// a topic that does not explicitly claim room safety is excluded from room
+/// walks. The fixed flows declare theirs in code ([`Pillar::visibility`],
+/// [`super::CalibrationTopic::visibility`]); a coach-authored questionnaire
+/// will supply one per topic in its package, reviewed before publication.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicVisibility {
+    /// Probed only where the athlete is alone with the coach.
+    #[default]
+    DmOnly,
+    /// May also be probed in a shared room whose walk the athlete started
+    /// there — typing the command in the room is the consent.
+    RoomSafe,
+}
+
+/// Who reads a guided walk's exchange.
+///
+/// Recorded once at activation and never derived later from the conversation
+/// alone: the athlete's choice of where to start the walk is the consent
+/// record, so it must survive exactly as granted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WalkAudience {
+    /// A 1:1 conversation — every pre-feature row parses as this.
+    #[default]
+    Private,
+    /// A shared room. Only [`TopicVisibility::RoomSafe`] topics are probed.
+    Room,
+}
+
 /// The athlete's recent training load, computed once when a calibration
 /// interview starts and reused by every later turn.
 ///
@@ -123,6 +157,21 @@ pub struct OnboardingState {
     /// the field existed — hence `serde(default)`.
     #[serde(default)]
     pub completed_at: Option<String>,
+    /// The member this walk belongs to, as a UUID string. Set at activation;
+    /// the turn resolver advances the walk only for this speaker, so in a
+    /// shared thread every other member's message runs as ordinary coaching.
+    /// `None` on rows written before the field existed and on auto-started
+    /// walks, where the conversation's owner is the subject by construction.
+    ///
+    /// A string rather than a `Uuid` so a corrupt value degrades at the use
+    /// site — mirroring how a corrupt `conversation.user_id` degrades the
+    /// turn — instead of failing the whole state parse and killing the walk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_user_id: Option<String>,
+    /// Who reads this walk's exchange. Absent from rows written before the
+    /// field existed; those are all private walks — hence `serde(default)`.
+    #[serde(default)]
+    pub audience: WalkAudience,
 }
 
 /// How long after a guided interview ends its release directive keeps firing.
@@ -145,6 +194,8 @@ impl OnboardingState {
             flow,
             snapshot: None,
             completed_at: None,
+            subject_user_id: None,
+            audience: WalkAudience::Private,
         }
     }
 
@@ -194,6 +245,23 @@ impl OnboardingState {
     #[must_use]
     pub fn with_snapshot(mut self, snapshot: Option<LoadSnapshot>) -> Self {
         self.snapshot = snapshot;
+        self
+    }
+
+    /// This state bound to the member it interviews.
+    ///
+    /// The turn resolver advances the walk only for this speaker; everyone
+    /// else in the thread runs an ordinary coaching turn.
+    #[must_use]
+    pub fn with_subject(mut self, user_id: String) -> Self {
+        self.subject_user_id = Some(user_id);
+        self
+    }
+
+    /// This state with its audience recorded.
+    #[must_use]
+    pub const fn with_audience(mut self, audience: WalkAudience) -> Self {
+        self.audience = audience;
         self
     }
 
@@ -267,6 +335,18 @@ impl CoverageTarget {
             Self::Pillar(p) => TopicSlug::new(p.as_str().to_owned()),
         }
     }
+
+    /// Whether this topic may be probed in a shared room.
+    ///
+    /// The North Star — what the athlete trains *for* — is the kind of thing
+    /// a training partner already knows; the pillars each declare their own.
+    #[must_use]
+    pub const fn visibility(self) -> TopicVisibility {
+        match self {
+            Self::NorthStar => TopicVisibility::RoomSafe,
+            Self::Pillar(p) => p.visibility(),
+        }
+    }
 }
 
 /// Read-time projection of which onboarding topics the user has covered.
@@ -301,17 +381,28 @@ impl CoverageMap {
         }
     }
 
-    /// Every uncovered topic, North Star first then pillars in canonical order.
-    fn uncovered(&self) -> Vec<CoverageTarget> {
+    /// Every uncovered topic the audience may hear, North Star first then
+    /// pillars in canonical order.
+    ///
+    /// A room walk EXCLUDES [`TopicVisibility::DmOnly`] topics from the set
+    /// rather than skipping them turn by turn: `next_target` returning `None`
+    /// is the walk's completion signal, so a merely-skipped topic would keep
+    /// the walk alive with nothing left it may ask.
+    fn uncovered(&self, audience: WalkAudience) -> Vec<CoverageTarget> {
+        let audible = |t: &CoverageTarget| match audience {
+            WalkAudience::Private => true,
+            WalkAudience::Room => t.visibility() == TopicVisibility::RoomSafe,
+        };
         let mut out = Vec::with_capacity(1 + Pillar::ALL.len());
-        if !self.north_star_covered {
+        if !self.north_star_covered && audible(&CoverageTarget::NorthStar) {
             out.push(CoverageTarget::NorthStar);
         }
         out.extend(
             Pillar::ALL
                 .into_iter()
                 .filter(|p| !self.pillars.get(p).copied().unwrap_or(false))
-                .map(CoverageTarget::Pillar),
+                .map(CoverageTarget::Pillar)
+                .filter(|t| audible(t)),
         );
         out
     }
@@ -330,11 +421,15 @@ impl CoverageMap {
     /// of stalling on it while extraction lags. A topic that has burned
     /// [`MAX_PROBE_ATTEMPTS`] is skipped for the rest of the walk.
     ///
-    /// `None` means the walk is over: every topic is either covered or out of
-    /// attempts.
+    /// `None` means the walk is over: every topic the audience may hear is
+    /// either covered or out of attempts.
     #[must_use]
-    pub fn next_target(&self, probed: &[TopicSlug]) -> Option<CoverageTarget> {
-        self.uncovered()
+    pub fn next_target(
+        &self,
+        probed: &[TopicSlug],
+        audience: WalkAudience,
+    ) -> Option<CoverageTarget> {
+        self.uncovered(audience)
             .into_iter()
             .filter(|t| Self::attempts(*t, probed) < MAX_PROBE_ATTEMPTS)
             .min_by_key(|t| Self::attempts(*t, probed))
@@ -358,7 +453,8 @@ impl CoverageMap {
 #[cfg(test)]
 mod tests {
     use super::{
-        CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, TopicSlug, MAX_PROBE_ATTEMPTS,
+        CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, TopicSlug, TopicVisibility,
+        WalkAudience, MAX_PROBE_ATTEMPTS,
     };
     use crate::models::{Dossier, DossierFact, Pillar};
     use uuid::Uuid;
@@ -386,7 +482,10 @@ mod tests {
     fn empty_dossier_targets_north_star_first() {
         let d = Dossier::empty(Uuid::nil(), Uuid::nil());
         let cov = CoverageMap::from_dossier(&d);
-        assert_eq!(cov.next_target(&[]), Some(CoverageTarget::NorthStar));
+        assert_eq!(
+            cov.next_target(&[], WalkAudience::Private),
+            Some(CoverageTarget::NorthStar)
+        );
         assert!(!cov.is_complete());
         assert_eq!(cov.covered_count(), 0);
     }
@@ -397,7 +496,7 @@ mod tests {
         d.north_star = vec![covered_fact()];
         let cov = CoverageMap::from_dossier(&d);
         assert_eq!(
-            cov.next_target(&[]),
+            cov.next_target(&[], WalkAudience::Private),
             Some(CoverageTarget::Pillar(Pillar::TrainingAndMovement))
         );
     }
@@ -421,7 +520,7 @@ mod tests {
         }
         let cov = CoverageMap::from_dossier(&d);
         assert!(cov.is_complete());
-        assert_eq!(cov.next_target(&[]), None);
+        assert_eq!(cov.next_target(&[], WalkAudience::Private), None);
         assert_eq!(cov.covered_count(), 7);
     }
 
@@ -522,7 +621,7 @@ mod tests {
         let d = Dossier::empty(Uuid::nil(), Uuid::nil());
         let cov = CoverageMap::from_dossier(&d);
         assert_eq!(
-            cov.next_target(&probed(&[CoverageTarget::NorthStar])),
+            cov.next_target(&probed(&[CoverageTarget::NorthStar]), WalkAudience::Private),
             Some(CoverageTarget::Pillar(Pillar::TrainingAndMovement))
         );
     }
@@ -536,7 +635,7 @@ mod tests {
         let mut history = vec![CoverageTarget::NorthStar];
         history.extend(Pillar::ALL.map(CoverageTarget::Pillar));
         assert_eq!(
-            cov.next_target(&probed(&history)),
+            cov.next_target(&probed(&history), WalkAudience::Private),
             Some(CoverageTarget::NorthStar)
         );
     }
@@ -551,7 +650,7 @@ mod tests {
             history.extend(Pillar::ALL.map(CoverageTarget::Pillar));
         }
         assert_eq!(
-            cov.next_target(&probed(&history)),
+            cov.next_target(&probed(&history), WalkAudience::Private),
             None,
             "nothing covered, but every topic is out of attempts — walk must end"
         );
@@ -566,7 +665,7 @@ mod tests {
         d.north_star = vec![covered_fact()];
         let cov = CoverageMap::from_dossier(&d);
         assert_eq!(
-            cov.next_target(&probed(&[CoverageTarget::NorthStar])),
+            cov.next_target(&probed(&[CoverageTarget::NorthStar]), WalkAudience::Private),
             Some(CoverageTarget::Pillar(Pillar::TrainingAndMovement))
         );
     }
@@ -602,6 +701,76 @@ mod tests {
         let d = Dossier::empty(Uuid::nil(), Uuid::nil());
         let cov = CoverageMap::from_dossier(&d);
         let foreign = vec![TopicSlug::new("topic_from_a_later_build".to_owned())];
-        assert_eq!(cov.next_target(&foreign), Some(CoverageTarget::NorthStar));
+        assert_eq!(
+            cov.next_target(&foreign, WalkAudience::Private),
+            Some(CoverageTarget::NorthStar)
+        );
+    }
+    #[test]
+    fn old_row_json_parses_with_private_defaults() {
+        // Every stored row predates the subject/audience fields. They must
+        // parse as an unbound private walk — today's semantics exactly.
+        let legacy = r#"{"active":true,"started_at":"2026-06-17T00:00:00Z","flow":"calibration"}"#;
+        let parsed = OnboardingState::from_column(Some(legacy));
+        assert_eq!(
+            parsed.as_ref().map(|s| s.subject_user_id.clone()),
+            Some(None)
+        );
+        assert_eq!(
+            parsed.map(|s| s.audience),
+            Some(WalkAudience::Private),
+            "a legacy row read as a room walk would probe room-safe topics only"
+        );
+    }
+
+    #[test]
+    fn subject_and_audience_survive_the_column_round_trip() {
+        let state = OnboardingState::start("2026-08-31T00:00:00Z".to_owned(), GuidedFlow::Pillars)
+            .with_subject("6a938a90-2b31-49b5-8b9a-000000000001".to_owned())
+            .with_audience(WalkAudience::Room);
+        let column = state.to_column().unwrap_or_default();
+        let back = OnboardingState::from_column(Some(&column));
+        assert_eq!(
+            back.as_ref().and_then(|s| s.subject_user_id.clone()),
+            Some("6a938a90-2b31-49b5-8b9a-000000000001".to_owned()),
+            "a lost subject binding would let any member's message advance the walk"
+        );
+        assert_eq!(back.map(|s| s.audience), Some(WalkAudience::Room));
+    }
+
+    #[test]
+    fn room_audience_excludes_dm_only_pillars_from_the_walk() {
+        // Nothing covered: a room walk must sweep the North Star plus the four
+        // room-safe pillars and never surface the two DM-only ones — and it
+        // must TERMINATE once those five burn their attempts, because `None`
+        // is the walk's completion signal.
+        let d = Dossier::empty(Uuid::nil(), Uuid::nil());
+        let cov = CoverageMap::from_dossier(&d);
+        let mut history = Vec::new();
+        while let Some(target) = cov.next_target(&probed(&history), WalkAudience::Room) {
+            assert_ne!(
+                target.visibility(),
+                TopicVisibility::DmOnly,
+                "a DM-only topic surfaced in a room walk: {:?}",
+                target.slug().as_str()
+            );
+            history.push(target);
+            assert!(
+                history.len() <= 5 * MAX_PROBE_ATTEMPTS,
+                "room walk did not terminate"
+            );
+        }
+        assert_eq!(
+            history.len(),
+            5 * MAX_PROBE_ATTEMPTS,
+            "expected exactly the 5 room-safe targets, each probed to its budget"
+        );
+        // The same dossier walked privately still reaches all seven.
+        assert_eq!(
+            cov.next_target(&probed(&history), WalkAudience::Private)
+                .map(CoverageTarget::visibility),
+            Some(TopicVisibility::DmOnly),
+            "the private walk must still owe the DM-only pillars"
+        );
     }
 }

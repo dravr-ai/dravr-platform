@@ -18,7 +18,7 @@ use pierre_chat_pipeline::stages::onboarding::{
 };
 use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, CoverageTarget, GuidedFlow, LoadSnapshot,
-    OnboardingState, Pillar, TopicSlug,
+    OnboardingState, Pillar, TopicSlug, WalkAudience,
 };
 use pierre_memory::{FactKind, FactSource};
 use std::collections::HashSet;
@@ -43,8 +43,12 @@ fn calibration_turn(topic: CalibrationTopic, snapshot: Option<LoadSnapshot>) -> 
 fn state_when_asking(topic: CalibrationTopic) -> OnboardingState {
     let mut state = OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Calibration);
     loop {
-        let next = CalibrationTopic::next_target(&state.probed, CalibrationConditions::default())
-            .expect("the interview ran out of topics before reaching the fixture's");
+        let next = CalibrationTopic::next_target(
+            &state.probed,
+            CalibrationConditions::default(),
+            WalkAudience::Private,
+        )
+        .expect("the interview ran out of topics before reaching the fixture's");
         if next == topic {
             return state;
         }
@@ -146,7 +150,9 @@ fn every_turn_of_the_walk_stamps_the_question_it_answers() {
     let mut asked_last_turn: Option<CalibrationTopic> = None;
     let mut steps = 0;
 
-    while let Some(asking_now) = CalibrationTopic::next_target(&state.probed, conditions) {
+    while let Some(asking_now) =
+        CalibrationTopic::next_target(&state.probed, conditions, WalkAudience::Private)
+    {
         assert_eq!(
             answered_target(&state),
             asked_last_turn.map(GuidedTarget::Calibration),
@@ -351,5 +357,33 @@ fn the_two_flows_write_disjoint_ledger_slugs() {
         calibration.len(),
         calibration.iter().collect::<HashSet<_>>().len(),
         "two calibration topics share a slug"
+    );
+}
+
+#[test]
+fn a_room_walk_directive_names_the_subject_binding_and_the_audience() {
+    // The room line is what tells the coach that other members' messages are
+    // conversation, not answers — without it the model happily treats the
+    // watching coach's "looking good!" as the athlete's injury answer.
+    let mut turn = calibration_turn(CalibrationTopic::Injury, None);
+    turn.state = turn.state.with_audience(WalkAudience::Room);
+    let text = directive(&turn);
+    assert!(
+        text.contains("shared room"),
+        "a room walk's directive must state the audience, got: {text}"
+    );
+    assert!(
+        text.contains("never as interview answers"),
+        "the directive must forbid reading other members' messages as answers"
+    );
+}
+
+#[test]
+fn a_private_walk_directive_carries_no_room_line() {
+    let turn = calibration_turn(CalibrationTopic::Injury, None);
+    let text = directive(&turn);
+    assert!(
+        !text.contains("shared room"),
+        "a DM interview must not be told it runs in a room, got: {text}"
     );
 }

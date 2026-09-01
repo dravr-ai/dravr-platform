@@ -334,10 +334,15 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // server-side refusal would reject the call anyway.
         if let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) {
             if let Some(user_id) = ctx.user_id.as_deref() {
-                let active =
-                    guided_flow_is_active(&self.resources.common.repos, None, tenant_id, user_id)
-                        .await
-                        .unwrap_or(true);
+                let active = guided_flow_is_active(
+                    &self.resources.common.repos,
+                    None,
+                    None,
+                    tenant_id,
+                    user_id,
+                )
+                .await
+                .unwrap_or(true);
                 if active {
                     schemas.retain(|s| !is_withheld_during_guided_flow(&s.name));
                 }
