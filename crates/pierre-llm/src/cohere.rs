@@ -64,7 +64,8 @@ use super::{
     LlmCapabilities, LlmProvider, StreamChunk, TokenUsage, Tool,
 };
 use crate::build_llm_http_client;
-use crate::errors::{AppError, ErrorCode};
+use crate::cohere_errors::parse_error_response;
+use crate::errors::AppError;
 
 /// Environment variable for Cohere API key
 const COHERE_API_KEY_ENV: &str = "COHERE_API_KEY";
@@ -339,15 +340,6 @@ struct CohereMessageEndDelta {
     finish_reason: Option<String>,
 }
 
-/// Cohere v2 error response
-#[derive(Debug, Deserialize)]
-struct CohereErrorResponse {
-    /// Free-form error message. Some 4xx responses use `data.error.message`
-    /// instead; we fall back to the raw body when neither shape parses.
-    #[serde(default)]
-    message: Option<String>,
-}
-
 // ============================================================================
 // Provider Implementation
 // ============================================================================
@@ -511,55 +503,6 @@ impl CohereProvider {
         ))
     }
 
-    /// Parse error response from Cohere API
-    fn parse_error_response(status: reqwest::StatusCode, body: &str) -> AppError {
-        // Cohere returns 400/422 carrying this phrase when the model produced an
-        // empty completion (no text and no tool call) — a provider-side "couldn't
-        // answer", classified retryable below so the runtime fallback chain
-        // cascades to the next provider rather than surfacing a user-facing error.
-        const EMPTY_COMPLETION_MARKER: &str = "no tool calls or response";
-
-        let parsed_message = serde_json::from_str::<CohereErrorResponse>(body)
-            .ok()
-            .and_then(|err| err.message)
-            .filter(|m| !m.is_empty());
-
-        let error_message = parsed_message.unwrap_or_else(|| {
-            debug!(
-                status = %status,
-                body_preview = %body.chars().take(200).collect::<String>(),
-                "Cohere API returned non-JSON error response"
-            );
-            format!("HTTP {status}")
-        });
-
-        match status.as_u16() {
-            401 | 403 => {
-                AppError::auth_invalid(format!("Cohere API authentication failed: {error_message}"))
-            }
-            429 => AppError::new(
-                ErrorCode::ExternalRateLimited,
-                format!("Cohere rate limit reached. {error_message}"),
-            ),
-            400 | 422 => {
-                // An empty-completion 400/422 is a retryable "provider couldn't
-                // answer": classify it as an external-service error so the runtime
-                // fallback chain cascades to the next provider instead of surfacing
-                // a user-facing failure. Genuine validation errors stay
-                // non-retryable InvalidInput.
-                if error_message
-                    .to_lowercase()
-                    .contains(EMPTY_COMPLETION_MARKER)
-                {
-                    AppError::external_service("Cohere", error_message)
-                } else {
-                    AppError::invalid_input(format!("Cohere API validation error: {error_message}"))
-                }
-            }
-            _ => AppError::external_service("Cohere", error_message),
-        }
-    }
-
     /// Check if an error from the Cohere API is retryable (transient)
     fn is_retryable_error(status: u16) -> bool {
         sse_parser::is_retryable_status(status)
@@ -702,7 +645,7 @@ impl CohereProvider {
         })?;
 
         if !status.is_success() {
-            return Err(Self::parse_error_response(status, &body));
+            return Err(parse_error_response(status, &body));
         }
 
         let cohere_response: CohereResponse = serde_json::from_str(&body).map_err(|e| {
@@ -824,7 +767,7 @@ impl LlmProvider for CohereProvider {
             };
 
             if !status.is_success() {
-                let error = Self::parse_error_response(status, &body);
+                let error = parse_error_response(status, &body);
                 if Self::is_retryable_error(status.as_u16())
                     && attempt < self.retry_config.max_retries
                 {
@@ -915,7 +858,7 @@ impl LlmProvider for CohereProvider {
 
             if !status.is_success() {
                 let body = response.text().await.unwrap_or_default();
-                let error = Self::parse_error_response(status, &body);
+                let error = parse_error_response(status, &body);
                 if Self::is_retryable_error(status.as_u16())
                     && attempt < self.retry_config.max_retries
                 {
@@ -977,6 +920,7 @@ mod tests {
     use crate::is_retryable_for_fallback;
     use embacle::types::ToolCallRequest;
     use pierre_core::errors::AppResult;
+    use pierre_core::errors::ErrorCode;
 
     #[test]
     fn empty_completion_422_is_retryable_for_fallback() {
@@ -987,11 +931,27 @@ mod tests {
         // auth failed, Cohere returned this, and the turn errored out (generic
         // "Dravr indisponible") instead of trying Gemini.
         let body = r#"{"message":"No tool calls or response was generated. Try updating messages or tool definitions"}"#;
-        let err =
-            CohereProvider::parse_error_response(reqwest::StatusCode::UNPROCESSABLE_ENTITY, body);
+        let err = parse_error_response(reqwest::StatusCode::UNPROCESSABLE_ENTITY, body);
         assert!(
             is_retryable_for_fallback(&err),
             "empty-completion 422 must cascade; got code {:?}",
+            err.code
+        );
+    }
+
+    #[test]
+    fn the_other_empty_completion_phrasing_also_cascades() {
+        // Cohere states the same inability two ways, and only one was matched.
+        // Verbatim from live-incident-eval run 33492743565 (2026-09-01), where
+        // it ended 2 of 16 empty-turn handoffs: the athlete got the canned
+        // "Dravr est temporairement indisponible" while the Gemini tertiary was
+        // never tried, because a provider-side non-answer had been classified
+        // as a malformed request.
+        let body = r#"{"message":"No valid response generated. Try updating messages"}"#;
+        let err = parse_error_response(reqwest::StatusCode::BAD_REQUEST, body);
+        assert!(
+            is_retryable_for_fallback(&err),
+            "this phrasing must cascade to the tertiary too; got code {:?}",
             err.code
         );
     }
@@ -1001,8 +961,7 @@ mod tests {
         // A real malformed-request 422 would fail on every provider, so it must
         // NOT cascade — it stays a non-retryable InvalidInput.
         let body = r#"{"message":"invalid request: messages must not be empty"}"#;
-        let err =
-            CohereProvider::parse_error_response(reqwest::StatusCode::UNPROCESSABLE_ENTITY, body);
+        let err = parse_error_response(reqwest::StatusCode::UNPROCESSABLE_ENTITY, body);
         assert!(
             !is_retryable_for_fallback(&err),
             "a genuine validation 422 must not cascade; got code {:?}",
@@ -1210,7 +1169,7 @@ mod tests {
     #[test]
     fn parse_error_response_maps_401_to_auth_invalid() {
         let body = r#"{"message":"invalid api token"}"#;
-        let err = CohereProvider::parse_error_response(reqwest::StatusCode::UNAUTHORIZED, body);
+        let err = parse_error_response(reqwest::StatusCode::UNAUTHORIZED, body);
         assert_eq!(err.code, ErrorCode::AuthInvalid);
         assert!(err.message.contains("invalid api token"));
     }
@@ -1218,15 +1177,14 @@ mod tests {
     #[test]
     fn parse_error_response_maps_429_to_rate_limited() {
         let body = r#"{"message":"too many requests"}"#;
-        let err =
-            CohereProvider::parse_error_response(reqwest::StatusCode::TOO_MANY_REQUESTS, body);
+        let err = parse_error_response(reqwest::StatusCode::TOO_MANY_REQUESTS, body);
         assert_eq!(err.code, ErrorCode::ExternalRateLimited);
     }
 
     #[test]
     fn parse_error_response_falls_back_to_raw_body_on_unknown_shape() {
         let body = "<html>nginx 502</html>";
-        let err = CohereProvider::parse_error_response(reqwest::StatusCode::BAD_GATEWAY, body);
+        let err = parse_error_response(reqwest::StatusCode::BAD_GATEWAY, body);
         assert_eq!(err.code, ErrorCode::ExternalServiceError);
         assert!(err.message.contains("502"));
     }

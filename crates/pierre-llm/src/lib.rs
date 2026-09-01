@@ -37,6 +37,7 @@ pub mod chain_guard;
 mod cli_llm_provider;
 /// Cohere LLM provider implementation (Command A and Command R family)
 mod cohere;
+mod cohere_errors;
 /// LLM configuration types (provider selection, model settings)
 pub mod config;
 /// Embedding provider abstraction for the coaching harness memory pipeline
