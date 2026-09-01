@@ -1,13 +1,15 @@
 name: "CI: Code Coverage"
 
+# This lane does not run on push. It measures line coverage of the SQLite test
+# suite — the local development database, not the one in production — and it
+# is the longest single job the fleet has (~1h45m). Nothing consumes the
+# per-commit number: there is no codecov config, threshold, badge or PR bot, and
+# every test it runs already gets a per-commit verdict from ci-backend.yml's own
+# SQLite shards, so bisect fidelity comes from there. Against the free plan's
+# cap of 20 concurrent jobs, the 2026-08-30 main burst held three of these at
+# once and queued the deploy behind them (carnet#156). Weekly plus on-demand
+# is the honest cadence for a number nobody reads per commit.
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/coverage.yml'
   pull_request:
     branches: [ main ]
     paths:
@@ -16,18 +18,18 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/coverage.yml'
   schedule:
-    # Weekly coverage report (Sundays at 3 AM UTC)
-    - cron: '0 3 * * 0'
+    # Weekly, Sundays 03:17 UTC. Off :00 on purpose — GitHub drops or delays
+    # top-of-the-hour crons, and this is now the lane's only trigger on main.
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
 
 concurrency:
-  # On main the sha is part of the group, so every commit gets its own group and
-  # nothing can cancel anyone's verdict. Branches share a group per ref and keep
-  # cancelling, where fast feedback beats a stale result.
-  #
-  # This job runs for about an hour and three quarters, and pushes to main land
-  # far closer together than that, so a ref-only group meant each run was killed
-  # by the next push before it could report: 15m, 1h12m, 12m and 18m in on four
-  # consecutive commits. Coverage on main was effectively never measured.
+  # Same key as every other test-verdict lane, so `grep 'github.sha ||'` still
+  # enumerates all of them. On main only the weekly schedule and a manual
+  # dispatch reach this lane, and both land on the tip sha: a dispatch during a
+  # scheduled run cancels it, which is what a human asking for a fresh number
+  # wants. PR runs share a group per ref and cancel, where fast feedback beats
+  # a stale result.
   #
   # The ref test lives in `group` rather than in `cancel-in-progress` because
   # only the former is known to work here — see the same block in ci-backend.yml
