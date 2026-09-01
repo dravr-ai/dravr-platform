@@ -34,10 +34,31 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  # Do NOT cancel in-progress PG runs: the full suite takes ~20 min of work and
-  # rapid main pushes were cancelling it mid-run, so its verdict was never seen.
-  # Runs queue per ref and complete instead of being killed.
+  # On main the sha is part of the group, so every commit gets its own group and
+  # no run can displace another's verdict. Branches share a group per ref.
+  #
+  # A ref-only group is not enough even with `cancel-in-progress: false`. That
+  # flag protects a RUNNING run, but a group holds at most one waiting run and
+  # a newer arrival replaces it: with main pushes landing minutes apart against
+  # a 20-45 min suite, the run queued behind the in-flight one is evicted with
+  # zero jobs started. Under a ref-only group this lane lost 9 of 84 main
+  # verdicts between 2026-08-27 and 2026-09-01 — among them 33450894413,
+  # 33552222435 and 33555424548 (carnet#169) — each `conclusion: cancelled`
+  # with no job row, so the commit never got a PostgreSQL verdict and nothing
+  # was red to say so. The 13 other test-verdict push lanes use this same key
+  # and showed 0 such evictions in 371 main runs over the same window.
+  #
+  # `cancel-in-progress` is false. On main it is moot — no two main pushes share
+  # a group — and on branches it keeps runs queue-and-complete rather than
+  # cancelling. A schedule or dispatch run on the tip sha joins the tip's
+  # push-run group and queues as a duplicate instead of killing the push
+  # verdict; flipping this to true would need `github.event_name` in the group
+  # as well, as ci-backend.yml explains.
+  #
+  # The ref test lives in `group` rather than in `cancel-in-progress` because
+  # only the former is known to work here — see the same block in ci-backend.yml
+  # for the run that proved it.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: false
 
 permissions:
@@ -52,14 +73,17 @@ jobs:
   postgres-tests:
     name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    # A backstop, not a performance budget. Successful runs land in 29-47 min;
+    # A backstop, not a performance budget. Successful runs land in 20-45 min;
     # this only ever fires on a job that has stopped making progress.
     #
     # It exists because `cancel-in-progress: false` above — correct on its own
-    # terms — makes a hung job unrecoverable on this lane: nothing displaces it,
-    # so every later PG run queues behind it and only the newest waiting run
-    # survives. On 2026-08-19 shard 3/4 hung 212 min in `Setup Rust environment`
-    # and three subsequent main pushes never got a PostgreSQL verdict at all.
+    # terms — means nothing ever displaces a hung job: it holds its runner until
+    # something bounds it. On a branch, whose runs share one group per ref, every
+    # later PG run queues behind it and only the newest waiting run survives; on
+    # main each commit has its own group, so a hang costs that commit its verdict
+    # and a runner, not the commits behind it. On 2026-08-19, under a ref-only
+    # group, shard 3/4 hung 212 min in `Setup Rust environment` and three
+    # subsequent main pushes never got a PostgreSQL verdict at all.
     #
     # The existing `timeout-minutes: 75` further down guards only the test step,
     # which is why it did not help: the job hung before ever reaching it. A job
