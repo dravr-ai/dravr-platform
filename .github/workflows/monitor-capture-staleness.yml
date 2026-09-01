@@ -86,19 +86,21 @@ jobs:
       - name: Require the credentials this lane cannot work without
         env:
           ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
-          BASE_URL: ${{ secrets.CANARY_BASE_URL }}
-          # The public dev base, already carried as a repo variable, so the error
-          # below names the real URL instead of describing one. It is the FRONTEND
-          # service on purpose: the api service is INGRESS_TRAFFIC_INTERNAL_ONLY
-          # and unreachable from a runner, and nginx proxies /admin/ through.
-          SUGGESTED_BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+          # The base is the public dev URL the repo already carries as a variable,
+          # not a secret — there is nothing secret about a public Cloud Run
+          # address, and one fewer thing to provision is one fewer way for this
+          # lane to sit unconfigured. It is the FRONTEND service on purpose: the
+          # api service is INGRESS_TRAFFIC_INTERNAL_ONLY and unreachable from a
+          # runner, while nginx lists `admin` in its location alternation and
+          # proxies these endpoints through. Matches tronc-canary.yml.
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
           MISSING=""
-          [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} CANARY_ADMIN_TOKEN"
-          [ -n "${BASE_URL}" ] || MISSING="${MISSING} CANARY_BASE_URL"
+          [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} secrets.CANARY_ADMIN_TOKEN"
+          [ -n "${BASE_URL}" ] || MISSING="${MISSING} vars.DEV_PUBLIC_BASE_URL"
           if [ -n "${MISSING}" ]; then
-            echo "::error::Missing repository secret(s):${MISSING} — this lane cannot read capture staleness and must not report green. CANARY_BASE_URL is the FRONTEND url (the api service is internal-only): ${SUGGESTED_BASE_URL}. CANARY_ADMIN_TOKEN must be minted BY dev, not locally — 'pierre-cli token generate' signs with the local database's keypair and registers the token in the local database, so dev rejects it twice. Use: cargo run --bin pierre-cli -- auth login --server ${SUGGESTED_BASE_URL} ; approve in the browser as a super-admin, then copy access_token from ~/.pierre/credentials.json. See carnet#170."
+            echo "::error::Missing:${MISSING} — this lane cannot read capture staleness and must not report green. CANARY_ADMIN_TOKEN must be minted BY dev, not locally: 'pierre-cli token generate' signs with the local database's RSA keypair AND registers the token row in that same local database, so dev rejects it twice over. Use: cargo run --bin pierre-cli -- auth login --server ${BASE_URL:-<dev frontend url>} ; approve in the browser as a super-admin (the sign-in IS the authorization, no prior token needed), then copy access_token from ~/.pierre/credentials.json. Super-admin is required — a default admin lacks ViewConfiguration and 403s here. See carnet#170."
             exit 1
           fi
           echo "Credentials present."
@@ -107,14 +109,14 @@ jobs:
         if: (github.event.inputs.refresh || 'true') == 'true'
         env:
           ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
-          BASE_URL: ${{ secrets.CANARY_BASE_URL }}
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
 
-          if [ -z "${ADMIN_TOKEN}" ] || [ -z "${BASE_URL}" ]; then
-            echo "::warning::CANARY_ADMIN_TOKEN or CANARY_BASE_URL not set — skipping capture refresh"
-            exit 0
-          fi
+          # No credential guard here: the preflight step above already reds the
+          # job when either is missing, so this can never run unconfigured. The
+          # guard that used to sit here was the silent-skip that let the whole
+          # lane report success without contacting the API.
 
           # 540s: over the server's own 480s sweep budget and under the API's
           # 600s request timeout, so a long sweep returns what it reached rather
@@ -188,7 +190,7 @@ jobs:
         id: probe
         env:
           ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
-          BASE_URL: ${{ secrets.CANARY_BASE_URL }}
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
           STALE_AFTER_HOURS: ${{ github.event.inputs.stale_after_hours || '24' }}
           ACTIVE_WITHIN_HOURS: ${{ github.event.inputs.active_within_hours || '48' }}
         run: |
