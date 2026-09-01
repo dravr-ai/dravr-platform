@@ -33,6 +33,7 @@ use super::{
 use crate::chain_guard::{CircuitTransition, CHAIN_GUARD};
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
+use crate::fallback_policy::{is_empty_completion, is_retryable_for_fallback};
 use crate::tool_bridge::{with_tool_defs, with_tools_response};
 use embacle::CliRunnerType;
 
@@ -922,34 +923,6 @@ fn request_for_secondary(request: &ChatRequest) -> ChatRequest {
     forwarded
 }
 
-/// Decide whether a runtime error should trigger a fallback retry.
-///
-/// We only fall back on errors that hint at primary-provider unavailability
-/// (auth failures, upstream 5xx, transient network). Bad input or quota
-/// errors stay on the primary so the caller sees the right diagnostic
-/// instead of getting silently rerouted to a different provider.
-/// Whether a primary-provider error should trigger the runtime-fallback chain.
-///
-/// Transient/availability failures (auth, upstream unavailable, internal,
-/// resource-unavailable — which an ACP prompt timeout maps to) are retryable
-/// on the secondary; deterministic failures (bad input, quota) are not.
-/// Public so the tool-runtime headless loop, which bypasses the `Chain`
-/// wrapper, can classify primary failures with the same logic.
-#[must_use]
-pub fn is_retryable_for_fallback(error: &AppError) -> bool {
-    use pierre_core::errors::ErrorCode;
-    matches!(
-        error.code,
-        ErrorCode::ExternalAuthFailed
-            | ErrorCode::ExternalServiceUnavailable
-            | ErrorCode::ExternalServiceError
-            | ErrorCode::ResourceUnavailable
-            | ErrorCode::AuthInvalid
-            | ErrorCode::AuthExpired
-            | ErrorCode::InternalError
-    )
-}
-
 // Implement LlmProvider trait for ChatProvider to enable trait object usage
 #[async_trait::async_trait]
 impl LlmProvider for ChatProvider {
@@ -1055,6 +1028,31 @@ impl LlmProvider for ChatProvider {
                     return secondary.complete(&request_for_secondary(request)).await;
                 }
                 match primary.complete(request).await {
+                    // Records NEITHER success nor failure, deliberately. Recording
+                    // success is the bug this arm exists to fix (see
+                    // `fallback_policy`). Recording failure would open the circuit
+                    // after a few empties and route EVERY later turn to the paid
+                    // secondary, including the ones the free primary would have
+                    // answered — a far larger bill than the one extra completion
+                    // this turn costs. The breaker keeps judging on errors, which
+                    // is what it measures well.
+                    Ok(response) if is_empty_completion(&response) => {
+                        warn!(
+                            primary = primary.name(),
+                            secondary = secondary.name(),
+                            finish_reason = response.finish_reason.as_deref().unwrap_or("none"),
+                            "Primary LLM returned an empty completion; falling back"
+                        );
+                        info!(
+                            target: "notify",
+                            event = "embacle.fallback_triggered",
+                            from_provider = primary.name(),
+                            to_provider = secondary.name(),
+                            reason = "empty_completion",
+                            "Runtime LLM fallback engaged on an empty completion"
+                        );
+                        secondary.complete(&request_for_secondary(request)).await
+                    }
                     Ok(response) => {
                         if matches!(
                             CHAIN_GUARD.record_primary_success(),

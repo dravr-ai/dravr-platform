@@ -41,6 +41,7 @@ mod cohere;
 pub mod config;
 /// Embedding provider abstraction for the coaching harness memory pipeline
 pub mod embeddings;
+mod fallback_policy;
 /// Google Gemini LLM provider implementation
 mod gemini;
 /// Groq LLM provider implementation
@@ -78,6 +79,7 @@ pub use embacle::{
 pub use embacle::{
     McpToolDefinition, McpToolExecutor, OpenAiApiConfig, OpenAiApiRunner, QualityGateProvider,
 };
+pub use fallback_policy::{is_empty_completion, is_retryable_for_fallback};
 pub use gemini::{
     ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, GeminiProvider,
     Tool,
@@ -90,7 +92,7 @@ pub use prompts::{
     get_messaging_context_prompt, get_pierre_system_prompt, get_recommendation_analysis_prompt,
     get_recommendation_system_prompt,
 };
-pub use provider::{is_retryable_for_fallback, ChatProvider};
+pub use provider::ChatProvider;
 
 use pierre_core::http_client::{llm_client, SharedHttpClient};
 
