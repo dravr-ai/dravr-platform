@@ -33,6 +33,20 @@ use crate::runtime::ToolRuntime;
 use pierre_providers::backend_resolver;
 use serde_json::Value;
 
+/// Read limit for the single deterministic durable-cache read on the historical
+/// backfill path.
+///
+/// Decoupled from the user's display limit so the cache read
+/// returns the COMPLETE window (the display limit caps only the returned list
+/// afterwards). Generous enough to cover a dense season (>=2 activities/day for
+/// a year) without truncating the window read; the durable table is already
+/// retention-bounded, so this only guards against an unbounded read. When a
+/// window fills this cap the served `window_total` is only a lower bound, so
+/// `activity_coverage_note` frames the count as "at least {total}". `pub` so the
+/// cap boundary is exercisable by the coverage-note tests (re-exported through
+/// `implementations::data`, its original home).
+pub const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
+
 /// Cache fallback window when the request carries no `after` lower bound.
 const STALE_FALLBACK_WINDOW_DAYS: i64 = 90;
 
@@ -438,6 +452,56 @@ const HEAD_OPEN_TOLERANCE_SECS: i64 = 3_600;
 #[must_use]
 pub fn before_bounds_a_closed_window(before: Option<i64>, now_ts: i64) -> bool {
     before.is_some_and(|b| b < now_ts - HEAD_OPEN_TOLERANCE_SECS)
+}
+
+/// Assemble the served list for a covered historical window.
+///
+/// Appends the disjoint open-`before` head slice above the coverage clip (see
+/// [`historical_head_slice`] — disjoint windows can't reintroduce the
+/// probe/serve divergence the single bounded read prevents; boundary rows can
+/// land in both inclusive reads, so the id filter keeps the union exact), then
+/// tops up a stale head from the provider via [`refresh_stale_head`]. Shared
+/// by the coverage-gated serve and the inline-backfill (task handle) serve so
+/// the two cannot drift. `pub` (not `pub(crate)`) because its only caller
+/// lives behind the `tools-data` feature and a featureless build must not
+/// read it as dead code.
+pub async fn serve_historical_window(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    before: Option<i64>,
+    coverage_before: Option<i64>,
+    mut served: Vec<Activity>,
+) -> Vec<Activity> {
+    if let Some(head_after) = historical_head_slice(before, coverage_before, Utc::now().timestamp())
+    {
+        let head_params = ActivityQueryParams {
+            after: Some(head_after),
+            before: None,
+            limit: Some(HISTORICAL_WINDOW_READ_LIMIT),
+            offset: None,
+        };
+        if let Some(head) =
+            read_cached_window(runtime, provider_slug, user_id, tenant_id, &head_params).await
+        {
+            let seen: HashSet<String> = served.iter().map(|a| a.id().to_owned()).collect();
+            served.extend(head.into_iter().filter(|a| !seen.contains(a.id())));
+        }
+    }
+    // The covered gate proves the window is deep enough; it says nothing about
+    // whether it is current. Top up the head when the provider may be holding
+    // something we have never seen.
+    refresh_stale_head(
+        runtime,
+        provider_slug,
+        user_id,
+        tenant_id,
+        before,
+        &mut served,
+    )
+    .await;
+    served
 }
 
 /// Fetch activities for a single provider connection, authenticating (and

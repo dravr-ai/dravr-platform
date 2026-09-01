@@ -20,12 +20,11 @@
 //! athlete, stats) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use pierre_core::models::TenantId;
 use serde_json::{json, Value};
 use tracing::{debug, field, info, warn, Span};
@@ -34,12 +33,13 @@ use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
 
 use crate::activity_backfill::{
-    is_historical_backfill_window, spawn_activity_backfill, ActivityBackfillJob,
+    backfill_inline_and_serve, is_historical_backfill_window, spawn_activity_backfill,
+    ActivityBackfillJob, InlineHistoricalServe,
 };
 use crate::activity_fetch::{
-    activity_date_span, historical_depth_covered, historical_head_slice,
-    maybe_merge_other_connections, read_cached_window, refresh_stale_head, serve_without_primary,
-    sort_activities, touch_connection_used, write_through_served_window,
+    activity_date_span, historical_depth_covered, maybe_merge_other_connections,
+    read_cached_window, serve_historical_window, serve_without_primary, sort_activities,
+    touch_connection_used, write_through_served_window,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -84,18 +84,7 @@ use pierre_weather::WeatherProvider;
 /// `[after, now]` don't mask a missing historical season.
 const HISTORICAL_COVERAGE_BOUND_SECS: i64 = 365 * 24 * 60 * 60;
 
-/// Read limit for the single deterministic durable-cache read on the historical
-/// backfill path.
-///
-/// Decoupled from the user's display limit so the cache read
-/// returns the COMPLETE window (the display limit caps only the returned list
-/// afterwards). Generous enough to cover a dense season (>=2 activities/day for
-/// a year) without truncating the window read; the durable table is already
-/// retention-bounded, so this only guards against an unbounded read. When a
-/// window fills this cap the served `window_total` is only a lower bound, so
-/// `activity_coverage_note` frames the count as "at least {total}". `pub` so the
-/// cap boundary is exercisable by the coverage-note tests.
-pub const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
+pub use crate::activity_fetch::HISTORICAL_WINDOW_READ_LIMIT;
 
 /// Read limit (as `usize`) for the historical backfill window read.
 #[must_use]
@@ -803,56 +792,25 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     "get_activities historical gate decision"
                 );
 
-                if let Some(mut served) = window.filter(|_| depth_covered) {
+                if let Some(served) = window.filter(|_| depth_covered) {
                     // The requested depth is cached AND a backfill confirmed it
                     // reaches `after` (or the feed end). Serve the COMPLETE window;
                     // the user's display limit is applied AFTER the sport filter
                     // (below), never here, so a sport-filtered ask like "my 2022
                     // runs" can't have its older runs displaced out of the limit
                     // window by other-sport activities that were never going to be
-                    // returned (the "2022 runs stuck at 46" bug).
-                    //
-                    // The year clip serves the coverage decision; it must not clip
-                    // the SERVED list. For an open `before`, append the disjoint
-                    // head slice above the clip — disjoint windows can't
-                    // reintroduce the probe/serve divergence the single bounded
-                    // read prevents. Boundary rows can land in both inclusive
-                    // reads; the id filter keeps the union exact.
-                    if let Some(head_after) = historical_head_slice(
-                        before,
-                        coverage_params.before,
-                        Utc::now().timestamp(),
-                    ) {
-                        let head_params = ActivityQueryParams {
-                            after: Some(head_after),
-                            before: None,
-                            limit: Some(historical_window_read_limit()),
-                            offset: None,
-                        };
-                        if let Some(head) = read_cached_window(
-                            &context.resources,
-                            &provider_name,
-                            context.user_id,
-                            tenant_id,
-                            &head_params,
-                        )
-                        .await
-                        {
-                            let seen: HashSet<String> =
-                                served.iter().map(|a| a.id().to_owned()).collect();
-                            served.extend(head.into_iter().filter(|a| !seen.contains(a.id())));
-                        }
-                    }
-                    // The covered gate proves the window is deep enough; it says
-                    // nothing about whether it is current. Top up the head when the
-                    // provider may be holding something we have never seen.
-                    refresh_stale_head(
+                    // returned (the "2022 runs stuck at 46" bug). The year clip
+                    // serves the coverage decision; it must not clip the SERVED
+                    // list — `serve_historical_window` appends the open-`before`
+                    // head slice above the clip and tops up a stale head.
+                    let served = serve_historical_window(
                         &context.resources,
                         &provider_name,
                         context.user_id,
                         tenant_id,
                         before,
-                        &mut served,
+                        coverage_params.before,
+                        served,
                     )
                     .await;
                     served_from_cache = true;
@@ -898,6 +856,44 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         dead_primary = Some(provider_name.clone());
                         served_by = fallback.served_by;
                         (fallback.activities, None)
+                    } else if ctx.supports_tasks() {
+                        // A client that declared the tasks extension: the
+                        // dispatcher has already moved this execution off the
+                        // request path behind a durable task handle, so the
+                        // backfill runs to completion right here and the handle
+                        // resolves to the real window. The "ask me again"
+                        // placeholder below serves only envelopes with no way
+                        // to express deferred work.
+                        let mut backfill_params = query_params.clone();
+                        backfill_params.limit = Some(historical_backfill_fetch_limit());
+                        let job = ActivityBackfillJob {
+                            resources: context.resources.clone(),
+                            user_id: context.user_id,
+                            tenant_id,
+                            tenant_id_str: tenant_id_str.clone(),
+                            provider_name: provider_name.clone(),
+                            query_params: backfill_params,
+                            pierre_conversation_id: context.conversation_id.clone(),
+                        };
+                        match backfill_inline_and_serve(job, &coverage_params, before).await {
+                            InlineHistoricalServe::AuthRequired => {
+                                return Err(AppError::provider_auth_required(
+                                    provider_name.clone(),
+                                ));
+                            }
+                            InlineHistoricalServe::Failed => {
+                                return Ok(ToolResult::error(json!({
+                                    "error": format!(
+                                        "Fetching older {display_provider} history failed; \
+                                         try again shortly."
+                                    ),
+                                })));
+                            }
+                            InlineHistoricalServe::Served(served) => {
+                                served_from_cache = true;
+                                (served, None)
+                            }
+                        }
                     } else {
                         // Cold cache OR a shallow (limit-capped / never-backfilled)
                         // window: page the WHOLE window in the background. The fetch

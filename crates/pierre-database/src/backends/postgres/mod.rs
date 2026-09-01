@@ -45,6 +45,8 @@ mod goal_progress;
 pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
+/// MCP Tasks extension handle repository implementation
+pub mod mcp_tasks;
 /// Coaching harness memory (compaction, facts, notes, followups, sessions)
 pub mod memory;
 /// Messaging gateway repository implementations

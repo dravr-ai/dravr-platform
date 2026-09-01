@@ -32,6 +32,8 @@ pub mod guardian_actions;
 pub mod harness_memory;
 /// Repository traits for health, sleep, recovery, time-series persistence and sync cursors.
 pub mod health;
+/// Repository trait for MCP Tasks extension handle persistence.
+pub mod mcp_tasks;
 /// Repository traits for inbound/outbound messaging channel persistence.
 pub mod messaging;
 /// Repository traits for mobility (yoga and stretching) persistence.
@@ -83,6 +85,7 @@ pub use fitness_config::*;
 pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
+pub use mcp_tasks::*;
 pub use messaging::*;
 pub use mobility::*;
 pub use notifications::*;

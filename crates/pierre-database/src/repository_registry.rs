@@ -15,17 +15,17 @@ use crate::repositories::{
     DataSourceRepository, DossierRepository, EmailVerificationRepository, FeatureFlagsRepository,
     FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
-    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
-    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
-    RouteSummaryRepository, SecurityRepository, SeederRepository, ShortLinkRepository,
-    SleepRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
-    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
-    WorkoutTemplateRepository,
+    McpTaskRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
+    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
+    SeederRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
+    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
+    TrainingHistoryRepository, TrainingPlanRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
+    UserToolOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -122,6 +122,8 @@ pub struct RepositoryRegistry {
     pub memory: Arc<dyn HarnessMemoryRepository>,
     /// Claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
+    /// MCP Tasks extension handles (io.modelcontextprotocol/tasks)
+    pub mcp_tasks: Arc<dyn McpTaskRepository>,
     /// Stripe-backed subscription rows (one per (tenant, `stripe_subscription`))
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
     /// dravr-meteo persistent weather cache (geographic + hourly buckets)
@@ -221,6 +223,7 @@ impl RepositoryRegistry {
             sync_cursors: db.clone(),
             memory: db.clone(),
             claim_verdicts: db.clone(),
+            mcp_tasks: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
             user_physiological_profile: db.clone(),
@@ -288,6 +291,7 @@ impl RepositoryRegistry {
             sync_cursors: db.clone(),
             memory: db.clone(),
             claim_verdicts: db.clone(),
+            mcp_tasks: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
             user_physiological_profile: db.clone(),

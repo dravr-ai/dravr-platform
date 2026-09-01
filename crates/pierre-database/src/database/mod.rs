@@ -44,6 +44,8 @@ pub mod impersonation;
 pub mod llm_credentials;
 /// LLM usage tracking for cost analysis and quota enforcement
 pub mod llm_usage;
+/// MCP Tasks extension handle persistence
+pub mod mcp_tasks;
 /// Coaching harness memory foundations (facts, compaction, notes, followups, sessions)
 pub mod memory;
 /// Multi-channel messaging gateway (channel configs, sessions, messages, queue)

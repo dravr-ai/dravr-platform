@@ -21,15 +21,20 @@
 use std::collections::HashSet;
 use std::env;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::time::Duration as StdDuration;
 
 use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_providers::core::ActivityQueryParams;
+use tokio::time::sleep;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::{activity_cache_retention_days, write_through_activity_cache};
+use crate::activity_fetch::{
+    activity_cache_retention_days, read_cached_window, serve_historical_window,
+    write_through_activity_cache,
+};
 use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
@@ -170,6 +175,128 @@ pub(crate) fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
     true
 }
 
+/// How often an inline backfill re-checks whether a concurrent job's in-flight
+/// claim has cleared.
+const IN_FLIGHT_WAIT_POLL: StdDuration = StdDuration::from_millis(500);
+
+/// Upper bound on waiting for a concurrent job's claim. A full sciotte
+/// season scrape sits under its 330s client ceiling, so 8 minutes covers the
+/// slowest legitimate holder; past it the key is presumed leaked (a panicked
+/// job never removes its claim) and the wait gives up instead of hanging the
+/// task forever.
+const IN_FLIGHT_WAIT_CAP: StdDuration = StdDuration::from_mins(8);
+
+/// Terminal outcome of one backfill run.
+///
+/// The detached spawn path ignores it (its notifications happen inside the
+/// run); the inline path maps it onto the tool response so a declaring-tasks
+/// caller gets an honest auth error or retry hint instead of an empty window.
+enum BackfillRunOutcome {
+    /// The window was fetched and durably persisted — or the provider holds
+    /// nothing in it. Either way the durable cache now holds the answer.
+    Completed,
+    /// The provider session lapsed mid-run; the user must reconnect.
+    AuthRequired,
+    /// Transient failure — nothing persisted; a retry re-runs the window.
+    Failed,
+}
+
+/// Run a backfill to completion on the caller's own future, serializing on
+/// the same in-flight key as [`spawn_activity_backfill`] so concurrent asks
+/// for one `(user, provider)` never stack scrapes.
+///
+/// When another job holds the key this waits for it to clear, then runs its
+/// own window anyway: the concurrent job may have paged a shallower `after`,
+/// and re-running is the only way to guarantee the requested depth without
+/// re-deriving the coverage gate here. The redundant scrape costs one
+/// serialized provider pass in the rare double-ask race; the wrong answer
+/// would cost serving a shallow window as if it were complete.
+async fn run_activity_backfill_inline(job: ActivityBackfillJob) -> BackfillRunOutcome {
+    let key = in_flight_key(job.user_id, &job.provider_name);
+    let mut waited = StdDuration::ZERO;
+    loop {
+        let claimed = IN_FLIGHT_BACKFILLS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key.clone());
+        if claimed {
+            break;
+        }
+        if waited >= IN_FLIGHT_WAIT_CAP {
+            warn!(
+                user_id = %job.user_id,
+                provider = %job.provider_name,
+                "Inline backfill gave up waiting on a concurrent claim"
+            );
+            return BackfillRunOutcome::Failed;
+        }
+        sleep(IN_FLIGHT_WAIT_POLL).await;
+        waited += IN_FLIGHT_WAIT_POLL;
+    }
+    let outcome = run_activity_backfill(&job).await;
+    IN_FLIGHT_BACKFILLS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&key);
+    outcome
+}
+
+/// One declaring-tasks historical serve: what the inline backfill + durable
+/// read produced for the caller to answer with.
+pub(crate) enum InlineHistoricalServe {
+    /// The backfill completed; the (possibly empty) served window follows.
+    /// Empty is the honest answer when the provider holds nothing that old.
+    Served(Vec<Activity>),
+    /// The provider session lapsed mid-run; the caller raises the typed
+    /// reconnect error.
+    AuthRequired,
+    /// Transient failure — the caller answers with a retry hint.
+    Failed,
+}
+
+/// Run the backfill inline (see [`run_activity_backfill_inline`]) and read
+/// the served window back out of the durable cache.
+///
+/// The read uses the same bounded `coverage_params` as the coverage gate and
+/// the same head-slice / stale-head assembly as the covered serve
+/// (`serve_historical_window`), so the gate, the covered path, and this
+/// path cannot drift.
+pub(crate) async fn backfill_inline_and_serve(
+    job: ActivityBackfillJob,
+    coverage_params: &ActivityQueryParams,
+    before: Option<i64>,
+) -> InlineHistoricalServe {
+    let resources = job.resources.clone();
+    let provider_name = job.provider_name.clone();
+    let user_id = job.user_id;
+    let tenant_id = job.tenant_id;
+    match run_activity_backfill_inline(job).await {
+        BackfillRunOutcome::AuthRequired => return InlineHistoricalServe::AuthRequired,
+        BackfillRunOutcome::Failed => return InlineHistoricalServe::Failed,
+        BackfillRunOutcome::Completed => {}
+    }
+    let window = read_cached_window(
+        &resources,
+        &provider_name,
+        user_id,
+        tenant_id,
+        coverage_params,
+    )
+    .await
+    .unwrap_or_default();
+    let served = serve_historical_window(
+        &resources,
+        &provider_name,
+        user_id,
+        tenant_id,
+        before,
+        coverage_params.before,
+        window,
+    )
+    .await;
+    InlineHistoricalServe::Served(served)
+}
+
 /// Outcome of authenticating + paging the provider for a backfill.
 enum BackfillFetch {
     /// Activities fetched (possibly empty).
@@ -297,9 +424,10 @@ async fn record_backfill_coverage(
 }
 
 /// Page the provider's feed to the requested `after` and write the historical
-/// activities through to the durable cache. All failures are logged and
-/// swallowed — this runs detached from any request.
-async fn run_activity_backfill(job: &ActivityBackfillJob) {
+/// activities through to the durable cache, reporting the terminal outcome.
+/// All failures are logged and mapped — the detached spawn path drops the
+/// outcome, the inline path surfaces it to the caller.
+async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome {
     let executor = UniversalExecutor::new(job.resources.clone());
     let activities = match fetch_backfill_activities(job, &executor).await {
         BackfillFetch::Activities(activities) => activities,
@@ -308,9 +436,9 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
             // otherwise silent, so nudge the user to reconnect on the channel
             // that asked instead of leaving them on a perpetual "ask again".
             notify_backfill_reauth(job).await;
-            return;
+            return BackfillRunOutcome::AuthRequired;
         }
-        BackfillFetch::Failed => return,
+        BackfillFetch::Failed => return BackfillRunOutcome::Failed,
     };
 
     if activities.is_empty() {
@@ -319,7 +447,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
             provider = %job.provider_name,
             "Activity backfill: provider returned no historical activities"
         );
-        return;
+        return BackfillRunOutcome::Completed;
     }
 
     let fetched_count = activities.len();
@@ -332,7 +460,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         persist_backfill_activities(job, &executor, &activities, fetched_count, retention_days)
             .await
     else {
-        return;
+        return BackfillRunOutcome::Failed;
     };
 
     // Record how deep this backfill reached — now that the rows are durably
@@ -356,6 +484,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
     );
 
     notify_backfill_complete(job, activity_count).await;
+    BackfillRunOutcome::Completed
 }
 
 /// Write the scraped historical activities through to the durable cache and

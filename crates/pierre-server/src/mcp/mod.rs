@@ -14,6 +14,8 @@ pub mod prompt_templates;
 pub mod resource_catalog;
 /// Resource management for MCP
 pub mod resources;
+/// Durable owner-scoped store for MCP Tasks extension handles
+pub mod task_store;
 /// MCP tool handler implementations
 pub mod tool_handlers;
 /// Server-startup catalog sync — bridges the live `ToolRegistry` to the `tool_catalog` table.

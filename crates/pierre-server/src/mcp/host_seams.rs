@@ -23,11 +23,13 @@
 //!   `authenticate`.
 
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use dravr_tronc::mcp::auth::{AuthError, AuthHook};
-use dravr_tronc::mcp::host::{MethodHandler, ToolDispatcher};
+use dravr_tronc::mcp::host::{CallToolOutcome, MethodHandler, ToolDispatcher};
 use dravr_tronc::mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
 use dravr_tronc::mcp::schema::{
     AuthCapability, CompleteRequest, CompleteResult, Completion, CompletionCapability,
@@ -36,6 +38,7 @@ use dravr_tronc::mcp::schema::{
     ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::McpServer;
+use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::TenantId;
@@ -45,13 +48,16 @@ use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use serde_json::Value;
+use serde_json::{Map, Value};
+use tokio::task::{JoinError, JoinHandle};
+use tokio::time::timeout;
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use super::prompt_templates::{self, PromptGetOutcome};
 use super::resource_catalog;
 use super::resources::ServerContext;
+use super::task_store::{PierreTaskStore, MCP_TASK_POLL_INTERVAL_MS, MCP_TASK_TTL_MS};
 use super::tool_handlers::ToolHandlers;
 use crate::constants::errors::{
     ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND, ERROR_SERIALIZATION,
@@ -226,6 +232,93 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
     }
 }
 
+/// Tools allowed to answer with a task handle when the caller declared the
+/// `io.modelcontextprotocol/tasks` extension.
+///
+/// Grown deliberately, one conversion at a time — the classification of all
+/// 110 tools (3 task-required, 28 eligible, 79 sync) lives in the vault note
+/// "MCP Tasks — Which Tools Answer Asynchronously". A tool outside this list
+/// always answers inline, however long it runs.
+const TASK_CAPABLE_TOOLS: &[&str] = &["get_activities"];
+
+/// Default fast-path budget (ms) before a declared-tasks call converts into a
+/// task handle. Under it, cache-warm and API-backed work answers inline, so
+/// repeat callers never pay a poll round trip for sub-second results.
+const DEFAULT_TASK_FAST_PATH_MS: u64 = 10_000;
+
+/// Fast-path budget, from `PIERRE_MCP_TASK_FAST_PATH_MS` (falls back to
+/// [`DEFAULT_TASK_FAST_PATH_MS`]). `0` converts every declared task-capable
+/// call into a handle, which is how the integration suite exercises the
+/// asynchronous path deterministically.
+fn task_fast_path_budget() -> Duration {
+    let ms = env::var("PIERRE_MCP_TASK_FAST_PATH_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TASK_FAST_PATH_MS);
+    Duration::from_millis(ms)
+}
+
+/// Run the full post-auth pierre tool call.
+///
+/// Owned inputs so the same future can run on the caller's stack (the inline
+/// path) or detached behind a task handle when the fast-path budget expires.
+async fn run_dispatch(
+    resources: Arc<ServerContext>,
+    state: Arc<dyn ToolRuntime>,
+    ctx: ToolContext,
+    name: String,
+    arguments: Value,
+) -> ToolResponse {
+    let Some(user_id) = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()) else {
+        return ToolResponse::error("Missing or invalid user identity in context".to_owned());
+    };
+    let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) else {
+        return ToolResponse::error("Missing or invalid tenant identity in context".to_owned());
+    };
+
+    ToolHandlers::dispatch_tool_call(
+        &resources, &state, &ctx, user_id, tenant_id, &name, arguments,
+    )
+    .await
+}
+
+/// Unwrap a joined tool-call result, converting a panic into an error response.
+fn join_to_response(joined: Result<ToolResponse, JoinError>) -> ToolResponse {
+    joined.unwrap_or_else(|e| {
+        error!(error = %e, "Tool call task failed to join");
+        ToolResponse::error("Tool execution failed unexpectedly".to_owned())
+    })
+}
+
+/// Await the detached tool call and settle its task with the terminal result.
+///
+/// A tool result whose `isError` is true still completes the task — `failed`
+/// is reserved for execution-level faults (panics, unserializable results).
+/// A settle refused because the client cancelled the task meanwhile is the
+/// cooperative-cancellation contract working, not an error.
+async fn settle_task(
+    manager: Arc<TaskManager>,
+    owner: TaskOwner,
+    task_id: TaskId,
+    work: JoinHandle<ToolResponse>,
+) {
+    let response = join_to_response(work.await);
+    let settled = if let Ok(Value::Object(result)) = serde_json::to_value(&response) {
+        manager.complete(&owner, &task_id, result).await
+    } else {
+        let mut error = Map::new();
+        error.insert("code".to_owned(), Value::from(ERROR_INTERNAL_ERROR));
+        error.insert(
+            "message".to_owned(),
+            Value::from("Tool result could not be serialized"),
+        );
+        manager.fail(&owner, &task_id, error).await
+    };
+    if let Err(e) = settled {
+        debug!(task_id = %task_id, error = %e, "Task settle refused (cancelled or expired)");
+    }
+}
+
 /// Host-owned tool surface backed by the rich
 /// [`pierre_tool_runtime::registry::ToolRegistry`].
 ///
@@ -235,10 +328,40 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
 /// [`PierreAuthHook`]; the context carries the resolved identity.
 pub struct PierreToolDispatcher {
     /// Shared server resources owning the tool registry + selection service.
-    pub resources: Arc<ServerContext>,
+    resources: Arc<ServerContext>,
+    /// Task lifecycle manager over the durable `mcp_tasks` store. Arc because
+    /// the same instance is installed on the engine (which serves `tasks/get`)
+    /// and cloned into detached completion followers.
+    task_manager: Arc<TaskManager>,
 }
 
 impl PierreToolDispatcher {
+    /// Build the dispatcher and its task manager over the shared resources.
+    #[must_use]
+    pub fn new(resources: Arc<ServerContext>) -> Self {
+        let store = Arc::new(PierreTaskStore::new(
+            resources.common.repos.mcp_tasks.clone(),
+        ));
+        let task_manager = Arc::new(TaskManager::with_options(
+            store,
+            TaskOptions {
+                ttl_ms: Some(MCP_TASK_TTL_MS),
+                poll_interval_ms: MCP_TASK_POLL_INTERVAL_MS,
+            },
+        ));
+        Self {
+            resources,
+            task_manager,
+        }
+    }
+
+    /// The task manager, shared with the engine via
+    /// [`McpServer::with_task_manager`] so `tasks/get`/`update`/`cancel` read
+    /// the same durable store the dispatcher settles into.
+    #[must_use]
+    pub fn task_manager(&self) -> &Arc<TaskManager> {
+        &self.task_manager
+    }
     /// Resolve the tenant-filtered schemas for a non-admin caller.
     ///
     /// Combines the `ToolSelectionService` catalog (enabled, non-admin tools)
@@ -366,23 +489,68 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         ctx: &ToolContext,
         arguments: Value,
     ) -> ToolResponse {
-        let Some(user_id) = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()) else {
-            return ToolResponse::error("Missing or invalid user identity in context".to_owned());
-        };
-        let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) else {
-            return ToolResponse::error("Missing or invalid tenant identity in context".to_owned());
-        };
-
-        ToolHandlers::dispatch_tool_call(
-            &self.resources,
-            state,
-            ctx,
-            user_id,
-            tenant_id,
-            name,
+        run_dispatch(
+            self.resources.clone(),
+            state.clone(),
+            ctx.clone(),
+            name.to_owned(),
             arguments,
         )
         .await
+    }
+
+    async fn call_tool_outcome(
+        &self,
+        name: &str,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        arguments: Value,
+    ) -> CallToolOutcome {
+        // The asynchronous path is opt-in twice over: the client must declare
+        // the tasks extension on this request, and the tool must be one whose
+        // conversion was decided deliberately. Everything else answers inline.
+        if !(ctx.supports_tasks() && TASK_CAPABLE_TOOLS.contains(&name)) {
+            return CallToolOutcome::Immediate(Box::new(
+                self.call_tool(name, state, ctx, arguments).await,
+            ));
+        }
+
+        // Spawn the call so it can outlive this request if it exceeds the
+        // budget; under budget the client gets the result inline and no task
+        // row is ever minted, so cache-warm repeat callers never regress.
+        let mut work = tokio::spawn(run_dispatch(
+            self.resources.clone(),
+            state.clone(),
+            ctx.clone(),
+            name.to_owned(),
+            arguments,
+        ));
+        match timeout(task_fast_path_budget(), &mut work).await {
+            Ok(joined) => CallToolOutcome::Immediate(Box::new(join_to_response(joined))),
+            Err(_budget_elapsed) => {
+                let owner = TaskOwner {
+                    user_id: ctx.user_id.clone(),
+                    tenant_id: ctx.tenant_id.clone(),
+                };
+                let task_id = TaskId::new(Uuid::new_v4().to_string());
+                match self.task_manager.create(&owner, task_id.clone()).await {
+                    Ok(task) => {
+                        tokio::spawn(settle_task(self.task_manager.clone(), owner, task_id, work));
+                        CallToolOutcome::Task(Box::new(task))
+                    }
+                    Err(e) => {
+                        // No durable handle can be minted, so the honest
+                        // answer is a retryable error. The spawned work keeps
+                        // running detached — its cache write-throughs make the
+                        // retry cheap.
+                        error!(tool = name, error = %e, "Failed to mint MCP task handle");
+                        CallToolOutcome::Immediate(Box::new(ToolResponse::error(
+                            "Task store unavailable; please retry".to_owned(),
+                        )))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -764,6 +932,12 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     let supported: Vec<String> = SUPPORTED_VERSIONS.iter().map(|v| (*v).to_owned()).collect();
     let allowed_origins = resources.common.config.mcp.allowed_origins.clone();
 
+    // One TaskManager serves both halves of the extension: the dispatcher
+    // mints and settles handles, the engine answers tasks/get/update/cancel.
+    // Installing it is also what makes the engine advertise the extension.
+    let dispatcher = PierreToolDispatcher::new(resources.clone());
+    let task_manager = dispatcher.task_manager().clone();
+
     let server = McpServer::new(
         server_name_multitenant(),
         SERVER_VERSION,
@@ -777,9 +951,8 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     .with_auth_hook(Arc::new(PierreAuthHook {
         resources: resources.clone(),
     }))
-    .with_tool_dispatcher(Arc::new(PierreToolDispatcher {
-        resources: resources.clone(),
-    }))
+    .with_tool_dispatcher(Arc::new(dispatcher))
+    .with_task_manager(task_manager)
     .with_method_handler(Arc::new(PierreMethodHandler { resources }));
 
     Arc::new(server)

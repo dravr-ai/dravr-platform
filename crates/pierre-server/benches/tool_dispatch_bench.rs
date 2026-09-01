@@ -93,9 +93,7 @@ impl DispatchFixture {
         let rt = Runtime::new().unwrap();
         let resources = rt.block_on(server_fixture::build_server_context());
         let state: Arc<dyn ToolRuntime> = resources.clone();
-        let dispatcher = PierreToolDispatcher {
-            resources: resources.clone(),
-        };
+        let dispatcher = PierreToolDispatcher::new(resources.clone());
 
         let (member, member_tenant) = rt.block_on(server_fixture::seed_user(
             &resources,

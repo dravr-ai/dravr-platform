@@ -111,9 +111,7 @@ impl McpRoutes {
             }
         };
 
-        let dispatcher = PierreToolDispatcher {
-            resources: state.resources,
-        };
+        let dispatcher = PierreToolDispatcher::new(state.resources);
         let tools = dispatcher.list_tools(&runtime, &ctx).await;
 
         Json(json!({ "tools": tools })).into_response()
