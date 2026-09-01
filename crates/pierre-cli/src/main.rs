@@ -182,8 +182,7 @@ enum AuthCommand {
         ///
         /// NOT the api service: that one is deployed internal-only and cannot be
         /// reached from a laptop or a CI runner. For dev this is the value of the
-        /// `DEV_PUBLIC_BASE_URL` repository variable. The example this used to give,
-        /// `api.dev.dravr.ai`, has never resolved.
+        /// `DEV_PUBLIC_BASE_URL` repository variable.
         #[arg(long)]
         server: String,
 
