@@ -126,8 +126,8 @@ fn rejects_unknown_properties() {
 
 /// The generated contract must state the bound the hand-written prose omitted.
 ///
-/// The shipped directive lists "at most 4 series and 400 points" and never that
-/// `points` has `minItems: 2`. A coach cannot obey a rule it is not told, and on
+/// The directive used to list "at most 4 series and 400 points" and never that
+/// `points` has `minItems: 2`; it now defers to this generated section entirely. A coach cannot obey a rule it is not told, and on
 /// 2026-08-31 one did not: a two-athlete comparison written as one series per
 /// athlete was refused on every pass. Asserting the minimum specifically —
 /// rather than that the text is non-empty — is the difference between this test

@@ -61,11 +61,13 @@ pub const DEFAULT_VISUALS: &[&str] = &["chart", "table"];
 /// The prose directive teaches judgement — when a visual earns its place, that
 /// interpretation belongs in the sentence, that a persona's length cap wins.
 /// None of that is derivable. The *bounds* are, and hand-transcribing them is
-/// what failed: the shipped prose lists "at most 4 series and 400 points" and
-/// never mentions that `points` also carries `minItems: 2`. A coach asked for a
-/// two-athlete comparison wrote one series per athlete with a single point each
-/// — a reasonable reading of a rule it had never been told — and the block was
+/// what failed: the prose listed "at most 4 series and 400 points" and never
+/// that `points` also carries `minItems: 2`. A coach asked for a two-athlete
+/// comparison wrote one series per athlete with a single point each — a
+/// reasonable reading of a rule it had never been told — and the block was
 /// refused on every pass while the athlete got prose and no chart (2026-08-31).
+///
+/// The prose no longer restates any bound; it defers to what this renders.
 ///
 /// Deriving the numbers means a schema change reaches the coach without anyone
 /// remembering to restate it, which is the only way this class of drift stops
