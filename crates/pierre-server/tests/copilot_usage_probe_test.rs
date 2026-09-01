@@ -15,6 +15,7 @@ use std::env;
 
 use dravr_contremaitre::system::{STRUCTURED_OUTPUT, VISUAL_BLOCKS};
 use embacle::types::LlmProvider as EmbacleLlmProvider;
+use embacle::types::ToolDefinition;
 use pierre_llm::{ChatMessage, ChatRequest, CopilotHeadlessConfig, CopilotHeadlessRunner};
 
 #[tokio::test(flavor = "multi_thread")]
@@ -373,5 +374,120 @@ async fn probe_empty_turn_rate_on_a_reused_session() {
     println!("----- SUMMARY -----");
     println!("reused-session empties: {empties}/{reps}  (errors: {errors})");
     println!("fresh-runner probes: size 0/15, tool-use 0/6, system-prompt 0/6");
+    println!("===================================================");
+}
+
+/// Does DECLARING tools over ACP produce the empty turn?
+///
+/// This is the last variable the four probes above leave uncontrolled, and the
+/// one most likely to matter. Note the tool-use probe does NOT cover it: that
+/// one asked questions the agent answered with the CLI's *own* shell tool,
+/// which reaches the model through Copilot's built-in surface. Tools DECLARED
+/// in the request travel a different path — they are handed over ACP and the
+/// model is expected to call back for them — and a real coaching turn carries
+/// the full MCP list, where every probe here has carried none.
+///
+/// It matters because of what embacle says about Agent mode: `set_autopilot_mode`
+/// is skipped when the request declares no `mcp_servers`, and its comment
+/// records that the default mode "ends a turn right after the tool batch without
+/// synthesizing an answer". A turn that ends after a tool batch is precisely a
+/// turn with tool activity and no text — the observed signature. Declared tools
+/// are what create a tool batch to end after.
+///
+/// A rate near the eval's 18% here would locate the cause. A rate near zero
+/// pushes it toward what the platform still adds beyond this: the tool LOOP
+/// itself, which feeds results back and re-prompts.
+///
+/// ```text
+/// PIERRE_PROBE_COPILOT=1 PROBE_REPS=8 \
+///   cargo test --test copilot_usage_probe_test probe_empty_turn_rate_with_declared_tools -- --nocapture
+/// ```
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_empty_turn_rate_with_declared_tools() {
+    if env::var("PIERRE_PROBE_COPILOT").is_err() {
+        eprintln!("[probe] PIERRE_PROBE_COPILOT not set; skipping");
+        return;
+    }
+    let reps: usize = env::var("PROBE_REPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+
+    // Shaped like the real registry's entries — a name, a sentence of purpose,
+    // and an object schema — so the declaration exercises the same
+    // serialization a production turn does.
+    let tool = |name: &str, desc: &str| ToolDefinition {
+        name: name.to_owned(),
+        description: desc.to_owned(),
+        parameters: Some(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "limit": { "type": "integer", "description": "How many to return" },
+                "provider": { "type": "string", "description": "Fitness provider slug" }
+            },
+            "required": []
+        })),
+    };
+    let tools = vec![
+        tool("get_activities", "List the athlete's recent activities."),
+        tool(
+            "analyze_training_load",
+            "Compute CTL, ATL and TSB over a window.",
+        ),
+        tool(
+            "get_athlete_profile",
+            "Read the athlete's profile and preferences.",
+        ),
+        tool(
+            "get_connection_status",
+            "Report which fitness providers are connected.",
+        ),
+        tool("set_goal", "Record a training goal for the athlete."),
+    ];
+
+    let system = format!("{VISUAL_BLOCKS}\n\n{STRUCTURED_OUTPUT}");
+    println!(
+        "===== EMPTY-TURN RATE WITH DECLARED TOOLS ({reps} reps, {} tools) =====",
+        tools.len()
+    );
+
+    let mut empties = 0_usize;
+    let mut errors = 0_usize;
+    let mut with_calls = 0_usize;
+    for rep in 0..reps {
+        let msgs = vec![
+            ChatMessage::system(system.clone()),
+            ChatMessage::user(format!(
+                "Question {rep}: combien j'ai couru ce mois-ci? Utilise les outils \
+                 disponibles pour repondre, puis donne-moi le total en une phrase."
+            )),
+        ];
+        let request = ChatRequest::new(msgs).with_tools(tools.clone());
+        let runner = CopilotHeadlessRunner::with_config(CopilotHeadlessConfig::from_env());
+        match EmbacleLlmProvider::complete(&runner, &request).await {
+            Ok(r) => {
+                let empty = r.content.trim().is_empty();
+                if empty {
+                    empties += 1;
+                }
+                let calls = r.tool_calls.as_ref().map_or(0, Vec::len);
+                if calls > 0 {
+                    with_calls += 1;
+                }
+                println!(
+                    "  [rep{rep}] empty={empty} content_len={} tool_calls={calls} finish={:?}",
+                    r.content.len(),
+                    r.finish_reason,
+                );
+            }
+            Err(e) => {
+                errors += 1;
+                println!("  [rep{rep}] ERROR {e}");
+            }
+        }
+    }
+    println!("----- SUMMARY -----");
+    println!("declared-tools empties: {empties}/{reps}  (errors: {errors}, turns with tool calls: {with_calls})");
+    println!("prior probes: size 0/15, tool-use 0/6, system-prompt 0/6, reused-session 0/10");
     println!("===================================================");
 }
