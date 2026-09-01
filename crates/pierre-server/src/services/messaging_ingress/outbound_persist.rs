@@ -4,13 +4,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::messaging::OutgoingMessage;
+use std::sync::Arc;
+
+use pierre_core::models::messaging::{IncomingMessage, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use tracing::{debug, error};
 use uuid::Uuid;
 
+use super::outbound_send::OutboundPersistSpec;
 use super::{content_body_text, content_type_label};
+use crate::mcp::resources::ServerContext;
 
 /// The identifiers an outbound ledger row carries beyond the message itself.
 pub struct OutboundRowParams<'a> {
@@ -84,4 +88,51 @@ pub(super) async fn persist_outbound_row(
         ),
         Err(e) => error!(error = %e, "Failed to persist outbound message"),
     }
+}
+
+/// The outbound-ledger spec for a pre-dispatch reply to `message`'s sender,
+/// when their session resolves — the same tenant walk the live dispatch does:
+/// the link authenticates under the channel tenant, a DM session lives under
+/// the user's own tenant, a room session under the channel's.
+///
+/// `None` when any step fails to resolve (an unlinked sender, no session yet):
+/// the reply is still sent, merely unledgered — exactly the pre-existing
+/// behaviour for a sender the ledger has nothing to attach to.
+pub(super) async fn logout_persist_spec(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    message: &IncomingMessage,
+) -> Option<OutboundPersistSpec> {
+    let auth = resources
+        .auth
+        .auth_middleware
+        .authenticate_channel(tenant_id, channel, &message.sender_id)
+        .await
+        .ok()?;
+    let user_tenant = auth.active_tenant_id.map_or(tenant_id, TenantId::from_uuid);
+    let session_tenant = if message.is_direct_message {
+        user_tenant
+    } else {
+        tenant_id
+    };
+    let session = resources
+        .common
+        .repos
+        .messaging
+        .get_session_by_channel_identity(
+            session_tenant,
+            channel,
+            &message.sender_id,
+            message.conversation_id.as_deref(),
+        )
+        .await
+        .ok()??;
+    let session_id = session["id"].as_str()?.to_owned();
+    Some(OutboundPersistSpec {
+        db: Arc::clone(&resources.common.repos.messaging),
+        session_tenant_id: session_tenant,
+        session_id,
+        chat_message_id: None,
+    })
 }

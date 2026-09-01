@@ -561,6 +561,13 @@ async fn persist_single_message(
     // Check for logout command: unlink channel and destroy session
     if is_logout_command(&message.content) {
         emit_messaging_intent(&pre_link_identity, tenant_id, channel, "logout");
+        // Resolve the goodbye's ledger home BEFORE the link is destroyed —
+        // afterwards the sender no longer resolves to a session. The session
+        // row itself survives logout (only the link is deleted), so the
+        // farewell belongs on it like any other reply; failing to resolve one
+        // degrades to the old unledgered send rather than blocking logout.
+        let logout_persist =
+            outbound_persist::logout_persist_spec(resources, tenant_id, channel, message).await;
         let mut logout_response = handle_logout(
             resources,
             tenant_id,
@@ -571,7 +578,15 @@ async fn persist_single_message(
         .await;
         logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, logout_response, None).await;
+        send_channel_response(
+            db,
+            tenant_id,
+            channel,
+            adapter,
+            logout_response,
+            logout_persist,
+        )
+        .await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -629,7 +644,25 @@ async fn persist_single_message(
         .await;
         reset_response.thread_id = thread_id;
         apply_conversation_recipient(&mut reset_response, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, reset_response, None).await;
+        // The confirmation joins the outbound ledger like every dispatched
+        // reply: the ledger row is the record of what the athlete was told
+        // (delivery itself is fire-and-forget), and an unledgered reset
+        // confirmation was invisible to ops and to the e2e suite alike.
+        let reset_persist = Some(OutboundPersistSpec {
+            db: Arc::clone(&resources.common.repos.messaging),
+            session_tenant_id,
+            session_id: session.session_id.clone(),
+            chat_message_id: None,
+        });
+        send_channel_response(
+            db,
+            tenant_id,
+            channel,
+            adapter,
+            reset_response,
+            reset_persist,
+        )
+        .await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 

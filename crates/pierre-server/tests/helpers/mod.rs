@@ -9,6 +9,8 @@
 pub mod axum_test;
 pub mod chat_scenario;
 pub mod coach_fixtures;
+#[cfg(feature = "client-messaging")]
+pub mod command_e2e;
 pub mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_webhooks;

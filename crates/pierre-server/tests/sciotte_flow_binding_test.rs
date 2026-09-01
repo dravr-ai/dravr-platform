@@ -391,7 +391,11 @@ async fn a_flow_past_its_ttl_is_treated_as_absent() {
         user_id,
         "flow-reaped".to_owned(),
         "sciotte",
-        Duration::from_millis(30),
+        // Wide enough that a loaded CI shard cannot burn the whole TTL
+        // between the write above and the read below — at 30ms this test
+        // lost that race on a PostgreSQL shard (2026-09-01) and reported the
+        // live read as already expired.
+        Duration::from_millis(500),
     )
     .await;
 
@@ -404,7 +408,7 @@ async fn a_flow_past_its_ttl_is_treated_as_absent() {
         "flow-reaped"
     );
 
-    sleep(Duration::from_millis(80)).await;
+    sleep(Duration::from_millis(700)).await;
 
     let error = require_remote_flow(&cache, tenant_id, user_id)
         .await
