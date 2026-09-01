@@ -25,11 +25,9 @@ use pierre_core::models::messaging::{
 };
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::{factory::Database, CreateChannelLinkParams, CreateSessionParams};
-use pierre_mcp_server::routes::messaging::adapter_factory::ChannelAdapterFactory;
 use pierre_mcp_server::services::backfill_notifier::AdapterResolver;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::error::{MessagingError, MessagingResult};
-use pierre_messaging::factory::create_adapter_from_config;
 use pierre_messaging::turn::ConversationTurnId;
 use serde_json::Value;
 use uuid::Uuid;
