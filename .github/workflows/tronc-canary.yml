@@ -1,5 +1,5 @@
 # ABOUTME: Scheduled Slack alert pipeline canary — emits a synthetic ERROR every 6h
-# ABOUTME: Operator monitors #dev-dravr-errors for the canary; stale canary = broken alerting
+# ABOUTME: Operator monitors #dev-dravr-errors; a missing-credential run reds rather than skipping
 
 name: "Monitor: Tronc Slack Canary"
 
@@ -23,21 +23,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check secret availability
-        id: check
-        run: |
-          if [ -n "$CANARY_TOKEN" ] && [ -n "$CANARY_URL" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::CANARY_ADMIN_TOKEN or CANARY_BASE_URL secret not set — skipping canary"
-          fi
+      # A canary that cannot reach the server must SAY SO, loudly.
+      #
+      # Until 2026-09-01 a missing secret set `configured=false`, skipped the
+      # emit step, and the run reported SUCCESS. Neither CANARY_ secret has ever
+      # existed on this repository, so this lane had emitted nothing on every
+      # run since at least 2026-08-23 while reading green (carnet#170). A canary
+      # whose whole job is to prove the alert pipeline works BEFORE an outage
+      # needs it was itself the thing that had silently stopped working — and a
+      # conclusion-only read could not tell, because the conclusion was
+      # `success`; only the run's annotations carried the warning.
+      #
+      # This reds on purpose. A red here means THIS LANE is broken, not that
+      # alerting is broken, and monitor-scheduled-lanes.yml reporting it is then
+      # correct rather than misleading. Mirrors the preflight in
+      # monitor-capture-staleness.yml, which reads the same secret pair.
+      - name: Require the credentials this lane cannot work without
         env:
           CANARY_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
           CANARY_URL: ${{ secrets.CANARY_BASE_URL }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "${CANARY_TOKEN}" ] || MISSING="${MISSING} CANARY_ADMIN_TOKEN"
+          [ -n "${CANARY_URL}" ] || MISSING="${MISSING} CANARY_BASE_URL"
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing repository secret(s):${MISSING} — this canary cannot emit and must not report green. Mint a super-admin token (pierre-cli token generate --service admin_console --super-admin) and set both secrets."
+            exit 1
+          fi
+          echo "Credentials present."
 
       - name: Emit canary event
-        if: steps.check.outputs.configured == 'true'
         run: |
           set -euo pipefail
           echo "POST ${CANARY_URL}/admin/diagnostics/tronc-canary"
