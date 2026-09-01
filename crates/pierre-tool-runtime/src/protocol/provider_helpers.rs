@@ -630,6 +630,70 @@ pub async fn fetch_activities_from_provider(
     tenant_id: Option<&str>,
     limit: Option<usize>,
 ) -> Result<Vec<Activity>, AppError> {
+    let provider = configured_provider(resources, user_id, provider_name, tenant_id).await?;
+
+    // Fetch activities. Preserve a `ProviderAuthRequired` error verbatim so it
+    // keeps its code (and provider slug in `details`) across the `?` boundary:
+    // the tool executor short-circuits on it and the chat-pipeline
+    // `auth_recovery` stage mints a hosted-login link and renders the
+    // reconnect copy. Wrapping it in `internal` here erased the code and the
+    // user got a generic "internal error" instead of a reconnect prompt.
+    provider.get_activities(limit, None).await.map_err(|e| {
+        if e.code == ErrorCode::ProviderAuthRequired {
+            e
+        } else {
+            AppError::internal(format!("Failed to fetch activities: {e}"))
+        }
+    })
+}
+
+/// Fetch ONE activity by id from the user's connected provider.
+///
+/// The single-activity sibling of [`fetch_activities_from_provider`]: the
+/// same token + tenant-credential resolution, but one `get_activity_detailed`
+/// round trip instead of a paged list scan — 200× cheaper for the callers
+/// that previously pulled a whole window to find one id, able to reach
+/// activities older than any recent window, and on providers with a real
+/// detail endpoint (Strava, Garmin) the returned activity carries the
+/// laps/splits list rows never had.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when token/provider resolution fails, and preserves a
+/// `ProviderAuthRequired` error verbatim (same reconnect contract as the list
+/// sibling); any other fetch failure reads as the activity being unreachable
+/// by this id.
+pub async fn fetch_activity_from_provider(
+    resources: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    provider_name: &str,
+    tenant_id: Option<&str>,
+    activity_id: &str,
+) -> Result<Activity, AppError> {
+    let provider = configured_provider(resources, user_id, provider_name, tenant_id).await?;
+
+    provider
+        .get_activity_detailed(activity_id)
+        .await
+        .map_err(|e| {
+            if e.code == ErrorCode::ProviderAuthRequired {
+                e
+            } else {
+                AppError::not_found(format!(
+                    "activity {activity_id} not found on {provider_name}: {e}"
+                ))
+            }
+        })
+}
+
+/// Resolve a valid token and build the tenant-scoped provider client — the
+/// shared preamble of both fetch helpers above.
+async fn configured_provider(
+    resources: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    provider_name: &str,
+    tenant_id: Option<&str>,
+) -> Result<Box<dyn FitnessProvider>, AppError> {
     let auth_service = AuthService::new(resources.clone());
 
     // Get valid OAuth token
@@ -655,28 +719,14 @@ pub async fn fetch_activities_from_provider(
         });
 
     // Create configured provider with tenant-scoped credentials
-    let provider = create_configured_provider_with_tenant(
+    create_configured_provider_with_tenant(
         provider_name,
         resources.provider_registry(),
         &token_data,
         tenant_ctx,
     )
     .await
-    .map_err(|e| AppError::internal(format!("Failed to configure provider: {e}")))?;
-
-    // Fetch activities. Preserve a `ProviderAuthRequired` error verbatim so it
-    // keeps its code (and provider slug in `details`) across the `?` boundary:
-    // the tool executor short-circuits on it and the chat-pipeline
-    // `auth_recovery` stage mints a hosted-login link and renders the
-    // reconnect copy. Wrapping it in `internal` here erased the code and the
-    // user got a generic "internal error" instead of a reconnect prompt.
-    provider.get_activities(limit, None).await.map_err(|e| {
-        if e.code == ErrorCode::ProviderAuthRequired {
-            e
-        } else {
-            AppError::internal(format!("Failed to fetch activities: {e}"))
-        }
-    })
+    .map_err(|e| AppError::internal(format!("Failed to configure provider: {e}")))
 }
 
 /// Infer workout intensity from recent activities

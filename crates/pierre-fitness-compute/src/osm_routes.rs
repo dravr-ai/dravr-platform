@@ -14,7 +14,7 @@ use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, warn};
 
 /// Cache duration for route queries (24 hours)
@@ -67,6 +67,17 @@ const OVERPASS_MIRRORS: &[&str] = &[
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ];
+
+/// Overall wall-clock budget across the whole mirror walk.
+///
+/// Each attempt is already bounded (`[timeout:25]` server-side under the
+/// shared client's 30s request timeout), but three slow-hanging mirrors in a
+/// row still cost ~90s — well past what a coaching turn tolerates. The budget
+/// admits one fast-failing mirror plus one slow success (a healthy mirror
+/// answers in 3-9s, a loaded one in ~25s) and then stops trying: no further
+/// mirror is attempted once it is spent, and the accumulated failures come
+/// back as the retryable error.
+const OVERPASS_TOTAL_BUDGET: Duration = Duration::from_secs(45);
 
 // ============================================================================
 // Public types
@@ -208,8 +219,16 @@ impl RouteDiscoveryService {
         center_lon: f64,
     ) -> AppResult<Vec<DiscoveredRoute>> {
         let mut failures: Vec<String> = Vec::with_capacity(self.overpass_mirrors.len());
+        let started = Instant::now();
 
         for mirror in &self.overpass_mirrors {
+            if started.elapsed() >= OVERPASS_TOTAL_BUDGET {
+                failures.push(format!(
+                    "budget exhausted after {:.0?}; remaining mirrors not tried",
+                    started.elapsed()
+                ));
+                break;
+            }
             let body = match self.try_mirror(mirror, query).await {
                 Ok(body) => body,
                 Err(reason) => {

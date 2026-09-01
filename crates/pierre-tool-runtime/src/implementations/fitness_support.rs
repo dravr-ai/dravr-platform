@@ -1249,23 +1249,23 @@ pub(crate) async fn process_activity_analysis(
 ) -> Result<UniversalResponse, ProtocolError> {
     "get_activity_intelligence".clone_into(&mut request.tool_name);
     let analysis_response = executor.execute_tool(request).await?;
-    let analysis = analysis_response.result.unwrap_or_else(|| json!({}));
+    let metadata = Some(create_activity_metadata(
+        activity_id,
+        user_uuid,
+        analysis_response
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("tenant_id").and_then(Value::as_str).map(String::from))
+            .as_ref(),
+    ));
 
+    // Propagate the inner verdict — hardcoding `success: true` here reported
+    // every downstream failure as a successful call with an error payload.
     Ok(UniversalResponse {
-        success: true,
-        result: Some(to_value(analysis).map_err(|e| {
-            ProtocolError::SerializationError(format!("Failed to serialize analysis: {e}"))
-        })?),
-        error: None,
-        metadata: Some(create_activity_metadata(
-            activity_id,
-            user_uuid,
-            analysis_response
-                .metadata
-                .as_ref()
-                .and_then(|m| m.get("tenant_id").and_then(Value::as_str).map(String::from))
-                .as_ref(),
-        )),
+        success: analysis_response.success,
+        result: analysis_response.result.or_else(|| Some(json!({}))),
+        error: analysis_response.error,
+        metadata,
     })
 }
 

@@ -31,7 +31,9 @@ use crate::tools::runtime_adapter::into_runtime;
 use pierre_config::environment::default_provider;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::workout_library::cornerstone_templates;
-use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
+use pierre_tool_runtime::protocol::provider_helpers::{
+    fetch_activities_from_provider, fetch_activity_from_provider,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Lower bound on the analysis window — defended in addition to the
@@ -196,9 +198,6 @@ async fn fetch_activity_by_id(
     tenant_id: TenantId,
     activity_id: &str,
 ) -> AppResult<Activity> {
-    // The activity-fetch helper is per-list in the social routes; for a
-    // single id we pull a wide window and filter. Acceptable cost given
-    // Endurance endpoints are coach-driven, low-cardinality reads.
     let provider_name = if let Some(p) = default_provider() {
         p
     } else if let Some(conn) = resources
@@ -212,18 +211,16 @@ async fn fetch_activity_by_id(
         return Err(AppError::no_provider_connected());
     };
     let tenant_str = tenant_id.to_string();
-    let activities = fetch_activities_from_provider(
+    // One detail round trip; the MCP export tools share this helper, so the
+    // HTTP and tool paths cannot drift back into the 200-row window scan.
+    fetch_activity_from_provider(
         resources,
         user_id,
         &provider_name,
         Some(tenant_str.as_str()),
-        Some(MAX_ACTIVITIES_PER_LATEST_CALL),
+        activity_id,
     )
-    .await?;
-    activities
-        .into_iter()
-        .find(|a| a.id() == activity_id)
-        .ok_or_else(|| AppError::not_found(format!("activity {activity_id} not in recent window")))
+    .await
 }
 
 /// Query parameters for `GET /api/v1/endurance/history`.

@@ -24,6 +24,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,7 +39,7 @@ use dravr_tronc::mcp::schema::{
     ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::McpServer;
-use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner};
+use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::TenantId;
@@ -48,9 +49,10 @@ use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use serde_json::{Map, Value};
 use tokio::task::{JoinError, JoinHandle};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
@@ -240,10 +242,57 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
 /// "MCP Tasks — Which Tools Answer Asynchronously". A tool outside this list
 /// always answers inline, however long it runs.
 ///
-/// `compute_training_history` is the first write-path entry: its persistence
-/// is an upsert keyed by date, so work continuing behind a handle after a
-/// client stops polling leaves harmless, idempotently re-computable state.
-const TASK_CAPABLE_TOOLS: &[&str] = &["compute_training_history", "get_activities"];
+/// The three task-required conversions came first: `get_activities` (whose
+/// sync contract already failed on deep windows), `compute_training_history`
+/// (the first write path — an upsert keyed by date, so work continuing after
+/// a client stops polling leaves harmless, re-computable state), and
+/// `push_training_plan` (visible calendar writes — the one entry whose worker
+/// OBSERVES `tasks/cancel` via the scoped cancel flag and stops between
+/// entries; the push is convergent, so a re-run heals a partial one).
+///
+/// The rest is the provider-fetching eligible family: every tool whose worst
+/// path is ≥1 uncached provider fetch (each verified to reach
+/// `create_authenticated_provider` / `fetch_activities_from_provider` /
+/// `fetch_provider_activities` from its own execute body — never attributed
+/// by file, which is how sleep-quality reads stay OFF this list while
+/// `calculate_recovery_score` in the same file is on it). The fast-path
+/// budget, not this list, decides the wire shape: a cache-warm call answers
+/// inline; only work that genuinely outlives the budget becomes a handle, so
+/// membership costs a fast call nothing.
+///
+/// Deliberately absent: `verify_claim` (deterministic, mid-sentence),
+/// `set_goal` and the stored-data reads (DB-only), `analyze_sleep_quality` /
+/// `track_sleep_trends` (every sleep-capable backend is an API),
+/// `export_intervals` / `export_routes` / `extract_activity_streams` (one
+/// bounded fetch since the single-activity helper), and the three bounded
+/// fan-outs (`validate_recipe`, `analyze_meal_nutrition`, `discover_routes`).
+const TASK_CAPABLE_TOOLS: &[&str] = &[
+    "analyze_activity",
+    "analyze_goal_feasibility",
+    "analyze_performance_trends",
+    "analyze_training_load",
+    "analyze_weather_impact",
+    "calculate_fitness_score",
+    "calculate_metrics",
+    "calculate_recovery_score",
+    "compare_activities",
+    "compute_training_history",
+    "detect_patterns",
+    "export_dossier",
+    "export_latest_snapshot",
+    "generate_recommendations",
+    "get_activities",
+    "get_activity_intelligence",
+    "get_athlete",
+    "get_group_member_activities",
+    "get_stats",
+    "optimize_sleep_schedule",
+    "predict_performance",
+    "push_training_plan",
+    "suggest_goals",
+    "suggest_rest_day",
+    "track_progress",
+];
 
 /// Default fast-path budget (ms) before a declared-tasks call converts into a
 /// task handle. Under it, cache-warm and API-backed work answers inline, so
@@ -294,7 +343,53 @@ fn join_to_response(joined: Result<ToolResponse, JoinError>) -> ToolResponse {
     })
 }
 
-/// Await the detached tool call and settle its task with the terminal result.
+/// Await the worker, checking the task store between join attempts and
+/// raising the scoped cancel flag when the engine has marked the task
+/// cancelled — the relay half of cooperative cancellation.
+async fn await_work_relaying_cancel(
+    manager: &TaskManager,
+    owner: &TaskOwner,
+    task_id: &TaskId,
+    mut work: JoinHandle<ToolResponse>,
+    cancel_flag: &AtomicBool,
+) -> ToolResponse {
+    loop {
+        tokio::select! {
+            joined = &mut work => return join_to_response(joined),
+            () = sleep(Duration::from_millis(MCP_TASK_POLL_INTERVAL_MS)) => {
+                relay_cancel_once(manager, owner, task_id, cancel_flag).await;
+            }
+        }
+    }
+}
+
+/// One store check: raise the flag if the task turned `cancelled`.
+async fn relay_cancel_once(
+    manager: &TaskManager,
+    owner: &TaskOwner,
+    task_id: &TaskId,
+    cancel_flag: &AtomicBool,
+) {
+    if cancel_flag.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Ok(task) = manager.get(owner, task_id).await {
+        if task.status() == TaskStatus::Cancelled {
+            debug!(task_id = %task_id, "Task cancelled — flagging the worker");
+            cancel_flag.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Await the detached tool call and settle its task with the terminal result,
+/// relaying a `tasks/cancel` to the worker while it runs.
+///
+/// The engine transitions the task row to `cancelled` synchronously when the
+/// client asks; the worker only learns of it through this follower, which
+/// polls the store between join attempts and flips the scoped cancel flag so
+/// a tool with a natural stopping point (the plan-push entry loop) stops
+/// instead of writing on. Cancellation stays cooperative and best-effort — a
+/// worker mid-provider-call finishes that call first.
 ///
 /// A tool result whose `isError` is true still completes the task — `failed`
 /// is reserved for execution-level faults (panics, unserializable results).
@@ -305,8 +400,9 @@ async fn settle_task(
     owner: TaskOwner,
     task_id: TaskId,
     work: JoinHandle<ToolResponse>,
+    cancel_flag: Arc<AtomicBool>,
 ) {
-    let response = join_to_response(work.await);
+    let response = await_work_relaying_cancel(&manager, &owner, &task_id, work, &cancel_flag).await;
     let settled = if let Ok(Value::Object(result)) = serde_json::to_value(&response) {
         manager.complete(&owner, &task_id, result).await
     } else {
@@ -522,12 +618,19 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // Spawn the call so it can outlive this request if it exceeds the
         // budget; under budget the client gets the result inline and no task
         // row is ever minted, so cache-warm repeat callers never regress.
-        let mut work = tokio::spawn(run_dispatch(
-            self.resources.clone(),
-            state.clone(),
-            ctx.clone(),
-            name.to_owned(),
-            arguments,
+        // The cancel flag is scoped around the whole future up front — it
+        // costs nothing on the fast path and is the only way a later
+        // tasks/cancel can reach a worker already in flight.
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let mut work = tokio::spawn(scoped_with_cancel_flag(
+            cancel_flag.clone(),
+            run_dispatch(
+                self.resources.clone(),
+                state.clone(),
+                ctx.clone(),
+                name.to_owned(),
+                arguments,
+            ),
         ));
         match timeout(task_fast_path_budget(), &mut work).await {
             Ok(joined) => CallToolOutcome::Immediate(Box::new(join_to_response(joined))),
@@ -539,7 +642,13 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
                 let task_id = TaskId::new(Uuid::new_v4().to_string());
                 match self.task_manager.create(&owner, task_id.clone()).await {
                     Ok(task) => {
-                        tokio::spawn(settle_task(self.task_manager.clone(), owner, task_id, work));
+                        tokio::spawn(settle_task(
+                            self.task_manager.clone(),
+                            owner,
+                            task_id,
+                            work,
+                            cancel_flag,
+                        ));
                         CallToolOutcome::Task(Box::new(task))
                     }
                     Err(e) => {

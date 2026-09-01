@@ -157,6 +157,10 @@ pub mod nutrition;
 #[cfg(feature = "tools-recipes")]
 pub mod recipes;
 
+/// Process-wide shared USDA client for the nutrition + recipe fan-out tools.
+#[cfg(any(feature = "tools-nutrition", feature = "tools-recipes"))]
+pub mod usda_shared;
+
 /// Route discovery tools: `discover_routes` (Overpass + OSM piste data)
 /// (`tools-analytics` feature).
 #[cfg(feature = "tools-analytics")]

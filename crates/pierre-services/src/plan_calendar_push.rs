@@ -36,6 +36,7 @@
 //! operation is idempotent by construction — re-running it is the undo.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::constants::oauth::INTERVALS_ICU;
@@ -404,6 +405,10 @@ pub struct PushReport {
     pub skipped: Vec<SkippedEntry>,
     /// Entries the provider or the ledger refused.
     pub failed: Vec<FailedEntry>,
+    /// Whether a cooperative cancellation stopped the push early. Entries
+    /// already written stay; the push is convergent, so a re-run reconciles
+    /// the rest.
+    pub cancelled: bool,
 }
 
 /// Inputs of one push.
@@ -419,9 +424,26 @@ pub struct PushPlanParams<'a> {
     /// First date to consider — today in the athlete's calendar. Nothing
     /// before it is created, updated, or removed.
     pub from: NaiveDate,
+    /// Cooperative cancel flag, observed between entries. `None` for callers
+    /// with no cancellation channel (the push runs to completion).
+    pub cancel: Option<&'a AtomicBool>,
+}
+
+/// Whether the caller's cooperative cancel flag is raised.
+fn cancel_requested(params: &PushPlanParams<'_>) -> bool {
+    params
+        .cancel
+        .is_some_and(|flag| flag.load(Ordering::Relaxed))
 }
 
 /// Push the athlete's active plan to `calendar` and reconcile the ledger.
+///
+/// Cooperative cancellation: when [`PushPlanParams::cancel`] is raised the
+/// push stops between entries (and before the removal pass), marks the
+/// report [`PushReport::cancelled`], and returns what landed. Entries never
+/// reached are simply created by the next run; entries fully written read as
+/// unchanged — the reconciliation is convergent, so a partial run is always
+/// recoverable by pushing again.
 ///
 /// # Errors
 ///
@@ -507,6 +529,15 @@ pub async fn push_active_plan(
 
     let mut wanted: HashSet<String> = HashSet::new();
     for entry in &desired {
+        // Cooperative cancellation stops BETWEEN entries and must return
+        // right here, never falling through to the removal pass below: the
+        // `wanted` set only holds the keys of entries this loop reached, so
+        // a cut-short run would read every unvisited entry's live ledger row
+        // as unwanted and bulk-delete calendar entries the plan still wants.
+        if cancel_requested(params) {
+            report.cancelled = true;
+            return Ok(report);
+        }
         let key = entry.session.external_id.clone();
         wanted.insert(key.clone());
         let hash = session_hash(&entry.session)?;
@@ -561,6 +592,13 @@ pub async fn push_active_plan(
                 None => write.create(calendar, None, &mut report).await,
             },
         }
+    }
+
+    // A cancel that lands after the last entry but before the removal pass
+    // still stops the push: the removal is provider-visible work too.
+    if cancel_requested(params) {
+        report.cancelled = true;
+        return Ok(report);
     }
 
     // Live rows no plan day wants any more — a day that became rest, a week

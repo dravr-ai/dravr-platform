@@ -6,7 +6,9 @@
 
 use crate::protocol::format::{apply_format_to_response, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
-use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
+use crate::protocol::{
+    UniversalRequest, UniversalResponse, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
+};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
@@ -505,7 +507,26 @@ pub fn handle_get_activity_intelligence(
                     output_format,
                 ))
             }
-            Err(response) => Ok(response),
+            Err(response) => {
+                // A lapsed or missing token must surface as the TYPED auth
+                // error so the tool loop hands back the localized reconnect
+                // link this turn — an in-band error payload strands the
+                // athlete with a generic failure the model can only
+                // apologise about (same rule as get_activities; live
+                // incident 2026-08-11). Metadata is dropped at the
+                // ToolResponse boundary, so the typed re-raise here is the
+                // only way the signal survives the bridge.
+                let dead = response
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                dead.map_or_else(
+                    || Ok(response),
+                    |provider| Err(ProtocolError::ProviderAuthRequired { provider }),
+                )
+            }
         }
     })
 }

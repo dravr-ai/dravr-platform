@@ -571,53 +571,16 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
                 .map(str::to_owned)
                 .ok_or_else(|| AppError::invalid_input("activity_id parameter required"))?;
 
-            // Authenticated provider fetch — the auth layer lives on UniversalExecutor
-            // for now (its lifecycle owns OAuth refresh + token caching). Build one
-            // per-call to keep the McpTool body free of explicit auth plumbing; cheap
-            // enough on warm provider registries since the inner services share
-            // `Arc<dyn ToolRuntime>` with the request context.
             let executor = UniversalExecutor::new(context.resources.clone());
-            let tenant_id_str = context.tenant_id.map(|t| t.to_string());
 
-            let provider: Box<dyn FitnessProvider> = match executor
-                .auth_service
-                .create_authenticated_provider(
-                    &provider_name,
-                    context.user_id,
-                    tenant_id_str.as_deref(),
-                )
-                .await
-            {
-                Ok(provider) => provider,
-                // create_authenticated_provider hands back a fully-formed
-                // UniversalResponse on auth failure (e.g. missing OAuth token).
-                // Mirror map_universal_response's behaviour: surface as a
-                // ToolResult::error payload so the chat loop can render the
-                // hosted-login URL embedded in the response.
-                Err(response) => {
-                    let fallback_error = response
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "analyze_activity authentication failed".to_owned());
-                    let error_payload = response.result.unwrap_or_else(|| {
-                        json!({
-                            "error": fallback_error,
-                        })
-                    });
-                    return Ok(ToolResult::error(error_payload));
-                }
-            };
-
-            // Single-activity fetch — bails early when the provider can't resolve
-            // the id (e.g. deleted activity or wrong-provider id from the LLM).
-            if let Err(e) = provider.get_activity(&activity_id).await {
-                return Ok(ToolResult::error(json!({
-                    "error": format!("Activity {activity_id} not found: {e}"),
-                    "activity_id": activity_id,
-                    "provider": provider_name,
-                })));
-            }
-
+            // No pre-flight fetch: `get_activity_intelligence` authenticates
+            // and fetches the activity itself, so a validation fetch here
+            // doubled the provider round trips (two headless-browser passes on
+            // a scrape-backed mirror) — and worse, its early bail on a missing
+            // id suppressed the analytics handler's deliberate not-found
+            // fallback, which analyzes the most recent activity and names the
+            // missing id in an `auto_selected` block.
+            //
             // Dispatch into `get_activity_intelligence` through the shared registry.
             // process_activity_analysis takes ownership of the request and rewrites
             // its tool_name; build a fresh envelope here so the registry sees the

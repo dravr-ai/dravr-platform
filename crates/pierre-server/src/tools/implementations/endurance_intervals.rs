@@ -25,12 +25,10 @@ use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     capabilities_to_tronc, tool_definition, tool_result_to_response,
 };
-use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
+use pierre_tool_runtime::protocol::provider_helpers::fetch_activity_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
-
-const MAX_ACTIVITIES_PER_FETCH: usize = 200;
 
 fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {
@@ -58,6 +56,12 @@ fn activity_id_arg(args: &Value) -> AppResult<String> {
         .ok_or_else(|| AppError::invalid_input("activity_id is required"))
 }
 
+/// Fetch ONE activity by id through the shared single-activity helper.
+///
+/// A single `get_activity_detailed` round trip replaces the previous
+/// 200-activity list scan: 200× cheaper, reaches activities older than the
+/// recent window, and on providers with a real detail endpoint (Strava,
+/// Garmin) it carries laps/splits the list rows never had.
 async fn fetch_activity(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
@@ -77,18 +81,14 @@ async fn fetch_activity(
         return Err(AppError::no_provider_connected());
     };
     let tenant_str = tenant_id.to_string();
-    let activities = fetch_activities_from_provider(
+    fetch_activity_from_provider(
         resources,
         user_id,
         &provider_name,
         Some(tenant_str.as_str()),
-        Some(MAX_ACTIVITIES_PER_FETCH),
+        activity_id,
     )
-    .await?;
-    activities
-        .into_iter()
-        .find(|a| a.id() == activity_id)
-        .ok_or_else(|| AppError::not_found(format!("activity {activity_id} not in recent window")))
+    .await
 }
 
 fn activity_id_schema() -> JsonSchema {
@@ -213,6 +213,10 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
+            // LIMITATION(registre#6): export_routes always takes this branch —
+            // no production fetch path populates time_series_data on any
+            // provider, so the tool can only report the stream as absent
+            // until a per-activity streams fetch exists.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;
@@ -331,6 +335,10 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
+            // LIMITATION(registre#6): extract_activity_streams always takes
+            // this branch — no production fetch path populates
+            // time_series_data on any provider, so the tool can only report
+            // the stream as absent until a per-activity streams fetch exists.
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;

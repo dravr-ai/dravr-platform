@@ -16,8 +16,8 @@ use pierre_intelligence::recipes::{
 };
 
 use crate::context::ToolExecutionContext;
+use crate::implementations::usda_shared::{shared_usda_client, MAX_USDA_INGREDIENTS};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_external::{UsdaClient, UsdaClientConfig};
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_tools_core::ToolResult;
 
@@ -251,6 +251,15 @@ pub async fn handle_validate_recipe(
             )
         })?;
 
+    // Two USDA calls per ingredient, so the array length is the fan-out —
+    // bound it by a constant instead of by whatever the caller sends.
+    if ingredients_json.len() > MAX_USDA_INGREDIENTS {
+        return Err(AppError::invalid_input(format!(
+            "validate_recipe: too many ingredients ({}; max {MAX_USDA_INGREDIENTS})",
+            ingredients_json.len()
+        )));
+    }
+
     let api_key = ctx
         .resources
         .config()
@@ -264,11 +273,7 @@ pub async fn handle_validate_recipe(
         })));
     }
 
-    let usda_config = UsdaClientConfig {
-        api_key,
-        ..UsdaClientConfig::default()
-    };
-    let client = UsdaClient::new(usda_config);
+    let client = shared_usda_client(api_key);
 
     let mut total_calories = 0.0;
     let mut total_protein = 0.0;

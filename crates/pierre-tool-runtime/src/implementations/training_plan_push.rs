@@ -32,6 +32,7 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use crate::task_cancellation::current_task_cancel_flag;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_mcp_schema::PropertySchema;
@@ -258,6 +259,11 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             let coach = resolve_coach_slug(conv.as_ref(), arg_coach);
             let provider = calendar_provider(&context, tenant, user_id).await?;
 
+            // When this call runs behind an MCP task handle the dispatcher
+            // scoped a cancel flag around it; handing it to the push loop is
+            // what lets tasks/cancel stop the calendar writes between
+            // entries. An inline call has no flag and pushes to completion.
+            let cancel_flag = current_task_cancel_flag();
             let report = push_active_plan(
                 repos,
                 provider.as_ref(),
@@ -267,6 +273,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                     coach_slug: coach.as_deref(),
                     provider: CALENDAR_PROVIDER,
                     from,
+                    cancel: cancel_flag.as_deref(),
                 },
             )
             .await?;

@@ -98,6 +98,8 @@ pub mod runtime;
 /// Guardian security classification: the egress/trust axis every tool declares
 /// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
 pub mod security;
+/// Cooperative cancel flag for tool calls running behind an MCP task handle.
+pub mod task_cancellation;
 
 /// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes).
 ///

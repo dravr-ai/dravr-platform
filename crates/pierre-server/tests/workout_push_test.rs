@@ -23,7 +23,7 @@
 mod common;
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -38,6 +38,7 @@ use pierre_memory::training_plans::{BlockPhase, GoalRace, PlanBlock, PlannedDay,
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
+use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -257,6 +258,21 @@ fn respond(
 /// Stand up the fake. `first_id` is the id the first created event gets, so a
 /// test can assert on the id the provider hands back.
 async fn stub_with(mode: Mode, first_id: i64) -> Stub {
+    stub_inner(mode, first_id, None).await
+}
+
+/// A live fake that raises `flag` once it has served `writes` write requests
+/// (POST/PUT) — how the cancellation tests flip the cooperative cancel flag
+/// deterministically between entries of one push.
+async fn stub_cancelling_after_writes(first_id: i64, flag: Arc<AtomicBool>, writes: usize) -> Stub {
+    stub_inner(Mode::Live, first_id, Some((flag, writes))).await
+}
+
+async fn stub_inner(
+    mode: Mode,
+    first_id: i64,
+    cancel_after_writes: Option<(Arc<AtomicBool>, usize)>,
+) -> Stub {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
     let addr = listener.local_addr().expect("stub addr");
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -264,6 +280,7 @@ async fn stub_with(mode: Mode, first_id: i64) -> Stub {
     let recorded = Arc::clone(&requests);
     let calendar = Arc::clone(&events);
     let next_id = AtomicI64::new(first_id);
+    let writes_seen = AtomicUsize::new(0);
     let handle = tokio::spawn(async move {
         loop {
             let Ok((mut socket, _)) = listener.accept().await else {
@@ -271,6 +288,14 @@ async fn stub_with(mode: Mode, first_id: i64) -> Stub {
             };
             let request = read_request(&mut socket).await;
             recorded.lock().await.push(request.clone());
+            if let Some((flag, after)) = &cancel_after_writes {
+                if request.starts_with("POST ") || request.starts_with("PUT ") {
+                    let served = writes_seen.fetch_add(1, Ordering::Relaxed) + 1;
+                    if served >= *after {
+                        flag.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
             let (status_line, body) = {
                 let mut events = calendar.lock().await;
                 respond(mode, &next_id, &mut events, &request)
@@ -1538,5 +1563,134 @@ async fn a_refused_plan_push_records_every_failure_and_leaves_the_ledger_honest(
         fixture.live().await.is_empty(),
         "nothing is recorded as live"
     );
+    Ok(())
+}
+
+// ── Cooperative cancellation (MCP task handle) ─────────────────────────────
+
+/// A cancel raised before the entry loop stops the push before ANY provider
+/// write — and, critically, before the removal pass: a cut-short run's
+/// `wanted` set is incomplete, so falling through to removal would bulk-delete
+/// calendar entries the plan still wants. The follow-up push then reconciles
+/// everything the cancelled run left, proving a partial run is always
+/// recoverable.
+#[tokio::test]
+async fn a_cancelled_push_writes_nothing_and_never_reaches_the_removal_pass() -> Result<()> {
+    let stub = stub_live(4000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    let d = |offset: i64| monday + Duration::days(offset);
+
+    // Two sessions (no week focus → no note entry), pushed to completion.
+    fixture
+        .save_weeks(
+            true,
+            &[(
+                d(0),
+                "",
+                vec![
+                    planned(d(0), "vélo", "Endurance", Some(60), "Z2"),
+                    planned(d(2), "run", "Easy run", Some(40), ""),
+                ],
+            )],
+        )
+        .await;
+    let report = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(report["created"].as_u64(), Some(2), "got: {report}");
+
+    // Adjust the plan: day 0 changes (a pending update), day 2 becomes rest
+    // (its calendar entry becomes removable on the next push).
+    fixture
+        .save_weeks(
+            false,
+            &[(
+                d(0),
+                "",
+                vec![
+                    planned(d(0), "vélo", "Endurance, easier", Some(45), "Z1"),
+                    rest_day(d(2)),
+                ],
+            )],
+        )
+        .await;
+
+    // Cancelled push: the report says so, nothing lands, nothing is removed.
+    let lines_before = stub.request_lines().await.len();
+    let flag = Arc::new(AtomicBool::new(true));
+    let report = scoped_with_cancel_flag(flag, fixture.ok("push_training_plan", json!({}))).await?;
+    assert_eq!(report["cancelled"].as_bool(), Some(true), "got: {report}");
+    assert_eq!(report["created"].as_u64(), Some(0));
+    assert_eq!(report["updated"].as_u64(), Some(0));
+    assert_eq!(report["removed"].as_u64(), Some(0));
+    let lines = stub.request_lines().await;
+    let new_lines = &lines[lines_before..];
+    assert!(
+        new_lines.len() == 1 && new_lines[0].starts_with("GET "),
+        "a cancelled push reads the window and writes nothing; got: {new_lines:?}"
+    );
+    assert_eq!(fixture.live().await.len(), 2, "both ledger rows stay live");
+    assert_eq!(stub.events().await.len(), 2, "both calendar entries stay");
+
+    // The next (uncancelled) push converges: one update, one removal.
+    let report = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(report["cancelled"].as_bool(), Some(false), "got: {report}");
+    assert_eq!(report["updated"].as_u64(), Some(1));
+    assert_eq!(report["removed"].as_u64(), Some(1));
+    assert_eq!(fixture.live().await.len(), 1);
+    assert_eq!(stub.events().await.len(), 1);
+    Ok(())
+}
+
+/// A cancel that lands while the push is mid-loop stops it at the next entry
+/// boundary: the entry whose write already started finishes (cancellation is
+/// cooperative, never mid-write), everything after it is left for the next
+/// push, which completes the plan without duplicating what landed.
+#[tokio::test]
+async fn a_mid_push_cancel_stops_between_entries_and_the_next_push_finishes() -> Result<()> {
+    let flag = Arc::new(AtomicBool::new(false));
+    let stub = stub_cancelling_after_writes(5000, Arc::clone(&flag), 1).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    let d = |offset: i64| monday + Duration::days(offset);
+
+    // Three sessions; the stub raises the flag when the first create lands,
+    // so the loop notices at the second entry's head.
+    fixture
+        .save_weeks(
+            true,
+            &[(
+                d(0),
+                "",
+                vec![
+                    planned(d(0), "vélo", "Endurance", Some(60), "Z2"),
+                    planned(d(2), "run", "Intervals", Some(50), ""),
+                    planned(d(4), "mtb", "Long ride", Some(120), "Z2"),
+                ],
+            )],
+        )
+        .await;
+
+    let report = scoped_with_cancel_flag(
+        Arc::clone(&flag),
+        fixture.ok("push_training_plan", json!({})),
+    )
+    .await?;
+    assert_eq!(report["cancelled"].as_bool(), Some(true), "got: {report}");
+    assert_eq!(report["created"].as_u64(), Some(1), "got: {report}");
+    let lines = stub.request_lines().await;
+    assert_eq!(
+        lines.iter().filter(|l| l.starts_with("POST ")).count(),
+        1,
+        "exactly the one in-flight create landed; got: {lines:?}"
+    );
+
+    // The next push finishes the plan: the landed entry reads as unchanged,
+    // the two never reached are created — no duplicates, no removals.
+    let report = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(report["cancelled"].as_bool(), Some(false), "got: {report}");
+    assert_eq!(report["created"].as_u64(), Some(2), "got: {report}");
+    assert_eq!(report["unchanged"].as_u64(), Some(1));
+    assert_eq!(report["removed"].as_u64(), Some(0));
+    assert_eq!(stub.events().await.len(), 3);
     Ok(())
 }

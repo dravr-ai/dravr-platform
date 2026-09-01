@@ -28,6 +28,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
 };
+use crate::implementations::usda_shared::{shared_usda_client, MAX_USDA_INGREDIENTS};
 use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -35,7 +36,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::Activity;
-use pierre_external::{UsdaClient, UsdaClientConfig};
+use pierre_external::UsdaClient;
 use pierre_intelligence::{
     calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
     DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
@@ -190,8 +191,10 @@ fn infer_workout_intensity(activities: &[Activity], days_back: u32) -> &'static 
     }
 }
 
-/// Build a `UsdaClient` from context, returning an error `ToolResult` if the API key is missing.
-fn build_usda_client(context: &ToolExecutionContext) -> Result<UsdaClient, ToolResult> {
+/// Resolve the process-wide `UsdaClient`, returning an error `ToolResult` if
+/// the API key is missing. Shared so its 24h caches and rate limiter span
+/// calls instead of dying with each one.
+fn build_usda_client(context: &ToolExecutionContext) -> Result<Arc<UsdaClient>, ToolResult> {
     let api_key = context
         .resources
         .config()
@@ -205,11 +208,7 @@ fn build_usda_client(context: &ToolExecutionContext) -> Result<UsdaClient, ToolR
         })));
     }
 
-    let config = UsdaClientConfig {
-        api_key,
-        ..UsdaClientConfig::default()
-    };
-    Ok(UsdaClient::new(config))
+    Ok(shared_usda_client(api_key))
 }
 
 // ============================================================================
@@ -801,6 +800,15 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
                         "Missing or invalid required parameter: ingredients (must be array)",
                     )
                 })?;
+
+            // One USDA call per ingredient, so the array length is the
+            // fan-out — bound it by a constant, not by caller input.
+            if ingredients.len() > MAX_USDA_INGREDIENTS {
+                return Err(AppError::invalid_input(format!(
+                    "too many ingredients ({}; max {MAX_USDA_INGREDIENTS})",
+                    ingredients.len()
+                )));
+            }
 
             let mut meal_items: Vec<(u64, f64)> = Vec::new();
             for item in ingredients {
