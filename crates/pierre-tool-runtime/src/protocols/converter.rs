@@ -276,6 +276,7 @@ impl ProtocolConverter {
                 "required": []
             }),
             annotations: None,
+            output_schema: None,
         }
     }
 }

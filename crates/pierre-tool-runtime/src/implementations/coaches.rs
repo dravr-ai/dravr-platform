@@ -33,7 +33,9 @@ use super::coaches_tool_shape::{
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -98,11 +100,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "list_coaches",
@@ -290,11 +288,10 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
+        );
 
         tool_definition(
             "create_coach",
@@ -423,11 +420,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "get_coach",
@@ -560,11 +553,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "update_coach",
@@ -687,11 +676,7 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "delete_coach",
@@ -766,11 +751,7 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "toggle_coach_favorite",
@@ -872,11 +853,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["query".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["query".to_owned()]));
 
         tool_definition(
             "search_coaches",
@@ -983,11 +960,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "activate_coach",
@@ -1061,6 +1034,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -1119,6 +1093,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -1201,11 +1176,7 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "hide_coach",
@@ -1281,11 +1252,7 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "show_coach",
@@ -1349,6 +1316,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(

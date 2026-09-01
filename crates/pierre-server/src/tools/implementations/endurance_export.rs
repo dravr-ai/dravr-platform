@@ -127,6 +127,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(Vec::new()),
+            ..Default::default()
         };
         tool_definition(
             "export_latest_snapshot",
@@ -202,6 +203,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: Some(Vec::new()),
+            ..Default::default()
         };
         tool_definition(
             "export_dossier",

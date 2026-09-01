@@ -49,7 +49,9 @@ use super::training_plan_telemetry::{
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -57,7 +59,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::errors::{AppError, AppResult};
 
 use crate::implementations::guided_flow::guided_flow_is_active;
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
 /// Annotation set for the plan write tool.
@@ -576,11 +578,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             },
         );
         properties.insert("athlete".to_owned(), athlete_prop());
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "get_training_plan",
             "Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
@@ -713,11 +711,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             string_prop("Originating conversation ID for provenance."),
         );
         properties.insert("athlete".to_owned(), athlete_prop());
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "save_training_plan",
             "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",

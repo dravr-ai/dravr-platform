@@ -107,10 +107,6 @@ impl pierre_runtime_context::A2ACtx for ServerContext {
 #[cfg(feature = "transport-sse")]
 #[async_trait::async_trait]
 impl pierre_runtime_context::SseCtx for ServerContext {
-    fn auth_manager(&self) -> &Arc<AuthManager> {
-        &self.auth.auth_manager
-    }
-
     fn sse_buffer_overflow_strategy(&self) -> pierre_runtime_context::SseBufferOverflowStrategy {
         match self.common.config.sse.buffer_overflow_strategy {
             SseBufferStrategy::DropOldest => {
@@ -123,14 +119,6 @@ impl pierre_runtime_context::SseCtx for ServerContext {
                 pierre_runtime_context::SseBufferOverflowStrategy::CloseConnection
             }
         }
-    }
-
-    fn jwks_manager(&self) -> &Arc<JwksManager> {
-        &self.auth.jwks_manager
-    }
-
-    fn repos(&self) -> &Arc<RepositoryRegistry> {
-        &self.common.repos
     }
 
     async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {

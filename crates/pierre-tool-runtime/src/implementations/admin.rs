@@ -32,7 +32,9 @@ use uuid::Uuid;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -44,7 +46,7 @@ use pierre_core::models::coaches::{
 };
 use pierre_core::models::TenantId;
 use pierre_formatters::{format_output, OutputFormat};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
 /// Extract output format ("json" or "toon") from tool arguments.
@@ -180,11 +182,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "admin_list_system_coaches",
             "List all system coaches in the tenant (admin only)",
@@ -329,11 +327,10 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
+        );
         tool_definition(
             "admin_create_system_coach",
             "Create a new system coach visible to all tenant users (admin only)",
@@ -427,11 +424,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_get_system_coach",
             "Get detailed information about a system coach (admin only)",
@@ -564,11 +557,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_update_system_coach",
             "Update an existing system coach (admin only)",
@@ -694,11 +683,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_delete_system_coach",
             "Delete a system coach and remove all assignments (admin only)",
@@ -782,11 +767,10 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
+        );
         tool_definition(
             "admin_assign_coach",
             "Assign a system coach to a specific user (admin only)",
@@ -890,11 +874,10 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
+        );
         tool_definition(
             "admin_unassign_coach",
             "Remove a coach assignment from a user (admin only)",
@@ -985,11 +968,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_list_coach_assignments",
             "List all assignments for a system coach (admin only)",

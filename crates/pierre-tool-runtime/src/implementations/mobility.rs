@@ -29,13 +29,15 @@ use serde_json::{json, Value};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -97,11 +99,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "list_stretching_exercises",
@@ -206,11 +204,7 @@ impl McpTool<dyn ToolRuntime> for GetStretchingExerciseTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["exercise_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["exercise_id".to_owned()]));
 
         tool_definition(
             "get_stretching_exercise",
@@ -314,11 +308,7 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["activity_type".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["activity_type".to_owned()]));
 
         tool_definition(
             "suggest_stretches_for_activity",
@@ -480,11 +470,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "list_yoga_poses",
@@ -596,11 +582,7 @@ impl McpTool<dyn ToolRuntime> for GetYogaPoseTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["pose_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["pose_id".to_owned()]));
 
         tool_definition(
             "get_yoga_pose",
@@ -723,11 +705,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["purpose".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["purpose".to_owned()]));
 
         tool_definition(
             "suggest_yoga_sequence",

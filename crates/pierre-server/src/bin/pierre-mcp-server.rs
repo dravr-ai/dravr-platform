@@ -46,12 +46,6 @@ type Result<T> = AppResult<T>;
 use std::{env, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error, info};
-// The binary's only `warn!` sits inside the SSE protocol-factory install; with
-// the transport off there is nothing left to warn about. Ungated, the
-// no-default-features profile fails on an unused import.
-#[cfg(feature = "transport-sse")]
-use tracing::warn;
-
 /// Command-line arguments for the Dravr MCP server
 #[derive(Parser)]
 #[command(name = "pierre-mcp-server")]
@@ -805,30 +799,6 @@ async fn create_server(
 fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
-    // Install the MCP protocol-stream factory on the SSE manager now that
-    // the composition-root Arc<ServerContext> exists. The SSE crate
-    // doesn't know about the concrete McpProtocolStream type
-    // (ToolHandlers dispatch lives in pierre-server); the factory closes
-    // over the resources handle so each per-session stream gets it.
-    #[cfg(feature = "transport-sse")]
-    {
-        use pierre_mcp_server::sse::protocol::McpProtocolStreamFactory;
-        let factory = Arc::new(McpProtocolStreamFactory {
-            resources: Arc::clone(&resources),
-        });
-        // Ignore the result: a second install attempt is a startup-time
-        // logic bug, not a runtime condition worth aborting on (the first
-        // factory has already won). Surface via tracing for visibility.
-        if resources
-            .sse
-            .sse_manager
-            .install_protocol_factory(factory)
-            .is_err()
-        {
-            warn!("SseManager protocol factory already installed; skipping");
-        }
-    }
-
     // Install the chat-pipeline re-entry handle on the backfill-completion
     // notifier now that the composition-root Arc<ServerContext> exists. The
     // notifier is built pre-Arc (inside ServerContext::new), so the handle —
@@ -1031,7 +1001,6 @@ fn display_mcp_endpoints(host: &str, port: u16) {
     let endpoints = [
         "MCP Protocol:",
         &format!("   HTTP Transport:    http://{host}:{port}/mcp"),
-        &format!("   Server-Sent Events: http://{host}:{port}/mcp/sse"),
     ];
     for line in &endpoints {
         info!("{}", line);

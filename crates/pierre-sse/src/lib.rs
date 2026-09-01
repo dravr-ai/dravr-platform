@@ -34,9 +34,7 @@ pub mod notifications;
 pub mod routes;
 
 // Re-exports
-pub use manager::{
-    ConnectionMetadata, ConnectionType, ProtocolStream, ProtocolStreamFactory, SseManager,
-};
+pub use manager::{ConnectionMetadata, ConnectionType, SseManager};
 
 pub use notifications::NotificationStream;
 

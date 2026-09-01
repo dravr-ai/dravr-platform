@@ -40,7 +40,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::TenantId;
 use pierre_core::pagination::StoreSortOrder;
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_services::coach_store::{
     browse_store, install_store_coach, search_store, BrowseStoreParams, StoreCoach,
     DEFAULT_STORE_PAGE_SIZE, MAX_STORE_PAGE_SIZE,
@@ -52,7 +52,9 @@ use super::coaches_tool_shape::{
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 
@@ -140,11 +142,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "browse_coach_store",
@@ -233,11 +231,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["query".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["query".to_owned()]));
 
         tool_definition(
             "search_coach_store",
@@ -312,11 +306,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["coach_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         tool_definition(
             "install_coach_from_store",

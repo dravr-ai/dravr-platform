@@ -20,7 +20,9 @@ use tracing::info;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -102,11 +104,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["provider".to_owned()]));
         tool_definition(
             "refresh_provider_data",
             "Trigger a data refresh from a connected fitness provider. Use when the user's data \
@@ -217,6 +215,7 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
             schema_type: "object".to_owned(),
             properties: None,
             required: None,
+            ..Default::default()
         };
         tool_definition(
             "get_data_freshness",

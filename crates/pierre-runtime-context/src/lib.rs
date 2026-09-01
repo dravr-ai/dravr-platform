@@ -498,42 +498,27 @@ pub enum SseBufferOverflowStrategy {
 
 /// Slice of runtime state the Server-Sent Events (SSE) layer needs.
 ///
-/// Covers what `pierre-sse::manager` and `pierre-sse::routes` pull from
-/// pierre-server's `ServerContext`: the JWT-validation auth pair
-/// (`auth_manager` + `jwks_manager`) used by
-/// [`pierre_mcp_transport::tenant_isolation::validate_jwt_token_for_mcp`]
-/// during MCP protocol stream registration, the repository registry (for
-/// the same validation plus the A2A task lookup the SSE A2A route performs),
-/// the configured SSE buffer-overflow strategy (consulted by the
-/// notification route when the broadcast channel lags), and the delegating
+/// Covers what `pierre-sse::routes` pulls from pierre-server's
+/// `ServerContext`: the configured SSE buffer-overflow strategy (consulted by
+/// the notification route when the broadcast channel lags) and the delegating
 /// `authenticate_request` entry point that runs an inbound `Authorization`
 /// header through the full auth-middleware pipeline.
 ///
-/// The trait is intentionally narrow: only the four accessors plus the
-/// async authentication helper. The SSE crate never touches the broader
-/// composition root.
+/// The trait is intentionally narrow. It also carried an auth/JWKS/repository
+/// triple used only by the session-keyed MCP protocol stream; revision
+/// 2026-07-28 removed protocol sessions, that stream went with them, and the
+/// accessors went with it.
 #[async_trait]
 pub trait SseCtx: Send + Sync + 'static {
-    /// Auth manager — validates JWT bearer tokens used by both the
-    /// notification SSE stream and the MCP protocol SSE stream.
-    fn auth_manager(&self) -> &Arc<AuthManager>;
-
     /// Configured SSE buffer-overflow strategy, mapped from
     /// `pierre_config::environment::SseConfig::buffer_overflow_strategy`.
     /// Read by the notification SSE route when the broadcast channel lags.
     fn sse_buffer_overflow_strategy(&self) -> SseBufferOverflowStrategy;
 
-    /// JWKS manager — supplies signing keys consumed by `auth_manager`.
-    fn jwks_manager(&self) -> &Arc<JwksManager>;
-
-    /// Repository registry — backs A2A task lookups and the user/tenant
-    /// lookups inside `validate_jwt_token_for_mcp`.
-    fn repos(&self) -> &Arc<RepositoryRegistry>;
-
     /// Run an inbound `Authorization` header value through the full
     /// auth-middleware pipeline (token type detection, rate limiting, user
-    /// status enforcement). The SSE routes use this to gate notification +
-    /// MCP + A2A task streams.
+    /// status enforcement). The notification SSE route uses this to gate the
+    /// stream.
     ///
     /// # Errors
     ///

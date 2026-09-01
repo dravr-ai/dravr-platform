@@ -27,7 +27,9 @@ use serde_json::{json, Value};
 
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::implementations::data::{parse_output_format, read_only_annotations};
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -135,6 +137,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             schema_type: "object".to_owned(),
             properties: Some(date_range_properties()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -203,6 +206,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             schema_type: "object".to_owned(),
             properties: Some(date_range_properties()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -271,6 +275,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             schema_type: "object".to_owned(),
             properties: Some(date_range_properties()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -347,11 +352,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "list_data_sources",

@@ -23,7 +23,9 @@ use tracing::warn;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -525,6 +527,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -568,6 +571,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -626,6 +630,7 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -727,11 +732,7 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "update_user_configuration",
@@ -876,6 +877,7 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             // saved physiology, and a zone family whose inputs are unknown is
             // reported as unavailable rather than invented.
             required: None,
+            ..Default::default()
         };
 
         tool_definition(
@@ -1007,11 +1009,7 @@ impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["parameters".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["parameters".to_owned()]));
 
         tool_definition(
             "validate_configuration",

@@ -5,8 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use http::HeaderMap;
-use pierre_auth::admin::jwks::JwksManager;
-use pierre_auth::auth::{AuthManager, Claims};
+use pierre_auth::auth::Claims;
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -356,103 +355,6 @@ pub struct JwtValidationResult {
     pub tenant_context: TenantContext,
     /// When the JWT token expires
     pub expires_at: chrono::DateTime<chrono::Utc>,
-}
-
-/// Standalone function for JWT validation (used by HTTP middleware)
-///
-/// The active tenant is determined from the JWT claims `active_tenant_id` field.
-/// If no active tenant is specified, the user's default tenant is used.
-///
-/// # Errors
-/// Returns an error if JWT validation or user lookup fails
-pub async fn validate_jwt_token_for_mcp(
-    token: &str,
-    auth_manager: &AuthManager,
-    jwks_manager: &JwksManager,
-    repos: &Arc<pierre_database::RepositoryRegistry>,
-) -> AppResult<JwtValidationResult> {
-    let claims = auth_manager
-        .validate_token(token, jwks_manager)
-        .map_err(|e| AppError::auth_invalid(format!("Failed to validate token: {e}")))?;
-
-    // Parse user ID from claims
-    let user_id = parse_uuid(&claims.sub).map_err(|e| {
-        warn!(sub = %claims.sub, error = %e, "Invalid user ID in JWT token claims (MCP validation)");
-        AppError::auth_invalid("Invalid user ID in token")
-    })?;
-
-    // SECURITY: Global lookup — tenant extraction from JWT, tenant not yet known
-    repos
-        .users
-        .get_global(user_id)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User"))?;
-
-    // Get tenant ID from JWT claims or fall back to user's default tenant
-    let tenant_id: TenantId = if let Some(tenant_id_str) = claims.active_tenant_id.as_deref() {
-        let tid = TenantId::parse_str(tenant_id_str).map_err(|e| {
-            warn!(tenant_id = %tenant_id_str, error = %e, "Invalid tenant ID format in JWT claims (MCP validation)");
-            AppError::invalid_input("Invalid tenant ID format in token")
-        })?;
-
-        // Verify user belongs to this tenant
-        let role = repos
-            .tenants
-            .get_user_role(user_id, tid)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?;
-
-        if role.is_none() {
-            return Err(AppError::auth_invalid(format!(
-                "User {user_id} does not belong to tenant {tid}"
-            )));
-        }
-
-        tid
-    } else {
-        // Get user's default tenant
-        let tenants = repos
-            .tenants
-            .list_for_user(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-
-        tenants
-            .first()
-            .map(|t| t.id)
-            .ok_or_else(|| AppError::auth_invalid("User does not belong to any tenant"))?
-    };
-
-    let tenant_name = match repos.tenants.get_by_id(tenant_id).await {
-        Ok(tenant) => tenant.name,
-        _ => "Unknown Tenant".to_owned(),
-    };
-
-    // Get user's role in this tenant
-    let user_role = repos
-        .tenants
-        .get_user_role(user_id, tenant_id)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
-        .map_or(TenantRole::Member, |role_str| {
-            TenantRole::from_db_string(&role_str)
-        });
-
-    // JWT `jti` as the Guardian turn token for the MCP/headless path.
-    let tenant_context =
-        TenantContext::from_verified_membership(tenant_id, tenant_name, user_id, user_role)
-            .with_session_id(Some(claims.jti.clone()));
-
-    // Expiry is the JWT's own `exp` claim (unix seconds), already verified by validate_token.
-    let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0)
-        .ok_or_else(|| AppError::auth_invalid("Invalid expiry timestamp in token claims"))?;
-
-    Ok(JwtValidationResult {
-        user_id,
-        tenant_context,
-        expires_at,
-    })
 }
 
 /// Extract tenant context from various sources (internal helper)

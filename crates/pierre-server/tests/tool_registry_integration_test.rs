@@ -676,6 +676,7 @@ async fn test_register_external_tool() {
                 description: "Test external tool registration".to_owned(),
                 input_schema: serde_json::json!({"type": "object"}),
                 annotations: None,
+                output_schema: None,
             }
         }
         fn capabilities(&self) -> ToolCapabilities {
@@ -730,6 +731,7 @@ async fn test_external_tool_with_builtin_tools() {
                 description: "Custom integration tool".to_owned(),
                 input_schema: serde_json::json!({"type": "object"}),
                 annotations: None,
+                output_schema: None,
             }
         }
         fn capabilities(&self) -> ToolCapabilities {

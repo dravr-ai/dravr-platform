@@ -515,6 +515,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             // No field is individually required — the athlete states one
             // measurement at a time. The handler rejects a call that sets none.
             required: None,
+            ..Default::default()
         };
         tool_definition(
             "set_physiology",

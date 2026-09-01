@@ -164,18 +164,6 @@ impl ServerContextBuilder {
     /// Returns an error if any required fields are missing
     pub async fn build_arc(self) -> Result<Arc<ServerContext>, &'static str> {
         let resources = Arc::new(self.build().await?);
-        // Mirror the production wiring in `spawn_background_workers` so
-        // builder-constructed test ServerContexts can register protocol
-        // streams without the panic baked into the SseManager factory
-        // accessor.
-        #[cfg(feature = "transport-sse")]
-        {
-            use crate::sse::protocol::McpProtocolStreamFactory;
-            let factory = Arc::new(McpProtocolStreamFactory {
-                resources: Arc::clone(&resources),
-            });
-            let _ = resources.sse.sse_manager.install_protocol_factory(factory);
-        }
         Ok(resources)
     }
 }

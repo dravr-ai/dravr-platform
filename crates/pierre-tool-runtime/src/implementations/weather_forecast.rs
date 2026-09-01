@@ -114,6 +114,7 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
             // `place` XOR (`latitude`+`longitude`) is enforced at runtime in
             // execute(); the schema presents all params as optional.
             required: None,
+            ..Default::default()
         };
         tool_definition(
             "get_weather_forecast",

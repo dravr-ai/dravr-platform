@@ -23,7 +23,9 @@ use serde_json::{json, Value};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -31,7 +33,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::config::fitness::FitnessConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 /// Require the caller's tenant. Errors if the tool was invoked without
@@ -66,11 +68,7 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec![]),
-        };
+        let schema = object_schema(properties, Some(vec![]));
         tool_definition(
             "get_fitness_config",
             "Get fitness configuration for the current user (falls back to tenant default)",
@@ -175,11 +173,7 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["config".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["config".to_owned()]));
         tool_definition(
             "set_fitness_config",
             "Save or update fitness configuration for the current user or tenant",
@@ -274,11 +268,7 @@ impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec![]),
-        };
+        let schema = object_schema(properties, Some(vec![]));
         tool_definition(
             "list_fitness_configs",
             "List all available fitness configuration names for the user and tenant",
@@ -377,11 +367,7 @@ impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["configuration_name".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["configuration_name".to_owned()]));
         tool_definition(
             "delete_fitness_config",
             "Delete a fitness configuration by name",

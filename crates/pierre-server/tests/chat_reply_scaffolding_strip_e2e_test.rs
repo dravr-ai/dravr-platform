@@ -97,6 +97,7 @@ mod reply_scaffolding_strip {
                 description: "Scaffolding-strip stub tool — returns canned data so the tool loop completes without provider/auth setup.".to_owned(),
                 input_schema: json!({"type": "object"}),
                 annotations: None,
+                output_schema: None,
             }
         }
 

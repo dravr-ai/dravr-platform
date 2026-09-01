@@ -43,6 +43,7 @@ impl McpTool<dyn ToolRuntime> for StubTool {
             description: "Stub tool for unit testing".to_owned(),
             input_schema: serde_json::json!({"type": "object"}),
             annotations: None,
+            output_schema: None,
         }
     }
 
@@ -334,6 +335,7 @@ mod audited_tool_tests {
                 description: "Test tool for unit testing".to_owned(),
                 input_schema: serde_json::json!({"type": "object"}),
                 annotations: None,
+                output_schema: None,
             }
         }
 

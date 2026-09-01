@@ -21,8 +21,6 @@ use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use pierre_middleware::redact_session_id;
-
 /// SSE routes implementation
 pub struct SseRoutes;
 
@@ -34,7 +32,6 @@ impl SseRoutes {
                 "/notifications/sse/{user_id}",
                 get(Self::handle_notification_sse),
             )
-            .route("/mcp/sse/{session_id}", get(Self::handle_protocol_sse))
             .with_state((manager, ctx))
     }
 
@@ -162,107 +159,6 @@ impl SseRoutes {
 
             // Clean up connection
             manager_clone.unregister_notification_stream(user_id_clone);
-        };
-
-        // Configure keepalive with 15-second interval
-        Ok(Sse::new(stream).keep_alive(
-            KeepAlive::new()
-                .interval(Duration::from_secs(15))
-                .text("keepalive"),
-        ))
-    }
-
-    /// Handle MCP protocol SSE connection
-    ///
-    /// REQUIRES: JWT authentication (Bearer token in Authorization header)
-    ///
-    /// Security: Only authenticated users can establish SSE streams for MCP protocol
-    /// to prevent unauthorized access to protocol messages and session hijacking.
-    async fn handle_protocol_sse(
-        Path(session_id): Path<String>,
-        headers: HeaderMap,
-        State((manager, ctx)): State<(Arc<SseManager>, Arc<dyn SseCtx>)>,
-    ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
-        info!(
-            "New MCP protocol SSE connection for session: {}",
-            redact_session_id(&session_id)
-        );
-
-        // Extract authorization header for session validation
-        let auth_header = headers
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-            .map(String::from);
-
-        // Validate authentication if provided
-        if let Some(ref auth) = auth_header {
-            let token = extract_token(auth).map_err(|_| {
-                warn!(session_id = %redact_session_id(&session_id), "Invalid Authorization header format for MCP SSE");
-                AppError::auth_invalid("Invalid Authorization header format")
-            })?;
-
-            // Authenticate user to ensure valid JWT
-            ctx.authenticate_request(Some(&format!("Bearer {token}")))
-                .await
-                .map_err(|e| {
-                    // DEBUG: same SSE reconnect-loop rationale as the
-                    // user SSE handler above.
-                    debug!(session_id = %redact_session_id(&session_id), error = %e, "Failed to authenticate JWT token for MCP SSE");
-                    AppError::auth_invalid(format!("Authentication failed: {e}"))
-                })?;
-        } else {
-            // MCP SSE requires authentication
-            warn!(session_id = %redact_session_id(&session_id), "Missing Authorization header for MCP SSE connection");
-            return Err(AppError::auth_invalid(
-                "Missing Authorization header - JWT token required for MCP SSE",
-            ));
-        }
-
-        let mut receiver = manager
-            .register_protocol_stream(session_id.clone(), auth_header, ctx.clone())
-            .await?;
-        let manager_clone = manager.clone();
-        let session_id_clone = session_id.clone();
-
-        let stream = async_stream::stream! {
-            // Send initial connection established event
-            let mut event_id: u64 = 0;
-            event_id += 1;
-            yield Ok::<_, Infallible>(
-                Event::default()
-                    .id(event_id.to_string())
-                    .data("connected")
-                    .event("connection")
-            );
-
-            // Listen for MCP protocol messages
-            loop {
-                match receiver.recv().await {
-                    Ok(message) => {
-                        event_id += 1;
-                        yield Ok(
-                            Event::default()
-                                .id(event_id.to_string())
-                                .data(message)
-                                .event("message")
-                        );
-                    }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        warn!(
-                            "SSE buffer overflow for session {}: {} messages dropped",
-                            redact_session_id(&session_id_clone), skipped
-                        );
-                        // Continue operation for protocol streams
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        info!("SSE channel closed for session: {}", redact_session_id(&session_id_clone));
-                        break;
-                    }
-                }
-            }
-
-            // Clean up connection
-            manager_clone.unregister_protocol_stream(&session_id_clone);
         };
 
         // Configure keepalive with 15-second interval

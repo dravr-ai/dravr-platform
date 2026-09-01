@@ -141,6 +141,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             // the params as all-optional and the error message when neither is
             // set explains the requirement.
             required: None,
+            ..Default::default()
         };
         tool_definition(
             "discover_routes",

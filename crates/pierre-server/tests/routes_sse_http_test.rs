@@ -24,10 +24,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
-use pierre_mcp_server::{
-    mcp::resources::{ServerContext, ServerContextOptions},
-    sse::protocol::McpProtocolStreamFactory,
-};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_sse::{manager::SseManager, routes::SseRoutes};
 use std::sync::Arc;
 
@@ -100,12 +97,7 @@ impl SseTestSetup {
             .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
-        // Create SSE manager with buffer size and install the protocol-stream
-        // factory so /mcp/sse/* tests don't hit the uninstalled-factory panic.
         let manager = Arc::new(SseManager::new(1024));
-        let _ = manager.install_protocol_factory(Arc::new(McpProtocolStreamFactory {
-            resources: Arc::clone(&resources),
-        }));
 
         Ok(Self {
             resources,
@@ -230,116 +222,6 @@ async fn test_notification_sse_requires_auth() {
 }
 
 // ============================================================================
-// GET /mcp/sse/:session_id - Protocol SSE Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_protocol_sse_endpoint_registered() {
-    let setup = SseTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let session_id = format!("session_{}", uuid::Uuid::new_v4());
-    let endpoint = format!("/mcp/sse/{}", session_id);
-
-    let response = AxumTestRequest::get(&endpoint)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes)
-        .await;
-
-    // SSE endpoint should be registered (not 404)
-    assert_ne!(
-        response.status(),
-        404,
-        "SSE protocol endpoint should be registered"
-    );
-}
-
-#[tokio::test]
-async fn test_protocol_sse_valid_session_id() {
-    let setup = SseTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let session_id = format!("session_{}", uuid::Uuid::new_v4());
-    let endpoint = format!("/mcp/sse/{}", session_id);
-
-    let response = AxumTestRequest::get(&endpoint)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes)
-        .await;
-
-    // Should accept valid session ID
-    assert!(
-        response.status() == 200 || response.status() == 202,
-        "Valid session_id should be accepted"
-    );
-}
-
-#[tokio::test]
-async fn test_protocol_sse_custom_session_id() {
-    let setup = SseTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let session_id = "custom-session-123";
-    let endpoint = format!("/mcp/sse/{}", session_id);
-
-    let response = AxumTestRequest::get(&endpoint)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes)
-        .await;
-
-    // Should accept any string as session ID
-    assert!(
-        response.status() == 200 || response.status() == 202,
-        "Custom session_id should be accepted"
-    );
-}
-
-#[tokio::test]
-async fn test_protocol_sse_different_sessions() {
-    let setup = SseTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    // Test with different session IDs
-    let session_id1 = format!("session_{}", uuid::Uuid::new_v4());
-    let session_id2 = format!("session_{}", uuid::Uuid::new_v4());
-
-    let endpoint1 = format!("/mcp/sse/{}", session_id1);
-    let endpoint2 = format!("/mcp/sse/{}", session_id2);
-
-    let response1 = AxumTestRequest::get(&endpoint1)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes.clone())
-        .await;
-    let response2 = AxumTestRequest::get(&endpoint2)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes)
-        .await;
-
-    // Both should accept connections independently
-    assert!(response1.status() == 200 || response1.status() == 202);
-    assert!(response2.status() == 200 || response2.status() == 202);
-}
-
-#[tokio::test]
-async fn test_protocol_sse_requires_auth() {
-    let setup = SseTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let session_id = format!("session_{}", uuid::Uuid::new_v4());
-    let endpoint = format!("/mcp/sse/{}", session_id);
-
-    // SSE protocol endpoints now require JWT authentication
-    let response = AxumTestRequest::get(&endpoint).send_sse(routes).await;
-
-    // Should require Authorization header and return 401 without it
-    assert_eq!(
-        response.status(),
-        401,
-        "SSE protocol endpoint should require authentication"
-    );
-}
-
-// ============================================================================
 // Additional Integration Tests
 // ============================================================================
 
@@ -349,12 +231,8 @@ async fn test_all_sse_endpoints_registered() {
     let routes = setup.routes();
 
     let user_id = uuid::Uuid::new_v4();
-    let session_id = format!("session_{}", uuid::Uuid::new_v4());
 
-    let endpoints = vec![
-        format!("/notifications/sse/{}", user_id),
-        format!("/mcp/sse/{}", session_id),
-    ];
+    let endpoints = vec![format!("/notifications/sse/{}", user_id)];
 
     for endpoint in endpoints {
         let response = AxumTestRequest::get(&endpoint)
@@ -405,31 +283,6 @@ async fn test_sse_concurrent_connections() {
 }
 
 #[tokio::test]
-async fn test_notification_and_protocol_sse_independent() {
-    let setup = SseTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let user_id = setup.user_id;
-    let session_id = format!("session_{}", uuid::Uuid::new_v4());
-
-    let notification_endpoint = format!("/notifications/sse/{}", user_id);
-    let protocol_endpoint = format!("/mcp/sse/{}", session_id);
-
-    let response1 = AxumTestRequest::get(&notification_endpoint)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes.clone())
-        .await;
-    let response2 = AxumTestRequest::get(&protocol_endpoint)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes)
-        .await;
-
-    // Both types of SSE connections should work independently
-    assert!(response1.status() == 200 || response1.status() == 202);
-    assert!(response2.status() == 200 || response2.status() == 202);
-}
-
-#[tokio::test]
 async fn test_sse_user_isolation() {
     let setup1 = SseTestSetup::new().await.expect("Setup 1 failed");
     let setup2 = SseTestSetup::new().await.expect("Setup 2 failed");
@@ -455,31 +308,6 @@ async fn test_sse_user_isolation() {
 }
 
 #[tokio::test]
-async fn test_sse_session_isolation() {
-    let setup = SseTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let session_id1 = format!("session_{}", uuid::Uuid::new_v4());
-    let session_id2 = format!("session_{}", uuid::Uuid::new_v4());
-
-    let endpoint1 = format!("/mcp/sse/{}", session_id1);
-    let endpoint2 = format!("/mcp/sse/{}", session_id2);
-
-    let response1 = AxumTestRequest::get(&endpoint1)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes.clone())
-        .await;
-    let response2 = AxumTestRequest::get(&endpoint2)
-        .header("Authorization", &format!("Bearer {}", setup.jwt_token))
-        .send_sse(routes)
-        .await;
-
-    // Different sessions should be isolated
-    assert!(response1.status() == 200 || response1.status() == 202);
-    assert!(response2.status() == 200 || response2.status() == 202);
-}
-
-#[tokio::test]
 async fn test_sse_path_parameter_validation() {
     let setup = SseTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
@@ -488,8 +316,6 @@ async fn test_sse_path_parameter_validation() {
     let test_cases = vec![
         (format!("/notifications/sse/{}", uuid::Uuid::new_v4()), true), // Valid UUID
         ("/notifications/sse/invalid-uuid".to_owned(), false),          // Invalid UUID
-        (format!("/mcp/sse/session_{}", uuid::Uuid::new_v4()), true),   // Valid session
-        ("/mcp/sse/simple-session".to_owned(), true),                   // Simple session ID
     ];
 
     for (endpoint, should_accept) in &test_cases {

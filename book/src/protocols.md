@@ -11,12 +11,14 @@ Json-rpc 2.0 protocol for ai assistant integration.
 
 ### Endpoints
 
-- `POST /mcp` - main mcp endpoint
-- `GET /mcp/sse/{session_id}` - sse transport for streaming (session-scoped)
+- `POST /mcp` - the mcp endpoint
 
 ### Transport
 
-Pierre supports both http and sse transports:
+Streamable HTTP. Every request is a POST to `/mcp`; the response is either a
+single JSON object or an SSE stream scoped to that request. Protocol sessions
+and the standalone GET stream were removed in revision 2026-07-28, so there is
+no session-keyed SSE endpoint and no `Mcp-Session-Id` header.
 - http: traditional request-response
 - sse: server-sent events for streaming responses
 

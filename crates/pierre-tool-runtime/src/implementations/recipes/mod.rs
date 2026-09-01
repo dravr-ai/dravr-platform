@@ -23,13 +23,15 @@ use serde_json::Value;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 mod inner;
@@ -98,11 +100,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "get_recipe_constraints",
             "Get macro targets and constraints for LLM recipe generation",
@@ -198,11 +196,10 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["servings".to_owned(), "ingredients".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["servings".to_owned(), "ingredients".to_owned()]),
+        );
         tool_definition(
             "validate_recipe",
             "Validate recipe nutrition using USDA FoodData Central",
@@ -340,16 +337,15 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec![
+        let schema = object_schema(
+            properties,
+            Some(vec![
                 "name".to_owned(),
                 "servings".to_owned(),
                 "instructions".to_owned(),
                 "ingredients".to_owned(),
             ]),
-        };
+        );
         tool_definition(
             "save_recipe",
             "Save a validated recipe to your collection",
@@ -410,11 +406,7 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition("list_recipes", "List your saved recipes", schema, None)
     }
 
@@ -454,11 +446,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["recipe_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["recipe_id".to_owned()]));
         tool_definition(
             "get_recipe",
             "Get details of a specific recipe",
@@ -503,11 +491,7 @@ impl McpTool<dyn ToolRuntime> for DeleteRecipeTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["recipe_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["recipe_id".to_owned()]));
         tool_definition(
             "delete_recipe",
             "Delete a recipe from your collection",
@@ -568,11 +552,7 @@ impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["query".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["query".to_owned()]));
         tool_definition(
             "search_recipes",
             "Search your recipes by name, tags, or description",

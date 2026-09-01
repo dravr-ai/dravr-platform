@@ -1533,9 +1533,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "093da91f657ddd82a910366e11d9d3fa86f2b78402feae493b9e12ff7193ade9"
+checksum = "4371f54854e9c68228db6fb844d19c639877829a164dede23578d24a6bb6c145"
 dependencies = [
  "async-trait",
  "axum",
@@ -1646,9 +1646,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.22.4"
+version = "0.22.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9943cdfd004a224bbbc59939ec603b8e486d42045548f8585b53777445a0f85"
+checksum = "bf5c30c021b4deaf3baaa20daadd17ac846ce4db9f69845d1bcb92137f2cdc86"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1667,9 +1667,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.22.4"
+version = "0.22.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d34c9ca3ffb9368770ef1ddf7d0b267a24831839fa7e05c60f826f8a1c4760e"
+checksum = "13cf5d7d14cc84fc8c3ceedcbc56f80474f39987bb475583bb37f857d9532599"
 dependencies = [
  "async-trait",
  "axum",
@@ -4361,8 +4361,6 @@ dependencies = [
  "pierre-config",
  "pierre-core",
  "pierre-database",
- "pierre-mcp-schema",
- "pierre-mcp-transport",
  "pierre-middleware",
  "pierre-runtime-context",
  "pierre-services",

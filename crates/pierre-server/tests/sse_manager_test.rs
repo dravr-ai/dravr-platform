@@ -48,28 +48,8 @@ fn test_connection_type_notification() {
     let user_id = Uuid::new_v4();
     let conn_type = ConnectionType::Notification { user_id };
 
-    if let ConnectionType::Notification { user_id: id } = conn_type {
-        assert_eq!(id, user_id);
-    } else {
-        panic!("Expected Notification type");
-    }
-}
-
-#[test]
-fn test_connection_type_protocol() {
-    let session_id = "test-session-123".to_owned();
-    let conn_type = ConnectionType::Protocol {
-        session_id: session_id.clone(),
-    };
-
-    if let ConnectionType::Protocol {
-        session_id: session,
-    } = conn_type
-    {
-        assert_eq!(session, session_id);
-    } else {
-        panic!("Expected Protocol type");
-    }
+    let ConnectionType::Notification { user_id: id } = conn_type;
+    assert_eq!(id, user_id);
 }
 
 #[test]
@@ -88,18 +68,12 @@ fn test_connection_type_clone() {
     let cloned = conn_type.clone();
 
     // Verify original still works after clone
-    if let ConnectionType::Notification { user_id: id } = conn_type {
-        assert_eq!(id, user_id);
-    } else {
-        panic!("Original should preserve type");
-    }
+    let ConnectionType::Notification { user_id: id } = conn_type;
+    assert_eq!(id, user_id);
 
     // Verify clone has same data
-    if let ConnectionType::Notification { user_id: id } = cloned {
-        assert_eq!(id, user_id);
-    } else {
-        panic!("Clone should preserve type");
-    }
+    let ConnectionType::Notification { user_id: id } = cloned;
+    assert_eq!(id, user_id);
 }
 
 // =============================================================================
@@ -122,8 +96,8 @@ fn test_connection_metadata_creation() {
 #[test]
 fn test_connection_metadata_clone() {
     let metadata = ConnectionMetadata {
-        connection_type: ConnectionType::Protocol {
-            session_id: "session-1".to_owned(),
+        connection_type: ConnectionType::Notification {
+            user_id: Uuid::new_v4(),
         },
         created_at: chrono::Utc::now(),
         last_activity: chrono::Utc::now(),
@@ -136,8 +110,8 @@ fn test_connection_metadata_clone() {
 #[test]
 fn test_connection_metadata_debug() {
     let metadata = ConnectionMetadata {
-        connection_type: ConnectionType::Protocol {
-            session_id: "test".to_owned(),
+        connection_type: ConnectionType::Notification {
+            user_id: Uuid::new_v4(),
         },
         created_at: chrono::Utc::now(),
         last_activity: chrono::Utc::now(),
@@ -236,14 +210,9 @@ async fn test_active_streams_count() {
     let manager = SseManager::new(10);
 
     assert_eq!(manager.active_notification_streams(), 0);
-    assert_eq!(manager.active_protocol_streams(), 0);
 
-    // Add notification stream
     let _r1 = manager.register_notification_stream(Uuid::new_v4()).await;
     assert_eq!(manager.active_notification_streams(), 1);
-
-    // Protocol streams stay at 0 (requires server resources)
-    assert_eq!(manager.active_protocol_streams(), 0);
 }
 
 #[tokio::test]

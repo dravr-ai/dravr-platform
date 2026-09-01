@@ -25,7 +25,9 @@ use tracing::{debug, warn};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -38,7 +40,7 @@ use pierre_intelligence::{
     calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
     DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
 };
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -275,10 +277,9 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec![
+        let schema = object_schema(
+            properties,
+            Some(vec![
                 "weight_kg".to_owned(),
                 "height_cm".to_owned(),
                 "age".to_owned(),
@@ -286,7 +287,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                 "activity_level".to_owned(),
                 "training_goal".to_owned(),
             ]),
-        };
+        );
         tool_definition(
             "calculate_daily_nutrition",
             "Calculate daily calorie and macronutrient needs based on biometrics and goals",
@@ -374,15 +375,14 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec![
+        let schema = object_schema(
+            properties,
+            Some(vec![
                 "workout_intensity".to_owned(),
                 "weight_kg".to_owned(),
                 "daily_protein_g".to_owned(),
             ]),
-        };
+        );
         tool_definition(
             "get_nutrient_timing",
             "Get optimal nutrient timing recommendations around workouts",
@@ -574,11 +574,7 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["query".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["query".to_owned()]));
         tool_definition(
             "search_food",
             "Search USDA FoodData Central database for foods. Returns up to 10 results by default. Check the `has_more` field before requesting additional pages.",
@@ -673,11 +669,7 @@ impl McpTool<dyn ToolRuntime> for GetFoodDetailsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["fdc_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["fdc_id".to_owned()]));
         tool_definition(
             "get_food_details",
             "Get detailed nutritional information for a specific food item",
@@ -775,11 +767,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["ingredients".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["ingredients".to_owned()]));
         tool_definition(
             "analyze_meal_nutrition",
             "Analyze nutritional content of a meal from its ingredients",

@@ -65,12 +65,14 @@ fn schema_from_definition(def: Tool) -> ToolSchema {
         schema_type: "object".to_owned(),
         properties: None,
         required: None,
+        ..Default::default()
     });
     ToolSchema {
         name: def.name,
         description: def.description,
         input_schema,
         annotations: def.annotations,
+        output_schema: None,
     }
 }
 

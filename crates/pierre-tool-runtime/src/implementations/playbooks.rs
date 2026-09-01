@@ -25,11 +25,13 @@ use serde_json::{json, Value};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
 /// Annotation set for the read-only listing tool.
@@ -71,11 +73,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "list_coaching_playbooks",
             "List the coaching playbooks the harness has learned for this athlete — the trigger→intervention patterns and how well each has worked (success/failure counts + confidence). Use this to tell the athlete what you have learned about what works for them.",
@@ -169,11 +167,7 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["playbook_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["playbook_id".to_owned()]));
         tool_definition(
             "forget_playbook",
             "Delete one learned coaching playbook by id (GDPR forget). The athlete can only forget their own playbooks.",

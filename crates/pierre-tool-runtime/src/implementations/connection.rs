@@ -26,14 +26,16 @@ use tracing::{error, info};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use pierre_core::errors::AppResult;
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver::{self, BackendKind};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_tools_core::ToolResult;
@@ -243,11 +245,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["provider".to_owned()]));
 
         tool_definition(
             "connect_provider",
@@ -438,11 +436,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "get_connection_status",
@@ -595,11 +589,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["provider".to_owned()]));
 
         tool_definition(
             "disconnect_provider",

@@ -135,6 +135,7 @@ mod shared_quota_tests {
             auth_method: Some("jwt_bearer".to_owned()),
             request_id: Some(json!(1)),
             is_admin: false,
+            ..Default::default()
         };
         let response = ToolHandlers::dispatch_tool_call(
             resources,

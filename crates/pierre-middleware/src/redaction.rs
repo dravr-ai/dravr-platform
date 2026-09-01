@@ -423,48 +423,6 @@ impl Display for BoundedUserLabel {
     }
 }
 
-/// Redact a session ID for safe logging
-///
-/// Session IDs are bearer-like tokens that can resume MCP sessions without
-/// additional authentication. Logging them in full risks session hijack if
-/// logs are accessible. This function returns a short prefix suitable for
-/// log correlation without exposing the full identifier.
-///
-/// # Arguments
-///
-/// * `session_id` - Full session ID (e.g., `session_<uuid>`)
-///
-/// # Returns
-///
-/// A redacted form showing only the first 12 characters followed by ellipsis,
-/// or the full value if it is shorter than 12 characters.
-///
-/// # Examples
-///
-/// ```
-/// use pierre_middleware::redaction::redact_session_id;
-///
-/// let sid = "session_a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-/// let redacted = redact_session_id(sid);
-/// assert_eq!(redacted, "session_a1b2...");
-/// ```
-#[must_use]
-pub fn redact_session_id(session_id: &str) -> String {
-    // Show enough prefix for log correlation (session_ + first 4 chars of UUID)
-    // without exposing the full bearer-like token. Count and slice by chars, not
-    // bytes: a byte-slice at a non-char boundary panics on a multibyte session id,
-    // and this runs pre-auth on an attacker-controlled SSE path segment
-    // (GET /mcp/sse/{session_id} logs it before the auth check). Mirrors the
-    // char-aware `mask_recipient` above.
-    const PREFIX_LEN: usize = 12;
-    if session_id.chars().count() <= PREFIX_LEN {
-        session_id.to_owned()
-    } else {
-        let prefix: String = session_id.chars().take(PREFIX_LEN).collect();
-        format!("{prefix}...")
-    }
-}
-
 /// Get compiled email regex (cached)
 ///
 /// Returns None if regex compilation fails (should never happen with hardcoded pattern)

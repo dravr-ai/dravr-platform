@@ -25,7 +25,9 @@ use serde_json::Value;
 
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::implementations::handler_bridge;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
@@ -33,7 +35,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -93,11 +95,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "analyze_sleep_quality",
             "Analyze last night's sleep to generate quality scores and insights. \
@@ -209,11 +207,7 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "calculate_recovery_score",
             "Calculate holistic recovery score combining training stress, sleep, and HRV. \
@@ -322,11 +316,7 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "suggest_rest_day",
             "Get AI-powered recommendation on whether to rest or train. \
@@ -424,11 +414,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "track_sleep_trends",
             "Analyze sleep patterns over time to identify trends and insights. \
@@ -497,11 +483,7 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "optimize_sleep_schedule",
             "Get personalized sleep schedule recommendations based on training and recovery needs",

@@ -43,7 +43,9 @@ use crate::activity_fetch::{
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -69,7 +71,7 @@ use pierre_intelligence::physiological_constants::api_limits::{
     safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
     safe_limit_toon_summary, DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT,
 };
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::spi::ProviderCapabilities;
@@ -381,11 +383,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None, // All parameters are optional
-        };
+        // All parameters are optional.
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "get_activities",

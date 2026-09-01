@@ -111,6 +111,7 @@ fn date_range_schema() -> JsonSchema {
         schema_type: "object".to_owned(),
         properties: Some(properties),
         required: Some(Vec::new()),
+        ..Default::default()
     }
 }
 

@@ -37,7 +37,9 @@ use tracing::info;
 
 use crate::capabilities::{PROVIDER_ANALYTICS, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::implementations::fitness_support::process_activity_analysis;
 use crate::implementations::handler_bridge;
 use crate::protocol::auth::AuthService;
@@ -52,7 +54,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_fitness_compute::weather::{analyze_weather_impact, build_provider};
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;
 use pierre_weather::WeatherQuery;
@@ -132,11 +134,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "analyze_training_load",
             "Analyze training load using CTL (chronic training load), ATL (acute training load), and TSB (training stress balance) metrics to assess fitness, fatigue, and form",
@@ -201,11 +199,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "detect_patterns",
             "Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs",
@@ -270,11 +264,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "calculate_fitness_score",
             "Calculate an overall fitness score (0-100) based on training consistency, CTL, training volume, and recovery balance",
@@ -355,11 +345,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["activity_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["activity_id".to_owned()]));
         tool_definition(
             "analyze_weather_impact",
             "Analyze how weather conditions affected activity performance, including temperature, humidity, wind, and precipitation impact",
@@ -547,11 +533,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        );
         tool_definition(
             "analyze_activity",
             "Perform deep analysis of an individual activity including insights, metrics, and anomaly detection",
@@ -692,11 +677,10 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        );
         tool_definition(
             "get_activity_intelligence",
             "Get AI-powered intelligence insights and recommendations for a specific activity",
@@ -781,11 +765,10 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        );
         tool_definition(
             "calculate_metrics",
             "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)",
@@ -859,11 +842,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned(), "metric".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["provider".to_owned(), "metric".to_owned()]),
+        );
         tool_definition(
             "analyze_performance_trends",
             "Analyze performance trends over time with statistical analysis and insights for a specific metric",
@@ -949,11 +931,10 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        );
         tool_definition(
             "compare_activities",
             "Compare an activity against similar activities, personal bests, or a specific other activity",
@@ -1019,11 +1000,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "generate_recommendations",
             "Generate personalized training recommendations",
@@ -1089,11 +1066,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "predict_performance",
             "Predict future performance based on training",

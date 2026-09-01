@@ -36,7 +36,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::GroupMember;
 use pierre_core::models::Activity;
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
@@ -47,7 +47,9 @@ use crate::activity_fetch::fetch_provider_activities;
 use crate::athlete_display_name::fetch_user_display_name;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 
@@ -310,11 +312,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["member".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["member".to_owned()]));
 
         tool_definition(
             "get_group_member_activities",

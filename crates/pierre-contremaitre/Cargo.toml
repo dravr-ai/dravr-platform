@@ -21,7 +21,7 @@ pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-dravr-tronc = { version = "0.7.1", features = ["notifications"] }
+dravr-tronc = { version = "0.8.0", features = ["notifications"] }
 hex = "0.4"
 regex = "1.12"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }

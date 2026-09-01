@@ -25,13 +25,15 @@ use serde_json::{json, Value};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
 /// Annotation set for tools that mutate memory state.
@@ -115,11 +117,10 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["content".to_owned(), "coach_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["content".to_owned(), "coach_id".to_owned()]),
+        );
         tool_definition(
             "coach_note_add",
             "Persist a private coach note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
@@ -237,11 +238,10 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["content".to_owned(), "coach_id".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["content".to_owned(), "coach_id".to_owned()]),
+        );
         tool_definition(
             "coach_followup_schedule",
             "Schedule a future check-in the coach should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
@@ -388,17 +388,16 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec![
+        let schema = object_schema(
+            properties,
+            Some(vec![
                 "kind".to_owned(),
                 "subject".to_owned(),
                 "predicate".to_owned(),
                 "object".to_owned(),
                 "confidence".to_owned(),
             ]),
-        };
+        );
         tool_definition(
             "remember_fact",
             "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the coach should remember next time.",
@@ -515,11 +514,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "recall_user_memory",
             "Retrieve stored facts the harness has remembered about the user. Returns recent facts ordered by last-update timestamp. Use this when you need to confirm what you already know before answering.",

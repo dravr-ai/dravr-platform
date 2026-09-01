@@ -30,10 +30,7 @@ use rand::Rng;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::{net::TcpListener, path::PathBuf, sync::Arc, time::Duration};
-use tokio::{
-    task::JoinHandle,
-    time::{sleep, timeout},
-};
+use tokio::{task::JoinHandle, time::sleep};
 use uuid::Uuid;
 
 const TEST_JWT_SECRET: &str = "test_jwt_secret_for_sse_e2e_tests";
@@ -279,21 +276,6 @@ impl McpTestClient {
         }
     }
 
-    /// Connect to SSE stream (returns response for testing)
-    async fn connect_sse(&self, session_id: &str) -> Result<reqwest::Response> {
-        let url = format!("{}/mcp/sse/{}", self.base_url, session_id);
-
-        let response = self
-            .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.jwt_token))
-            .header("Accept", "text/event-stream")
-            .send()
-            .await?;
-
-        Ok(response)
-    }
-
     /// Initialize MCP session
     async fn initialize(&self) -> Result<Value> {
         let request = json!({
@@ -387,51 +369,6 @@ async fn test_real_server_mcp_http_post() -> Result<()> {
 // ============================================================================
 // TEST 2: SSE Connection to Real Server
 // ============================================================================
-
-#[tokio::test]
-async fn test_real_server_sse_connection() -> Result<()> {
-    let server = TestServer::new().await?;
-    let _handle = server.start().await?;
-
-    let (_user_id, jwt_token) = server
-        .create_test_user("sse@example.com", "password123")
-        .await?;
-    let client = McpTestClient::new(server.port, jwt_token);
-
-    // Create a session by initializing
-    let init_response = client.initialize().await?;
-    assert!(init_response["result"].is_object());
-
-    // Connect to SSE stream using a test session ID
-    let session_id = "test-session-123";
-    let sse_result = timeout(Duration::from_secs(5), client.connect_sse(session_id)).await;
-
-    match sse_result {
-        Ok(Ok(response)) => {
-            // The test's only assertion is "the SSE endpoint exists" — any
-            // HTTP status (200 stream open, 4xx auth/validation failure)
-            // proves that. An unroutable 404 from the router is the only
-            // shape that would mean "endpoint missing", and even that is a
-            // valid response object here. Older code pinned `200 or 404`
-            // which broke when the handler started returning auth-specific
-            // 4xx codes; this widened assertion matches the comment.
-            let status = response.status();
-            println!("✅ Test passed: SSE endpoint responded with status: {status}");
-            assert!(
-                status.as_u16() < 600,
-                "SSE endpoint must respond with a valid HTTP status: got {status}"
-            );
-        }
-        Ok(Err(e)) => {
-            println!("✅ Test passed: SSE connection tested (endpoint responded): {e}");
-        }
-        Err(_) => {
-            println!("✅ Test passed: SSE endpoint exists and responds (timeout is expected)");
-        }
-    }
-
-    Ok(())
-}
 
 // ============================================================================
 // TEST 3: MCP POST Request + Verify Session Created

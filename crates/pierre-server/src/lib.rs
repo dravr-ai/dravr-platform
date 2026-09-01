@@ -107,10 +107,6 @@ pub mod mcp;
 /// `HTTP` routes for user registration and `OAuth` flows
 pub mod routes;
 
-/// Server-Sent Events (SSE) for real-time streaming
-#[cfg(feature = "transport-sse")]
-pub mod sse;
-
 /// Unified tool execution engine for fitness analysis and data processing
 pub mod tools;
 

@@ -25,7 +25,9 @@ use uuid::Uuid;
 
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::implementations::data::{parse_output_format, read_only_annotations};
 use crate::implementations::fitness_support::{
     fetch_and_cache_athlete, fetch_and_cache_stats, try_get_athlete_id_from_cache,
@@ -38,7 +40,7 @@ use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_providers::backend_resolver;
 use pierre_tools_core::ToolResult;
 
@@ -77,11 +79,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "get_athlete",
@@ -231,11 +229,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             },
         );
 
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
 
         tool_definition(
             "get_stats",

@@ -27,7 +27,9 @@ use uuid::Uuid;
 
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::runtime::ToolRuntime;
@@ -60,7 +62,7 @@ use pierre_intelligence::physiological_constants::goal_feasibility::{
 use pierre_intelligence::seasonality::build_seasonal_context;
 use pierre_intelligence::{FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences};
 use pierre_mcp_schema::json_schemas::{AnalyzeGoalFeasibilityParams, SetGoalParams};
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -932,11 +934,10 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
+        );
         tool_definition(
             "set_goal",
             "Create a new fitness goal with specified type, target value, and timeframe",
@@ -1012,11 +1013,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
+        let schema = object_schema(properties, None);
         tool_definition(
             "suggest_goals",
             "Get AI-suggested fitness goals based on your activity history and fitness level",
@@ -1099,11 +1096,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["goal_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["goal_id".to_owned()]));
         tool_definition(
             "track_progress",
             "Track progress toward a specific fitness goal with milestone achievements and projections",
@@ -1236,11 +1229,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
-        };
+        let schema = object_schema(
+            properties,
+            Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
+        );
         tool_definition(
             "analyze_goal_feasibility",
             "Analyze whether a fitness goal is achievable based on your current fitness level and training history",

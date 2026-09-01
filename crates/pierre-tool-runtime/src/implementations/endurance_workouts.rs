@@ -30,7 +30,9 @@ use super::calendar::{
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -319,6 +321,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: Some(Vec::new()),
+            ..Default::default()
         };
         tool_definition(
             "list_workout_templates",
@@ -465,11 +468,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["date".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["date".to_owned()]));
         tool_definition(
             "prescribe_workout",
             "Write one workout onto the athlete's Intervals.icu calendar for a \
@@ -676,11 +675,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                 ..Default::default()
             },
         );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: Some(vec!["prescription_id".to_owned()]),
-        };
+        let schema = object_schema(properties, Some(vec!["prescription_id".to_owned()]));
         tool_definition(
             "withdraw_prescribed_workout",
             "Remove a workout that prescribe_workout wrote to the athlete's Intervals.icu \

@@ -62,7 +62,13 @@ use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
 
 /// Supported MCP protocol revisions advertised by the platform server, in
 /// preference order.
-pub const SUPPORTED_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2024-11-05"];
+///
+/// `2026-07-28` is the stateless era: no `initialize` handshake, no
+/// `Mcp-Session-Id`, per-request `_meta` carrying the protocol version and the
+/// client's capabilities. The engine has served it since dravr-tronc 0.7, but
+/// the platform withheld it from this list, so every client negotiated down to
+/// `2025-11-25` and the modern path never ran.
+pub const SUPPORTED_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2025-06-18", "2024-11-05"];
 
 /// Build the per-call [`ToolContext`] the engine threads into the dispatcher.
 ///
@@ -103,6 +109,7 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
         description: schema.description,
         input_schema: serde_json::to_value(schema.input_schema).unwrap_or_default(),
         annotations: schema.annotations,
+        output_schema: None,
     }
 }
 
@@ -732,6 +739,7 @@ fn server_capabilities() -> ServerCapabilities {
         oauth2: Some(oauth2),
         completion: Some(CompletionCapability {}),
         sampling: Some(SamplingCapability {}),
+        ..Default::default()
     }
 }
 

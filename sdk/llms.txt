@@ -307,7 +307,7 @@ curl http://localhost:8081/mcp/tools/list
 3. Network proxy blocking
 
 **Solutions**:
-1. Test SSE endpoint: `curl http://localhost:8081/mcp/sse`
+1. Test the mcp endpoint: `curl -X POST http://localhost:8081/mcp`
 2. Check bridge logs for "SSE Connected"
 3. Try without verbose mode (reduces log noise)
 

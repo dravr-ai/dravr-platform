@@ -18,10 +18,13 @@
 //!   into the wire [`ToolResponse`], preserving the dual `content` + `structuredContent`
 //!   shape the dispatch layer previously produced.
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
+
 use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
 use dravr_tronc::mcp::tool::ToolCapabilities as TroncCapabilities;
 use pierre_core::errors::AppResult;
-use pierre_mcp_schema::{JsonSchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
 use crate::capabilities::ToolCapabilities;
@@ -42,6 +45,28 @@ pub fn tool_definition(
         description: description.to_owned(),
         input_schema: serde_json::to_value(input_schema).unwrap_or_default(),
         annotations,
+        output_schema: None,
+    }
+}
+
+/// Build the object input schema almost every tool declares.
+///
+/// `JsonSchema` carries the full JSON Schema 2020-12 vocabulary — composition,
+/// `$defs`, the validation keywords — so a literal has to spell out the fields
+/// it is *not* using. Nearly every tool here wants the same thing: an object
+/// with these properties and these required names. This states that once.
+///
+/// A tool needing composition or `$defs` builds the [`JsonSchema`] directly.
+#[must_use]
+pub fn object_schema<S: BuildHasher>(
+    properties: HashMap<String, PropertySchema, S>,
+    required: Option<Vec<String>>,
+) -> JsonSchema {
+    JsonSchema {
+        schema_type: "object".to_owned(),
+        properties: Some(properties.into_iter().collect()),
+        required,
+        ..Default::default()
     }
 }
 
