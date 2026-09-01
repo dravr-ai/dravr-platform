@@ -13,6 +13,11 @@ use std::fs;
 use pierre_cli::remote::CachedCredentials;
 use uuid::Uuid;
 
+// `api.dev.dravr.ai` is deliberately a host that does NOT resolve, and must stay
+// that way. These tests only ever treat it as an opaque string, and a fixture host
+// guaranteed to be NXDOMAIN means a test that ever starts reaching the network
+// fails loudly instead of quietly succeeding against something real. Its twin in
+// the CLI's --help was misleading and was corrected; this one is load-bearing.
 #[test]
 fn deserialize_defaults_token_type_and_skips_none_optionals() {
     let json = r#"{"server":"https://api.dev.dravr.ai","access_token":"abc"}"#;

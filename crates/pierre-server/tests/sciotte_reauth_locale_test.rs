@@ -21,6 +21,9 @@ use pierre_contremaitre::messaging_strings::{
 use std::fs;
 use std::path::PathBuf;
 
+// A host that does NOT resolve, on purpose: this asserts on rendered locale strings
+// and must never reach the network, so an unresolvable fixture makes an accidental
+// request fail loudly rather than quietly succeed. Do not 'fix' it to a live URL.
 const TEST_URL: &str = "https://api.dev.dravr.ai/providers/sciotte/login?token=stub.jwt.signature";
 
 #[test]

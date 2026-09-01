@@ -178,7 +178,12 @@ enum Command {
 enum AuthCommand {
     /// Log in to a remote pierre-server via the device flow, caching the token
     Login {
-        /// Base URL of the pierre-server (e.g. `https://api.dev.dravr.ai`)
+        /// Public base URL of the deployed pierre-server (its frontend origin)
+        ///
+        /// NOT the api service: that one is deployed internal-only and cannot be
+        /// reached from a laptop or a CI runner. For dev this is the value of the
+        /// `DEV_PUBLIC_BASE_URL` repository variable. The example this used to give,
+        /// `api.dev.dravr.ai`, has never resolved.
         #[arg(long)]
         server: String,
 
