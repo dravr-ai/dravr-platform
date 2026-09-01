@@ -74,6 +74,22 @@ jobs:
 
     env:
       LIVE_INCIDENT_EVAL: "1"
+      # INFO, not the WARN this defaults to (tests/common.rs init_test_logging).
+      # At WARN the run records THAT a turn came back empty and nothing about
+      # which prompt did it: `wire shape at the provider boundary` (total_chars,
+      # logged immediately before every completion) and embacle's `ACP: response
+      # received` (content_len + tool_calls) are both info!, so run 33492743565
+      # contains zero of either. tool_calls is the field that separates "the
+      # model said nothing" from "the turn died on or after a tool batch".
+      #
+      # INFO and not DEBUG deliberately: the level is a global with_max_level
+      # with no EnvFilter, so DEBUG would also turn on sqlx statement logging,
+      # hyper, h2 and reqwest across 11 episodes x 3 passes in one 60-minute
+      # job, risking truncation of the very log this exists to read. Both target
+      # lines are info!, so INFO is sufficient. If a run is truncated anyway,
+      # drop this key rather than lowering it further — the cron is daily, so a
+      # flooded run costs a day.
+      TEST_LOG: "INFO"
       PIERRE_LLM_PROVIDER: ${{ inputs.provider || 'copilot_headless' }}
       # The real production chain: Copilot first, Cohere when it returns a
       # retryable error. Driving only the primary would leave the fallback —

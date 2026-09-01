@@ -203,6 +203,31 @@ mod live_incident_eval {
         body.chars().take(DELIVERED_EXCERPT_CHARS).collect()
     }
 
+    /// Episode names to run, from `LIVE_INCIDENT_EVAL_EPISODES` (comma-separated).
+    ///
+    /// Empty by default, which runs the whole corpus. Exists because probing one
+    /// episode otherwise costs the entire 11-turn corpus times three passes of
+    /// metered live calls, which is why this lane gets reasoned about from a
+    /// single nightly sample instead of being re-run.
+    ///
+    /// NOT behaviour-neutral, and the caller has to know it: episodes share one
+    /// channel per surface with no conversation reset between them, so running
+    /// one in isolation strips the history the preceding episodes would have
+    /// left in its prompt — and the prompt is usually the thing under
+    /// investigation. Use it to iterate, never to produce a number that gets
+    /// compared against a full run.
+    fn episode_filter() -> Vec<String> {
+        env::var("LIVE_INCIDENT_EVAL_EPISODES")
+            .ok()
+            .map(|v| {
+                v.split(',')
+                    .map(|n| n.trim().to_owned())
+                    .filter(|n| !n.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// How many times the whole corpus is driven, from
     /// `LIVE_INCIDENT_EVAL_ATTEMPTS` (default 3, floor 1).
     ///
@@ -1850,7 +1875,11 @@ mod live_incident_eval {
                     .unwrap();
             let fixture = seed_fixture(&resources).await;
 
+            let only = episode_filter();
             for episode in CORPUS {
+                if !only.is_empty() && !only.iter().any(|n| n == episode.name) {
+                    continue;
+                }
                 println!("\n=== {} ({})", episode.name, episode.incident);
                 let channel = if episode.group {
                     &fixture.group_channel
@@ -1931,7 +1960,27 @@ mod live_incident_eval {
             }
         }
 
-        let total_turns: usize = CORPUS.iter().map(|e| e.turns.len()).sum::<usize>() * attempts;
+        // Denominator follows the filter, or the coverage guard below reads a
+        // deliberately-scoped run as a broken provider: filtering to one
+        // 2-turn episode against a corpus of 11 fails `turns_run * 2 >=
+        // total_turns` every time, however well the run went.
+        let selected = episode_filter();
+        // A filter that matches nothing must not pass. The coverage guard below
+        // is `turns_run * 2 >= total_turns`, which 0 >= 0 satisfies, so a typo'd
+        // episode name would otherwise report a green run that executed nothing
+        // — the precise shape of vacuous pass this lane exists to make
+        // impossible. Fail on the typo instead, and name the valid set.
+        assert!(
+            selected.is_empty() || CORPUS.iter().any(|e| selected.iter().any(|n| n == e.name)),
+            "LIVE_INCIDENT_EVAL_EPISODES={selected:?} matched no episode; valid names are {:?}",
+            CORPUS.iter().map(|e| e.name).collect::<Vec<_>>(),
+        );
+        let total_turns: usize = CORPUS
+            .iter()
+            .filter(|e| selected.is_empty() || selected.iter().any(|n| n == e.name))
+            .map(|e| e.turns.len())
+            .sum::<usize>()
+            * attempts;
         println!(
             "\n=== live incident corpus: {turns_run}/{total_turns} turns observed over \
              {attempts} pass(es), {} findings, {} infra errors, {} platform-answered",
