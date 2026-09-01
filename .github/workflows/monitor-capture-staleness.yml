@@ -87,13 +87,18 @@ jobs:
         env:
           ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
           BASE_URL: ${{ secrets.CANARY_BASE_URL }}
+          # The public dev base, already carried as a repo variable, so the error
+          # below names the real URL instead of describing one. It is the FRONTEND
+          # service on purpose: the api service is INGRESS_TRAFFIC_INTERNAL_ONLY
+          # and unreachable from a runner, and nginx proxies /admin/ through.
+          SUGGESTED_BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
           MISSING=""
           [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} CANARY_ADMIN_TOKEN"
           [ -n "${BASE_URL}" ] || MISSING="${MISSING} CANARY_BASE_URL"
           if [ -n "${MISSING}" ]; then
-            echo "::error::Missing repository secret(s):${MISSING} — this lane cannot read capture staleness and must not report green. Mint a super-admin token (pierre-cli token generate --service admin_console --super-admin) and set both secrets."
+            echo "::error::Missing repository secret(s):${MISSING} — this lane cannot read capture staleness and must not report green. CANARY_BASE_URL is the FRONTEND url (the api service is internal-only): ${SUGGESTED_BASE_URL}. CANARY_ADMIN_TOKEN must be minted BY dev, not locally — 'pierre-cli token generate' signs with the local database's keypair and registers the token in the local database, so dev rejects it twice. Use: cargo run --bin pierre-cli -- auth login --server ${SUGGESTED_BASE_URL} ; approve in the browser as a super-admin, then copy access_token from ~/.pierre/credentials.json. See carnet#170."
             exit 1
           fi
           echo "Credentials present."
@@ -128,7 +133,7 @@ jobs:
           # hide either — a refresh that did not happen leaves the connections
           # stale, and the read below is what files the issue.
           if [ "${CODE}" = "403" ]; then
-            echo "::warning::The admin token lacks manage_configuration, which capture-refresh requires. Mint a super-admin token (pierre-cli token generate --service admin_console --super-admin) and update CANARY_ADMIN_TOKEN."
+            echo "::warning::The admin token lacks manage_configuration, which capture-refresh requires. A token minted by 'pierre-cli auth login --server <dev frontend url>' and approved as a super-admin carries it; one minted locally by 'token generate' does not authenticate against dev at all. See carnet#170."
             exit 0
           fi
           if [ "${CODE}" != "200" ]; then

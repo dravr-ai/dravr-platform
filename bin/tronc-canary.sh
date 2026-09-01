@@ -15,14 +15,21 @@ set -euo pipefail
 #
 # Environment:
 #   DRAVR_CANARY_BASE_URL   Override the pierre-server base URL
-#                           (default: https://dravr-mcp-server-api-865150413606.northamerica-northeast1.run.app)
+#                           (default: the FRONTEND service — see below)
 #   DRAVR_CANARY_TOKEN      Admin JWT with ViewConfiguration permission (required)
+#
+# The default is the frontend service, not the api service. The api service is
+# deployed INGRESS_TRAFFIC_INTERNAL_ONLY, so the api URL this script used to
+# default to is unreachable from a laptop or a CI runner and produced a
+# connection failure rather than a canary. nginx proxies /admin/ through to the
+# backend (its location alternation lists `admin`), so the frontend host serves
+# these endpoints.
 
 MODE="${1:---prod}"
 
 case "${MODE}" in
     --prod)
-        BASE_URL="${DRAVR_CANARY_BASE_URL:-https://dravr-mcp-server-api-865150413606.northamerica-northeast1.run.app}"
+        BASE_URL="${DRAVR_CANARY_BASE_URL:-https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app}"
         ;;
     --local)
         BASE_URL="${DRAVR_CANARY_BASE_URL:-http://127.0.0.1:8081}"
@@ -35,7 +42,11 @@ esac
 
 if [[ -z "${DRAVR_CANARY_TOKEN:-}" ]]; then
     echo "error: DRAVR_CANARY_TOKEN must be set to an admin JWT with ViewConfiguration permission" >&2
-    echo "       mint one with: cargo run --bin pierre-cli -- token generate --service tronc-canary --super-admin" >&2
+    echo "       Mint it FROM the deployment you are pointing at, not locally:" >&2
+    echo "         cargo run --bin pierre-cli -- auth login --server ${BASE_URL}" >&2
+    echo "       approve in the browser as a super-admin, then read access_token from ~/.pierre/credentials.json." >&2
+    echo "       'token generate' will NOT work here: it signs with the local database's RSA keypair and" >&2
+    echo "       registers the token in the local admin_tokens table, so a deployment rejects it on both counts." >&2
     exit 1
 fi
 
