@@ -72,6 +72,32 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # A monitor that cannot reach the server must SAY SO, loudly. Without this
+      # the credential-missing path was a silent green: on 2026-09-01 the first
+      # real dispatch of this lane skipped both steps and reported success,
+      # having never contacted the API — the exact silent-healthy failure this
+      # lane exists to detect, reproduced in the detector itself. Neither
+      # CANARY_ secret has ever existed on this repo.
+      #
+      # This is the lane failing, not capture failing, so unlike the staleness
+      # verdict below it reds on purpose: a red run means THIS LANE is broken,
+      # and monitor-scheduled-lanes.yml reporting it is then correct rather than
+      # misleading.
+      - name: Require the credentials this lane cannot work without
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          BASE_URL: ${{ secrets.CANARY_BASE_URL }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} CANARY_ADMIN_TOKEN"
+          [ -n "${BASE_URL}" ] || MISSING="${MISSING} CANARY_BASE_URL"
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing repository secret(s):${MISSING} — this lane cannot read capture staleness and must not report green. Mint a super-admin token (pierre-cli token generate --service admin_console --super-admin) and set both secrets."
+            exit 1
+          fi
+          echo "Credentials present."
+
       - name: Refresh every live capture
         if: (github.event.inputs.refresh || 'true') == 'true'
         env:
@@ -162,13 +188,6 @@ jobs:
           ACTIVE_WITHIN_HOURS: ${{ github.event.inputs.active_within_hours || '48' }}
         run: |
           set -euo pipefail
-
-          if [ -z "${ADMIN_TOKEN}" ] || [ -z "${BASE_URL}" ]; then
-            echo "::warning::CANARY_ADMIN_TOKEN or CANARY_BASE_URL not set — skipping capture-staleness probe"
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "configured=true" >> "$GITHUB_OUTPUT"
 
           URL="${BASE_URL}/admin/diagnostics/capture-staleness"
           URL="${URL}?stale_after_hours=${STALE_AFTER_HOURS}&active_within_hours=${ACTIVE_WITHIN_HOURS}"
