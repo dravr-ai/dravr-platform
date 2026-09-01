@@ -8,6 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
+use dravr_contremaitre::system::VISUAL_BLOCKS as DRAVR_VIZ_DIRECTIVE;
 use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::schema_contract;
 use serde_json::{json, Value};
@@ -159,4 +160,65 @@ fn generated_contract_states_the_points_minimum() {
             "both block kinds must be described: {contract}"
         );
     }
+}
+
+/// Every `dravr-viz` example in the shipped directive must validate against the
+/// shipped schema.
+///
+/// The prose teaches by example, so an example the validator rejects teaches the
+/// coach a shape that will be refused at runtime — the athlete loses the visual
+/// and nothing says why. That is not hypothetical: the directive's only example
+/// was a time series, and asked to compare two athletes the coach produced the
+/// natural-looking generalisation (one series each, one point apiece) which
+/// `points`' `minItems: 2` rejects. The fix was a second, category-shaped
+/// example; this keeps the next one honest.
+///
+/// Both texts are compiled-in contremaitre constants, so this costs no I/O and
+/// fails the moment the directive and the schema disagree.
+#[test]
+fn every_example_in_the_directive_validates() {
+    let validator = validator();
+    let examples: Vec<&str> = DRAVR_VIZ_DIRECTIVE
+        .split("```dravr-viz")
+        .skip(1)
+        .filter_map(|rest| rest.split("```").next())
+        .collect();
+
+    assert!(
+        examples.len() >= 2,
+        "the directive must keep a time-series AND a category example; found {}",
+        examples.len()
+    );
+
+    for (i, body) in examples.iter().enumerate() {
+        let block: Value = serde_json::from_str(body.trim())
+            .unwrap_or_else(|e| panic!("directive example {i} is not valid JSON: {e}\n{body}"));
+        let errors: Vec<String> = validator
+            .iter_errors(&block)
+            .map(|e| format!("{}: {e}", e.instance_path()))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "directive example {i} does not validate — it teaches a block the \
+             platform will refuse: {}\n{body}",
+            errors.join("; ")
+        );
+    }
+
+    // The category example is the one the corpus needed; assert its shape
+    // specifically so a well-meaning edit cannot collapse both examples back
+    // into two time series.
+    let has_category = examples.iter().any(|b| {
+        serde_json::from_str::<Value>(b.trim()).is_ok_and(|v| {
+            v.pointer("/x/type").and_then(Value::as_str) == Some("category")
+                && v.get("series")
+                    .and_then(Value::as_array)
+                    .is_some_and(|s| s.len() == 1)
+        })
+    });
+    assert!(
+        has_category,
+        "the directive must show a category comparison as ONE series whose \
+         points are the categories — the shape the coach otherwise gets wrong"
+    );
 }
