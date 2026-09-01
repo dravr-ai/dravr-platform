@@ -90,6 +90,28 @@ jobs:
       # drop this key rather than lowering it further — the cron is daily, so a
       # flooded run costs a day.
       TEST_LOG: "INFO"
+      # Take production's transport, not the text-catalog simulation.
+      #
+      # Unset, embacle withholds SDK_TOOL_CALLING, so run_react_tool_loop picks
+      # run_cli_tool_loop — which does not declare tools at all. It injects a
+      # PROSE CATALOG of them into the messages and parses tool calls back out of
+      # the reply (tool_execution.rs:432-435). That file's own comment calls it
+      # "the form that does not work" and notes it never opens an MCP session,
+      # so the server's initialize instructions never reach the model.
+      #
+      # Production sets this to "true" (infra/environments/dev/main.tf:339) and
+      # therefore runs the OTHER path. A lane built to catch what real models do
+      # in production was exercising a transport production does not use — the
+      # one thing it exists not to do.
+      #
+      # The cost is stated rather than hidden: this breaks comparability with
+      # every run before it, including the 18% empty-turn rate measured on
+      # 2026-09-01. That rate looks like an artifact of the simulation path (37
+      # bare-CLI probe calls across four hypotheses produced zero empties), so
+      # the baseline being discarded is a number about a path nobody ships. The
+      # first run after this is a NEW baseline; do not diff it against an older
+      # one.
+      COPILOT_HEADLESS_MCP_TOOL_CALLING: "true"
       PIERRE_LLM_PROVIDER: ${{ inputs.provider || 'copilot_headless' }}
       # The real production chain: Copilot first, Cohere when it returns a
       # retryable error. Driving only the primary would leave the fallback —
