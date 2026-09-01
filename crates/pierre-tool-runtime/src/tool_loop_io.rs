@@ -22,6 +22,7 @@ use std::sync::Arc;
 use pierre_llm::{ChatProvider, McpServerConfig, TokenUsage, Tool};
 use pierre_services::chat_stream::TurnEventSink;
 
+use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 
 use crate::llm_call_record::LlmCallRecorder;
@@ -313,5 +314,45 @@ impl ToolLoopTally {
             guardian_confirm: None,
             capability_claim_unverified: false,
         }
+    }
+}
+
+impl ToolLoopResult {
+    /// `true` when this turn produced nothing the athlete can be shown.
+    ///
+    /// Mirrors the rule the messaging egress applies before it sends the
+    /// lost-turn string: prose **and** list both empty. A turn carrying an
+    /// activity list is a real reply — the egress renders it — so it is not lost.
+    ///
+    /// The short-circuit signals are excluded deliberately. Empty `content`
+    /// alongside any of them is not a lost turn but a *deliberate* one: the chat
+    /// pipeline is about to replace the reply with a hosted re-auth URL, a
+    /// Guardian refusal, or a confirmation prompt. Falling those back to a second
+    /// provider would spend money to overwrite an answer the platform has already
+    /// decided to give, and would read to the athlete as the refusal not sticking.
+    #[must_use]
+    pub fn is_lost_turn(&self) -> bool {
+        self.content.trim().is_empty()
+            && self.activity_list.is_none()
+            && self.pending_provider_auth_required.is_none()
+            && self.guardian_denied.is_none()
+            && self.guardian_confirm.is_none()
+    }
+
+    /// The error describing a lost turn, for the fallback's log line.
+    ///
+    /// Carries the tool-call count because that is exactly what separates "the
+    /// model said nothing" from "the turn died on or after a tool batch" — the
+    /// distinction embacle's own empty-turn warn cannot make, since it drops
+    /// `tool_calls` on the floor.
+    #[must_use]
+    pub fn lost_turn_error(&self) -> AppError {
+        AppError::external_service(
+            "copilot_headless",
+            format!(
+                "empty turn: no content and no activity list after {} tool call(s)",
+                self.tool_calls_count
+            ),
+        )
     }
 }

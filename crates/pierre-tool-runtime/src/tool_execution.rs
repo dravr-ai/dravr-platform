@@ -1056,13 +1056,13 @@ async fn run_react_tool_loop(
     if capabilities.supports_function_calling() {
         run_api_tool_loop(params, llm_messages).await
     } else if capabilities.supports_sdk_tool_calling() {
-        // The headless (Copilot ACP) loop extracts the primary CLI runner from
-        // a runtime-fallback `Chain` and calls it directly, so the chain's own
-        // retryable-error fallback never fires for SDK-tool-calling turns. Catch
-        // a retryable primary failure (e.g. an ACP prompt timeout) here and
-        // re-run the turn against the secondary, so a Copilot stall degrades to
-        // the configured fallback provider instead of erroring the whole turn.
+        // Calls the primary runner directly, out of the runtime-fallback `Chain`,
+        // so neither of the chain's fallbacks fires here — not the retryable-error
+        // one, not the empty-completion one. Both re-created; see `is_lost_turn`.
         match run_headless_tool_loop(params, llm_messages).await {
+            Ok(r) if r.is_lost_turn() => {
+                run_headless_fallback(params, llm_messages, r.lost_turn_error()).await
+            }
             Ok(result) => Ok(result),
             Err(err) if pierre_llm::is_retryable_for_fallback(&err) => {
                 run_headless_fallback(params, llm_messages, err).await
