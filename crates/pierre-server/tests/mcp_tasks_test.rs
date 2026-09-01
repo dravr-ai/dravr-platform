@@ -231,6 +231,77 @@ async fn test_durable_store_round_trip_owner_isolation_and_expiry() -> Result<()
     Ok(())
 }
 
+/// Drive one declared `tools/call` that must answer with a handle, poll it to
+/// completion, and return the settled `tasks/get` body.
+async fn handle_round_trip(
+    resources: &Arc<ServerContext>,
+    ctx: &ToolContext,
+    tool: &str,
+    arguments: Value,
+) -> Result<Value> {
+    let body = drive(
+        resources,
+        ctx,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "_meta": modern_meta(true),
+                "name": tool,
+                "arguments": arguments
+            }
+        }),
+    )
+    .await?;
+    assert_eq!(
+        body["result"]["resultType"].as_str(),
+        Some("task"),
+        "a declared {tool} call over budget must answer with a task handle; got: {body}"
+    );
+    assert_eq!(body["result"]["status"].as_str(), Some("working"));
+    let task_id = body["result"]["taskId"]
+        .as_str()
+        .expect("handle carries a taskId")
+        .to_owned();
+
+    // Poll tasks/get until the detached call settles the task.
+    for _ in 0..100 {
+        let poll = drive(
+            resources,
+            ctx,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tasks/get",
+                "params": {
+                    "_meta": modern_meta(true),
+                    "taskId": task_id
+                }
+            }),
+        )
+        .await?;
+        if poll["result"]["status"].as_str() == Some("completed") {
+            return Ok(poll);
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+    panic!("{tool} task must complete within the polling window");
+}
+
+/// Assert a settled `tasks/get` body carries the real tools/call result shape
+/// — a content array a returns-nothing stub could not produce.
+fn assert_settled_content(settled: &Value) {
+    assert_eq!(settled["result"]["resultType"].as_str(), Some("complete"));
+    let content = settled["result"]["result"]["content"]
+        .as_array()
+        .expect("completed task carries the tool result's content array");
+    assert!(
+        !content.is_empty(),
+        "tool result content must be non-empty; got: {settled}"
+    );
+}
+
 /// The handle path and the inline fast path live in ONE test because the
 /// budget knob is a process-global env var — two parallel test threads
 /// flipping it would race. Sequential in one function, there is no window
@@ -244,69 +315,17 @@ async fn test_declared_tools_call_handle_resolves_then_fast_path_answers_inline(
     // A zero fast-path budget converts every declared task-capable call into
     // a handle, making the asynchronous path deterministic in a test.
     env::set_var("PIERRE_MCP_TASK_FAST_PATH_MS", "0");
-    let body = drive(
-        &resources,
-        &ctx,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {
-                "_meta": modern_meta(true),
-                "name": "get_activities",
-                "arguments": { "limit": 1 }
-            }
-        }),
-    )
-    .await?;
+    let settled =
+        handle_round_trip(&resources, &ctx, "get_activities", json!({ "limit": 1 })).await?;
+    // The write-path conversion: compute_training_history's persistence is an
+    // upsert keyed by date, so work settling behind a handle after the client
+    // stops polling leaves harmless, re-computable state.
+    let history =
+        handle_round_trip(&resources, &ctx, "compute_training_history", json!({})).await?;
     env::remove_var("PIERRE_MCP_TASK_FAST_PATH_MS");
 
-    assert_eq!(
-        body["result"]["resultType"].as_str(),
-        Some("task"),
-        "a declared call over budget must answer with a task handle; got: {body}"
-    );
-    assert_eq!(body["result"]["status"].as_str(), Some("working"));
-    let task_id = body["result"]["taskId"]
-        .as_str()
-        .expect("handle carries a taskId")
-        .to_owned();
-
-    // Poll tasks/get until the detached call settles the task.
-    let mut settled = None;
-    for _ in 0..100 {
-        let poll = drive(
-            &resources,
-            &ctx,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 5,
-                "method": "tasks/get",
-                "params": {
-                    "_meta": modern_meta(true),
-                    "taskId": task_id
-                }
-            }),
-        )
-        .await?;
-        if poll["result"]["status"].as_str() == Some("completed") {
-            settled = Some(poll);
-            break;
-        }
-        sleep(Duration::from_millis(100)).await;
-    }
-    let settled = settled.expect("task must complete within the polling window");
-
-    // The completed payload is the real tools/call result shape — a content
-    // array a returns-nothing stub could not produce.
-    assert_eq!(settled["result"]["resultType"].as_str(), Some("complete"));
-    let content = settled["result"]["result"]["content"]
-        .as_array()
-        .expect("completed task carries the tool result's content array");
-    assert!(
-        !content.is_empty(),
-        "tool result content must be non-empty; got: {settled}"
-    );
+    assert_settled_content(&settled);
+    assert_settled_content(&history);
 
     // Fast path, now under the default 10s budget: the same declared call
     // must answer inline — no task handle, no polling round trip.

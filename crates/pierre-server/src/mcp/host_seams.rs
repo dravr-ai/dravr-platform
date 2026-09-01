@@ -239,7 +239,11 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
 /// 110 tools (3 task-required, 28 eligible, 79 sync) lives in the vault note
 /// "MCP Tasks — Which Tools Answer Asynchronously". A tool outside this list
 /// always answers inline, however long it runs.
-const TASK_CAPABLE_TOOLS: &[&str] = &["get_activities"];
+///
+/// `compute_training_history` is the first write-path entry: its persistence
+/// is an upsert keyed by date, so work continuing behind a handle after a
+/// client stops polling leaves harmless, idempotently re-computable state.
+const TASK_CAPABLE_TOOLS: &[&str] = &["compute_training_history", "get_activities"];
 
 /// Default fast-path budget (ms) before a declared-tasks call converts into a
 /// task handle. Under it, cache-warm and API-backed work answers inline, so
