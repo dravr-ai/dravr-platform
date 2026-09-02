@@ -15,7 +15,7 @@
 //! today/tomorrow lookup and the race countdown are all deterministic.
 
 use anyhow::Result;
-use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, ProseFormat, SlashRequest};
+use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, SlashRequest};
 use pierre_commands::plan::{PlanShareHandler, PlanShowHandler};
 use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_core::chunking::chunk_reply;
@@ -27,6 +27,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{BlockPhase, GoalRace, PlanBlock, PlannedDay, RacePriority};
+use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
 use pierre_runtime_context::CoachesCtx;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1179,14 +1180,14 @@ async fn plan_share_in_a_messaging_room_posts_the_header_and_the_week() -> Resul
 
     assert!(
         response.is_rich_text,
-        "the header carries <b>, so the reply is rich text"
+        "the header carries **, so the reply is rich text"
     );
     assert!(
         text.starts_with("📋"),
         "the header must open the reply so attribution comes first: {text}"
     );
     assert!(
-        text.contains("<b>Phil Tremblay</b>") && text.contains(SHARED_MARKER),
+        text.contains("**Phil Tremblay**") && text.contains(SHARED_MARKER),
         "the room must read whose plan it is and that it was shared: {text}"
     );
     for session in ["VO2 intervals", "endurance ride", "long endurance"] {
@@ -1323,12 +1324,14 @@ async fn a_room_conversation_bound_to_a_coach_reads_that_coachs_plan() -> Result
     Ok(())
 }
 
-/// The header is rich text and the name is user-set: one `<` in a display
-/// name would otherwise fail the whole message at the channel.
+/// The header is inline markdown and the name is user-set: a `*` in a display
+/// name would otherwise open an emphasis run and swallow the header. Angle
+/// brackets are the channel egress's business — each renderer escapes its own
+/// text nodes — so the handler leaves them alone.
 #[tokio::test]
 async fn plan_share_escapes_the_display_name_in_the_header() -> Result<()> {
     let (resources, user_id, tenant, _dm) = setup().await?;
-    athlete_with_a_coached_plan(&resources, user_id, tenant, "Marc <3 vélo & co").await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Marc *<3* vélo & co").await?;
     let (bot_tenant, room) = room_conversation(&resources, user_id, None).await?;
 
     let text = PlanShareHandler
@@ -1348,12 +1351,13 @@ async fn plan_share_escapes_the_display_name_in_the_header() -> Result<()> {
         .text;
 
     assert!(
-        text.contains("<b>Marc &lt;3 vélo &amp; co</b>"),
-        "the name must be HTML-escaped inside the bold tag: {text}"
+        text.contains(r"**Marc \*<3\* vélo & co**"),
+        "the name's markdown metacharacters must be escaped inside the bold run: {text}"
     );
+    let dialect = render_rich_text(&parse_markdown(&text));
     assert!(
-        !text.contains("<3 vélo"),
-        "a raw `<` must never reach the channel: {text}"
+        dialect.contains("<b>Marc *<3* vélo & co</b>"),
+        "the channel egress must read the name back verbatim inside one bold span: {dialect}"
     );
     Ok(())
 }
@@ -1383,7 +1387,7 @@ async fn plan_share_on_the_in_app_surface_renders_no_header() -> Result<()> {
         .text;
 
     assert!(
-        !text.contains(SHARED_MARKER) && !text.contains("<b>"),
+        !text.contains(SHARED_MARKER) && !text.contains("**Phil Tremblay**"),
         "web renders exactly like /plan, header-free: {text}"
     );
     assert!(text.contains("endurance ride"), "{text}");
@@ -1420,7 +1424,7 @@ async fn plan_share_with_no_plan_in_a_room_still_names_the_athlete() -> Result<(
         .text;
 
     assert!(
-        text.contains("<b>Phil Tremblay</b>") && text.contains("No plan saved yet"),
+        text.contains("**Phil Tremblay**") && text.contains("No plan saved yet"),
         "header then the empty state: {text}"
     );
     Ok(())
@@ -1451,7 +1455,6 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         ambient_group_fallback: true,
         persistence: CommandPersistence::RoomVisibleOnly,
         sender_id: Some(ROOM_SENDER),
-        prose: ProseFormat::PlainText,
         text,
     };
 
@@ -1475,7 +1478,7 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         .find(|e| e.speaker == TranscriptSpeaker::Coach)
         .expect("the shared plan reaches the group transcript as the coach line");
     assert!(
-        reply.content.contains("<b>Phil Tremblay</b>")
+        reply.content.contains("**Phil Tremblay**")
             && reply.content.contains(SHARED_MARKER)
             && reply.content.contains("long endurance"),
         "the transcript carries the header and the week: {}",

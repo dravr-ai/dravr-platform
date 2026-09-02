@@ -292,10 +292,10 @@ pub(super) async fn handle_reset(
         }
     };
     // Rich, because the interrupted-walk branch above appends
-    // `KEY_RESET_WALK_INTERRUPTED`, which names the command as `<code>/pillars</code>`.
+    // `KEY_RESET_WALK_INTERRUPTED`, which names the command in backticks.
     // The other two bodies this arm can produce carry no markup, so the envelope is
     // a no-op for them.
-    proactive_rich_text(channel_type, sender_id.to_owned(), body)
+    proactive_rich_text(channel_type, sender_id.to_owned(), &body)
 }
 
 /// Best-effort `coach_assignments.use_count++` for messaging-channel

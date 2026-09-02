@@ -349,7 +349,7 @@ async fn deliver(args: DeliverArgs<'_>) -> Option<OutgoingMessage> {
     Some(proactive_rich_text(
         channel_type,
         sender_id.to_owned(),
-        body,
+        &body,
     ))
 }
 

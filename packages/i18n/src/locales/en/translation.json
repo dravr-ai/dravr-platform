@@ -1330,10 +1330,10 @@
       "description": "Unlink this messaging account"
     },
     "pillars": {
-      "arg_dm_only": "Those topics are covered in private. Send me <code>/pillars</code> in a direct message and we'll pick them up there — nothing was changed here.",
+      "arg_dm_only": "Those topics are covered in private. Send me `/pillars` in a direct message and we'll pick them up there — nothing was changed here.",
       "description": "Walk the health pillars to build or refresh your profile — full re-screens everything, a pillar name re-screens just that pillar; a group-room walk is visible there and covers the shareable pillars only",
       "opener": "Let's build your profile together — I'll ask about a few areas, one at a time. To start: what's the deeper reason you train — your North Star?",
-      "opener_room": "We're building your profile here in the group — your answers will be visible to everyone, and they're yours alone to give. We'll cover your motivation, training, fuelling, sleep and support network; stress and recovery habits stay private — send me <code>/pillars</code> in a direct message for those two. To start: what's the deeper reason you train — your North Star?",
+      "opener_room": "We're building your profile here in the group — your answers will be visible to everyone, and they're yours alone to give. We'll cover your motivation, training, fuelling, sleep and support network; stress and recovery habits stay private — send me `/pillars` in a direct message for those two. To start: what's the deeper reason you train — your North Star?",
       "start_failed": "I couldn't start the profile walk on this conversation. Try again in a moment."
     },
     "plan": {
@@ -1346,7 +1346,7 @@
       "no_session": "nothing scheduled",
       "rest": "rest",
       "resumes": "The plan resumes on {0}.",
-      "shared_header": "📋 <b>{0}</b>'s plan — shared with the room.",
+      "shared_header": "📋 **{0}**'s plan — shared with the room.",
       "stale_goal": "\n\n⚠️ Your goal has changed since this plan — ask your coach to refresh it.",
       "today": "Today",
       "tomorrow": "Tomorrow",
@@ -1357,13 +1357,13 @@
     },
     "privacy": {
       "description": "View your analytics consent setting",
-      "off_confirmation": "Analytics consent has been <b>disabled</b>. No anonymous usage data will be collected.\n\nUse <code>/privacy on</code> to opt back in at any time.",
-      "on_confirmation": "Analytics consent has been <b>enabled</b>. Thank you for helping us improve Dravr!\n\nUse <code>/privacy off</code> to opt out at any time.",
+      "off_confirmation": "Analytics consent has been **disabled**. No anonymous usage data will be collected.\n\nUse `/privacy on` to opt back in at any time.",
+      "on_confirmation": "Analytics consent has been **enabled**. Thank you for helping us improve Dravr!\n\nUse `/privacy off` to opt out at any time.",
       "status": {
         "disabled": "disabled",
         "enabled": "enabled"
       },
-      "status_line": "Analytics consent is currently <b>{0}</b>.\n\nUse <code>/privacy on</code> to enable or <code>/privacy off</code> to disable anonymous analytics."
+      "status_line": "Analytics consent is currently **{0}**.\n\nUse `/privacy on` to enable or `/privacy off` to disable anonymous analytics."
     },
     "privacy-off": {
       "description": "Disable analytics consent"
@@ -1373,7 +1373,7 @@
     },
     "reset": {
       "confirm": "🔄 New conversation started — fresh slate. Your previous thread stays archived.",
-      "walk_interrupted": "\n\nYour profile walk was in progress — send <code>/pillars</code> to resume."
+      "walk_interrupted": "\n\nYour profile walk was in progress — send `/pillars` to resume."
     },
     "status": {
       "channel_label": "\nChannel: {0}",
@@ -1385,8 +1385,8 @@
     },
     "timezone": {
       "description": "Set your timezone for local activity times",
-      "invalid": "Invalid timezone. Provide an IANA name, e.g. <code>/timezone America/Toronto</code>.",
-      "set": "Timezone set to <b>{0}</b>. Your activity start times will now display in this timezone."
+      "invalid": "Invalid timezone. Provide an IANA name, e.g. `/timezone America/Toronto`.",
+      "set": "Timezone set to **{0}**. Your activity start times will now display in this timezone."
     }
   },
   "common": {
@@ -1861,9 +1861,9 @@
         "medication": "Are you currently taking prescribed medications for a chronic medical condition?",
         "supervised_only": "Has a doctor said you should only do medically supervised physical activity?"
       },
-      "persona": "First: do you train for yourself, or do you coach other people?\n\n<b>1</b> — I train for myself\n<b>2</b> — I coach others",
+      "persona": "First: do you train for yourself, or do you coach other people?\n\n**1** — I train for myself\n**2** — I coach others",
       "retry": "Sorry — I need just the number, so I record this exactly right.\n\n{0}",
-      "yesno_hint": "Reply <b>1</b> for yes, <b>2</b> for no."
+      "yesno_hint": "Reply **1** for yes, **2** for no."
     },
     "link": {
       "cancelled": "Linking cancelled. Send a message anytime to start again.",

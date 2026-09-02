@@ -49,10 +49,9 @@ const SHORTCUT_COMMANDS: [&str; 3] = ["plan", "status", "discover"];
 /// The listing is shaped to read on every surface at once: a `**domain**`
 /// heading, one `- /command — description` line per command, and a blank
 /// line between sections. The in-app clients parse that as a heading and a
-/// list; a messaging channel shows it as typed, where a dash-led line and a
-/// starred heading are still a readable plain-text menu. A card body is
-/// HTML-escaped by the channel renderers, so the heading cannot ride the
-/// rich-text dialect the reply strings use.
+/// list; a messaging channel renders the heading bold through its rich-text
+/// translator and shows the dash-led lines as typed, where they are still a
+/// readable plain-text menu.
 ///
 /// The listing is also the cross-channel menu: it comes back as a card whose
 /// buttons each channel renders natively — a Telegram inline keyboard, Slack
@@ -219,7 +218,7 @@ impl CommandHandler for HelpHandler {
         // plain listing rather than an empty-looking card.
         let shortcuts = self.shortcuts(standing.as_ref());
         if shortcuts.is_empty() {
-            return Ok(CommandResponse::text(text));
+            return Ok(CommandResponse::rich_text(text));
         }
         Ok(CommandResponse::card(
             reg.render(KEY_HELP_HEADER, locale, &[]).trim().to_owned(),

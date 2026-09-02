@@ -39,7 +39,6 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_llm::ChatProvider;
-use pierre_messaging::rich_text::{parse, render_discord_markdown};
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -52,7 +51,7 @@ use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::surface_profile::{ProseFormat, SurfaceProfile};
+use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::usage_counters::{
     increment_usage_counters_scoped, tokens_from_envelope, UsageIncrementScope,
@@ -117,16 +116,14 @@ pub struct CommandTurn {
     /// The command definition's `name:` id (`"coach"`, `"group-status"`),
     /// or `None` when the text was `/`-prefixed but matched nothing.
     pub command_name: Option<String>,
-    /// The reply body, already localized by the handler, in the dialect the
-    /// surface reads: canot's rich-text subset where the handler asked for it
-    /// and the surface shows prose as typed, markdown where the surface parses
-    /// markdown — the conversion happens once, in [`command_turn`], before the
-    /// reply is either delivered or persisted.
+    /// The reply body, already localized by the handler, in inline markdown:
+    /// the in-app surfaces parse it as is, and a messaging channel converts it
+    /// into canot's rich-text dialect at its egress, so the persisted row and
+    /// every delivery read from the same text.
     pub text: String,
-    /// [`Self::text`] is in canot's rich-text dialect (`<b>`, `<i>`, `<code>`)
-    /// for a channel renderer to translate. `false` on a markdown surface even
-    /// when the handler asked for rich text: the tags have already become
-    /// markdown.
+    /// [`Self::text`] carries inline markdown a channel renderer must
+    /// translate into native formatting. `false` when the body is shown as
+    /// typed — the unknown-command reply, and handlers that answered plain.
     pub is_rich_text: bool,
     /// Title labelling [`Self::actions`], when the handler returned a card.
     pub card_title: Option<String>,
@@ -184,9 +181,6 @@ pub struct SlashRequest<'a> {
     pub persistence: CommandPersistence,
     /// Channel-native sender id for commands that unlink a channel.
     pub sender_id: Option<&'a str>,
-    /// How the surface reads prose — what decides whether a rich-text reply
-    /// is re-expressed as markdown before it leaves the ladder.
-    pub prose: ProseFormat,
     /// The raw text the athlete typed.
     pub text: &'a str,
 }
@@ -251,7 +245,6 @@ pub async fn execute(
             ambient_group_fallback: request.ambient_group_fallback,
             persistence: request.command_persistence,
             sender_id: request.sender_id,
-            prose: profile.render.prose,
             text: &request.content,
         },
     )
@@ -379,38 +372,16 @@ pub async fn dispatch_slash(
     })
     .await?;
 
-    let Some(mut command) = command_turn(outcome, request.channel_type, request.prose) else {
+    let Some(mut command) = command_turn(outcome, request.channel_type) else {
         return Ok(None);
     };
     persist_if_covered(ctx, request, &mut command).await;
     Ok(Some(command))
 }
 
-/// Re-express a handler's rich-text reply for a surface that parses markdown.
-///
-/// Handlers answer in canot's rich-text dialect — the `<b>`/`<i>`/`<code>`
-/// subset every messaging channel renderer translates into native markup. The
-/// in-app surface parses markdown instead, so the tags would reach the athlete
-/// as literal text and, once persisted, reload that way in the transcript.
-/// canot owns the dialect and its parser; its Discord renderer emits the
-/// `CommonMark` inline subset (`**`, `*`, backticks, backslash-escaped
-/// metacharacters in text nodes) that the web and mobile markdown renderers
-/// consume, so the same parser and one existing renderer cover this boundary.
-fn markdown_from_rich_text(text: &str) -> String {
-    render_discord_markdown(&parse(text))
-}
-
 /// Shape a dispatch outcome as a command turn; `None` when the text was not a
 /// command at all.
-///
-/// A rich-text reply bound for a markdown surface is converted here, before
-/// the turn is persisted or delivered, so the transcript row and the live
-/// reply hold the same text.
-fn command_turn(
-    outcome: DispatchOutcome,
-    channel_type: &str,
-    prose: ProseFormat,
-) -> Option<CommandTurn> {
+fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandTurn> {
     match outcome {
         DispatchOutcome::NotACommand => None,
         DispatchOutcome::UnknownCommand { body } => Some(CommandTurn {
@@ -444,15 +415,10 @@ fn command_turn(
                     value: action.value.clone(),
                 })
                 .collect();
-            let (text, is_rich_text) = if response.is_rich_text && prose == ProseFormat::Markdown {
-                (markdown_from_rich_text(&response.text), false)
-            } else {
-                (response.text, response.is_rich_text)
-            };
             Some(CommandTurn {
                 command_name: Some(command_name),
-                text,
-                is_rich_text,
+                text: response.text,
+                is_rich_text: response.is_rich_text,
                 card_title,
                 actions,
                 persisted: None,

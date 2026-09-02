@@ -18,6 +18,7 @@ use pierre_memory::training_plans::{
     parse_plan_date, PlanBlock, PlanWeek, PlannedDay, TrainingPlan,
 };
 use pierre_messaging::commands::CommandResponse;
+use pierre_messaging::rich_text::escape_markdown;
 use pierre_services::training_plan_render::{
     plan_goal_is_stale, resolve_plan_coach_slug, select_active_weeks, SelectedWeek,
 };
@@ -440,10 +441,11 @@ impl CommandHandler for PlanShareHandler {
         if ctx.is_direct_message || ctx.sender_id.is_none() {
             return Ok(CommandResponse::rich_text(body));
         }
-        // The reply is rich text and the name is user-set free text, so it is
-        // escaped: one `<` in a display name would otherwise fail the whole
-        // message at the channel and deliver nothing.
-        let name = html_escape::encode_text(&caller_display_name(user.as_ref())).into_owned();
+        // The header is inline markdown and the name is user-set free text, so
+        // it is escaped: one `*` in a display name would otherwise open a run
+        // and swallow the rest of the header. Angle brackets need nothing here;
+        // each channel escapes its own text nodes when it renders.
+        let name = escape_markdown(&caller_display_name(user.as_ref()));
         let header = ctx.ctx.messaging_strings_registry().render(
             KEY_PLAN_SHARED_HEADER,
             &ctx.locale,

@@ -1378,8 +1378,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.26"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.26#c02f4b79c58e2b4618ab9f84c9131f39e36902c3"
+version = "0.4.27"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.27#3f6ad87f12b513c1ccccf0f3b7378a406a6d5ac6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3636,7 +3636,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
- "html-escape",
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
@@ -7070,7 +7069,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

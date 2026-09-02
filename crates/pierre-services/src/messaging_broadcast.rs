@@ -27,6 +27,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
+use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
 use pierre_messaging::turn::ConversationTurnId;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -54,9 +55,11 @@ pub fn proactive_text(
     }
 }
 
-/// Build a proactive message whose body carries the constrained markup subset
-/// (`<b>`, `<i>`, `<code>`), for each channel's renderer to translate into that
-/// channel's native formatting.
+/// Build a proactive message from a body authored in inline markdown.
+///
+/// The `**bold**`, `*italic*` and `` `code` `` runs are converted here into
+/// the rich-text dialect each channel's renderer translates into its native
+/// formatting.
 ///
 /// Separate from [`proactive_text`] rather than replacing it, because the two
 /// make opposite promises about the body. A `Text` body is escaped on the way
@@ -64,22 +67,24 @@ pub fn proactive_text(
 /// coach prose like "HR <100 bpm" from mangling the parse, and what makes
 /// interpolated values (coach titles, provider names) inert. A `RichText` body
 /// is parsed, so markup in it becomes formatting. Routing every proactive push
-/// through this one would turn a stored value that happens to contain a tag
+/// through this one would turn a stored value that happens to contain a marker
 /// into live formatting.
 ///
 /// Reach for it when the *string* owns the markup, as the intake questions do:
-/// they ship `<b>1</b>` in all five locales, and in a `Text` envelope the
-/// athlete reads the angle brackets instead of a bold numeral.
+/// they ship `**1**` in all five locales, and in a `Text` envelope the athlete
+/// reads the asterisks instead of a bold numeral.
 #[must_use]
 pub fn proactive_rich_text(
     channel_type: ChannelType,
     recipient_id: String,
-    body: String,
+    body: &str,
 ) -> OutgoingMessage {
     OutgoingMessage {
         channel_type,
         recipient_id,
-        content: MessageContent::RichText { body },
+        content: MessageContent::RichText {
+            body: render_rich_text(&parse_markdown(body)),
+        },
         turn_id: ConversationTurnId::new(),
         reply_to: None,
         thread_id: None,

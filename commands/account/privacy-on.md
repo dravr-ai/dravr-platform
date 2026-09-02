@@ -6,8 +6,3 @@ description: Enable analytics consent
 domain: account
 personal: true
 ---
-
-## Response Template
-Analytics consent has been <b>enabled</b>. Thank you for helping us improve Pierre!
-
-Use <code>/privacy off</code> to opt out at any time.

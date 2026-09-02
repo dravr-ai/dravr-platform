@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
+use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::info;
 
@@ -287,7 +288,6 @@ pub(super) async fn try_handle_slash_command(
                 CommandPersistence::RoomVisibleOnly
             },
             sender_id: Some(sender_id),
-            prose: profile.render.prose,
             text,
         },
     )
@@ -350,10 +350,10 @@ pub(super) async fn try_handle_slash_command(
 /// Frame a command's answer as the content this channel will carry.
 ///
 /// A card where the handler asked for one and the channel draws controls; the
-/// channel's rich-text dialect where it asked for that; plain text otherwise.
-/// The choice is the surface's capability, never its name — a channel without
-/// buttons gets the same answer with its actions written out as text by
-/// [`card_or_rich_text`].
+/// channel's rich-text dialect, converted from the handler's inline markdown,
+/// where it asked for formatting; plain text otherwise. The choice is the
+/// surface's capability, never its name — a channel without buttons gets the
+/// same answer with its actions written out as text by [`card_or_rich_text`].
 fn command_content(render: &RenderCapabilities, command: CommandTurn) -> MessageContent {
     let CommandTurn {
         text,
@@ -378,7 +378,9 @@ fn command_content(render: &RenderCapabilities, command: CommandTurn) -> Message
         );
     }
     if is_rich_text {
-        return MessageContent::RichText { body: text };
+        return MessageContent::RichText {
+            body: render_rich_text(&parse_markdown(&text)),
+        };
     }
     MessageContent::Text { body: text }
 }

@@ -1330,10 +1330,10 @@
       "description": "Dieses Messaging-Konto trennen"
     },
     "pillars": {
-      "arg_dm_only": "Diese Themen behandeln wir privat. Schreib mir <code>/pillars</code> als Direktnachricht, dann nehmen wir sie dort auf — hier wurde nichts geändert.",
+      "arg_dm_only": "Diese Themen behandeln wir privat. Schreib mir `/pillars` als Direktnachricht, dann nehmen wir sie dort auf — hier wurde nichts geändert.",
       "description": "Die Gesundheitssäulen durchgehen, um dein Profil aufzubauen oder aufzufrischen — full fragt alles neu ab, ein Säulenname nur diese Säule; in einem Gruppenraum ist der Durchgang sichtbar und deckt nur die teilbaren Säulen ab",
       "opener": "Wir bauen dein Profil gemeinsam auf — ich frage dich zu einigen Themen, eines nach dem anderen. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?",
-      "opener_room": "Wir bauen dein Profil hier in der Gruppe auf — deine Antworten sind für alle sichtbar, und nur du antwortest. Wir decken Motivation, Training, Ernährung, Schlaf und dein Umfeld ab; Stress und Erholungsgewohnheiten bleiben privat — schreib mir <code>/pillars</code> als Direktnachricht für diese beiden. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?",
+      "opener_room": "Wir bauen dein Profil hier in der Gruppe auf — deine Antworten sind für alle sichtbar, und nur du antwortest. Wir decken Motivation, Training, Ernährung, Schlaf und dein Umfeld ab; Stress und Erholungsgewohnheiten bleiben privat — schreib mir `/pillars` als Direktnachricht für diese beiden. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?",
       "start_failed": "Ich konnte das Profil in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal."
     },
     "plan": {
@@ -1346,7 +1346,7 @@
       "no_session": "nichts geplant",
       "rest": "Ruhetag",
       "resumes": "Der Plan wird am {0} fortgesetzt.",
-      "shared_header": "📋 Plan von <b>{0}</b> — mit dem Raum geteilt.",
+      "shared_header": "📋 Plan von **{0}** — mit dem Raum geteilt.",
       "stale_goal": "\n\n⚠️ Dein Ziel hat sich seitdem geändert — bitte deinen Coach, den Plan zu aktualisieren.",
       "today": "Heute",
       "tomorrow": "Morgen",
@@ -1357,13 +1357,13 @@
     },
     "privacy": {
       "description": "Deine Einstellung zur Einwilligung in anonyme Statistiken anzeigen",
-      "off_confirmation": "Die Einwilligung zu anonymen Statistiken ist jetzt <b>deaktiviert</b>. Es werden keine anonymen Nutzungsdaten erhoben.\n\nNutze <code>/privacy on</code>, um dich jederzeit wieder anzumelden.",
-      "on_confirmation": "Die Einwilligung zu anonymen Statistiken ist jetzt <b>aktiviert</b>. Danke, dass du hilfst, Dravr zu verbessern!\n\nNutze <code>/privacy off</code>, um dich jederzeit abzumelden.",
+      "off_confirmation": "Die Einwilligung zu anonymen Statistiken ist jetzt **deaktiviert**. Es werden keine anonymen Nutzungsdaten erhoben.\n\nNutze `/privacy on`, um dich jederzeit wieder anzumelden.",
+      "on_confirmation": "Die Einwilligung zu anonymen Statistiken ist jetzt **aktiviert**. Danke, dass du hilfst, Dravr zu verbessern!\n\nNutze `/privacy off`, um dich jederzeit abzumelden.",
       "status": {
         "disabled": "deaktiviert",
         "enabled": "aktiviert"
       },
-      "status_line": "Die Einwilligung zu anonymen Statistiken ist derzeit <b>{0}</b>.\n\nNutze <code>/privacy on</code> zum Aktivieren oder <code>/privacy off</code> zum Deaktivieren."
+      "status_line": "Die Einwilligung zu anonymen Statistiken ist derzeit **{0}**.\n\nNutze `/privacy on` zum Aktivieren oder `/privacy off` zum Deaktivieren."
     },
     "privacy-off": {
       "description": "Die Einwilligung zu anonymen Statistiken zurückziehen"
@@ -1373,7 +1373,7 @@
     },
     "reset": {
       "confirm": "🔄 Neue Unterhaltung gestartet — wir fangen frisch an. Dein bisheriger Verlauf bleibt archiviert.",
-      "walk_interrupted": "\n\nDein Profil war in Arbeit — schreib <code>/pillars</code>, um weiterzumachen."
+      "walk_interrupted": "\n\nDein Profil war in Arbeit — schreib `/pillars`, um weiterzumachen."
     },
     "status": {
       "channel_label": "\nKanal: {0}",
@@ -1385,8 +1385,8 @@
     },
     "timezone": {
       "description": "Deine Zeitzone festlegen, damit Aktivitäten in Ortszeit erscheinen",
-      "invalid": "Ungültige Zeitzone. Gib einen IANA-Namen an, z. B. <code>/timezone America/Toronto</code>.",
-      "set": "Zeitzone auf <b>{0}</b> gesetzt. Die Startzeiten deiner Aktivitäten werden jetzt in dieser Zeitzone angezeigt."
+      "invalid": "Ungültige Zeitzone. Gib einen IANA-Namen an, z. B. `/timezone America/Toronto`.",
+      "set": "Zeitzone auf **{0}** gesetzt. Die Startzeiten deiner Aktivitäten werden jetzt in dieser Zeitzone angezeigt."
     }
   },
   "common": {
@@ -1861,9 +1861,9 @@
         "medication": "Nimmst du derzeit verschriebene Medikamente gegen eine chronische Erkrankung?",
         "supervised_only": "Hat dir jemand ärztlich gesagt, du solltest dich nur unter medizinischer Aufsicht körperlich betätigen?"
       },
-      "persona": "Zuerst: Trainierst du für dich selbst, oder trainierst du andere?\n\n<b>1</b> — Ich trainiere für mich\n<b>2</b> — Ich trainiere andere",
+      "persona": "Zuerst: Trainierst du für dich selbst, oder trainierst du andere?\n\n**1** — Ich trainiere für mich\n**2** — Ich trainiere andere",
       "retry": "Entschuldige — ich brauche nur die Zahl, damit ich es korrekt festhalte.\n\n{0}",
-      "yesno_hint": "Antworte <b>1</b> für ja, <b>2</b> für nein."
+      "yesno_hint": "Antworte **1** für ja, **2** für nein."
     },
     "link": {
       "cancelled": "Verknüpfung abgebrochen. Schreib jederzeit eine Nachricht, um neu zu beginnen.",

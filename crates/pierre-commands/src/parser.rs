@@ -73,28 +73,6 @@ pub struct CommandCatalog {
     pub personal: HashSet<String>,
 }
 
-/// Extract the `## Response Template` section from markdown body
-fn extract_response_template(body: &str) -> String {
-    let mut in_section = false;
-    let mut template = String::new();
-
-    for line in body.lines() {
-        if line.starts_with("## Response Template") {
-            in_section = true;
-            continue;
-        }
-        if in_section && line.starts_with("## ") {
-            break;
-        }
-        if in_section {
-            template.push_str(line);
-            template.push('\n');
-        }
-    }
-
-    template.trim().to_owned()
-}
-
 /// One command as parsed from its markdown file: the canonical definition plus
 /// the argument signature [`CommandDefinition`] has no field for.
 struct ParsedCommand {
@@ -117,10 +95,8 @@ fn parse_command_file(content: &str) -> Option<ParsedCommand> {
     let after_first = &content[3..];
     let end_idx = after_first.find("---")?;
     let frontmatter_str = &after_first[..end_idx];
-    let body = &after_first[end_idx + 3..];
 
     let fm: CommandFrontmatter = serde_yaml::from_str(frontmatter_str).ok()?;
-    let response_template = extract_response_template(body);
 
     let arguments = fm
         .arguments
@@ -141,7 +117,6 @@ fn parse_command_file(content: &str) -> Option<ParsedCommand> {
             // them and they carry the "nothing declared" values.
             required_role: CommandRole::Any,
             requires_group: false,
-            response_template,
         },
         arguments,
         personal: fm.personal,

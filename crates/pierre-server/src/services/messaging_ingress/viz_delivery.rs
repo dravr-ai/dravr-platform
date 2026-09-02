@@ -30,6 +30,7 @@ use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_chat_pipeline::RenderCapabilities;
 use pierre_core::models::messaging::{CardAction, MessageContent};
 use pierre_core::models::{ColorScheme, TenantId};
+use pierre_messaging::rich_text::{escape_markdown, parse_markdown, render_rich_text};
 use serde_json::Value;
 use tracing::debug;
 
@@ -174,8 +175,10 @@ pub fn target(
 
 /// Shape a card-intent reply for a surface.
 ///
-/// Returns a native [`MessageContent::Card`] where the surface lays actions
-/// out as controls ([`pierre_chat_pipeline::BlockSupport::action_buttons`]),
+/// `body` is inline markdown, as every command reply and catalogue row is
+/// authored; it leaves here in the rich-text dialect canot's renderers
+/// translate. Returns a native [`MessageContent::Card`] where the surface lays
+/// actions out as controls ([`pierre_chat_pipeline::BlockSupport::action_buttons`]),
 /// otherwise a [`MessageContent::RichText`] fallback: bold title (when
 /// non-empty), the body, then one `label: value` line per action — a bare URL
 /// value stays tappable as autolinked text where buttons do not render.
@@ -194,18 +197,25 @@ pub fn card_or_rich_text(
     if render.blocks.action_buttons {
         return MessageContent::Card {
             title,
-            body,
+            body: render_rich_text(&parse_markdown(&body)),
             actions,
         };
     }
     let mut text = if title.is_empty() {
         body
     } else {
-        format!("**{title}**\n\n{body}")
+        format!("**{}**\n\n{body}", escape_markdown(&title))
     };
     for action in &actions {
         // Writing to a String is infallible; the discarded Result is fmt noise.
-        let _ = write!(text, "\n\n{}: {}", action.label, action.value);
+        let _ = write!(
+            text,
+            "\n\n{}: {}",
+            escape_markdown(&action.label),
+            escape_markdown(&action.value)
+        );
     }
-    MessageContent::RichText { body: text }
+    MessageContent::RichText {
+        body: render_rich_text(&parse_markdown(&text)),
+    }
 }

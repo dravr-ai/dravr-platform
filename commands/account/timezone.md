@@ -7,6 +7,3 @@ domain: account
 personal: true
 arguments: "area/city"
 ---
-
-## Response Template
-Timezone set. Your activity start times will now display in your local time.

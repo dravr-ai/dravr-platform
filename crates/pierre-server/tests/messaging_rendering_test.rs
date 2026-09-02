@@ -119,32 +119,36 @@ mod rendering_snapshots {
     }
 
     /// The intake questions ship their own markup, so they must ride a
-    /// `RichText` envelope — in a `Text` one the athlete reads the angle
-    /// brackets.
+    /// `RichText` envelope — in a `Text` one the athlete reads the markers.
     ///
     /// Shipped broken to production on 2026-08-28: the persona question
     /// rendered as a literal `<b>1</b> — Je m'entraîne pour moi` on Telegram,
     /// because `proactive_text` hardcodes `MessageContent::Text` and the Text
-    /// arm escapes. The opener paragraph above it carries no tags and rendered
-    /// fine, which is what made the break look cosmetic rather than structural.
+    /// arm escapes. The rows are authored in inline markdown now, and the
+    /// `RichText` envelope is where that markdown becomes the channel's own
+    /// formatting: `**1**` reaches Telegram as `<b>1</b>`.
     ///
     /// Asserted against the real catalogue in all five locales rather than a
-    /// fixture string: the tags live in the strings, so a locale added without
-    /// them — or a sixth locale added later — has to fail here.
+    /// fixture string: the markup lives in the strings, so a locale added
+    /// without it — or a sixth locale added later — has to fail here.
     #[test]
-    fn telegram_renders_intake_questions_as_formatting_not_visible_tags() {
+    fn telegram_renders_intake_questions_as_formatting_not_visible_markers() {
         let reg = MessagingStringsRegistry::new();
 
         for locale in ["fr", "en", "es", "de", "pt"] {
             for key in [KEY_INTAKE_PERSONA, KEY_INTAKE_YESNO_HINT] {
                 let body = reg.get(key, locale);
                 assert!(
-                    body.contains("<b>"),
+                    body.contains("**1**"),
                     "{key}/{locale} lost its markup; this test guards the envelope, so it is \
                      vacuous once the string is plain: {body}"
                 );
+                assert!(
+                    !body.contains("<b>"),
+                    "{key}/{locale} is authored in markdown, not in canot's tags: {body}"
+                );
 
-                let msg = proactive_rich_text(ChannelType::Telegram, "123456789".to_owned(), body);
+                let msg = proactive_rich_text(ChannelType::Telegram, "123456789".to_owned(), &body);
                 let rendered = TelegramRenderer
                     .render(&msg)
                     .expect("telegram render succeeds");
@@ -153,12 +157,12 @@ mod rendering_snapshots {
                     .expect("telegram payload must have a text field");
 
                 assert!(
-                    !text.contains("&lt;b&gt;"),
-                    "{key}/{locale} reached the wire escaped, so the athlete sees the tags: {text}"
+                    text.contains("<b>1</b>"),
+                    "{key}/{locale} lost its bold on the way to the wire: {text}"
                 );
                 assert!(
-                    text.contains("<b>"),
-                    "{key}/{locale} lost its bold on the way to the wire: {text}"
+                    !text.contains("**") && !text.contains("&lt;b&gt;"),
+                    "{key}/{locale} reached the wire with its markers visible: {text}"
                 );
             }
         }
@@ -167,7 +171,7 @@ mod rendering_snapshots {
     /// The same strings in the envelope they used to ship in — proof this test
     /// pair fails on the old code rather than passing either way.
     #[test]
-    fn a_text_envelope_would_still_escape_those_tags() {
+    fn a_text_envelope_would_show_the_markdown_as_typed() {
         let reg = MessagingStringsRegistry::new();
         let msg = OutgoingMessage {
             channel_type: ChannelType::Telegram,
@@ -187,8 +191,8 @@ mod rendering_snapshots {
             .expect("telegram payload must have a text field");
 
         assert!(
-            text.contains("&lt;b&gt;"),
-            "the Text arm must keep escaping — that is what protects coach prose: {text}"
+            text.contains("**1**") && !text.contains("<b>"),
+            "the Text arm must show the body as typed — that is what protects coach prose: {text}"
         );
     }
 

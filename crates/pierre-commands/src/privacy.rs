@@ -41,10 +41,10 @@ impl CommandHandler for PrivacyStatusHandler {
         let status_word = reg.render(status_word_key, locale, &[]);
         let text = reg.render(KEY_PRIVACY_STATUS_LINE, locale, &[&status_word]);
 
-        // The privacy strings embed an `<b>` / `<code>` HTML subset; route
-        // through CommandResponse::rich_text so each channel renderer
-        // translates the markup into native formatting instead of shipping
-        // the raw tags through MessageContent::Text.
+        // The privacy strings carry inline markdown (`**`, backticks); route
+        // through CommandResponse::rich_text so the messaging egress translates
+        // it into each channel's native formatting instead of shipping the
+        // markers as typed through MessageContent::Text.
         Ok(CommandResponse::rich_text(text))
     }
 }
@@ -72,10 +72,10 @@ impl CommandHandler for PrivacyOnHandler {
             &[],
         );
 
-        // The privacy strings embed an `<b>` / `<code>` HTML subset; route
-        // through CommandResponse::rich_text so each channel renderer
-        // translates the markup into native formatting instead of shipping
-        // the raw tags through MessageContent::Text.
+        // The privacy strings carry inline markdown (`**`, backticks); route
+        // through CommandResponse::rich_text so the messaging egress translates
+        // it into each channel's native formatting instead of shipping the
+        // markers as typed through MessageContent::Text.
         Ok(CommandResponse::rich_text(text))
     }
 }
@@ -103,10 +103,10 @@ impl CommandHandler for PrivacyOffHandler {
             &[],
         );
 
-        // The privacy strings embed an `<b>` / `<code>` HTML subset; route
-        // through CommandResponse::rich_text so each channel renderer
-        // translates the markup into native formatting instead of shipping
-        // the raw tags through MessageContent::Text.
+        // The privacy strings carry inline markdown (`**`, backticks); route
+        // through CommandResponse::rich_text so the messaging egress translates
+        // it into each channel's native formatting instead of shipping the
+        // markers as typed through MessageContent::Text.
         Ok(CommandResponse::rich_text(text))
     }
 }

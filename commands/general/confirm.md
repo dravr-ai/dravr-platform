@@ -7,6 +7,3 @@ domain: general
 personal: true
 arguments: "action-id"
 ---
-
-## Response Template
-Replies are localized messaging strings rendered by the platform confirm handler.
