@@ -13,7 +13,7 @@
 use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::activity_fetch::activity_date_span;
-use pierre_tool_runtime::implementations::data::{
+use pierre_tool_runtime::implementations::data_helpers::{
     activity_coverage_note, HISTORICAL_WINDOW_READ_LIMIT,
 };
 

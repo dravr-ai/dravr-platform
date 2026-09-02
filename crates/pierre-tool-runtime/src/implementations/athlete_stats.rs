@@ -28,7 +28,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
 };
-use crate::implementations::data::{parse_output_format, read_only_annotations};
+use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::implementations::fitness_support::{
     fetch_and_cache_athlete, fetch_and_cache_stats, try_get_athlete_id_from_cache,
     try_get_cached_athlete, try_get_cached_stats,

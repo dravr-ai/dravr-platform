@@ -21,7 +21,7 @@
 
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::ActivitySummary;
-use crate::implementations::data::activity_coverage_note;
+use crate::implementations::data_helpers::activity_coverage_note;
 use crate::protocol::format::build_formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};

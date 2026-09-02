@@ -79,6 +79,8 @@ pub mod athlete_stats;
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]
 pub mod data;
+/// Shared vocabulary for the data tools, split out of `data` for the size gate.
+pub mod data_helpers;
 
 /// Stored health-data tools: `get_sleep_sessions`, `get_recovery_metrics`,
 /// `get_health_snapshots`, `list_data_sources` (`tools-data` feature).
