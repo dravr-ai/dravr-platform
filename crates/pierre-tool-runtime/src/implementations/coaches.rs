@@ -1211,7 +1211,7 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
 
         let manager = ctx.resources.coaches_manager();
         let success = manager
-            .hide_coach(coach_id, user_id)
+            .hide_coach(coach_id, user_id, TenantId::from_uuid(ctx.require_tenant()?))
             .await
             .map_err(|e| AppError::internal(format!("Failed to hide coach: {e}")))?;
 

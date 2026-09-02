@@ -215,8 +215,15 @@ pub trait CoachesRepository: Send + Sync {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<CoachAssignment>>;
-    /// Hide a coach from the user's view
-    async fn hide_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool>;
+    /// Hide a coach from the user's view. Tenant-scoped: an assigned coach
+    /// is hideable only inside the tenant that owns it, so a foreign
+    /// tenant's coach id answers exactly like a nonexistent one.
+    async fn hide_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
     /// Show a previously hidden coach
     async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool>;
     /// List coaches hidden by a user

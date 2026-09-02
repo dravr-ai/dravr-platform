@@ -2070,7 +2070,7 @@ async fn test_hide_coach() {
 
     // Hide the coach
     let hidden = manager
-        .hide_coach(&coach.id.to_string(), test_user_id())
+        .hide_coach(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -2083,9 +2083,68 @@ async fn test_hide_coach_not_found() {
     let manager = db.repositories().coaches;
 
     // Try to hide non-existent coach - should return error
-    let result = manager.hide_coach("nonexistent-id", test_user_id()).await;
+    let result = manager
+        .hide_coach("nonexistent-id", test_user_id(), test_tenant())
+        .await;
 
     assert!(result.is_err());
+}
+
+/// A coach assigned to the user but owned by ANOTHER tenant must answer
+/// exactly like a nonexistent id — the pre-fix behavior (tenant ignored)
+/// made `hide_coach` a cross-tenant existence oracle for coach ids.
+#[tokio::test]
+async fn test_hide_coach_in_another_tenant_reads_as_not_hideable() {
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
+
+    let request = CreateCoachRequest {
+        title: "Tenant-bound Coach".to_owned(),
+        description: None,
+        system_prompt: "You help.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: None,
+    };
+    let coach = manager
+        .create(other_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+    manager
+        .assign_coach(&coach.id.to_string(), test_user_id(), other_user_id())
+        .await
+        .unwrap();
+
+    // Same user, same assignment — wrong tenant: refused, with the SAME error
+    // shape as a nonexistent id, so the response confirms nothing.
+    let foreign = manager
+        .hide_coach(&coach.id.to_string(), test_user_id(), other_tenant())
+        .await;
+    let missing = manager
+        .hide_coach("nonexistent-id", test_user_id(), other_tenant())
+        .await;
+    assert!(foreign.is_err());
+    assert_eq!(
+        foreign.unwrap_err().to_string(),
+        missing.unwrap_err().to_string(),
+        "a foreign tenant's coach id must be indistinguishable from a missing one"
+    );
+
+    // The right tenant can hide it.
+    let hidden = manager
+        .hide_coach(&coach.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap();
+    assert!(hidden);
 }
 
 #[tokio::test]
@@ -2115,7 +2174,7 @@ async fn test_show_coach() {
 
     // Hide first
     manager
-        .hide_coach(&coach.id.to_string(), test_user_id())
+        .hide_coach(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -2162,7 +2221,7 @@ async fn test_list_hidden_coaches() {
 
     // Hide only the first one
     manager
-        .hide_coach(&coach_ids[0], test_user_id())
+        .hide_coach(&coach_ids[0], test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -2212,7 +2271,7 @@ async fn test_hidden_coach_excluded_from_list() {
 
     // Hide the coach
     manager
-        .hide_coach(&coach.id.to_string(), test_user_id())
+        .hide_coach(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -2251,7 +2310,7 @@ async fn test_unhidden_coach_appears_in_list() {
 
     // Hide the coach
     manager
-        .hide_coach(&coach.id.to_string(), test_user_id())
+        .hide_coach(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -2308,7 +2367,7 @@ async fn test_hide_coach_user_isolation() {
 
     // User 1 hides the coach
     manager
-        .hide_coach(&coach.id.to_string(), test_user_id())
+        .hide_coach(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -2574,7 +2633,7 @@ async fn test_hide_system_coach_cross_tenant() {
     // User from other_tenant() (tenant B) should be able to hide this system coach
     // Even though the coach was created by test_tenant()
     let hidden = manager
-        .hide_coach(&system_coach.id.to_string(), other_user_id())
+        .hide_coach(&system_coach.id.to_string(), other_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -2629,7 +2688,7 @@ async fn test_show_system_coach_cross_tenant() {
 
     // User from other_tenant() hides the coach
     manager
-        .hide_coach(&system_coach.id.to_string(), other_user_id())
+        .hide_coach(&system_coach.id.to_string(), other_user_id(), test_tenant())
         .await
         .unwrap();
 

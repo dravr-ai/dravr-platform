@@ -809,7 +809,7 @@ async fn test_show_hidden_coach_via_api() {
 
     // Hide the coach first (directly via manager)
     coaches_manager
-        .hide_coach(&system_coach.id.to_string(), user_id)
+        .hide_coach(&system_coach.id.to_string(), user_id, tenant_id)
         .await
         .unwrap();
 
@@ -876,7 +876,7 @@ async fn test_list_with_include_hidden() {
 
     // Hide the coach
     coaches_manager
-        .hide_coach(&system_coach.id.to_string(), user_id)
+        .hide_coach(&system_coach.id.to_string(), user_id, tenant_id)
         .await
         .unwrap();
 

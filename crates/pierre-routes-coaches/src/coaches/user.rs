@@ -1011,9 +1011,10 @@ pub(super) async fn handle_hide_coach<C: CoachesCtx + MiddlewareCtx>(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
+    let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&ctx);
-    let success = manager.hide_coach(&id, auth.user_id).await?;
+    let success = manager.hide_coach(&id, auth.user_id, tenant_id).await?;
 
     let response = HideCoachResponse {
         success,

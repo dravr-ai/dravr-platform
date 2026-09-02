@@ -141,9 +141,14 @@ pub(super) async fn list_assignments_for_tenant(
         .collect()
 }
 
-pub(super) async fn hide_coach(pool: &PgPool, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
+pub(super) async fn hide_coach(
+    pool: &PgPool,
+    coach_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<bool> {
     // Check if the coach is hideable (must be system or assigned, not personal)
-    if !is_coach_hideable(pool, coach_id, user_id).await? {
+    if !is_coach_hideable(pool, coach_id, user_id, tenant_id).await? {
         return Err(AppError::invalid_input(
             "Only system or assigned coaches can be hidden",
         ));
@@ -217,7 +222,12 @@ pub(super) async fn list_hidden_coaches(
 ///
 /// A coach is hideable if it's a system coach or assigned to the user,
 /// but NOT if it's a personal coach created by the user.
-async fn is_coach_hideable(pool: &PgPool, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
+async fn is_coach_hideable(
+    pool: &PgPool,
+    coach_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<bool> {
     // Check if it's a system coach (system coaches are visible across all tenants)
     let is_system = sqlx::query(
         r"
@@ -235,15 +245,19 @@ async fn is_coach_hideable(pool: &PgPool, coach_id: &str, user_id: Uuid) -> AppR
         return Ok(true);
     }
 
-    // Check if it's assigned to the user
+    // Assigned to the user AND owned by the caller's tenant — without the
+    // tenant join, a coach id from another tenant answered differently from
+    // a nonexistent one, a cross-tenant existence oracle.
     let is_assigned = sqlx::query(
         r"
-        SELECT 1 FROM coach_assignments
-        WHERE coach_id = $1 AND user_id = $2
+        SELECT 1 FROM coach_assignments ca
+        INNER JOIN coaches c ON c.id = ca.coach_id
+        WHERE ca.coach_id = $1 AND ca.user_id = $2 AND c.tenant_id = $3
         ",
     )
     .bind(coach_id)
     .bind(user_id)
+    .bind(tenant_id.as_uuid())
     .fetch_optional(pool)
     .await
     .map_err(|e| AppError::database(format!("Failed to check assignment: {e}")))?

@@ -1180,8 +1180,8 @@ impl CoachesRepository for PostgresDatabase {
         assignments::list_assignments_for_tenant(&self.pool, coach_id, tenant_id).await
     }
 
-    async fn hide_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
-        assignments::hide_coach(&self.pool, coach_id, user_id).await
+    async fn hide_coach(&self, id: &str, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool> {
+        assignments::hide_coach(&self.pool, id, user_id, tenant_id).await
     }
 
     async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {

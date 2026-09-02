@@ -69,6 +69,7 @@ pub(super) async fn is_coach_hideable(
     pool: &SqlitePool,
     coach_id: &str,
     user_id: Uuid,
+    tenant_id: TenantId,
 ) -> AppResult<bool> {
     let is_system = sqlx::query("SELECT 1 FROM coaches WHERE id = $1 AND is_system = 1")
         .bind(coach_id)
@@ -81,14 +82,21 @@ pub(super) async fn is_coach_hideable(
         return Ok(true);
     }
 
-    let is_assigned =
-        sqlx::query("SELECT 1 FROM coach_assignments WHERE coach_id = $1 AND user_id = $2")
-            .bind(coach_id)
-            .bind(user_id.to_string())
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to check assignment: {e}")))?
-            .is_some();
+    // Assigned to the user AND owned by the caller's tenant — without the
+    // tenant join, a coach id from another tenant answered differently from
+    // a nonexistent one, a cross-tenant existence oracle.
+    let is_assigned = sqlx::query(
+        "SELECT 1 FROM coach_assignments ca \
+         INNER JOIN coaches c ON c.id = ca.coach_id \
+         WHERE ca.coach_id = $1 AND ca.user_id = $2 AND c.tenant_id = $3",
+    )
+    .bind(coach_id)
+    .bind(user_id.to_string())
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::database(format!("Failed to check assignment: {e}")))?
+    .is_some();
 
     Ok(is_assigned)
 }
@@ -1044,8 +1052,13 @@ impl CoachesRepository for Database {
         assignments::list_assignments_for_tenant(self.pool(), coach_id, tenant_id).await
     }
 
-    async fn hide_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
-        assignments::hide_coach(self.pool(), coach_id, user_id).await
+    async fn hide_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        assignments::hide_coach(self.pool(), coach_id, user_id, tenant_id).await
     }
 
     async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {

@@ -108,8 +108,9 @@ pub(super) async fn hide_coach(
     pool: &SqlitePool,
     coach_id: &str,
     user_id: Uuid,
+    tenant_id: TenantId,
 ) -> AppResult<bool> {
-    if !is_coach_hideable(pool, coach_id, user_id).await? {
+    if !is_coach_hideable(pool, coach_id, user_id, tenant_id).await? {
         return Err(AppError::invalid_input(
             "Only system or assigned coaches can be hidden",
         ));
