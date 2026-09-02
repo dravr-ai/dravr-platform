@@ -24,6 +24,13 @@ const ROOTS = [
   path.join(__dirname, '../../App.tsx'),
   path.join(__dirname, '../../../../frontend-mobile/src'),
   path.join(__dirname, '../../../../frontend-mobile/app'),
+  // The shared packages both clients read their label tables and chrome
+  // constants from. `SLASH_HINT` and the onboarding stepper labels lived here
+  // as English literals for a month while the gate reported zero, because no
+  // root reached them.
+  path.join(__dirname, '../../../../packages/shared-constants/src'),
+  path.join(__dirname, '../../../../packages/shared-types/src'),
+  path.join(__dirname, '../../../../packages/chat-utils/src'),
 ];
 
 /**

@@ -41,7 +41,7 @@ jest.mock('expo-router', () => ({
   },
 }));
 
-import { ConversationsScreen, EMPTY_LIST_LINE } from '../src/screens/conversations/ConversationsScreen';
+import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
 import { threadHref } from '../src/navigation/routes';
 
 /** The list is the chat tab's landing screen; its header bell and its rows read a react-query cache. */
@@ -129,7 +129,8 @@ describe('ConversationsScreen — one flat list', () => {
 
     const { findByText, getByTestId } = render(<ConversationsScreen />);
 
-    expect(await findByText(EMPTY_LIST_LINE)).toBeTruthy();
+    // The unit setup pins English; the line is the corpus's, not the screen's.
+    expect(await findByText('No chats yet — start one with the +')).toBeTruthy();
     expect(getByTestId('conversations-empty-plus')).toBeTruthy();
     // The list asks for its first page, and only that.
     expect(mockGetConversations).toHaveBeenCalledTimes(1);

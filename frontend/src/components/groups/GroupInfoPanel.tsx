@@ -325,7 +325,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
             />
             <Checkbox
               label={t('groups.peerSharingEnable')}
-              description="Allows members who consent to see each other's aggregated training data."
+              description={t('groups.peerSharingDescription')}
               checked={editPeerSharing}
               onChange={(e) => setEditPeerSharing(e.target.checked)}
             />

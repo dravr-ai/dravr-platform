@@ -79,8 +79,14 @@ describe('client locale corpus', () => {
     // 2334 until the memory predicate codes joined: 19 `messaging.memory.predicate.*`
     // keys, one sentence template per code, rendered on the server for the
     // memory screens, the recall tool and the coach dossier alike.
+    //
+    // 2353 until the French rendering sweep read the settings panes: two keys
+    // for literals the scanner had walked past (a group panel description, the
+    // phone's empty conversation list), minus three that translated the
+    // coaching persona names while both clients render `PERSONA_NAME`
+    // untranslated on purpose — the stored value is quoted in the coach prompt.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2353);
+    expect(reference).toHaveLength(2352);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

@@ -39,9 +39,6 @@ const menuStyle: ViewStyle = {
   borderColor: 'rgba(139, 92, 246, 0.2)',
 };
 
-/** What the list says when the athlete has no conversation yet. */
-export const EMPTY_LIST_LINE = 'No chats yet — start one with the +';
-
 function describeError(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
@@ -256,7 +253,7 @@ export function ConversationsScreen() {
                 </Text>
               ) : (
                 <>
-                  <Text className="text-base text-text-secondary text-center">{EMPTY_LIST_LINE}</Text>
+                  <Text className="text-base text-text-secondary text-center">{t('chat.noChatsEmptyMobile')}</Text>
                   <TouchableOpacity
                     className="w-12 h-12 rounded-full items-center justify-center mt-4"
                     style={{ backgroundColor: `${colors.pierre.violet}26` }}

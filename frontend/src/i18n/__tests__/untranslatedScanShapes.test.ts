@@ -111,6 +111,24 @@ describe('the scanner sees every shape it claims to', () => {
 });
 
 describe('the scanner does NOT flag things that are not copy', () => {
+  it('a description prop — the Discover header and both onboarding cards hid here', () => {
+    expect(scan('<TabHeader description="Find AI coaching assistants" />')).toContain(
+      'Find AI coaching assistants',
+    );
+    expect(
+      scan('<ChoiceCard description="Track your own training and get coaching tuned to how you actually train." />'),
+    ).toContain('Track your own training and get coaching tuned to how you actually train.');
+  });
+
+  it('prose assigned to a top-level constant — SLASH_HINT in a shared package', () => {
+    expect(
+      scan("export const SLASH_HINT = 'Type / for commands · @handle brings a coach in for one turn';"),
+    ).toContain('Type / for commands · @handle brings a coach in for one turn');
+    // A key table and an enum value are data, not copy.
+    expect(scan("export const SPORT_LABEL_KEY = 'app.sportRunning';")).toEqual([]);
+    expect(scan("const KIND = 'north_star';")).toEqual([]);
+  });
+
   it('a font family', () => {
     expect(scan("const s = { fontFamily: 'Menlo' };")).not.toContain('Menlo');
   });
@@ -194,6 +212,17 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
     ['components/UserDetailDrawer.tsx', 'user administration'],
   ])('%s is operator — %s', (relative) => {
     expect(isAthleteSurface(path.join(web, relative))).toBe(false);
+  });
+
+  it('a shared package is athlete when an athlete entry point imports it', () => {
+    // `ChatTab` imports `@pierre/shared-constants`; the walk follows the bare
+    // specifier into the package, so its label tables are judged like any
+    // component an athlete reaches. The generated capability catalogue is a
+    // barrel re-export away and must be reached the same way.
+    const packages = path.join(web, '../../packages');
+    expect(isAthleteSurface(path.join(packages, 'shared-constants/src/commands.ts'))).toBe(true);
+    expect(isAthleteSurface(path.join(packages, 'shared-constants/src/onboarding.ts'))).toBe(true);
+    expect(isAthleteSurface(path.join(packages, 'shared-types/src/verdict.ts'))).toBe(true);
   });
 
   it('every file in the mobile app is athlete, including outside screens/', () => {

@@ -48,7 +48,20 @@ const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{2,800}?)\s*[<{]/g;
  * `accessibilityLabel` does not match it.
  */
 const STRING_PROP =
-  /\b(?:placeholder|aria-label|accessibilityLabel|accessibilityHint|title|alt|label|helpText|subtitle|hint|emptyText|submitText|cancelText|confirmLabel|cancelLabel)="([A-Z][^"]{2,120})"/g;
+  /\b(?:placeholder|aria-label|accessibilityLabel|accessibilityHint|title|description|alt|label|helpText|subtitle|hint|emptyText|submitText|cancelText|confirmLabel|cancelLabel)="([A-Z][^"]{2,120})"/g;
+
+/**
+ * Prose assigned to a top-level constant.
+ *
+ * `export const SLASH_HINT = 'Type / for commands · …'` in a shared package
+ * was read verbatim by both clients and never seen by any pattern above: not
+ * a text node, not a prop, not a call argument. The `description` prop is the
+ * same story — `description="Find AI coaching assistants"` on the Discover
+ * header and both onboarding profile cards sat behind a gate reporting zero
+ * because the prop name was not in the list. Two or more words, so a key table
+ * (`'app.sportRunning'`) and an enum value (`'north_star'`) stay out.
+ */
+const CONST_PROSE = /^\s*(?:export\s+)?const\s+[A-Z_][A-Z0-9_]*\s*=\s*(?:'([A-Z][^'\n]*\s[^'\n]{2,})'|"([A-Z][^"\n]*\s[^"\n]{2,})")/gm;
 
 /**
  * Prose handed to a function, rather than rendered.
@@ -217,11 +230,41 @@ const WEB_ENTRY_POINTS = [
  */
 
 /** Resolve one relative import to a real file, following barrels. */
+/** The monorepo root above a `frontend/`, `frontend-mobile/` or `packages/` file. */
+function repoRootOf(file: string): string | null {
+  const parts = file.split(path.sep);
+  const at = parts.findIndex((p) => p === 'frontend' || p === 'frontend-mobile' || p === 'packages');
+  return at <= 0 ? null : parts.slice(0, at).join(path.sep);
+}
+
+/**
+ * Where an import specifier leads.
+ *
+ * Relative specifiers resolve beside the importer. A `@pierre/<package>` one
+ * resolves into that workspace package's `src/` — the label tables in
+ * `@pierre/shared-constants` and the verdict vocabulary in `@pierre/shared-types`
+ * are read by the athlete's screens exactly as a component is, so the walk
+ * follows them; a package no athlete entry point reaches stays operator scope
+ * by the same rule that governs a component.
+ */
 function resolveImport(fromFile: string, spec: string): string | null {
-  if (!spec.startsWith('.')) {
+  // The shared packages import ESM-style, `./verdict.js` naming the `.ts`
+  // beside it; the extension names the emitted file, so it is dropped before
+  // the candidates below are tried.
+  const stem = spec.replace(/\.(?:js|jsx|mjs)$/, '');
+  let base: string;
+  if (stem.startsWith('.')) {
+    base = path.resolve(path.dirname(fromFile), stem);
+  } else if (stem.startsWith('@pierre/')) {
+    const root = repoRootOf(fromFile);
+    if (root === null) {
+      return null;
+    }
+    const [pkg, ...rest] = stem.slice('@pierre/'.length).split('/');
+    base = path.join(root, 'packages', pkg, 'src', ...(rest.length === 0 ? ['index'] : rest));
+  } else {
     return null;
   }
-  const base = path.resolve(path.dirname(fromFile), spec);
   const candidates = [
     `${base}.tsx`,
     `${base}.ts`,
@@ -241,8 +284,13 @@ function resolveImport(fromFile: string, spec: string): string | null {
  * them. A first draft of this missed exactly that and misclassified
  * `UnifiedConnections`.
  */
+// The window between `export {` and `from` is wide: `@pierre/shared-types`'s
+// barrel re-exports twenty names per line group, and a 400-character window
+// stopped short of the specifier, which left `verdict.ts` unreachable and its
+// chip vocabulary scored as operator chrome. Lazy, so it still stops at the
+// nearest `from`.
 const IMPORT_SPEC =
-  /(?:(?:import|export)[\s\S]{0,400}?from\s*|import\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm;
+  /(?:(?:import|export)[\s\S]{0,4000}?from\s*|import\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm;
 
 /** Memoised per web root — the walk reads ~125 files and the scan calls this per hit. */
 const reachableCache = new Map<string, Set<string>>();
@@ -308,6 +356,13 @@ export function isAthleteSurface(file: string): boolean {
   const normalized = file.split(path.sep).join('/');
   if (normalized.includes('/frontend-mobile/')) {
     return true;
+  }
+  if (normalized.includes('/packages/')) {
+    // A shared package is athlete surface when an athlete entry point of the
+    // web app imports it, directly or through a barrel — the walk decides,
+    // not the package's name.
+    const root = repoRootOf(file);
+    return root === null ? false : athleteReachable(path.join(root, 'frontend', 'src')).has(file);
   }
   const webRoot = webRootOf(file);
   return webRoot === null ? false : athleteReachable(webRoot).has(file);
@@ -427,7 +482,7 @@ function collect(input: string): string[] {
       m = re.exec(source);
     }
   }
-  for (const re of [JSX_TEXT, STRING_PROP, OBJECT_LITERAL, CALL_ARG_PROSE, CALL_LATER_ARG_PROSE]) {
+  for (const re of [JSX_TEXT, STRING_PROP, OBJECT_LITERAL, CALL_ARG_PROSE, CALL_LATER_ARG_PROSE, CONST_PROSE]) {
     re.lastIndex = 0;
     let m = re.exec(source);
     while (m !== null) {

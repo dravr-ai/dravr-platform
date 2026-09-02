@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 
 // Read from disk rather than importing @pierre/i18n: Playwright's loader
@@ -51,19 +51,130 @@ function englishValuesWithFrenchTranslations(): Set<string> {
   const fr = flatten(bundle('fr'), new Map());
 
   const flagged = new Set<string>();
+  const keptAsIs = new Set<string>();
   for (const [key, english] of en) {
     const french = fr.get(key);
+    if (french === undefined || english.includes('{{')) {
+      continue;
+    }
     // Only strings French actually renders differently can be caught this way;
     // a genuine cognate ("Admin") is indistinguishable from an untranslated one
     // and is skipped rather than guessed at.
-    if (french !== undefined && french !== english && !english.includes('{{')) {
+    if (french === english) {
+      keptAsIs.add(english);
+    } else {
       flagged.add(english);
     }
+  }
+  // "Conversations" is "Discussions" under one key and French "Conversations"
+  // under another; a page rendering the word may be showing either, so a value
+  // the corpus keeps as-is anywhere cannot be an oracle.
+  for (const value of keptAsIs) {
+    flagged.delete(value);
   }
   return flagged;
 }
 
 const SURFACES = ['chat', 'discover', 'data-providers', 'groups', 'notifications', 'settings'];
+
+/**
+ * Every text node under `root`, trimmed, that equals a string the corpus
+ * translates into French. The chrome-only selector list above is right for
+ * the dashboard's navigation; the onboarding wizard and the settings panes
+ * put their copy in paragraphs, cards and step labels too, so those are read
+ * whole — every text node, not a tag list somebody has to remember to extend.
+ */
+const TEXT_NODE_OFFENDERS = ({ values, root }: { values: string[]; root: string }): string[] => {
+  const wanted = new Set(values);
+  const base = document.querySelector(root) ?? document.body;
+  const walker = document.createTreeWalker(base, NodeFilter.SHOW_TEXT);
+  const hits: string[] = [];
+  let node = walker.nextNode();
+  while (node !== null) {
+    const text = (node.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (text && wanted.has(text)) {
+      hits.push(text);
+    }
+    node = walker.nextNode();
+  }
+  return [...new Set(hits)];
+};
+
+/**
+ * The onboarding wizard, one configuration per step.
+ *
+ * The wizard picks its step from `/api/me/onboarding-status`, so each step is
+ * reached by answering that call, not by clicking through the previous ones.
+ * This is the surface the 2026-09-01 flurry came from — stepper labels, the
+ * profile cards, the PAR-Q questions and its Yes/No pair all rendered English
+ * under French chrome while every gate said zero.
+ */
+const WIZARD_STEPS: {
+  name: string;
+  /** A corpus key that step alone renders — proof the step mounted before it is swept. */
+  marker: string;
+  steps: { step_id: string; status: string }[];
+}[] = [
+  { name: 'profile_type', marker: 'onboarding.imAnAthlete', steps: [] },
+  {
+    name: 'about_you',
+    marker: 'onboarding.primarySportLabel',
+    steps: [{ step_id: 'profile_type', status: 'complete' }],
+  },
+  {
+    name: 'parq',
+    marker: 'onboarding.parqIntro',
+    steps: [
+      { step_id: 'profile_type', status: 'complete' },
+      { step_id: 'about_you', status: 'complete' },
+    ],
+  },
+  {
+    name: 'connect_provider',
+    marker: 'onboarding.connectProviderIntro',
+    steps: [
+      { step_id: 'profile_type', status: 'complete' },
+      { step_id: 'about_you', status: 'complete' },
+      { step_id: 'parq', status: 'complete' },
+    ],
+  },
+];
+
+/** The French value under a dotted corpus key. */
+function frenchValue(key: string): string {
+  const value = key.split('.').reduce<unknown>(
+    (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+    bundle('fr'),
+  );
+  if (typeof value !== 'string') {
+    throw new Error(`corpus key ${key} is not a French string`);
+  }
+  return value;
+}
+
+/** The seven PAR-Q questions as the server serves them to a French athlete. */
+function frenchParqQuestions(): { id: string; text: string }[] {
+  const fr = bundle('fr') as { messaging: { intake: { parq: Record<string, string> } } };
+  const questions = fr.messaging.intake.parq;
+  return Object.entries(questions)
+    .filter(([id]) => id !== 'intro')
+    .map(([id, text]) => ({ id, text }));
+}
+
+/**
+ * A sign-in that returns right after the click. The onboarding screens have
+ * no `main` landmark, so `loginToDashboard` would wait on one forever; each
+ * step asserts its own French heading instead. The mocked session does not
+ * survive a navigation, so every step signs in afresh with its status stub
+ * already registered — the route decides which step mounts.
+ */
+async function loginExpectingWizard(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.waitForSelector('form', { timeout: 10_000 });
+  await page.locator('input[name="email"]').fill('admin@test.com');
+  await page.locator('input[name="password"]').fill('password123');
+  await page.locator('form button[type="submit"]').first().click();
+}
 
 test.describe('French rendering sweep', () => {
   test.beforeEach(async ({ page }) => {
@@ -109,6 +220,73 @@ test.describe('French rendering sweep', () => {
       offenders,
       `Chrome rendering English where French exists:\n${offenders.join('\n')}`,
     ).toEqual([]);
+  });
+
+  test('every settings pane, Mémoire included, renders no English the corpus translates', async ({ page }) => {
+    // The memory panel sat behind a tab, so the settings sweep above walked
+    // past it while it read "Updated", "5 facts" and "North_star" under
+    // French chrome. Each tab is opened and the pane read whole.
+    const english = [...englishValuesWithFrenchTranslations()];
+    await page.evaluate(() => { window.location.hash = '#settings'; });
+    await page.waitForTimeout(1200);
+    // The panes are buttons inside the settings navigation landmark, not
+    // `role="tab"` elements.
+    const tabs = page.getByRole('navigation', { name: /réglages/i }).getByRole('button');
+    const count = await tabs.count();
+    expect(count).toBeGreaterThan(3);
+    const offenders: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const tab = tabs.nth(i);
+      const name = ((await tab.textContent()) ?? '').trim();
+      await tab.click();
+      await page.waitForTimeout(600);
+      const found = await page.evaluate(TEXT_NODE_OFFENDERS, { values: english, root: 'main' });
+      offenders.push(...found.map((t) => `settings/${name}: ${JSON.stringify(t)}`));
+    }
+    expect(offenders, `Settings panes rendering English:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  test('the onboarding wizard renders no English the corpus translates, step by step', async ({ page }) => {
+    const english = [...englishValuesWithFrenchTranslations()];
+    await page.route('**/api/me/parq', async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ raised: 0 }) });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ questions: frenchParqQuestions() }),
+      });
+    });
+    await page.route('**/api/me/about-you', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+    const offenders: string[] = [];
+    for (const step of WIZARD_STEPS) {
+      await page.route('**/api/me/onboarding-status', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            needs_provider_connection: true,
+            pillars_covered: 0,
+            pillars_total: 7,
+            onboarding_complete: false,
+            steps: step.steps,
+            chosen_channel: null,
+          }),
+        });
+      });
+      await loginExpectingWizard(page);
+      // A sweep over a page the wizard never mounted on would pass for nothing.
+      await expect(page.getByText(frenchValue(step.marker), { exact: false }).first()).toBeVisible({
+        timeout: 10_000,
+      });
+      const found = await page.evaluate(TEXT_NODE_OFFENDERS, { values: english, root: 'body' });
+      offenders.push(...found.map((t) => `onboarding/${step.name}: ${JSON.stringify(t)}`));
+    }
+    expect(offenders, `Onboarding rendering English:\n${offenders.join('\n')}`).toEqual([]);
   });
 
   test('no surface paints a raw corpus key', async ({ page }) => {
