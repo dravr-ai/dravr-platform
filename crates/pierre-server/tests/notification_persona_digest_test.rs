@@ -31,6 +31,7 @@ mod digest_tests {
     use pierre_core::models::CoachingPersona;
     use pierre_database::backends::factory::Database;
     use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_notifications::events::event_params;
     use pierre_notifications::models::{
         CreateNotificationParams, Notification, NotificationCategory,
     };
@@ -197,11 +198,10 @@ personas:
             "fr body carries the item count: {}",
             fr_digests[0].body
         );
+        // The count lives with the event's other parameters, which is what
+        // lets the feed re-render the digest after a language change.
         assert_eq!(
-            fr_digests[0]
-                .data
-                .as_ref()
-                .and_then(|d| d.get("item_count")),
+            event_params(fr_digests[0].data.as_ref()).and_then(|p| p.get("item_count")),
             Some(&json!(2))
         );
 

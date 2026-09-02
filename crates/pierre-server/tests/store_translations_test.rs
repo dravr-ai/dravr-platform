@@ -17,7 +17,8 @@ use serde_json::Value;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use helpers::coach_fixtures::publish_catalogue_coach;
+use helpers::coach_fixtures::{publish_catalogue_coach, publish_catalogue_coach_tagged};
+use pierre_core::models::coaches::CoachCategory;
 use pierre_database::seed_models::SeedCoachTranslation;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_store_router;
@@ -195,5 +196,122 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
             .collect::<Vec<_>>(),
         vec!["test"],
         "an untranslated tag list stays as the canonical English one"
+    );
+}
+
+/// Tag chips are localized, and tags are also what the Store search matches.
+///
+/// A coach is published under canonical English slugs and its French overlay
+/// renames them; a French athlete then sees `methode-norvegienne` on the chip.
+/// Searching the only word the Store ever showed her has to reach the coach
+/// whose stored slug is `norwegian-method` — matching the canonical column
+/// alone made every localized label unfindable.
+#[tokio::test]
+async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, user) = create_test_user(&resources.coach.database)
+        .await
+        .expect("test user");
+    let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    let repos = resources.coach.database.repositories();
+    let tenant_id = repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("tenants")
+        .first()
+        .expect("the test user has a tenant")
+        .id;
+
+    let coach_id = publish_catalogue_coach_tagged(
+        &repos,
+        user_id,
+        tenant_id,
+        "Double Threshold Coach",
+        "You coach the Norwegian method.",
+        CoachCategory::Training,
+        vec!["norwegian-method".to_owned(), "double-threshold".to_owned()],
+    )
+    .await;
+    repos
+        .seeder
+        .seed_upsert_coach_translation(&SeedCoachTranslation {
+            coach_id: coach_id.to_string(),
+            locale: "fr".to_owned(),
+            title: Some("Coach double seuil".to_owned()),
+            description: None,
+            purpose: None,
+            instructions: None,
+            source_sha: None,
+            tags: Some(vec![
+                "methode-norvegienne".to_owned(),
+                "double-seuil".to_owned(),
+            ]),
+        })
+        .await
+        .expect("translation row");
+    let id = coach_id.to_string();
+
+    repos
+        .users
+        .update_locale(user_id, "fr")
+        .await
+        .expect("set fr");
+
+    // The chip she reads.
+    let detail = get_json(&resources, &token, &format!("/api/store/coaches/{id}")).await;
+    assert_eq!(
+        detail["tags"]
+            .as_array()
+            .expect("detail carries tags")
+            .iter()
+            .map(|tag| tag.as_str().expect("a tag is a string"))
+            .collect::<Vec<_>>(),
+        vec!["methode-norvegienne", "double-seuil"]
+    );
+
+    // Searching that chip reaches the coach stored under the English slug.
+    let search = get_json(
+        &resources,
+        &token,
+        "/api/store/search?q=methode-norvegienne",
+    )
+    .await;
+    assert_eq!(
+        title_of(search["coaches"].as_array().unwrap(), &id),
+        "Coach double seuil"
+    );
+
+    // And the canonical slug still finds it — the overlay adds a way in, it
+    // does not replace the one the catalogue was published with.
+    let search = get_json(&resources, &token, "/api/store/search?q=norwegian-method").await;
+    assert_eq!(
+        title_of(search["coaches"].as_array().unwrap(), &id),
+        "Coach double seuil"
+    );
+
+    // An English reader is unaffected: her locale has no overlay, so the
+    // French label is not a way into the catalogue for her.
+    repos
+        .users
+        .update_locale(user_id, "en")
+        .await
+        .expect("set en");
+    let search = get_json(
+        &resources,
+        &token,
+        "/api/store/search?q=methode-norvegienne",
+    )
+    .await;
+    assert!(
+        search["coaches"].as_array().unwrap().is_empty(),
+        "a French label is not an English athlete's search key: {search:?}"
+    );
+    let search = get_json(&resources, &token, "/api/store/search?q=norwegian-method").await;
+    assert_eq!(
+        title_of(search["coaches"].as_array().unwrap(), &id),
+        "Double Threshold Coach"
     );
 }

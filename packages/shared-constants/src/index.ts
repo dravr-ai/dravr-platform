@@ -110,6 +110,11 @@ export type { NotificationDestination, NotificationNavTarget } from './notificat
 export { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from './memory';
 export type { MemoryFactKind } from './memory';
 
+// Provider capability scopes (the wire slugs a provider card lists, and the
+// catalogue key naming each one)
+export { PROVIDER_SCOPES, PROVIDER_SCOPE_LABEL_KEY, providerScopeLabelKey } from './providers';
+export type { ProviderScope } from './providers';
+
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';
 export type { QueryKeys } from './query-keys';

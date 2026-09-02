@@ -530,6 +530,72 @@ describe('UserSettings Component', () => {
     });
   });
 
+  describe('Data Providers — the capability line', () => {
+    // The line under each card's blurb used to print the wire scopes verbatim
+    // ("activities, sleep, recovery, health") beneath fully French chrome:
+    // data rendered directly, which no string gate can see. It reads as words
+    // now, and a slug the catalogue has no word for still prints as itself.
+    const whoopCard = (capabilities: string[]) => ({
+      provider: 'whoop',
+      display_name: 'WHOOP',
+      requires_oauth: true,
+      connected: false,
+      needs_reauth: false,
+      capabilities,
+      recommended_backend: null,
+      seats_left: null,
+    });
+
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    it('reads as French words for a French athlete', async () => {
+      await i18n.changeLanguage('fr');
+      getProvidersStatus.mockResolvedValue({
+        providers: [whoopCard(['activities', 'sleep', 'recovery', 'health'])],
+      });
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(
+        await screen.findByText('activités, sommeil, récupération, santé'),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText('activities, sleep, recovery, health'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('reads as English words for an English athlete', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [whoopCard(['activities', 'sleep', 'recovery', 'health'])],
+      });
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(
+        await screen.findByText('activities, sleep, recovery, health'),
+      ).toBeInTheDocument();
+    });
+
+    it('prints an unmapped slug as itself rather than as a missing key', async () => {
+      await i18n.changeLanguage('fr');
+      getProvidersStatus.mockResolvedValue({
+        providers: [whoopCard(['sleep', 'zzz-unknown'])],
+      });
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByText('sommeil, zzz-unknown')).toBeInTheDocument();
+    });
+  });
+
   describe('Data Providers — Strava OAuth-first with Sciotte fallback', () => {
     const stravaCard = (recommended_backend: 'oauth' | 'mirror') => ({
       provider: 'sciotte',

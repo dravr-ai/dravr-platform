@@ -45,6 +45,29 @@ pub async fn publish_catalogue_coach_in(
     system_prompt: &str,
     category: CoachCategory,
 ) -> Uuid {
+    publish_catalogue_coach_tagged(
+        repos,
+        author_id,
+        tenant_id,
+        title,
+        system_prompt,
+        category,
+        vec!["test".to_owned()],
+    )
+    .await
+}
+
+/// [`publish_catalogue_coach_in`] carrying its own canonical tag list, for
+/// tests about what the Store's chips say and what its search matches.
+pub async fn publish_catalogue_coach_tagged(
+    repos: &RepositoryRegistry,
+    author_id: Uuid,
+    tenant_id: TenantId,
+    title: &str,
+    system_prompt: &str,
+    category: CoachCategory,
+    tags: Vec<String>,
+) -> Uuid {
     let coach = repos
         .coaches
         .create_system_coach(
@@ -55,7 +78,7 @@ pub async fn publish_catalogue_coach_in(
                 description: Some(format!("Description for {title}")),
                 system_prompt: system_prompt.to_owned(),
                 category,
-                tags: vec!["test".to_owned()],
+                tags,
                 visibility: CoachVisibility::Tenant,
                 sample_prompts: vec![],
             },

@@ -917,6 +917,82 @@ pub const KEY_NOTIFICATION_DIGEST_TITLE: &str = "notifications.digest.title";
 /// notifications were held for the digest since the previous one.
 pub const KEY_NOTIFICATION_DIGEST_BODY: &str = "notifications.digest.body";
 
+// ── Notification event keys ───────────────────────────────────────────────
+//
+// A notification row stores the event that happened plus its parameters;
+// `pierre_notifications::NotificationEvent` names these keys and
+// `pierre_services::notification_text` renders them, so the same row reads
+// French for a French athlete and English for an English one. Each `{n}` is
+// the parameter the event declares in that position.
+
+/// Key: a provider delivered a new activity. No format placeholders.
+pub const KEY_NOTIFICATION_ACTIVITY_SYNCED_TITLE: &str =
+    "notifications.event.activity_synced.title";
+/// Key: the activity's line. `{0}` type, `{1}` distance, `{2}` duration.
+pub const KEY_NOTIFICATION_ACTIVITY_SYNCED_BODY: &str = "notifications.event.activity_synced.body";
+/// Key: acute training load crossed its threshold. No format placeholders.
+pub const KEY_NOTIFICATION_TRAINING_LOAD_ALERT_TITLE: &str =
+    "notifications.event.training_load_alert.title";
+/// Key: the load reading. `{0}` = the ATL value.
+pub const KEY_NOTIFICATION_TRAINING_LOAD_ALERT_BODY: &str =
+    "notifications.event.training_load_alert.body";
+/// Key: the recovery score dropped. No format placeholders.
+pub const KEY_NOTIFICATION_LOW_RECOVERY_SCORE_TITLE: &str =
+    "notifications.event.low_recovery_score.title";
+/// Key: the recovery reading. `{0}` = the score out of 100.
+pub const KEY_NOTIFICATION_LOW_RECOVERY_SCORE_BODY: &str =
+    "notifications.event.low_recovery_score.body";
+/// Key: the stress trend suggests fatigue. No format placeholders.
+pub const KEY_NOTIFICATION_OVERTRAINING_WARNING_TITLE: &str =
+    "notifications.event.overtraining_warning.title";
+/// Key: what the trend shows. No format placeholders.
+pub const KEY_NOTIFICATION_OVERTRAINING_WARNING_BODY: &str =
+    "notifications.event.overtraining_warning.body";
+/// Key: a personal record was detected. No format placeholders.
+pub const KEY_NOTIFICATION_PERSONAL_RECORD_TITLE: &str =
+    "notifications.event.personal_record.title";
+/// Key: the record itself. `{0}` distance label, `{1}` time.
+pub const KEY_NOTIFICATION_PERSONAL_RECORD_BODY: &str = "notifications.event.personal_record.body";
+/// Key: a cumulative milestone was reached. No format placeholders.
+pub const KEY_NOTIFICATION_MILESTONE_REACHED_TITLE: &str =
+    "notifications.event.milestone_reached.title";
+/// Key: the milestone itself. `{0}` value, `{1}` unit.
+pub const KEY_NOTIFICATION_MILESTONE_REACHED_BODY: &str =
+    "notifications.event.milestone_reached.body";
+/// Key: a fitness metric improved. No format placeholders.
+pub const KEY_NOTIFICATION_FITNESS_IMPROVEMENT_TITLE: &str =
+    "notifications.event.fitness_improvement.title";
+/// Key: which metric moved. `{0}` metric name, `{1}` new value.
+pub const KEY_NOTIFICATION_FITNESS_IMPROVEMENT_BODY: &str =
+    "notifications.event.fitness_improvement.body";
+/// Key: a coach wrote to the athlete. No format placeholders.
+pub const KEY_NOTIFICATION_COACH_MESSAGE_TITLE: &str = "notifications.event.coach_message.title";
+/// Key: who wrote. `{0}` = the coach's name.
+pub const KEY_NOTIFICATION_COACH_MESSAGE_BODY: &str = "notifications.event.coach_message.body";
+/// Key: a coach revised the training plan. No format placeholders.
+pub const KEY_NOTIFICATION_PLAN_UPDATED_TITLE: &str = "notifications.event.plan_updated.title";
+/// Key: who revised it. `{0}` = the coach's name.
+pub const KEY_NOTIFICATION_PLAN_UPDATED_BODY: &str = "notifications.event.plan_updated.body";
+/// Key: a coach left a note on an activity. No format placeholders.
+pub const KEY_NOTIFICATION_COACH_FEEDBACK_TITLE: &str = "notifications.event.coach_feedback.title";
+/// Key: whose note, on what. `{0}` coach name, `{1}` activity type.
+pub const KEY_NOTIFICATION_COACH_FEEDBACK_BODY: &str = "notifications.event.coach_feedback.body";
+/// Key: a provider sync failed. `{0}` = the provider's name.
+pub const KEY_NOTIFICATION_SYNC_FAILURE_TITLE: &str = "notifications.event.sync_failure.title";
+/// Key: why it failed. `{0}` = the error summary.
+pub const KEY_NOTIFICATION_SYNC_FAILURE_BODY: &str = "notifications.event.sync_failure.body";
+/// Key: several sync failures collapsed into one feed row. `{0}` = how many.
+pub const KEY_NOTIFICATION_SYNC_FAILURE_COLLAPSED_TITLE: &str =
+    "notifications.event.sync_failure.collapsed_title";
+/// Key: the collapsed group's body. `{0}` = how many syncs failed.
+pub const KEY_NOTIFICATION_SYNC_FAILURE_COLLAPSED_BODY: &str =
+    "notifications.event.sync_failure.collapsed_body";
+
+/// Key: the "reply to your coach" action button. No format placeholders.
+pub const KEY_NOTIFICATION_ACTION_REPLY: &str = "notifications.action.reply";
+/// Key: the "reconnect this provider" action button. No format placeholders.
+pub const KEY_NOTIFICATION_ACTION_RECONNECT: &str = "notifications.action.reconnect";
+
 /// The catalogue, embedded at build time.
 ///
 /// The same five files both clients import. Nested JSON, flattened to dotted

@@ -460,6 +460,11 @@ pub trait GroupsCtx: Send + Sync + 'static {
     /// reports, and health-flag computation over fitness snapshots.
     fn group_service(&self) -> &Arc<pierre_groups::GroupService>;
 
+    /// Messaging strings registry — the notification feed renders each row's
+    /// title, body and action labels through it, in the reader's own locale,
+    /// from the event and parameters the row stores.
+    fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry>;
+
     /// Read a single admin-config value (per-tenant or platform-wide).
     ///
     /// Returns `None` when the admin-config service is not initialized,

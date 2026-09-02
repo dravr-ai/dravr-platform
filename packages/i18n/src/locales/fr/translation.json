@@ -2054,11 +2054,63 @@
     "title": "Notifications"
   },
   "notifications": {
+    "action": {
+      "reconnect": "Reconnecter",
+      "reply": "Répondre"
+    },
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "il y a {{count}} j",
     "digest": {
       "body": "{0} notification(s) mises de côté cette semaine selon ton profil de coaching. Tout est dans l'app.",
       "title": "Ton récap hebdo de notifications"
+    },
+    "event": {
+      "activity_synced": {
+        "body": "{0} — {1} en {2}",
+        "title": "Nouvelle activité synchronisée"
+      },
+      "coach_feedback": {
+        "body": "{0} a laissé une note sur ton {1}",
+        "title": "Retour de ton coach"
+      },
+      "coach_message": {
+        "body": "{0} t'a envoyé un message",
+        "title": "Message de ton coach"
+      },
+      "fitness_improvement": {
+        "body": "Ton {0} est passé à {1}",
+        "title": "Progrès de forme détecté"
+      },
+      "low_recovery_score": {
+        "body": "Ton score de récupération est de {0}/100 — journée facile recommandée",
+        "title": "Score de récupération bas"
+      },
+      "milestone_reached": {
+        "body": "Tu as cumulé {0} {1} cette année",
+        "title": "Palier atteint !"
+      },
+      "overtraining_warning": {
+        "body": "La tendance de ta charge d'entraînement indique une accumulation de fatigue",
+        "title": "Risque de surentraînement détecté"
+      },
+      "personal_record": {
+        "body": "Nouveau record sur {0} : {1}",
+        "title": "Nouveau record personnel !"
+      },
+      "plan_updated": {
+        "body": "{0} a mis à jour ton plan d'entraînement",
+        "title": "Plan d'entraînement mis à jour"
+      },
+      "sync_failure": {
+        "body": "{0}",
+        "collapsed_body": "{0} synchronisations d'activités ont échoué récemment",
+        "collapsed_title": "{0} échecs de synchronisation",
+        "title": "Échec de synchronisation {0}"
+      },
+      "training_load_alert": {
+        "body": "Ta charge aiguë est à {0} — pense à une journée de récupération",
+        "title": "Charge d'entraînement élevée"
+      }
     },
     "hoursAgo": "il y a {{count}} h",
     "justNow": "à l'instant",
@@ -2224,6 +2276,12 @@
     "provider": "Fournisseur",
     "reconnect": "Reconnecter",
     "reconnectNeeded": "Reconnexion nécessaire",
+    "scope": {
+      "activities": "activités",
+      "health": "santé",
+      "recovery": "récupération",
+      "sleep": "sommeil"
+    },
     "select": "Choisis un fournisseur",
     "skipAndChat": "Passer et commencer à discuter",
     "startChatting": "Commencer à discuter",

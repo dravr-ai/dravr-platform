@@ -241,6 +241,14 @@ pub mod notification_channel_sink;
 /// recipient's tier floor, digest cadence, and arming flag.
 pub mod persona_notification_policy_gate;
 
+/// The one renderer turning a stored notification event plus its parameters
+/// into a sentence, in the locale of whoever is reading it.
+pub mod notification_text;
+
+/// The dispatch-time localizer: resolves the recipient's stored locale and
+/// renders the event before the push and the linked channels go out.
+pub mod notification_localizer;
+
 /// Weekly digest scheduler that rolls persona-gated notifications into one
 /// localized push per user.
 pub mod notification_digest_scheduler;

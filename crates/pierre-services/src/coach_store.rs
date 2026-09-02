@@ -201,10 +201,16 @@ pub async fn browse_store_page(
     })
 }
 
-/// Search published coaches by title, description, or tag.
+/// Search published coaches by title, description, or tag, in `locale`.
 ///
 /// The Store is global, so the search crosses tenants; `limit` is clamped to
 /// `1..=MAX_STORE_PAGE_SIZE`.
+///
+/// Tags are both what the chips show and what the search matches, and the
+/// chips are localized — so the query runs against the canonical English row
+/// *and* the athlete's own overlay. A French athlete searching the words the
+/// Store showed her reaches the coach whose canonical slug is the English
+/// one, and an English slug still finds the coaches that carry it.
 ///
 /// # Errors
 ///
@@ -225,7 +231,7 @@ pub async fn search_store(
         .clamp(1, MAX_STORE_PAGE_SIZE);
     let coaches = repos
         .store_listings
-        .search_published_coaches(trimmed, Some(limit))
+        .search_published_coaches(trimmed, Some(limit), locale)
         .await?;
     let coaches = translate_listings(repos, coaches, locale).await?;
     Ok(coaches.into_iter().map(StoreCoach::from).collect())

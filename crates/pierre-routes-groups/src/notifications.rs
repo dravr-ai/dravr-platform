@@ -27,8 +27,10 @@ use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
+use pierre_core::models::default_locale;
 use pierre_middleware::AuthenticatedUser;
 use pierre_notifications::constants as notif_constants;
+use pierre_notifications::events::event_params;
 use pierre_notifications::models::{
     collapse_notifications, CreateScheduledNotificationParams, CreateScheduledNotificationRequest,
     ListNotificationsQuery, NotificationAnalyticsQuery, NotificationCategory,
@@ -38,9 +40,44 @@ use pierre_notifications::models::{
     UpdateScheduledNotificationRequest, UpsertNotificationPreferenceParams,
 };
 use pierre_notifications::{
-    compute_next_fire_time, to_app_error, validate_cron_expression, NotificationService,
+    compute_next_fire_time, to_app_error, validate_cron_expression, NotificationEvent,
+    NotificationService,
 };
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::notification_text::NotificationTextRenderer;
+
+/// Rewrite one feed row's title, body and action labels in the reader's locale.
+///
+/// A row carrying its event parameters is rendered from the catalogue, so the
+/// same row reads French for a French athlete and English for an English one,
+/// and changing language repairs it. A row written before the event vocabulary
+/// existed carries no parameters and keeps the text it was stored with —
+/// nothing else is known about what it said.
+fn localize_item(item: &mut NotificationItem, renderer: NotificationTextRenderer<'_>) {
+    if let Some(actions) = item.actions.as_mut() {
+        for action in actions.iter_mut() {
+            if let Some(title) = renderer.action_title(&action.id) {
+                action.title = title;
+            }
+        }
+    }
+
+    let Some(event) = NotificationEvent::from_wire(&item.notification_type) else {
+        return;
+    };
+    if item.collapsed_count > 1 {
+        if let Some((title, body)) = renderer.collapsed(event, item.collapsed_count) {
+            item.title = title;
+            item.body = body;
+            return;
+        }
+    }
+    let Some(params) = event_params(item.data.as_ref()) else {
+        return;
+    };
+    item.title = renderer.title(event, params);
+    item.body = renderer.body(event, params);
+}
 
 /// Convert `CommereResult<T>` to `AppResult<T>` using structured error mapping
 fn notif<T>(result: pierre_notifications::CommereResult<T>) -> Result<T, AppError> {
@@ -398,7 +435,16 @@ impl NotificationRoutes {
             .collect();
 
         // Collapse consecutive notifications of the same collapsible type
-        let collapsed_items = collapse_notifications(items);
+        let mut collapsed_items = collapse_notifications(items);
+
+        // Render last, over the collapsed feed, so a group's own sentence is
+        // the one the athlete reads rather than the representative row's.
+        let locale = Self::reader_locale(&resources, auth.user_id).await;
+        let renderer =
+            NotificationTextRenderer::new(resources.messaging_strings_registry(), &locale);
+        for item in &mut collapsed_items {
+            localize_item(item, renderer);
+        }
 
         let response = NotificationFeedResponse {
             data: collapsed_items,
@@ -407,6 +453,22 @@ impl NotificationRoutes {
         };
 
         Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// The locale the feed renders in: the reader's own stored language.
+    ///
+    /// A user row that cannot be read falls back to the default locale — the
+    /// sentence still comes from the catalogue, so the athlete never reads a
+    /// raw key or a language nobody chose.
+    async fn reader_locale<C: MiddlewareCtx>(resources: &Arc<C>, user_id: Uuid) -> String {
+        resources
+            .repos()
+            .users
+            .get_global(user_id)
+            .await
+            .ok()
+            .flatten()
+            .map_or_else(default_locale, |user| user.locale)
     }
 
     /// Handle GET /api/notifications/unread-count - Get unread count

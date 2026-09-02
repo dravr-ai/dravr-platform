@@ -22,6 +22,7 @@ mod common;
 mod dispatch_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use pierre_database::backends::factory::Database;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::{
         CreateNotificationParams, NotificationCategory, UpsertNotificationPreferenceParams,
     };
@@ -29,6 +30,7 @@ mod dispatch_tests {
         triggers as notification_triggers, DispatchOutcome, DispatchRequest, NotificationService,
         SuppressionReason, TenantId,
     };
+    use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
     use serde_json::json;
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};
@@ -38,14 +40,20 @@ mod dispatch_tests {
     // Setup helpers
     // ════════════════════════════════════════════════════════════════
 
-    /// The notification service on whichever backend the test database is —
-    /// the same mapping the server performs at boot.
-    fn notification_service(db: &Database) -> NotificationService {
-        match db {
+    /// The notification service the server boots: the upstream pipeline on
+    /// whichever backend the test database is, plus the localizer that renders
+    /// each event in the recipient's language. Without the localizer a row
+    /// would carry the catalogue keys, which is not what any deployment does.
+    fn notification_service(resources: &ServerContext) -> NotificationService {
+        let service = match &*resources.coach.database {
             Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
             #[cfg(feature = "postgresql")]
             Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
-        }
+        };
+        service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
+            Arc::clone(&resources.common.repos),
+            Arc::clone(&resources.mcp.messaging_strings_registry),
+        )))
     }
 
     async fn setup_service() -> (Arc<NotificationService>, Uuid, TenantId) {
@@ -69,7 +77,7 @@ mod dispatch_tests {
             .common
             .notification_service
             .clone()
-            .unwrap_or_else(|| Arc::new(notification_service(&resources.coach.database)));
+            .unwrap_or_else(|| Arc::new(notification_service(&resources)));
 
         (service, user.id, tenant_id)
     }
@@ -149,7 +157,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Disable the training category
         service
@@ -193,7 +201,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Disable RECOVERY category
         service
@@ -240,7 +248,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Set max_per_day = 2 for training
         service
@@ -322,7 +330,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
         // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
@@ -371,7 +379,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Create 3 training notifications
         for i in 0..3 {
@@ -451,7 +459,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         // Fire the trigger — it's async fire-and-forget
         notification_triggers::trigger_activity_synced(
@@ -478,7 +486,7 @@ mod dispatch_tests {
             "Activity synced trigger should create a notification"
         );
         assert_eq!(notifications[0].notification_type, "activity_synced");
-        assert_eq!(notifications[0].title, "New activity synced");
+        assert_eq!(notifications[0].title, "Nouvelle activité synchronisée");
         assert!(notifications[0].body.contains("Run"));
         assert!(notifications[0].body.contains("10.2 km"));
     }
@@ -498,7 +506,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_training_load_alert(&service, user.id, tenant_id, 85.0);
 
@@ -529,7 +537,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_low_recovery_score(&service, user.id, tenant_id, 32.0);
 
@@ -560,7 +568,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_overtraining_warning(&service, user.id, tenant_id);
 
@@ -590,7 +598,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_personal_record(
             &service,
@@ -629,7 +637,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_milestone_reached(
             &service, user.id, tenant_id, "1,000", "km",
@@ -663,7 +671,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_fitness_improvement(
             &service, user.id, tenant_id, "FTP", "265W",
@@ -713,7 +721,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id_b = TenantId(tenants_b[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         // Dispatch to user A
         notification_triggers::trigger_training_load_alert(&service, user_a.id, tenant_id_a, 90.0);
@@ -758,7 +766,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Disable achievement category
         service
@@ -811,7 +819,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_coach_message(
             &service,
@@ -833,7 +841,7 @@ mod dispatch_tests {
             "Coach message trigger should create notification"
         );
         assert_eq!(notifications[0].notification_type, "coach_message");
-        assert_eq!(notifications[0].title, "Message from your coach");
+        assert_eq!(notifications[0].title, "Message de ton coach");
         assert!(notifications[0].body.contains("Running Coach"));
     }
 
@@ -852,7 +860,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_plan_updated(
             &service,
@@ -873,7 +881,7 @@ mod dispatch_tests {
             "Plan updated trigger should create notification"
         );
         assert_eq!(notifications[0].notification_type, "plan_updated");
-        assert_eq!(notifications[0].title, "Training plan updated");
+        assert_eq!(notifications[0].title, "Plan d'entraînement mis à jour");
         assert!(notifications[0].body.contains("Endurance Coach"));
     }
 
@@ -892,7 +900,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_coach_feedback(
             &service,
@@ -915,7 +923,7 @@ mod dispatch_tests {
             "Coach feedback trigger should create notification"
         );
         assert_eq!(notifications[0].notification_type, "coach_feedback");
-        assert_eq!(notifications[0].title, "Coach feedback");
+        assert_eq!(notifications[0].title, "Retour de ton coach");
         assert!(notifications[0].body.contains("Speed Coach"));
         assert!(notifications[0].body.contains("interval session"));
     }
@@ -939,7 +947,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Set max_per_day = 1 for coach category
         service
@@ -1033,7 +1041,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
         // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
@@ -1090,7 +1098,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources);
 
         // Disable the coach category
         service
@@ -1146,7 +1154,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let service = Arc::new(notification_service(&resources.coach.database));
+        let service = Arc::new(notification_service(&resources));
 
         // Set max_per_day = 1 for coach
         service

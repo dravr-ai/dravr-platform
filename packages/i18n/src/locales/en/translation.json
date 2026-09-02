@@ -2054,11 +2054,63 @@
     "title": "Notifications"
   },
   "notifications": {
+    "action": {
+      "reconnect": "Reconnect",
+      "reply": "Reply"
+    },
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "{{count}}d ago",
     "digest": {
       "body": "{0} notification(s) held for you this week per your coaching profile. Everything is in the app.",
       "title": "Your weekly notification digest"
+    },
+    "event": {
+      "activity_synced": {
+        "body": "{0} — {1} in {2}",
+        "title": "New activity synced"
+      },
+      "coach_feedback": {
+        "body": "{0} left a note on your {1}",
+        "title": "Coach feedback"
+      },
+      "coach_message": {
+        "body": "{0} sent you a message",
+        "title": "Message from your coach"
+      },
+      "fitness_improvement": {
+        "body": "Your {0} increased to {1}",
+        "title": "Fitness improvement detected"
+      },
+      "low_recovery_score": {
+        "body": "Your recovery score is {0}/100 — easy day recommended",
+        "title": "Recovery score is low"
+      },
+      "milestone_reached": {
+        "body": "You've logged {0} {1} this year",
+        "title": "Milestone reached!"
+      },
+      "overtraining_warning": {
+        "body": "Your training stress trend suggests fatigue accumulation",
+        "title": "Overtraining risk detected"
+      },
+      "personal_record": {
+        "body": "New {0} PR: {1}",
+        "title": "New personal record!"
+      },
+      "plan_updated": {
+        "body": "{0} updated your training plan",
+        "title": "Training plan updated"
+      },
+      "sync_failure": {
+        "body": "{0}",
+        "collapsed_body": "{0} activity syncs failed recently",
+        "collapsed_title": "{0} sync failures",
+        "title": "{0} sync failed"
+      },
+      "training_load_alert": {
+        "body": "Your acute training load is {0} — consider a recovery day",
+        "title": "Training load elevated"
+      }
     },
     "hoursAgo": "{{count}}h ago",
     "justNow": "Just now",
@@ -2224,6 +2276,12 @@
     "provider": "Provider",
     "reconnect": "Reconnect",
     "reconnectNeeded": "Reconnect needed",
+    "scope": {
+      "activities": "activities",
+      "health": "health",
+      "recovery": "recovery",
+      "sleep": "sleep"
+    },
     "select": "Select a provider",
     "skipAndChat": "Skip and start chatting",
     "startChatting": "Start chatting",

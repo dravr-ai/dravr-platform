@@ -2054,11 +2054,63 @@
     "title": "Notificações"
   },
   "notifications": {
+    "action": {
+      "reconnect": "Voltar a ligar",
+      "reply": "Responder"
+    },
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "há {{count}} d",
     "digest": {
       "body": "{0} notificação(ões) guardadas esta semana segundo o teu perfil de coaching. Está tudo na app.",
       "title": "O teu resumo semanal de notificações"
+    },
+    "event": {
+      "activity_synced": {
+        "body": "{0} — {1} em {2}",
+        "title": "Nova atividade sincronizada"
+      },
+      "coach_feedback": {
+        "body": "{0} deixou uma nota sobre o teu {1}",
+        "title": "Comentário do teu treinador"
+      },
+      "coach_message": {
+        "body": "{0} enviou-te uma mensagem",
+        "title": "Mensagem do teu treinador"
+      },
+      "fitness_improvement": {
+        "body": "O teu {0} subiu para {1}",
+        "title": "Melhoria de forma detetada"
+      },
+      "low_recovery_score": {
+        "body": "A tua pontuação de recuperação é {0}/100 — recomenda-se um dia leve",
+        "title": "Pontuação de recuperação baixa"
+      },
+      "milestone_reached": {
+        "body": "Acumulaste {0} {1} este ano",
+        "title": "Marco alcançado!"
+      },
+      "overtraining_warning": {
+        "body": "A tendência da tua carga de treino indica acumulação de fadiga",
+        "title": "Risco de sobretreino detetado"
+      },
+      "personal_record": {
+        "body": "Novo recorde em {0}: {1}",
+        "title": "Novo recorde pessoal!"
+      },
+      "plan_updated": {
+        "body": "{0} atualizou o teu plano de treino",
+        "title": "Plano de treino atualizado"
+      },
+      "sync_failure": {
+        "body": "{0}",
+        "collapsed_body": "{0} sincronizações de atividades falharam recentemente",
+        "collapsed_title": "{0} falhas de sincronização",
+        "title": "Falha na sincronização do {0}"
+      },
+      "training_load_alert": {
+        "body": "A tua carga aguda está em {0} — considera um dia de recuperação",
+        "title": "Carga de treino elevada"
+      }
     },
     "hoursAgo": "há {{count}} h",
     "justNow": "Agora mesmo",
@@ -2224,6 +2276,12 @@
     "provider": "Fornecedor",
     "reconnect": "Ligar de novo",
     "reconnectNeeded": "É preciso voltar a ligar",
+    "scope": {
+      "activities": "atividades",
+      "health": "saúde",
+      "recovery": "recuperação",
+      "sleep": "sono"
+    },
     "select": "Escolhe um fornecedor",
     "skipAndChat": "Ignorar e começar a conversar",
     "startChatting": "Começar a conversar",

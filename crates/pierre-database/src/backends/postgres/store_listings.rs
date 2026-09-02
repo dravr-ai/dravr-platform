@@ -869,22 +869,31 @@ impl StoreListingsRepository for PostgresDatabase {
         &self,
         query: &str,
         limit: Option<u32>,
+        locale: &str,
     ) -> AppResult<Vec<CoachWithListing>> {
         let limit_val = i64::from(limit.unwrap_or(20).min(100));
         let search_pattern = format!("%{query}%");
 
+        // The overlay join is what makes a localized tag findable: the chips
+        // the athlete reads come from `coach_translations.tags`, while the
+        // canonical slug the coach was published under stays on `coaches`.
+        // `(coach_id, locale)` is the overlay's primary key, so the join adds
+        // at most one row per coach.
         let rows = sqlx::query(&format!(
             r"
             SELECT {COACH_COLUMNS_ALIASED}, {LISTING_COLUMNS_ALIASED}
             FROM coaches c
             JOIN store_listings sl ON c.id = sl.coach_id
+            LEFT JOIN coach_translations ct ON ct.coach_id = c.id AND ct.locale = $2
             WHERE sl.publish_status = 'published'
-              AND (c.title ILIKE $1 OR c.description ILIKE $1 OR c.tags ILIKE $1)
+              AND (c.title ILIKE $1 OR c.description ILIKE $1 OR c.tags ILIKE $1
+                   OR ct.title ILIKE $1 OR ct.description ILIKE $1 OR ct.tags ILIKE $1)
             ORDER BY sl.install_count DESC, sl.published_at DESC
-            LIMIT $2
+            LIMIT $3
             "
         ))
         .bind(&search_pattern)
+        .bind(locale)
         .bind(limit_val)
         .fetch_all(&self.pool)
         .await

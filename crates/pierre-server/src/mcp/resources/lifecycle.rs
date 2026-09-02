@@ -106,6 +106,8 @@ use pierre_services::messenger_persistent_menu::publish_messenger_menu;
 #[cfg(all(feature = "client-notifications", feature = "client-messaging"))]
 use pierre_services::notification_channel_sink::MessagingChannelSink;
 #[cfg(feature = "client-notifications")]
+use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
+#[cfg(feature = "client-notifications")]
 use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
 use pierre_services::pricing_loader;
 #[cfg(feature = "client-messaging")]
@@ -752,6 +754,13 @@ impl ServerContext {
         let service = service.with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
             Arc::clone(repos),
             Arc::clone(persona_contracts),
+        )));
+        // Unconditionally, unlike the messaging sink: an Expo push is read
+        // once and cannot be re-rendered, so every deployment needs the
+        // recipient's own language on it the first time.
+        let service = service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
+            Arc::clone(repos),
+            Arc::clone(messaging_strings),
         )));
         info!("Notification service initialized");
         Arc::new(service)

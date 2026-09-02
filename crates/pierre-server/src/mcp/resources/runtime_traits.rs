@@ -182,6 +182,7 @@ impl pierre_runtime_context::CoachesCtx for ServerContext {
 mod groups_ctx_impl {
     use super::ServerContext;
     use async_trait::async_trait;
+    use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_groups::GroupService;
     use pierre_notifications::NotificationService;
     use pierre_runtime_context::GroupsCtx;
@@ -195,6 +196,10 @@ mod groups_ctx_impl {
 
         fn group_service(&self) -> &Arc<GroupService> {
             &self.common.group_service
+        }
+
+        fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {
+            &self.mcp.messaging_strings_registry
         }
 
         async fn admin_config_get(

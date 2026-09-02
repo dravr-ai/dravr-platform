@@ -26,6 +26,7 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { buildFitnessProviderCards } from '../utils/fitnessProviderCards';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { providerScopeLabelKey } from '@pierre/shared-constants';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
@@ -794,7 +795,15 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             <p className="text-sm text-on-surface-variant truncate">{display.description}</p>
                             {provider.capabilities.length > 0 && (
                               <p className="text-xs text-outline mt-0.5">
-                                {provider.capabilities.join(', ')}
+                                {provider.capabilities
+                                  .map((scope) => {
+                                    // A slug the catalogue has no word for prints as
+                                    // itself — a provider that starts advertising a new
+                                    // capability must not show a missing-key string.
+                                    const key = providerScopeLabelKey(scope);
+                                    return key ? t(key) : scope;
+                                  })
+                                  .join(', ')}
                               </p>
                             )}
                           </div>

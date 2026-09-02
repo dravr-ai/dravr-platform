@@ -42,12 +42,16 @@ pub use dravr_commere::constants;
 pub use dravr_commere::expo_push;
 pub use dravr_commere::models;
 
+/// The closed product-event vocabulary a notification row records, and the
+/// catalogue keys the sentence is rendered from at read time.
+pub mod events;
+
 /// The persona push-tier ladder, per-user push policy, and the
 /// [`PersonaPolicyGate`] SPI the dispatch facade resolves policies through.
 pub mod policy;
 
-/// Event-shaped helpers that build a `DispatchRequest` and fire it through
-/// [`NotificationService::dispatch_with_tier`], so every product event reaches
+/// Event-shaped helpers that declare a product event and fire it through
+/// [`NotificationService::dispatch_event`], so every product event reaches
 /// the platform's sinks and not only the upstream two.
 pub mod triggers;
 
@@ -56,6 +60,7 @@ pub use dravr_commere::{
     compute_next_fire_time, validate_cron_expression, CommereError, CommereResult, DispatchOutcome,
     DispatchRequest, SuppressionReason, TenantId,
 };
+pub use events::{EventDispatch, NotificationActionSpec, NotificationEvent};
 pub use policy::{DigestCadence, PersonaPolicyGate, PushPolicy, PushTier};
 
 /// JSON key marking a persisted notification the persona policy withheld from
@@ -78,6 +83,61 @@ pub trait NotificationChannelSink: Send + Sync {
     async fn deliver(&self, request: &DispatchRequest);
 }
 
+/// The user-facing text of one notification, rendered in one locale.
+#[derive(Debug, Clone)]
+pub struct NotificationText {
+    /// The notification headline.
+    pub title: String,
+    /// The notification body.
+    pub body: String,
+    /// Action-button labels, in the order [`EventDispatch::actions`] declares
+    /// them. Empty when the event attaches no buttons.
+    pub action_titles: Vec<String>,
+}
+
+impl NotificationText {
+    /// The catalogue keys themselves, for a service assembled without a
+    /// localizer.
+    ///
+    /// Such a service holds no string catalogue and no way to read the
+    /// recipient's locale, so the only honest thing it can persist is the key
+    /// naming the sentence. The notification centre renders the row from its
+    /// event and parameters regardless of what the columns hold, so this text
+    /// only ever reaches an Expo push — which no deployment sends without a
+    /// localizer, since the composition root wires one unconditionally.
+    #[must_use]
+    pub fn keys(dispatch: &EventDispatch) -> Self {
+        Self {
+            title: dispatch.event.title_key().to_owned(),
+            body: dispatch.event.body_key().to_owned(),
+            action_titles: dispatch.actions.as_ref().map_or_else(Vec::new, |actions| {
+                actions
+                    .iter()
+                    .map(|action| {
+                        events::action_label_key(action.id)
+                            .unwrap_or(action.id)
+                            .to_owned()
+                    })
+                    .collect()
+            }),
+        }
+    }
+}
+
+/// Renders a product event as the sentence one recipient reads.
+///
+/// Implemented once, by `pierre_services::notification_localizer`, and
+/// consumed once, by [`NotificationService::dispatch_event`]. It is an SPI
+/// rather than a direct dependency for the same reason
+/// [`NotificationChannelSink`] is: the string catalogue and the user
+/// repository that holds each athlete's locale both live above this crate.
+#[async_trait]
+pub trait NotificationLocalizer: Send + Sync {
+    /// The title, body and action labels for `dispatch`, in the recipient's
+    /// stored locale.
+    async fn localize(&self, dispatch: &EventDispatch) -> NotificationText;
+}
+
 /// The platform's notification service.
 ///
 /// `dravr-commere`'s pipeline plus the delivery sinks this platform adds on
@@ -97,6 +157,10 @@ pub struct NotificationService {
     /// is not wired (bare test services); every dispatch then behaves as if
     /// no policy existed.
     policy_gate: Option<Arc<dyn PersonaPolicyGate>>,
+    /// Renders each event as the recipient's own sentence. `None` when no
+    /// string catalogue is wired (bare test services); the row then carries
+    /// the catalogue keys, which the notification centre resolves anyway.
+    localizer: Option<Arc<dyn NotificationLocalizer>>,
 }
 
 impl Deref for NotificationService {
@@ -117,6 +181,7 @@ impl NotificationService {
             inner: dravr_commere::NotificationService::from_sqlite(pool),
             channel_sink: None,
             policy_gate: None,
+            localizer: None,
         }
     }
 
@@ -129,6 +194,7 @@ impl NotificationService {
             inner: dravr_commere::NotificationService::from_postgres(pool),
             channel_sink: None,
             policy_gate: None,
+            localizer: None,
         }
     }
 
@@ -145,6 +211,64 @@ impl NotificationService {
     pub fn with_policy_gate(mut self, gate: Arc<dyn PersonaPolicyGate>) -> Self {
         self.policy_gate = Some(gate);
         self
+    }
+
+    /// Attach the renderer that turns a product event into the recipient's
+    /// own sentence.
+    #[must_use]
+    pub fn with_localizer(mut self, localizer: Arc<dyn NotificationLocalizer>) -> Self {
+        self.localizer = Some(localizer);
+        self
+    }
+
+    /// Dispatch a product event at an explicit [`PushTier`].
+    ///
+    /// This is how every trigger raises a notification: it declares what
+    /// happened and the parameters that describe it, the localizer renders
+    /// the sentence in the recipient's language — so the Expo push and the
+    /// linked chat channels read correctly the first time — and the stored
+    /// row keeps the event plus its parameters so the notification centre can
+    /// render it again when the athlete changes language.
+    ///
+    /// # Errors
+    ///
+    /// Returns the upstream [`CommereError`] when the pipeline itself fails.
+    pub async fn dispatch_event(
+        &self,
+        dispatch: &EventDispatch,
+        tier: PushTier,
+    ) -> CommereResult<DispatchOutcome> {
+        let text = match &self.localizer {
+            Some(localizer) => localizer.localize(dispatch).await,
+            None => NotificationText::keys(dispatch),
+        };
+        let actions = dispatch.actions.as_ref().map(|specs| {
+            specs
+                .iter()
+                .zip(text.action_titles.iter())
+                .map(|(spec, title)| models::NotificationAction {
+                    id: spec.id.to_owned(),
+                    title: title.clone(),
+                    action_type: spec.action_type.clone(),
+                })
+                .collect()
+        });
+        let request = DispatchRequest {
+            user_id: dispatch.user_id,
+            tenant_id: dispatch.tenant_id,
+            category: dispatch.category,
+            notification_type: dispatch.event.wire().to_owned(),
+            title: text.title,
+            body: text.body,
+            data: Some(events::event_data(
+                dispatch.route.clone(),
+                dispatch.params.clone(),
+            )),
+            image_url: None,
+            actions,
+            bypass_frequency_cap: dispatch.bypass_frequency_cap,
+        };
+        self.dispatch_with_tier(&request, tier).await
     }
 
     /// Dispatch a notification at the default [`PushTier::P1`].

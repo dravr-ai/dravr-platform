@@ -38,27 +38,28 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_NOTIFICATION_DIGEST_BODY, KEY_NOTIFICATION_DIGEST_TITLE,
-};
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantId, User};
 use pierre_database::RepositoryRegistry;
+use pierre_notifications::events::event_data;
 use pierre_notifications::models::NotificationCategory;
 use pierre_notifications::{
-    to_app_error, DigestCadence, DispatchRequest, NotificationService, PersonaPolicyGate, PushTier,
-    TenantId as CommTenantId, PERSONA_GATED_DATA_KEY,
+    to_app_error, DigestCadence, DispatchRequest, NotificationEvent, NotificationService,
+    PersonaPolicyGate, PushTier, TenantId as CommTenantId, PERSONA_GATED_DATA_KEY,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
+
+use crate::notification_text::NotificationTextRenderer;
 
 /// How often the digest tick fires. One week — the cadence the contracts name.
 pub const DEFAULT_TICK_INTERVAL: StdDuration = StdDuration::from_hours(168);
 
 /// `notification_type` of the digest notification itself. Also the marker the
 /// next sweep reads to find where the previous digest window ended.
-pub const PERSONA_DIGEST_TYPE: &str = "persona_digest";
+pub const PERSONA_DIGEST_TYPE: &str = NotificationEvent::PersonaDigest.wire();
 
 /// Upper bound on notifications examined per user per sweep. Bounds the scan
 /// the way pagination clamps a list endpoint; a user gating more rows than
@@ -224,19 +225,23 @@ async fn send_user_digest(
         return Ok(false);
     }
 
-    let count_display = item_count.to_string();
+    let params = json!({ "item_count": item_count });
+    let renderer = NotificationTextRenderer::new(strings, &user.locale);
+    // The digest is dispatched directly rather than through `dispatch_event`
+    // because the sweep already holds the user row it would re-read; the text
+    // comes from the same renderer either way, so both paths say the same
+    // thing, and the stored parameters let the feed re-render it after a
+    // language change.
+    let empty = Map::new();
+    let digest_params = params.as_object().unwrap_or(&empty);
     let request = DispatchRequest {
         user_id: user.id,
         tenant_id: tenant,
         category: NotificationCategory::System,
         notification_type: PERSONA_DIGEST_TYPE.to_owned(),
-        title: strings.render(KEY_NOTIFICATION_DIGEST_TITLE, &user.locale, &[]),
-        body: strings.render(
-            KEY_NOTIFICATION_DIGEST_BODY,
-            &user.locale,
-            &[&count_display],
-        ),
-        data: Some(json!({ "item_count": item_count })),
+        title: renderer.title(NotificationEvent::PersonaDigest, digest_params),
+        body: renderer.body(NotificationEvent::PersonaDigest, digest_params),
+        data: Some(event_data(json!({}), params.clone())),
         image_url: None,
         actions: None,
         bypass_frequency_cap: false,

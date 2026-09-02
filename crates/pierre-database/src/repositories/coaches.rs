@@ -531,11 +531,19 @@ pub trait StoreListingsRepository: Send + Sync {
         limit: u32,
         cursor: Option<&str>,
     ) -> AppResult<CursorPage<CoachWithListing>>;
-    /// Search published coaches by title/description/tags
+    /// Search published coaches by title/description/tags, in `locale`.
+    ///
+    /// The canonical English row and the `coach_translations` overlay for
+    /// `locale` are both matched, so an athlete searching the words the Store
+    /// showed her — a chip reading `methode-norvegienne`, say — reaches the
+    /// coach whose canonical tag is `norwegian-method`. Matching only the
+    /// canonical row made every localized label unsearchable; matching only
+    /// the overlay would lose the coaches that have no translation.
     async fn search_published_coaches(
         &self,
         query: &str,
         limit: Option<u32>,
+        locale: &str,
     ) -> AppResult<Vec<CoachWithListing>>;
     /// Get a single published coach by ID (cross-tenant)
     async fn get_published_coach(&self, coach_id: &str) -> AppResult<Option<CoachWithListing>>;

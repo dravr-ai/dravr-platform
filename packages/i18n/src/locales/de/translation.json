@@ -2054,11 +2054,63 @@
     "title": "Benachrichtigungen"
   },
   "notifications": {
+    "action": {
+      "reconnect": "Neu verbinden",
+      "reply": "Antworten"
+    },
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "vor {{count}} T.",
     "digest": {
       "body": "{0} Benachrichtigung(en) diese Woche gemäß deinem Coaching-Profil zurückgehalten. Alles findest du in der App.",
       "title": "Deine wöchentliche Benachrichtigungsübersicht"
+    },
+    "event": {
+      "activity_synced": {
+        "body": "{0} — {1} in {2}",
+        "title": "Neue Aktivität synchronisiert"
+      },
+      "coach_feedback": {
+        "body": "{0} hat eine Notiz zu deiner {1} hinterlassen",
+        "title": "Rückmeldung deines Coachs"
+      },
+      "coach_message": {
+        "body": "{0} hat dir eine Nachricht geschickt",
+        "title": "Nachricht von deinem Coach"
+      },
+      "fitness_improvement": {
+        "body": "Dein {0} ist auf {1} gestiegen",
+        "title": "Formverbesserung erkannt"
+      },
+      "low_recovery_score": {
+        "body": "Dein Erholungswert liegt bei {0}/100 — ein lockerer Tag ist empfohlen",
+        "title": "Erholungswert niedrig"
+      },
+      "milestone_reached": {
+        "body": "Du hast dieses Jahr {0} {1} gesammelt",
+        "title": "Meilenstein erreicht!"
+      },
+      "overtraining_warning": {
+        "body": "Dein Belastungsverlauf deutet auf Ermüdungsaufbau hin",
+        "title": "Übertrainingsrisiko erkannt"
+      },
+      "personal_record": {
+        "body": "Neue Bestzeit über {0}: {1}",
+        "title": "Neue persönliche Bestleistung!"
+      },
+      "plan_updated": {
+        "body": "{0} hat deinen Trainingsplan aktualisiert",
+        "title": "Trainingsplan aktualisiert"
+      },
+      "sync_failure": {
+        "body": "{0}",
+        "collapsed_body": "{0} Aktivitätssynchronisierungen sind kürzlich fehlgeschlagen",
+        "collapsed_title": "{0} fehlgeschlagene Synchronisierungen",
+        "title": "{0}-Synchronisierung fehlgeschlagen"
+      },
+      "training_load_alert": {
+        "body": "Deine akute Trainingsbelastung liegt bei {0} — plane einen Erholungstag ein",
+        "title": "Trainingsbelastung erhöht"
+      }
     },
     "hoursAgo": "vor {{count}} Std.",
     "justNow": "Gerade eben",
@@ -2224,6 +2276,12 @@
     "provider": "Anbieter",
     "reconnect": "Erneut verbinden",
     "reconnectNeeded": "Neu verbinden nötig",
+    "scope": {
+      "activities": "Aktivitäten",
+      "health": "Gesundheit",
+      "recovery": "Erholung",
+      "sleep": "Schlaf"
+    },
     "select": "Wähle einen Anbieter",
     "skipAndChat": "Überspringen und loschatten",
     "startChatting": "Chat starten",
