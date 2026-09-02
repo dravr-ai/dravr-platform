@@ -311,7 +311,9 @@ impl HarnessMemoryRepository for PostgresDatabase {
         &self,
         params: &MergeUserFactParams<'_>,
     ) -> AppResult<Option<UserFact>> {
-        let now = Utc::now().to_rfc3339();
+        // Bound as a timestamp, not a string: on PostgreSQL updated_at is
+        // `timestamptz`, and the RFC3339 text SQLite stores is rejected here.
+        let now = Utc::now();
         let embedding_bytes = params.embedding.map(embedding_to_bytes);
 
         // COALESCE keeps the anchor's own words and its embedding when it
@@ -323,8 +325,8 @@ impl HarnessMemoryRepository for PostgresDatabase {
             r"
             UPDATE user_facts
             SET confidence = GREATEST(confidence, $1),
-                source_msg_id = COALESCE($2, source_msg_id),
-                embedding = COALESCE(embedding, $3),
+                source_msg_id = COALESCE($2::text, source_msg_id),
+                embedding = COALESCE(embedding, $3::bytea),
                 updated_at = $4
             WHERE id = $5 AND tenant_id = $6
             ",
@@ -332,7 +334,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(params.confidence)
         .bind(params.source_msg_id)
         .bind(embedding_bytes)
-        .bind(&now)
+        .bind(now)
         .bind(params.fact_id)
         .bind(params.tenant_id.to_string())
         .execute(&self.pool)
