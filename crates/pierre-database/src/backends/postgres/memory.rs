@@ -315,12 +315,14 @@ impl HarnessMemoryRepository for PostgresDatabase {
         let embedding_bytes = params.embedding.map(embedding_to_bytes);
 
         // COALESCE keeps the anchor's own words and its embedding when it
-        // already has one; MAX keeps the higher confidence, so a restatement
-        // can only ever raise it.
+        // already has one; GREATEST keeps the higher confidence, so a
+        // restatement can only ever raise it. Not MAX: on PostgreSQL that is
+        // an aggregate over rows, and the two-argument scalar form SQLite
+        // offers does not exist here.
         sqlx::query(
             r"
             UPDATE user_facts
-            SET confidence = MAX(confidence, $1),
+            SET confidence = GREATEST(confidence, $1),
                 source_msg_id = COALESCE($2, source_msg_id),
                 embedding = COALESCE(embedding, $3),
                 updated_at = $4
