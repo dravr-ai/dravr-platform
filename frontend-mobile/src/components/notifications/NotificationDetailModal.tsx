@@ -36,7 +36,7 @@ export function NotificationDetailModal({
   onAction,
   onNavigate,
 }: NotificationDetailModalProps) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const modalShadow: ViewStyle = {
     shadowColor: colors.text.primary,
@@ -110,7 +110,7 @@ export function NotificationDetailModal({
               </Text>
 
               <Text className="text-xs text-outline mb-3">
-                {formatNotificationTime(notification.created_at, language)}
+                {formatNotificationTime(notification.created_at, t)}
               </Text>
 
               <Text className="text-sm text-on-surface leading-5">

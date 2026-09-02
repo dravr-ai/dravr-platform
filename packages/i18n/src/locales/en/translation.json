@@ -2049,10 +2049,14 @@
   },
   "notifications": {
     "channel_body": "🔔 {0}\n\n{1}",
+    "daysAgo": "{{count}}d ago",
     "digest": {
       "body": "{0} notification(s) held for you this week per your coaching profile. Everything is in the app.",
       "title": "Your weekly notification digest"
-    }
+    },
+    "hoursAgo": "{{count}}h ago",
+    "justNow": "Just now",
+    "minutesAgo": "{{count}}m ago"
   },
   "onboarding": {
     "aboutYouHint": "Three quick questions so your coach starts out knowing you. Skip any of them — we'll pick the rest up as we go.",

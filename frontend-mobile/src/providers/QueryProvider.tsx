@@ -32,8 +32,12 @@ interface QueryProviderProps {
  */
 function createQueryClient(
   // Module scope has no hook, so the provider — which is a component — hands
-  // its `t` down. The mutation-cache error toast is the only copy in here.
-  t: (key: string) => string,
+  // a REF to its `t` down, read at toast time. A ref rather than the function
+  // itself because this client is built once and must never be rebuilt: i18next
+  // hands back a new `t` identity whenever the language resolves, and a client
+  // memoised on that identity is a new client, a new cache, and every
+  // `setQueryData` written into the old one silently lost (carnet#215).
+  t: React.MutableRefObject<(key: string) => string>,
 ): QueryClient {
   return new QueryClient({
     mutationCache: new MutationCache({
@@ -43,11 +47,15 @@ function createQueryClient(
           return;
         }
 
-        const message = extractErrorMessage(error, t('app.somethingWentWrongRetry'), t);
+        const message = extractErrorMessage(
+          error,
+          t.current('app.somethingWentWrongRetry'),
+          t.current,
+        );
 
         Toast.show({
           type: 'error',
-          text1: t('common.error'),
+          text1: t.current('common.error'),
           text2: message,
           visibilityTime: 4000,
         });
@@ -100,7 +108,14 @@ function createQueryClient(
 export function QueryProvider({ children }: QueryProviderProps) {
   const { t } = useTranslation();
   const { isAuthenticated, user } = useAuth();
-  const queryClient = useMemo(() => createQueryClient(t), [t]);
+  // The translator is read through a ref so the client is built ONCE. Memoising
+  // on `t` rebuilt it every time i18next handed back a new function identity,
+  // which threw the whole cache away mid-session: the onboarding profile-type
+  // choice wrote `true` into the outgoing client and the redirect never saw it,
+  // leaving a permanent spinner on the first screen of first-run (carnet#215).
+  const translate = React.useRef(t);
+  translate.current = t;
+  const queryClient = useMemo(() => createQueryClient(translate), []);
 
   // Clear cache when user logs out
   React.useEffect(() => {

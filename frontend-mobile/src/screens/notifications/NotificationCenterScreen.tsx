@@ -67,7 +67,7 @@ function NotificationRow({
   onDelete: (id: string) => void;
 }) {
   const colors = useThemeColors();
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const isUnread = !item.read_at;
   const meta = NOTIFICATION_CATEGORY_META[item.category];
   const collapsedLabel = formatCollapsedCount(item.collapsed_count);
@@ -109,7 +109,7 @@ function NotificationRow({
             {t(meta.labelKey).toUpperCase()}
           </Text>
           <Text className="text-xs text-outline">
-            {formatNotificationTime(item.created_at, language)}
+            {formatNotificationTime(item.created_at, t)}
           </Text>
           {collapsedLabel && (
             <View className="ml-2 px-1.5 py-0.5 rounded bg-surface-container-low">

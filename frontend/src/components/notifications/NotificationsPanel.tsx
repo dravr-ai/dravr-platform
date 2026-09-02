@@ -50,7 +50,7 @@ interface NotificationsPanelProps {
 }
 
 export default function NotificationsPanel({ onNavigate }: NotificationsPanelProps) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<NotificationCategory | 'all'>('all');
 
   const feedParams = selectedCategory === 'all'
@@ -252,7 +252,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
 
                   {/* Time and actions */}
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[11px] text-outline">{formatNotificationTime(item.created_at, language)}</span>
+                    <span className="text-[11px] text-outline">{formatNotificationTime(item.created_at, t)}</span>
                     {/* Always visible on touch (coarse pointers have no :hover);
                         hover-reveal retained on >=sm pointer-fine devices. 44x44
                         hit area so it's tappable, not just hoverable. */}

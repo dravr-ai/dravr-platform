@@ -7,6 +7,9 @@ import type {
   UpdateNotificationPreferenceRequest,
 } from '@pierre/shared-types';
 
+/** A client's `t`. This module has no locale of its own. */
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
 /** Category display metadata shared across all frontends */
 export interface NotificationCategoryMeta {
   /** Human-readable label */
@@ -54,31 +57,27 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
 /**
  * Format a timestamp as a relative time string, in the athlete's language.
  *
- * Shared between web and mobile to ensure consistent display. It used to
- * build `Just now` and `5m ago` by hand, which both notification centres
- * rendered verbatim under French chrome; `Intl.RelativeTimeFormat` carries
- * the wording, the plural and the ordering for every locale, so no catalogue
- * key is needed and none can go stale.
- *
- * `language` is required rather than defaulted: a default is how the English
- * got there, and every caller is a component with the athlete's language in
- * hand.
+ * Shared between web and mobile. It built `Just now` and `5m ago` by hand,
+ * which both notification centres rendered verbatim under French chrome, and
+ * the first fix reached for `Intl.RelativeTimeFormat` — which the phone's
+ * JavaScript engine does not ship, so the notification list crashed with
+ * "Cannot read property 'prototype' of undefined" (carnet#216). The catalogue
+ * carries the wording instead: it exists on every runtime, and the four
+ * phrasings are short enough that no locale needs a plural rule.
  */
-export function formatNotificationTime(dateStr: string, language: string): string {
-  const elapsedMs = new Date(dateStr).getTime() - Date.now();
-  const minutes = Math.round(elapsedMs / 60_000);
-  const hours = Math.round(elapsedMs / 3_600_000);
-  const days = Math.round(elapsedMs / 86_400_000);
+export function formatNotificationTime(dateStr: string, t: Translate): string {
+  const elapsedMs = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(elapsedMs / 60_000);
+  const hours = Math.floor(elapsedMs / 3_600_000);
+  const days = Math.floor(elapsedMs / 86_400_000);
 
-  // Beyond a week a date reads better than "8 days ago", which is the same
-  // call the hand-rolled version made.
-  if (Math.abs(days) >= 7) return new Date(dateStr).toLocaleDateString(language);
-
-  const relative = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
-  if (Math.abs(minutes) < 1) return relative.format(0, 'minute');
-  if (Math.abs(hours) < 1) return relative.format(minutes, 'minute');
-  if (Math.abs(days) < 1) return relative.format(hours, 'hour');
-  return relative.format(days, 'day');
+  // Beyond a week a date reads better than "8 days ago", which is the call the
+  // hand-rolled version made too.
+  if (days >= 7) return new Date(dateStr).toLocaleDateString();
+  if (minutes < 1) return t('notifications.justNow');
+  if (hours < 1) return t('notifications.minutesAgo', { count: minutes });
+  if (days < 1) return t('notifications.hoursAgo', { count: hours });
+  return t('notifications.daysAgo', { count: days });
 }
 
 /**

@@ -112,8 +112,14 @@ describe('client locale corpus', () => {
     // wired up. Every one of those shapes is invisible to the scanner (text
     // after an expression, a bare string in an array, an assignment to an
     // object property), which is why the phone needs a render sweep.
+    //
+    // 2411 until `Intl.RelativeTimeFormat` turned out not to exist on the
+    // phone's JavaScript engine and crashed the notification centre. Four
+    // `notifications.*` keys carry the relative times instead: the catalogue
+    // is on every runtime, and these four phrasings need no plural rule
+    // (carnet#216).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2411);
+    expect(reference).toHaveLength(2415);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

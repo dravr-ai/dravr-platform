@@ -2049,10 +2049,14 @@
   },
   "notifications": {
     "channel_body": "🔔 {0}\n\n{1}",
+    "daysAgo": "hace {{count}} d",
     "digest": {
       "body": "{0} notificación(es) guardadas esta semana según tu perfil de coaching. Todo está en la app.",
       "title": "Tu resumen semanal de notificaciones"
-    }
+    },
+    "hoursAgo": "hace {{count}} h",
+    "justNow": "Ahora mismo",
+    "minutesAgo": "hace {{count}} min"
   },
   "onboarding": {
     "aboutYouHint": "Tres preguntas rápidas para que tu coach te conozca desde el principio. Sáltate las que quieras — el resto lo iremos recogiendo por el camino.",
