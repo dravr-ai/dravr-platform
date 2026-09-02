@@ -1,0 +1,48 @@
+# ABOUTME: Fails a push that moves the .build submodule pointer backwards in history
+# ABOUTME: Path-scoped to .build, so it costs nothing on a push that does not move it
+name: "Guard: .build pointer"
+
+on:
+  push:
+    paths:
+      - '.build'
+      - 'scripts/ci/check-build-pointer-direction.sh'
+      - '.github/workflows/build-pointer.yml'
+  pull_request:
+    paths:
+      - '.build'
+      - 'scripts/ci/check-build-pointer-direction.sh'
+      - '.github/workflows/build-pointer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # On main the sha joins the group so no commit can evict another's verdict,
+  # matching every other test-verdict lane here.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: false
+
+jobs:
+  direction:
+    name: pointer moves forward
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: .build may not move backwards
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            OLD='${{ github.event.pull_request.base.sha }}'
+            NEW='${{ github.event.pull_request.head.sha }}'
+          else
+            OLD='${{ github.event.before }}'
+            NEW='${{ github.sha }}'
+          fi
+          ./scripts/ci/check-build-pointer-direction.sh "$OLD" "$NEW"
