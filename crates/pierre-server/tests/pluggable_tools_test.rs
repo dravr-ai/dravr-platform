@@ -44,6 +44,7 @@ impl McpTool<dyn ToolRuntime> for StubTool {
             input_schema: serde_json::json!({"type": "object"}),
             annotations: None,
             output_schema: None,
+            execution: None,
         }
     }
 
@@ -336,6 +337,7 @@ mod audited_tool_tests {
                 input_schema: serde_json::json!({"type": "object"}),
                 annotations: None,
                 output_schema: None,
+                execution: None,
             }
         }
 

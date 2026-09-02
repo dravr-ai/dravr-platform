@@ -46,6 +46,7 @@ pub fn tool_definition(
         input_schema: serde_json::to_value(input_schema).unwrap_or_default(),
         annotations,
         output_schema: None,
+        execution: None,
     }
 }
 

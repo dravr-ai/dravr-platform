@@ -35,8 +35,8 @@ use dravr_tronc::mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
 use dravr_tronc::mcp::schema::{
     AuthCapability, CompleteRequest, CompleteResult, Completion, CompletionCapability,
     CreateMessageRequest, LoggingCapability, OAuth2Capability, PromptsCapability,
-    ResourcesCapability, Root, SamplingCapability, ServerCapabilities, Tool, ToolResponse,
-    ToolSchema, ToolsCapability,
+    ResourcesCapability, Root, SamplingCapability, ServerCapabilities, TaskSupport, Tool,
+    ToolExecution, ToolResponse, ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
@@ -111,13 +111,23 @@ fn build_context(
 }
 
 /// Convert a typed [`ToolSchema`] into the engine's raw-JSON [`Tool`] definition.
+///
+/// The SEP-2663 task-support declaration is derived from
+/// [`TASK_CAPABLE_TOOLS`] — the same constant the dispatcher's handle path
+/// gates on — so the advertisement and the behaviour cannot drift.
 fn schema_to_tool(schema: ToolSchema) -> Tool {
+    let execution = TASK_CAPABLE_TOOLS
+        .contains(&schema.name.as_str())
+        .then_some(ToolExecution {
+            task_support: TaskSupport::Optional,
+        });
     Tool {
         name: schema.name,
         description: schema.description,
         input_schema: serde_json::to_value(schema.input_schema).unwrap_or_default(),
         annotations: schema.annotations,
         output_schema: None,
+        execution,
     }
 }
 

@@ -73,6 +73,7 @@ fn schema_from_definition(def: Tool) -> ToolSchema {
         input_schema,
         annotations: def.annotations,
         output_schema: None,
+        execution: None,
     }
 }
 

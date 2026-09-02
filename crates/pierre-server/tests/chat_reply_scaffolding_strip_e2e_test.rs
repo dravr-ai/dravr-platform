@@ -98,6 +98,7 @@ mod reply_scaffolding_strip {
                 input_schema: json!({"type": "object"}),
                 annotations: None,
                 output_schema: None,
+                execution: None,
             }
         }
 

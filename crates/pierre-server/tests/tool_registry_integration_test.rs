@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
 use pierre_core::models::TenantId;
+use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
@@ -31,7 +32,8 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use uuid::Uuid;
 
-use dravr_tronc::mcp::schema::{Content, ToolResponse};
+use dravr_tronc::mcp::host::ToolDispatcher;
+use dravr_tronc::mcp::schema::{Content, TaskSupport, ToolResponse};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 
 // ============================================================================
@@ -677,6 +679,7 @@ async fn test_register_external_tool() {
                 input_schema: serde_json::json!({"type": "object"}),
                 annotations: None,
                 output_schema: None,
+                execution: None,
             }
         }
         fn capabilities(&self) -> ToolCapabilities {
@@ -732,6 +735,7 @@ async fn test_external_tool_with_builtin_tools() {
                 input_schema: serde_json::json!({"type": "object"}),
                 annotations: None,
                 output_schema: None,
+                execution: None,
             }
         }
         fn capabilities(&self) -> ToolCapabilities {
@@ -764,4 +768,66 @@ async fn test_external_tool_with_builtin_tools() {
     assert_eq!(registry.len(), builtin_count + 1);
     assert!(registry.contains("custom_integration_tool"));
     assert!(registry.contains("list_coaches")); // Built-in still present
+}
+
+// ============================================================================
+// SEP-2663 Task-Support Advertisement
+// ============================================================================
+
+/// `tools/list` carries the task-support declaration a client reads before it
+/// decides to poll, so this asserts the wire shape a real MCP client sees:
+/// long-running tools advertise `taskSupport: optional`, the deliberately
+/// synchronous ones carry no `execution` block at all, and the annotated set
+/// is a strict subset of the registry. A dispatcher that annotated everything,
+/// nothing, or dropped the field entirely fails all three.
+#[tokio::test]
+async fn test_list_tools_advertises_task_support() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.coach.database)
+        .await
+        .expect("Failed to create user");
+
+    let dispatcher = PierreToolDispatcher::new(resources.clone());
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let tools = dispatcher
+        .list_tools(&state, &tronc_context(user_id, None, true))
+        .await;
+
+    let execution_of = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("{name} missing from tools/list"))
+            .execution
+    };
+
+    // Provider-fetching work a client may poll instead of blocking on.
+    for name in ["get_activities", "push_training_plan", "analyze_activity"] {
+        let execution = execution_of(name).unwrap_or_else(|| {
+            panic!("{name} should advertise task support");
+        });
+        assert_eq!(
+            execution.task_support,
+            TaskSupport::Optional,
+            "{name} should be pollable but not force a handle"
+        );
+    }
+
+    // Deterministic or DB-only work answers in band; advertising a handle for
+    // it would make a client poll for a result it already had.
+    for name in ["verify_claim", "set_goal"] {
+        assert!(
+            execution_of(name).is_none(),
+            "{name} is synchronous and must not advertise task support"
+        );
+    }
+
+    let annotated = tools.iter().filter(|t| t.execution.is_some()).count();
+    assert!(
+        annotated > 0 && annotated < tools.len(),
+        "task support should be selective, got {annotated} of {} tools",
+        tools.len()
+    );
 }

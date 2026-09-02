@@ -98,6 +98,7 @@ mod pipeline_tool_loop {
                 input_schema: json!({"type": "object"}),
                 annotations: None,
                 output_schema: None,
+                execution: None,
             }
         }
 

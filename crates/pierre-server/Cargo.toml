@@ -180,8 +180,8 @@ server-full = ["protocol-all", "transport-all", "client-all", "client-messaging"
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 
 [dependencies]
-embacle = { version = "0.22.6" }
-embacle-tool-host = "0.22.6"
+embacle = { version = "0.23.0" }
+embacle-tool-host = "0.23.0"
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
@@ -230,7 +230,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "6c0c973f2daa3582fbfa3d3853dd67f28005fd41" }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
 photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.1.6" }
-dravr-tronc = { version = "0.8.0", features = ["notifications", "google-iam"] }
+dravr-tronc = { version = "0.9.0", features = ["notifications", "google-iam"] }
 pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
 pierre-enforme = { path = "../pierre-enforme", version = "0.3.0", optional = true, features = ["provider-whoop"] }
 dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.4", optional = true }
@@ -319,7 +319,7 @@ anyhow = "1.0"
 # against the same inputs. Production language detection lives in
 # pierre-chat-pipeline's turn service, which carries its own dependency.
 whatlang = "0.16"
-embacle = { version = "0.22.6" }
+embacle = { version = "0.23.0" }
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }

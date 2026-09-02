@@ -153,7 +153,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Unix timestamp (epoch seconds) lower bound — return only activities at or after this time. REQUIRED for any year- or date-scoped question (e.g. 'my 2022 races', 'runs last spring'): set `after` to the start of the range and `before` to the end. Do NOT try to reach older activities by raising `limit` — the feed is newest-first and will not page back far; date filters are the only way to query history. Deep historical windows are served from cache or fetched in the background, so a first request may return a 'fetching, ask again shortly' status.".to_owned(),
+                    "Unix timestamp (epoch seconds) lower bound — return only activities at or after this time. REQUIRED for any year- or date-scoped question (e.g. 'my 2022 races', 'runs last spring'): set `after` to the start of the range and `before` to the end. Do NOT try to reach older activities by raising `limit` — the feed is newest-first and will not page back far; date filters are the only way to query history. Deep historical windows are served from cache or fetched in the background: a first request may return a 'fetching, ask again shortly' status, and a client that declared the io.modelcontextprotocol/tasks extension receives a task handle to poll instead.".to_owned(),
                 ),
                 ..Default::default()
             },

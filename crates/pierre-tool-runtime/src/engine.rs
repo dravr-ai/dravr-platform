@@ -249,6 +249,7 @@ impl ToolEngine {
                     },
                     annotations: None,
                     output_schema: None,
+                    execution: None,
                 })
             })
             .collect()

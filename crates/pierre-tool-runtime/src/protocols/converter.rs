@@ -277,6 +277,7 @@ impl ProtocolConverter {
             }),
             annotations: None,
             output_schema: None,
+            execution: None,
         }
     }
 }
