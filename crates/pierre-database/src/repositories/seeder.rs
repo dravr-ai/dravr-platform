@@ -263,6 +263,24 @@ pub trait SeederRepository: Send + Sync {
     /// successor keeps blocking the delete until an operator picks one.
     /// Returns the number of conversations detached.
     async fn seed_detach_coach_conversations(&self, retired_coach_id: &str) -> AppResult<u64>;
+
+    /// Stamp `source = 'contremaitre'` on the tenant's system coaches still carrying `'seed'`.
+    ///
+    /// The source-column migration stamped the transitional `'seed'` on every
+    /// row seeded before it existed, and the update path only re-stamps a row
+    /// whose content hash changed — so a coach untouched since then stayed
+    /// `'seed'` and the daily drift gate warned about it every morning. Every
+    /// coach-seeder run claims those rows outright: a catalogue file for the
+    /// slug is what makes the catalogue authoritative, not an edit. Returns
+    /// the number of rows stamped.
+    async fn seed_take_catalogue_ownership(&self, tenant_id: &str) -> AppResult<u64>;
+
+    /// Every slug the catalogue owns in any tenant, for the drift gate.
+    ///
+    /// Tenant-agnostic like [`Self::seed_find_coach_drift_info`]: the gate
+    /// walks the contremaitre checkout and compares, and a catalogue-owned
+    /// row whose file is gone is the orphan it reports.
+    async fn seed_list_catalogue_slugs(&self) -> AppResult<Vec<String>>;
 }
 
 /// One `UPDATE` per athlete-side pointer onto `coaches.id`.

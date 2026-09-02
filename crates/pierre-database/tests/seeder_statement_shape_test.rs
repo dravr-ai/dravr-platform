@@ -117,9 +117,13 @@ fn coach_insert_statements_are_internally_consistent() {
 fn coach_update_statements_are_internally_consistent() {
     for rel in ["src/database/seeder.rs", "src/backends/postgres/seeder.rs"] {
         let src = source(rel);
-        let stmt = statement(&src, "UPDATE coaches SET");
+        // The coach update is the statement whose SET list starts on the next
+        // source line; `seed_take_catalogue_ownership` also opens with
+        // `UPDATE coaches SET`, on one line, and is not the one under test.
+        let needle = "UPDATE coaches SET \\";
+        let stmt = statement(&src, needle);
         let (max_param, contiguous) = placeholders(&stmt);
-        let binds = binds_after(&src, "UPDATE coaches SET");
+        let binds = binds_after(&src, needle);
 
         assert!(contiguous, "{rel}: UPDATE placeholders are not $1..=$N");
         assert_eq!(

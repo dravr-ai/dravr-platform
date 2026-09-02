@@ -13,7 +13,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
 
-use pierre_coach_parser::drift::{classify_drift, DbCoachRow, DriftOutcome};
+use pierre_coach_parser::drift::{classify_drift, orphaned_slugs, DbCoachRow, DriftOutcome};
 
 fn row(source: &str, hash: Option<&str>) -> DbCoachRow {
     DbCoachRow {
@@ -79,4 +79,30 @@ fn source_mismatch_when_db_source_is_custom_even_if_hashes_match() {
 #[test]
 fn missing_when_db_has_no_row() {
     assert_eq!(classify_drift("any_hash", None), DriftOutcome::Missing);
+}
+
+/// The gate used to look only from the checkout towards the database, so a
+/// row that outlived its file was invisible. Orphans are the catalogue-owned
+/// slugs the database holds that no file names.
+#[test]
+fn orphaned_slugs_are_the_catalogue_rows_without_a_file() {
+    let files = vec!["kept-coach".to_owned(), "other-coach".to_owned()];
+    let db = vec![
+        "kept-coach".to_owned(),
+        "other-coach".to_owned(),
+        "retired-coach".to_owned(),
+    ];
+    assert_eq!(
+        orphaned_slugs(&files, &db),
+        vec!["retired-coach".to_owned()]
+    );
+    assert!(
+        orphaned_slugs(&files, &files).is_empty(),
+        "a database that mirrors the checkout has no orphans"
+    );
+    assert_eq!(
+        orphaned_slugs(&[], &db).len(),
+        3,
+        "an empty checkout orphans every catalogue row — a warning per coach, not silence"
+    );
 }

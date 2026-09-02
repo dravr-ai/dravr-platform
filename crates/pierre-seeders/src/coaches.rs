@@ -124,6 +124,7 @@ async fn run_coach_passes(
     let coaches = &discovery.coaches;
     let canon: Vec<&CoachDefinition> = coaches.iter().map(|c| &c.canonical).collect();
     let (mut stats, slug_to_id) = sync_coaches(repos, &canon, admin, dry_run).await;
+    take_catalogue_ownership(repos, admin, &mut stats, dry_run).await;
     sync_translations(repos, coaches, &slug_to_id, &mut stats, dry_run).await;
     sync_relations(repos, &canon, &slug_to_id, &mut stats, dry_run).await;
     publish_to_store(repos, &slug_to_id, admin, &mut stats, dry_run).await;
@@ -170,6 +171,38 @@ async fn sync_coaches(
     }
 
     (stats, slug_to_id)
+}
+
+/// Claim the tenant's legacy `source = 'seed'` rows for the catalogue.
+///
+/// Pass 1 only writes a row whose content hash changed, so a coach untouched
+/// since the source-column migration kept its transitional `'seed'` stamp and
+/// the daily drift gate warned about it every morning. A catalogue file for
+/// the slug is what makes the catalogue authoritative, not an edit. Rows the
+/// checkout no longer carries are stamped too; the prune pass deletes them
+/// in the same run.
+async fn take_catalogue_ownership(
+    repos: &RepositoryRegistry,
+    admin: &AdminUser,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) {
+    if dry_run {
+        debug!("  [dry-run] legacy 'seed' rows would be claimed for the catalogue");
+        return;
+    }
+    match repos
+        .seeder
+        .seed_take_catalogue_ownership(&admin.tenant_id.to_string())
+        .await
+    {
+        Ok(0) => {}
+        Ok(claimed) => info!("  ~ {claimed} legacy row(s) now owned by the catalogue"),
+        Err(e) => {
+            warn!("  ✗ Could not take catalogue ownership: {e}");
+            stats.errors.push(format!("ownership: {e}"));
+        }
+    }
 }
 
 /// Sync per-locale translations to `coach_translations` (Pass 2).

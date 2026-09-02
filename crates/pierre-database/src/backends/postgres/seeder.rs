@@ -790,6 +790,31 @@ impl SeederRepository for PostgresDatabase {
         Ok(result.rows_affected())
     }
 
+    async fn seed_take_catalogue_ownership(&self, tenant_id: &str) -> AppResult<u64> {
+        let result = sqlx::query(
+            "UPDATE coaches SET source = 'contremaitre' \
+             WHERE tenant_id = $1::uuid AND is_system = TRUE AND source = 'seed'",
+        )
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to take catalogue ownership: {e}")))?;
+        Ok(result.rows_affected())
+    }
+
+    async fn seed_list_catalogue_slugs(&self) -> AppResult<Vec<String>> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT slug FROM coaches \
+             WHERE is_system = TRUE AND slug IS NOT NULL \
+               AND source IN ('contremaitre', 'seed') \
+             ORDER BY slug",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list catalogue slugs: {e}")))?;
+        Ok(rows.iter().map(|r| r.get("slug")).collect())
+    }
+
     async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()> {
         // coaches.id is TEXT, user_id and tenant_id are UUID
         // `source = 'contremaitre'` flags this row for the

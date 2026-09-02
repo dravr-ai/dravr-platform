@@ -34,12 +34,14 @@
 //!   → WARN (source mismatch; the contremaitre file may need re-seeding to
 //!   take ownership).
 //! * If the DB has no row for the slug → WARN (missing coach).
+//! * If the DB holds a catalogue-owned row whose file is gone → WARN
+//!   (orphaned coach; the seed job's prune pass deletes it on its next run).
 //! * Clean result → INFO `coach drift check: N coaches checked, all in sync`.
 
 use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
-use pierre_coach_parser::drift::{classify_drift, DbCoachRow, DriftOutcome};
+use pierre_coach_parser::drift::{classify_drift, orphaned_slugs, DbCoachRow, DriftOutcome};
 use pierre_coach_parser::{parse_coach_file, CANONICAL_LOCALE};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
@@ -81,7 +83,8 @@ pub async fn dispatch(action: DriftCommand, database_url: &str) -> AppResult<()>
 async fn run_coaches(args: CoachesArgs, database_url: &str) -> AppResult<()> {
     let repos = connect(database_url).await?;
     let file_hashes = scan_coach_dir(&args.coaches_dir)?;
-    let totals = compare_to_db(&repos, &file_hashes).await?;
+    let mut totals = compare_to_db(&repos, &file_hashes).await?;
+    report_orphans(&repos, &file_hashes, &mut totals).await?;
     finalize(file_hashes.len(), &totals)
 }
 
@@ -126,6 +129,29 @@ async fn compare_to_db(
         );
     }
     Ok(totals)
+}
+
+/// Warn about catalogue-owned rows whose contremaitre file is gone.
+///
+/// The walk above only looks from the checkout towards the database, so a
+/// row that outlived its file was invisible to the gate. The seed job's
+/// prune pass removes such rows, but a seed job that has stopped running
+/// would leave them, and this is the check that notices.
+async fn report_orphans(
+    repos: &RepositoryRegistry,
+    file_hashes: &[(String, String)],
+    totals: &mut DriftTotals,
+) -> AppResult<()> {
+    let file_slugs: Vec<String> = file_hashes.iter().map(|(slug, _)| slug.clone()).collect();
+    let db_slugs = repos.seeder.seed_list_catalogue_slugs().await?;
+    for slug in orphaned_slugs(&file_slugs, &db_slugs) {
+        warn!(
+            "coach orphaned in database: slug={} (DB has it; contremaitre does not — the seed job's prune pass deletes it on its next run)",
+            slug
+        );
+        totals.warn += 1;
+    }
+    Ok(())
 }
 
 /// Convert the accumulated totals into the command's exit signal: an

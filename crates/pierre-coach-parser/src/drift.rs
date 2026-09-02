@@ -17,6 +17,8 @@
 //! and the Cloud Run job that runs it daily exist to make sure the next
 //! contremaitre→DB regression surfaces within 24 hours, not 24 days.
 
+use std::collections::HashSet;
+
 /// Snapshot of the `(source, content_hash)` columns for one coach row.
 ///
 /// `content_hash` is `None` when the column is NULL (pre-2026-04 rows
@@ -81,4 +83,18 @@ pub fn classify_drift(file_hash: &str, db_row: Option<&DbCoachRow>) -> DriftOutc
             actual: row.content_hash.clone(),
         }
     }
+}
+
+/// Catalogue-owned slugs the database holds that the checkout no longer has.
+///
+/// The seed job's prune pass deletes these on its next run; the drift gate
+/// reports them so a seed job that has stopped running cannot hide one.
+#[must_use]
+pub fn orphaned_slugs(file_slugs: &[String], db_slugs: &[String]) -> Vec<String> {
+    let on_disk: HashSet<&str> = file_slugs.iter().map(String::as_str).collect();
+    db_slugs
+        .iter()
+        .filter(|slug| !on_disk.contains(slug.as_str()))
+        .cloned()
+        .collect()
 }
