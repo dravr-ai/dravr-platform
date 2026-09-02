@@ -3,18 +3,25 @@
 
 import type { ReplyNotice } from '@pierre/shared-types';
 
+import type { TranslatableText } from './text';
+
 /** What a quota notice puts on the banner. */
 export interface QuotaBanner {
   /** How close the cap is, in the banner's own vocabulary. */
   level: 'warning' | 'burst';
-  /** The sentence to show. */
-  message: string;
+  /** The sentence to show, as a catalogue key the client translates. */
+  text: TranslatableText;
   /** RFC3339 instant the counter resets at. */
   resetsAt: string;
 }
 
-/** The reset instant in the reader's own timezone. */
-function formatResetTime(isoString: string): string {
+/**
+ * The reset instant in the reader's own timezone.
+ *
+ * `fallback` is the caller's translated wording for an unparseable instant:
+ * this module has no locale, so it cannot reach the catalogue itself.
+ */
+function formatResetTime(isoString: string, fallback: string): string {
   try {
     return new Intl.DateTimeFormat(undefined, {
       hour: 'numeric',
@@ -22,7 +29,7 @@ function formatResetTime(isoString: string): string {
       timeZoneName: 'short',
     }).format(new Date(isoString));
   } catch {
-    return 'midnight UTC';
+    return fallback;
   }
 }
 
@@ -34,21 +41,30 @@ function formatResetTime(isoString: string): string {
  * scraping `/in (\d+) seconds/` out of the refusal sentence, which only ever
  * matched English and told the athlete nothing about which cap they had hit.
  */
-export function quotaNoticeBanner(notice: ReplyNotice): QuotaBanner {
-  const resetTime = formatResetTime(notice.resets_at);
-  const pct = notice.limit > 0 ? Math.round((notice.current / notice.limit) * 100) : 0;
+export function quotaNoticeBanner(notice: ReplyNotice, resetFallback: string): QuotaBanner {
+  const time = formatResetTime(notice.resets_at, resetFallback);
+  const percent = notice.limit > 0 ? Math.round((notice.current / notice.limit) * 100) : 0;
+
+  // `label` is itself a catalogue key: the client translates it and passes it
+  // back in, so the sentence and the thing it names agree on one language.
+  const params = {
+    label: 'usage.messageQuota',
+    current: notice.current,
+    limit: notice.limit,
+    time,
+  };
 
   if (notice.level === 'burst') {
     return {
       level: 'burst',
-      message: `You're in the burst zone for your message quota (${notice.current}/${notice.limit}). Limits reset at ${resetTime}.`,
+      text: { key: 'usage.burstZone', params },
       resetsAt: notice.resets_at,
     };
   }
 
   return {
     level: 'warning',
-    message: `You've used ${pct}% of your message quota (${notice.current}/${notice.limit}). Limits reset at ${resetTime}.`,
+    text: { key: 'usage.percentUsed', params: { ...params, percent } },
     resetsAt: notice.resets_at,
   };
 }

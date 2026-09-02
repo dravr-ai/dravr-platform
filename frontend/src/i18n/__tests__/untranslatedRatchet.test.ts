@@ -72,14 +72,14 @@ const ROOTS = [
  * watches on every turn. Extending the walk to `.ts` turned an honest-looking
  * 0 into 83, none of them new (carnet#206).
  *
- * So this number is debt, measured, and it only ever goes down. It is not an
- * allowance to add to: a new hardcoded string still fails this gate, because
- * clearing one is the only way to make room. The file list the failure prints
- * is the work order, and `#207` tracks it file by file — several of those
- * files belong to other sessions' open issues right now, which is why this
- * change measures the debt rather than paying it.
+ * Web and the shared packages are clear: the remaining 41 are all under
+ * `frontend-mobile/src`, one file per hook, and `#207` lists them. The number
+ * only ever goes down. It is not an allowance to add to — a new hardcoded
+ * string on either client still fails this gate, because clearing one is the
+ * only way to make room, and the failure prints the files carrying the most
+ * so it reads as a work order rather than a number to bump.
  */
-const CEILING = 83;
+const CEILING = 41;
 
 describe('untranslated string ratchet', () => {
   it('carries no more hardcoded user-facing strings than the ceiling', () => {

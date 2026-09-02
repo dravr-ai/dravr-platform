@@ -2543,6 +2543,15 @@
     "statusActive": "Active",
     "title": "API Tokens"
   },
+  "usage": {
+    "blockedLimitReached": "{{label}} limit reached. Limits reset at {{time}}.",
+    "burstZone": "You're in the burst zone for {{label}} ({{current}}/{{limit}}). Limits reset at {{time}}.",
+    "dailyMessages": "your daily messages",
+    "dailyTokens": "your daily tokens",
+    "messageQuota": "your message quota",
+    "percentUsed": "You've used {{percent}}% of {{label}} ({{current}}/{{limit}}). Limits reset at {{time}}.",
+    "weeklyMessages": "your weekly messages"
+  },
   "validation": {
     "email": "Enter a valid email address",
     "integer": "Enter a whole number",

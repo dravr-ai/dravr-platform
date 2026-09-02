@@ -8,7 +8,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReplyNotice } from '@pierre/shared-types';
 import { quotaNoticeBanner } from '@pierre/chat-utils';
+import type { TranslatableText } from '@pierre/chat-utils';
 import { usageApi, type UsageStatusResponse, type LimitCheckResult } from '../services/api/usage';
+import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 /** Warning level for usage status display */
@@ -20,8 +22,8 @@ export interface UsageWarningState {
   level: WarningLevel;
   /** Whether message sending should be disabled */
   sendDisabled: boolean;
-  /** Human-readable message to show in the banner */
-  message: string;
+  /** The banner sentence, as a catalogue key plus its params. */
+  text: TranslatableText | null;
   /** ISO 8601 timestamp for when limits reset */
   resetsAt: string;
   /** The most restrictive counter that triggered the warning */
@@ -45,7 +47,7 @@ const LEVEL_PRIORITY: Record<WarningLevel, number> = {
 };
 
 /** Format reset time in user's local timezone */
-function formatResetTime(isoString: string): string {
+function formatResetTime(isoString: string, fallback: string): string {
   try {
     const date = new Date(isoString);
     return new Intl.DateTimeFormat(undefined, {
@@ -54,21 +56,33 @@ function formatResetTime(isoString: string): string {
       timeZoneName: 'short',
     }).format(date);
   } catch {
-    return 'midnight UTC';
+    return fallback;
   }
 }
 
-/** Compute the warning state from the full usage status response */
-export function computeWarningState(data: UsageStatusResponse | undefined): UsageWarningState {
+/**
+ * Compute the warning state from the full usage status response.
+ *
+ * `resetFallback` is the caller's translated wording for an unparseable reset
+ * instant. The sentences themselves come back as catalogue keys: this ran as
+ * three hardcoded English templates, and the banner rendered them verbatim
+ * under French chrome (carnet#207).
+ */
+export function computeWarningState(
+  data: UsageStatusResponse | undefined,
+  resetFallback: string,
+): UsageWarningState {
   if (!data) {
-    return { level: 'none', sendDisabled: false, message: '', resetsAt: '', triggerCounter: null };
+    return { level: 'none', sendDisabled: false, text: null, resetsAt: '', triggerCounter: null };
   }
 
-  // Check all daily counters (most relevant for chat usage)
+  // Check all daily counters (most relevant for chat usage). The label is a
+  // catalogue key; the banner translates it and passes it back into the
+  // sentence, so both halves speak one language.
   const counters: Array<{ counter: LimitCheckResult; label: string }> = [
-    { counter: data.daily.messages, label: 'daily messages' },
-    { counter: data.daily.tokens, label: 'daily tokens' },
-    { counter: data.weekly.messages, label: 'weekly messages' },
+    { counter: data.daily.messages, label: 'usage.dailyMessages' },
+    { counter: data.daily.tokens, label: 'usage.dailyTokens' },
+    { counter: data.weekly.messages, label: 'usage.weeklyMessages' },
   ];
 
   let worstLevel: WarningLevel = 'none';
@@ -85,33 +99,39 @@ export function computeWarningState(data: UsageStatusResponse | undefined): Usag
   }
 
   if (!worstCounter || worstLevel === 'none') {
-    return { level: 'none', sendDisabled: false, message: '', resetsAt: '', triggerCounter: null };
+    return { level: 'none', sendDisabled: false, text: null, resetsAt: '', triggerCounter: null };
   }
 
-  const resetTime = formatResetTime(worstCounter.resets_at);
-  const pct = worstCounter.limit > 0
+  const time = formatResetTime(worstCounter.resets_at, resetFallback);
+  const percent = worstCounter.limit > 0
     ? Math.round((worstCounter.current / worstCounter.limit) * 100)
     : 0;
+  const params = {
+    label: worstLabel,
+    current: worstCounter.current,
+    limit: worstCounter.limit,
+    time,
+  };
 
-  let message: string;
+  let text: TranslatableText | null;
   switch (worstLevel) {
     case 'blocked':
-      message = `${worstLabel.charAt(0).toUpperCase() + worstLabel.slice(1)} limit reached. Limits reset at ${resetTime}.`;
+      text = { key: 'usage.blockedLimitReached', params };
       break;
     case 'burst':
-      message = `You're in the burst zone for ${worstLabel} (${worstCounter.current}/${worstCounter.limit}). Limits reset at ${resetTime}.`;
+      text = { key: 'usage.burstZone', params };
       break;
     case 'warning':
-      message = `You've used ${pct}% of your ${worstLabel} (${worstCounter.current}/${worstCounter.limit}). Limits reset at ${resetTime}.`;
+      text = { key: 'usage.percentUsed', params: { ...params, percent } };
       break;
     default:
-      message = '';
+      text = null;
   }
 
   return {
     level: worstLevel,
     sendDisabled: worstLevel === 'blocked',
-    message,
+    text,
     resetsAt: worstCounter.resets_at,
     triggerCounter: worstCounter,
   };
@@ -125,12 +145,15 @@ export function computeWarningState(data: UsageStatusResponse | undefined): Usag
  * different sentence on the other. A notice never blocks sending: the turn it
  * rode already succeeded.
  */
-export function warningStateFromNotice(notice: ReplyNotice): UsageWarningState {
-  const banner = quotaNoticeBanner(notice);
+export function warningStateFromNotice(
+  notice: ReplyNotice,
+  resetFallback: string,
+): UsageWarningState {
+  const banner = quotaNoticeBanner(notice, resetFallback);
   return {
     level: banner.level,
     sendDisabled: false,
-    message: banner.message,
+    text: banner.text,
     resetsAt: banner.resetsAt,
     triggerCounter: null,
   };
@@ -147,6 +170,7 @@ export function warningStateFromNotice(notice: ReplyNotice): UsageWarningState {
  */
 export function useUsageStatus() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const [turnNotice, setTurnNotice] = useState<ReplyNotice | null>(null);
 
   const { data, isLoading, error } = useQuery<UsageStatusResponse>({
@@ -162,8 +186,11 @@ export function useUsageStatus() {
   }, [data]);
 
   const warningState = useMemo(
-    () => (turnNotice ? warningStateFromNotice(turnNotice) : computeWarningState(data)),
-    [turnNotice, data],
+    () =>
+      turnNotice
+        ? warningStateFromNotice(turnNotice, t('settingsUi.midnightUtc'))
+        : computeWarningState(data, t('settingsUi.midnightUtc')),
+    [turnNotice, data, t],
   );
 
   /** Invalidate the usage query (call after sending a message) */

@@ -6,6 +6,8 @@
 
 import type { TurnProgress } from '@pierre/shared-types';
 
+import type { TranslatableText } from './text';
+
 /**
  * The catalogue key of the generic placeholder shown before the first named
  * stage arrives and between tool calls.
@@ -33,12 +35,7 @@ const TOOL_COMPLETED = 'Completed';
  * is how a French athlete came to read "generating response…" under French
  * chrome while every i18n gate was green (carnet#206).
  */
-export interface ProgressStatus {
-  /** Dotted catalogue key, e.g. `chat.status.generatingResponse`. */
-  key: string;
-  /** Interpolation values for that key, absent when it takes none. */
-  params?: Record<string, string>;
-}
+export type ProgressStatus = TranslatableText;
 
 /**
  * Map one progress event to the status line to show, or `null` when it should

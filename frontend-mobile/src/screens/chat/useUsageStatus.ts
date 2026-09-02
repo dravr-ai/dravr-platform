@@ -7,7 +7,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReplyNotice } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 import { quotaNoticeBanner } from '@pierre/chat-utils';
+import type { Translate } from '@pierre/chat-utils';
 import { apiClient } from '../../services/api';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 
@@ -142,12 +144,21 @@ export function computeWarningState(data: UsageStatusResponse | undefined): Usag
  * reads the same way on both clients. A notice never blocks sending: the turn
  * it rode already succeeded.
  */
-export function warningStateFromNotice(notice: ReplyNotice): UsageWarningState {
-  const banner = quotaNoticeBanner(notice);
+export function warningStateFromNotice(
+  notice: ReplyNotice,
+  t: Translate,
+): UsageWarningState {
+  const banner = quotaNoticeBanner(notice, t('settingsUi.midnightUtc'));
+  const label = banner.text.params?.label;
   return {
     level: banner.level,
     sendDisabled: false,
-    message: banner.message,
+    // `label` is itself a catalogue key, translated here so the sentence and
+    // the counter it names agree on one language.
+    message: t(banner.text.key, {
+      ...banner.text.params,
+      ...(typeof label === 'string' ? { label: t(label) } : {}),
+    }),
     resetsAt: banner.resetsAt,
   };
 }
@@ -163,6 +174,7 @@ export function warningStateFromNotice(notice: ReplyNotice): UsageWarningState {
  */
 export function useUsageStatus() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const [turnNotice, setTurnNotice] = useState<ReplyNotice | null>(null);
 
   const { data, isLoading } = useQuery<UsageStatusResponse>({
@@ -181,7 +193,7 @@ export function useUsageStatus() {
   }, [data]);
 
   const warningState = useMemo(
-    () => (turnNotice ? warningStateFromNotice(turnNotice) : computeWarningState(data)),
+    () => (turnNotice ? warningStateFromNotice(turnNotice, t) : computeWarningState(data)),
     [turnNotice, data],
   );
 

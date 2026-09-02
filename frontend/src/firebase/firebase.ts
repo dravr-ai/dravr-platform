@@ -77,7 +77,10 @@ export function getFirebaseAuth(): Auth | null {
 export async function signInWithGoogle(): Promise<string | null> {
   const firebaseAuth = getFirebaseAuth();
   if (!firebaseAuth) {
-    throw new Error('Google Sign-In is not available. Firebase is not configured.');
+    // A code, not a sentence: every caller maps failures to a catalogue key
+    // (`describeGoogleFailure` in Login.tsx), and prose here would be English
+    // on a crash screen that renders `error.message` verbatim.
+    throw new Error('firebase-not-configured');
   }
 
   const provider = new GoogleAuthProvider();

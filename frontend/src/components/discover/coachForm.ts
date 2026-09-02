@@ -41,7 +41,10 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
   title: '',
   description: '',
   system_prompt: '',
-  category: 'Training',
+  // The wire's `CoachCategory` union is lowercase. `'Training'` matched no
+  // entry in `COACH_CATEGORY_LABEL_KEY`, so a coach created from this form
+  // fell through to `custom` and its badge read "Personnalisé".
+  category: 'training',
   startup_query: '',
   prefetch_enabled: false,
   activity_count: 20,

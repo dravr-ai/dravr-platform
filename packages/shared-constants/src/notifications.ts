@@ -52,23 +52,33 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
 ] as const;
 
 /**
- * Format a timestamp as a relative time string (e.g., "5m ago", "2h ago").
+ * Format a timestamp as a relative time string, in the athlete's language.
  *
- * Shared between web and mobile to ensure consistent display.
+ * Shared between web and mobile to ensure consistent display. It used to
+ * build `Just now` and `5m ago` by hand, which both notification centres
+ * rendered verbatim under French chrome; `Intl.RelativeTimeFormat` carries
+ * the wording, the plural and the ordering for every locale, so no catalogue
+ * key is needed and none can go stale.
+ *
+ * `language` is required rather than defaulted: a default is how the English
+ * got there, and every caller is a component with the athlete's language in
+ * hand.
  */
-export function formatNotificationTime(dateStr: string): string {
-  const now = Date.now();
-  const date = new Date(dateStr).getTime();
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60_000);
-  const diffHr = Math.floor(diffMs / 3_600_000);
-  const diffDay = Math.floor(diffMs / 86_400_000);
+export function formatNotificationTime(dateStr: string, language: string): string {
+  const elapsedMs = new Date(dateStr).getTime() - Date.now();
+  const minutes = Math.round(elapsedMs / 60_000);
+  const hours = Math.round(elapsedMs / 3_600_000);
+  const days = Math.round(elapsedMs / 86_400_000);
 
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return new Date(dateStr).toLocaleDateString();
+  // Beyond a week a date reads better than "8 days ago", which is the same
+  // call the hand-rolled version made.
+  if (Math.abs(days) >= 7) return new Date(dateStr).toLocaleDateString(language);
+
+  const relative = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
+  if (Math.abs(minutes) < 1) return relative.format(0, 'minute');
+  if (Math.abs(hours) < 1) return relative.format(minutes, 'minute');
+  if (Math.abs(days) < 1) return relative.format(hours, 'hour');
+  return relative.format(days, 'day');
 }
 
 /**

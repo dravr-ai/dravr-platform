@@ -880,7 +880,7 @@ export default function ChatTab({
         actions={composeMenu(true)}
       />
       {/* Usage warning banner */}
-      <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
+      <UsageWarningBanner level={usageStatus.level} text={usageStatus.text} />
       {banner}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="px-4 py-4 md:px-8">

@@ -54,18 +54,31 @@ function makeStatusResponse(overrides: Partial<{
   };
 }
 
+/**
+ * Params for the sentence under test. `label` is itself a catalogue key: the
+ * banner translates it and passes it back in, which is the behaviour the
+ * rendering assertions below depend on.
+ */
+const SAMPLE_PARAMS = {
+  label: 'usage.dailyMessages',
+  current: 80,
+  limit: 100,
+  percent: 80,
+  time: '9:00 AM',
+};
+
 describe('computeWarningState', () => {
   it('returns none when all counters are within limits', () => {
     const data = makeStatusResponse({});
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, 'midnight UTC');
 
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
-    expect(state.message).toBe('');
+    expect(state.text).toBeNull();
   });
 
   it('returns none when data is undefined', () => {
-    const state = computeWarningState(undefined);
+    const state = computeWarningState(undefined, 'midnight UTC');
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
   });
@@ -74,34 +87,34 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, 'midnight UTC');
 
     expect(state.level).toBe('warning');
     expect(state.sendDisabled).toBe(false);
-    expect(state.message).toContain('80%');
-    expect(state.message).toContain('daily messages');
+    expect(state.text?.params?.percent).toBe(80);
+    expect(state.text?.params?.label).toBe('usage.dailyMessages');
   });
 
   it('returns burst when in burst zone', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, 'midnight UTC');
 
     expect(state.level).toBe('burst');
     expect(state.sendDisabled).toBe(false);
-    expect(state.message).toContain('burst zone');
+    expect(state.text?.key).toBe('usage.burstZone');
   });
 
   it('returns blocked when not allowed', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 75, limit: 50, allowed: false, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, 'midnight UTC');
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
-    expect(state.message).toContain('limit reached');
+    expect(state.text?.key).toBe('usage.blockedLimitReached');
   });
 
   it('picks the most severe level across counters', () => {
@@ -109,7 +122,7 @@ describe('computeWarningState', () => {
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }), // warning
       dailyTokens: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }), // burst
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, 'midnight UTC');
 
     expect(state.level).toBe('burst');
   });
@@ -117,26 +130,30 @@ describe('computeWarningState', () => {
 
 describe('UsageWarningBanner', () => {
   it('renders nothing when level is none', () => {
-    const { container } = render(<UsageWarningBanner level="none" message="" />);
+    const { container } = render(<UsageWarningBanner level="none" text={null} />);
     expect(container.firstChild).toBeNull();
   });
 
   it('renders warning banner on the warning token', () => {
-    render(<UsageWarningBanner level="warning" message="80% of daily messages used" />);
+    render(<UsageWarningBanner level="warning" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
     expect(banner).toBeDefined();
-    expect(banner.textContent).toContain('80% of daily messages used');
+    // The banner renders the catalogue sentence, with the counter label
+    // translated from its own key rather than pasted in as English.
+    expect(banner.textContent).toContain('80%');
+    expect(banner.textContent).toContain('your daily messages');
+    expect(banner.textContent).toContain('(80/100)');
     expect(banner.className).toContain('bg-warning/10');
   });
 
   it('renders burst banner on the warning token at heavier weight', () => {
-    render(<UsageWarningBanner level="burst" message="In burst zone" />);
+    render(<UsageWarningBanner level="burst" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
     expect(banner.className).toContain('bg-warning/25');
   });
 
   it('renders blocked banner on the error token', () => {
-    render(<UsageWarningBanner level="blocked" message="Limit reached" />);
+    render(<UsageWarningBanner level="blocked" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
     expect(banner.className).toContain('bg-error/10');
   });
@@ -147,7 +164,7 @@ describe('UsageWarningBanner', () => {
   it('styles every escalation level distinguishably', () => {
     const seen = new Set<string>();
     for (const level of ['warning', 'burst', 'blocked'] as const) {
-      const { unmount } = render(<UsageWarningBanner level={level} message="x" />);
+      const { unmount } = render(<UsageWarningBanner level={level} text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
       seen.add(screen.getByTestId('usage-warning-banner').className);
       unmount();
     }
@@ -155,14 +172,14 @@ describe('UsageWarningBanner', () => {
   });
 
   it('can be dismissed when not blocked', () => {
-    render(<UsageWarningBanner level="warning" message="80% used" />);
+    render(<UsageWarningBanner level="warning" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
     const dismissBtn = screen.getByLabelText('Dismiss warning');
     fireEvent.click(dismissBtn);
     expect(screen.queryByTestId('usage-warning-banner')).toBeNull();
   });
 
   it('cannot be dismissed when blocked', () => {
-    render(<UsageWarningBanner level="blocked" message="Limit reached" />);
+    render(<UsageWarningBanner level="blocked" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
     expect(screen.queryByLabelText('Dismiss warning')).toBeNull();
     expect(screen.getByTestId('usage-warning-banner')).toBeDefined();
   });

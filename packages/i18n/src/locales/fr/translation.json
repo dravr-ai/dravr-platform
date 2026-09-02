@@ -2543,6 +2543,15 @@
     "statusActive": "Actif",
     "title": "Jetons d’API"
   },
+  "usage": {
+    "blockedLimitReached": "Limite {{label}} atteinte. Les limites se réinitialisent à {{time}}.",
+    "burstZone": "Tu es dans la zone de pointe pour {{label}} ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+    "dailyMessages": "tes messages quotidiens",
+    "dailyTokens": "tes jetons quotidiens",
+    "messageQuota": "ton quota de messages",
+    "percentUsed": "Tu as utilisé {{percent}} % de {{label}} ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+    "weeklyMessages": "tes messages hebdomadaires"
+  },
   "validation": {
     "email": "Saisis une adresse e-mail valide",
     "integer": "Saisis un nombre entier",

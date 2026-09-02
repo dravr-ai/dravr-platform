@@ -8,12 +8,13 @@ import { useState } from 'react';
 import { AlertTriangle, X, Ban } from 'lucide-react';
 import type { WarningLevel } from '../../hooks/useUsageStatus';
 import { useTranslation } from '@pierre/i18n';
+import type { TranslatableText } from '@pierre/chat-utils';
 
 interface UsageWarningBannerProps {
   /** The warning severity level */
   level: WarningLevel;
-  /** The message to display */
-  message: string;
+  /** The sentence, as a catalogue key plus params, or `null` when silent. */
+  text: TranslatableText | null;
 }
 
 // Three escalation steps on a four-token palette, so the ladder is built from
@@ -41,11 +42,11 @@ const BANNER_STYLES: Record<Exclude<WarningLevel, 'none'>, { bg: string; border:
   },
 };
 
-export default function UsageWarningBanner({ level, message }: UsageWarningBannerProps) {
+export default function UsageWarningBanner({ level, text }: UsageWarningBannerProps) {
   const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(false);
 
-  if (level === 'none' || dismissed || !message) {
+  if (level === 'none' || dismissed || text === null) {
     return null;
   }
 
@@ -59,7 +60,14 @@ export default function UsageWarningBanner({ level, message }: UsageWarningBanne
       className={`flex items-center gap-3 px-4 py-2.5 ${styles.bg} border-b ${styles.border} ${styles.text} text-sm`}
     >
       <Icon className={`w-4 h-4 flex-shrink-0 ${styles.icon}`} />
-      <span className="flex-1">{message}</span>
+      {/* `label` is a catalogue key, translated here so the sentence and the
+          counter it names agree on one language. */}
+      <span className="flex-1">
+        {t(text.key, {
+          ...text.params,
+          ...(typeof text.params?.label === 'string' ? { label: t(text.params.label) } : {}),
+        })}
+      </span>
       {level !== 'blocked' && (
         <button
           onClick={() => setDismissed(true)}

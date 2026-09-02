@@ -93,10 +93,13 @@ describe('client locale corpus', () => {
     // `tokens.activeCount` and `settingsUi.midnightUtc` — nine — replaced
     // them (carnet#206).
     //
-    // Plus one for `/reset`'s catalogue description, which every command
-    // listing renders from this corpus (carnet#189).
+    // 2361 until the scan reached `.ts` and found the quota banner building
+    // three English sentences by hand on both clients. Seven `usage.*` keys
+    // carry them, counter labels included, and the notification and A2A
+    // relative times became `Intl.RelativeTimeFormat` rather than more keys
+    // (carnet#207).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2362);
+    expect(reference).toHaveLength(2369);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

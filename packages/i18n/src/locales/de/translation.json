@@ -2543,6 +2543,15 @@
     "statusActive": "Aktiv",
     "title": "API-Tokens"
   },
+  "usage": {
+    "blockedLimitReached": "Limit für {{label}} erreicht. Die Limits werden um {{time}} zurückgesetzt.",
+    "burstZone": "Du bist im Spitzenbereich für {{label}} ({{current}}/{{limit}}). Die Limits werden um {{time}} zurückgesetzt.",
+    "dailyMessages": "deine täglichen Nachrichten",
+    "dailyTokens": "deine täglichen Token",
+    "messageQuota": "dein Nachrichtenkontingent",
+    "percentUsed": "Du hast {{percent}} % von {{label}} ({{current}}/{{limit}}) verbraucht. Die Limits werden um {{time}} zurückgesetzt.",
+    "weeklyMessages": "deine wöchentlichen Nachrichten"
+  },
   "validation": {
     "email": "Gib eine gültige E-Mail-Adresse ein",
     "integer": "Gib eine ganze Zahl ein",

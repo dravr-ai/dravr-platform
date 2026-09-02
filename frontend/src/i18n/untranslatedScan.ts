@@ -417,6 +417,45 @@ function isUtilityClassList(text: string): boolean {
 }
 
 /**
+ * Modules whose exported strings are DATA, not copy.
+ *
+ * The ratchet's own instruction for a proper noun is to move it into a brand
+ * constant rather than translate it — `Telegram` and `Casual` must match the
+ * value stored on the account, and translating a trademark into five
+ * languages is the wrong way to clear a gate. Once the scan reached `.ts`
+ * those constant files became hits themselves, so the destination the
+ * instruction names has to be recognised as the destination.
+ *
+ * This is a list of FILES, not of strings: each one is a registry or a table
+ * whose whole purpose is to hold identifiers, and none of them is rendered as
+ * chrome. A hardcoded sentence added to any other file still fails the gate,
+ * and a sentence added to these would be a reason to split the file rather
+ * than to extend this list.
+ */
+const DATA_MODULES = [
+  // Proper nouns: provider, channel and persona names. The persona value is
+  // quoted back inside the coach's own system prompt, so the list an athlete
+  // picks from must read exactly as the value stored on the account.
+  'shared-constants/src/brands.ts',
+  'src/constants/brands.ts',
+  // The surface registry. `label` is the id each platform's parity test
+  // asserts against; the chrome an athlete reads comes from the catalogue
+  // (the French app paints `Discussion`, not this file's `Chat`).
+  'shared-constants/src/surfaces.ts',
+  // Command names the athlete TYPES (`/coach add`). Translating one would
+  // stop it matching what the parser accepts.
+  'shared-constants/src/commands.ts',
+  // Font family names.
+  'shared-constants/src/design-system.ts',
+];
+
+/** Whether `file` is one of the data registries above. */
+function isDataModule(file: string): boolean {
+  const normalized = file.split(path.sep).join('/');
+  return DATA_MODULES.some(suffix => normalized.endsWith(suffix));
+}
+
+/**
  * Comments are not copy. Since the text pattern may close on `{` as well as
  * `<`, a prose comment sitting between two tags reads as a text node — one
  * explaining a routing decision was picked up and very nearly translated.
@@ -635,6 +674,9 @@ export function scanUntranslated(roots: string[]): UntranslatedString[] {
     // A root may be a single file (App.tsx) rather than a directory.
     const files = fs.statSync(root).isDirectory() ? walk(root, []) : [root];
     for (const file of files) {
+      if (isDataModule(file)) {
+        continue;
+      }
       const scope = isAthleteSurface(file) ? 'athlete' : 'operator';
       for (const text of collect(fs.readFileSync(file, 'utf-8'))) {
         hits.push({ file, text, scope });
