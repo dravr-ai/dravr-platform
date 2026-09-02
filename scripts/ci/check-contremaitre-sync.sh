@@ -276,7 +276,7 @@ INJURY = re.compile(r"injury risk|injury probabilit|risque de blessure|probabili
 LOAD = re.compile(r"acwr|load spike|load increase|acute:chronic|charge aigu|pic de charge|hausses soudaines", re.I)
 NEGATED = re.compile(r"never|not present|jamais|retired|retir\u00e9|\bpas\b", re.I)
 GREEN = re.compile(r"green band|bande verte", re.I)
-ABS_TSB = re.compile(r"TSB\s*[<>]\s*[-\u2212+]?\d", re.I)
+ABS_TSB = re.compile(r"TSB\s*[<>\u2264\u2265]\s*[-\u2212+]?\d", re.I)
 hits = []
 for sub in ("tools", "prompts/personas", "prompts/coaches"):
     d = root / sub

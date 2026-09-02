@@ -45,10 +45,14 @@ pub struct PrerequisiteCheckResult {
     pub missing: Vec<MissingPrerequisite>,
 }
 
-/// Check if prerequisites are met given user's connected providers
+/// Check if prerequisites are met given user's connected providers.
 ///
-/// Validates that the user has connected all required fitness providers
-/// specified in the coach's prerequisite configuration.
+/// A coach's `providers` list names the providers it was written against,
+/// but what it expresses is "needs activity data": a Garmin runner is as
+/// valid for a running coach as a Strava one, and [`score_coach`] has always
+/// gated on that reading. So a non-empty list is satisfied by any connected
+/// provider, and the one missing prerequisite it can report names the listed
+/// providers as examples of what to connect. An empty list needs nothing.
 #[must_use]
 pub fn check_prerequisites<S: BuildHasher>(
     prerequisites: &CoachPrerequisites,
@@ -56,22 +60,37 @@ pub fn check_prerequisites<S: BuildHasher>(
 ) -> PrerequisiteCheckResult {
     let mut missing = Vec::new();
 
-    for provider in &prerequisites.providers {
-        let provider_lower = provider.to_lowercase();
-        if !user_providers.contains(&provider_lower) {
-            missing.push(MissingPrerequisite {
-                prerequisite_type: "provider".to_owned(),
-                requirement: provider.clone(),
-                message: format!(
-                    "Connect {} to unlock this coach",
-                    capitalize_provider(provider)
-                ),
-            });
-        }
+    if needs_activity_data(prerequisites) && user_providers.is_empty() {
+        let names: Vec<String> = prerequisites
+            .providers
+            .iter()
+            .map(|p| capitalize_provider(p))
+            .collect();
+        missing.push(MissingPrerequisite {
+            prerequisite_type: "provider".to_owned(),
+            requirement: prerequisites.providers.join(", "),
+            message: format!("Connect {} to unlock this coach", join_with_or(&names)),
+        });
     }
 
     let met = missing.is_empty();
     PrerequisiteCheckResult { met, missing }
+}
+
+/// Whether the coach needs a fitness provider at all — the one reading of
+/// `prerequisites.providers` that both the prerequisite check and the
+/// recommendation scorer share.
+fn needs_activity_data(prerequisites: &CoachPrerequisites) -> bool {
+    !prerequisites.providers.is_empty()
+}
+
+/// "Strava", "Strava or Garmin", "Strava, Garmin or Fitbit".
+fn join_with_or(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [head @ .., last] => format!("{} or {last}", head.join(", ")),
+    }
 }
 
 /// Outcome of scoring one coach against a user's profile.
@@ -107,13 +126,11 @@ pub fn score_coach<S: BuildHasher>(
     config: &CoachRecommendationConfig,
 ) -> CoachRecommendation {
     // Provider gate: a coach that needs a fitness provider requires the user to
-    // have at least one connected. The prerequisite names a specific provider
-    // (e.g. `strava`) but it really expresses "needs activity data" — a Garmin
-    // runner is just as valid for a running coach as a Strava one. So we gate on
-    // "has any provider connected", not the exact name; the activity_types
-    // overlap below is what actually establishes sport relevance. A coach with
-    // no provider prerequisite (sport-agnostic) is never gated here.
-    let needs_provider = !prerequisites.providers.is_empty();
+    // have at least one connected — the same reading `check_prerequisites`
+    // applies. The activity_types overlap below is what actually establishes
+    // sport relevance. A coach with no provider prerequisite (sport-agnostic)
+    // is never gated here.
+    let needs_provider = needs_activity_data(prerequisites);
     if needs_provider && user_providers.is_empty() {
         return CoachRecommendation {
             eligible: false,

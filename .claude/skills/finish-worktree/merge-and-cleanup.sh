@@ -96,7 +96,9 @@ git push origin main
 if [[ -d "$WORKTREE_PATH" ]]; then
     echo ""
     echo "Removing worktree at $WORKTREE_PATH..."
-    git worktree remove "$WORKTREE_PATH"
+    # --force: the worktree carries the .build submodule (create-worktree.sh
+    # inits it) and copied untracked env files; a plain remove refuses both.
+    git worktree remove --force "$WORKTREE_PATH"
 else
     echo ""
     echo "Worktree not found at $WORKTREE_PATH (may have been removed manually)"
