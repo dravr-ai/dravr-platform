@@ -27,6 +27,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
+use pierre_services::activity_sports::sport_label;
 use pierre_services::analytics::hash_id;
 
 use super::addressing::reply_recipient;
@@ -276,7 +277,13 @@ fn render_coach_proposal_text(
         .filter(|_| profile.has_profile)
         .map_or_else(
             || registry.render(KEY_COACH_PROPOSAL_WELCOME_GENERIC, locale, &[&count]),
-            |primary| registry.render(KEY_COACH_PROPOSAL_WELCOME, locale, &[primary, &count]),
+            |primary| {
+                // The wire sport names itself in the athlete's locale when the
+                // shared vocabulary knows it; an unknown spelling keeps its
+                // wire text rather than inventing one.
+                let sport = sport_label(registry, primary, locale);
+                registry.render(KEY_COACH_PROPOSAL_WELCOME, locale, &[&sport, &count])
+            },
         );
     for (index, proposed) in coaches.iter().enumerate() {
         let reason = if proposed.reason.is_empty() {

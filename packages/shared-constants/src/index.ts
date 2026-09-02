@@ -65,6 +65,8 @@ export {
   isCommandDraft,
   matchCommands,
   commandDraftFor,
+  COMMAND_DOMAIN_LABEL_KEY,
+  commandDomainLabelKey,
 } from './commands';
 
 // @handle mention grammar (one rule for both composers, mirroring the server scanner)

@@ -4,6 +4,8 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import type { CommandEntry } from '@pierre/shared-types';
+import { commandDomainLabelKey } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../constants/theme';
 
 export interface CommandPaletteProps {
@@ -28,6 +30,11 @@ export interface CommandPaletteProps {
  */
 export function CommandPalette({ matches, highlightedIndex, onSelect }: CommandPaletteProps) {
   const colors = useThemeColors();
+  const { t } = useTranslation();
+  const domainLabel = (domain: string) => {
+    const key = commandDomainLabelKey(domain);
+    return key === null ? domain : t(key);
+  };
 
   if (matches.length === 0) return null;
 
@@ -76,7 +83,7 @@ export function CommandPalette({ matches, highlightedIndex, onSelect }: CommandP
                   color: colors.text.tertiary,
                 }}
               >
-                {entry.domain}
+                {domainLabel(entry.domain)}
               </Text>
             </View>
             <Text style={{ fontSize: 12, color: colors.text.secondary, marginTop: 2 }} numberOfLines={1}>

@@ -36,7 +36,7 @@ impl PostgresDatabase {
 
         let rows = sqlx::query(
             r"
-            SELECT coach_id, title, description, purpose, instructions
+            SELECT coach_id, title, description, purpose, instructions, tags
             FROM coach_translations
             WHERE locale = $1 AND coach_id = ANY($2)
             ",
@@ -56,6 +56,11 @@ impl PostgresDatabase {
                     description: row.try_get("description").ok(),
                     purpose: row.try_get("purpose").ok(),
                     instructions: row.try_get("instructions").ok(),
+                    tags: row
+                        .try_get::<Option<String>, _>("tags")
+                        .ok()
+                        .flatten()
+                        .and_then(|raw| serde_json::from_str(&raw).ok()),
                 },
             );
         }

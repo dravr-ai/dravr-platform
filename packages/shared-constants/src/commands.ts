@@ -81,3 +81,24 @@ export function matchCommands(catalogue: CommandEntry[], value: string): Command
 export function commandDraftFor(entry: CommandEntry): string {
   return entry.args === null ? entry.command : `${entry.command} `;
 }
+
+/**
+ * The catalogue key naming a command domain — the badge beside each palette
+ * entry — from the domain slug the catalogue route returns. The same keys
+ * head the domains in `/help`, so the palette and the help card agree.
+ */
+export const COMMAND_DOMAIN_LABEL_KEY: Record<string, string> = {
+  account: 'commands.help.domain.account',
+  coach: 'commands.help.domain.coach',
+  data: 'commands.help.domain.data',
+  discover: 'commands.help.domain.discover',
+  general: 'commands.help.domain.general',
+  group: 'commands.help.domain.group',
+  provider: 'commands.help.domain.provider',
+  training: 'commands.help.domain.training',
+};
+
+/** The label key for `domain`, or `null` for a slug the catalogue has no word for. */
+export function commandDomainLabelKey(domain: string): string | null {
+  return COMMAND_DOMAIN_LABEL_KEY[domain] ?? null;
+}

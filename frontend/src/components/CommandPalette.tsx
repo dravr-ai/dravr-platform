@@ -6,6 +6,7 @@
 
 import { clsx } from 'clsx';
 import type { CommandEntry } from '@pierre/shared-types';
+import { commandDomainLabelKey } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 export interface CommandPaletteProps {
@@ -31,6 +32,10 @@ export default function CommandPalette({
   onSelect,
 }: CommandPaletteProps) {
   const { t } = useTranslation();
+  const domainLabel = (domain: string) => {
+    const key = commandDomainLabelKey(domain);
+    return key === null ? domain : t(key);
+  };
   if (matches.length === 0) return null;
 
   return (
@@ -64,7 +69,7 @@ export default function CommandPalette({
           </span>
           <span className="text-xs text-on-surface-variant truncate">{entry.description}</span>
           <span className="ml-auto text-[10px] font-label uppercase tracking-wide text-outline whitespace-nowrap">
-            {entry.domain}
+            {domainLabel(entry.domain)}
           </span>
         </button>
       ))}

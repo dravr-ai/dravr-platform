@@ -233,4 +233,36 @@ describe('slash-command palette (mobile composer)', () => {
     fireEvent(input, 'keyPress', { nativeEvent: { key: 'Enter' } });
     expect(onSendMessage).toHaveBeenCalledTimes(1);
   });
+
+  // Turns red if the badge goes back to the raw slug: it reads the same
+  // catalogue key /help heads its domains with, and an unmapped slug is
+  // printed as it is rather than as a missing-key placeholder.
+  it('names each command domain in the athlete\'s language, and keeps an unknown slug', async () => {
+    listCommands.mockResolvedValue([
+      CATALOGUE[2],
+      {
+        name: 'logout',
+        command: '/logout',
+        args: null,
+        description: 'Unlink this messaging account',
+        domain: 'account',
+      },
+      {
+        name: 'teleport',
+        command: '/teleport',
+        args: null,
+        description: 'Go somewhere new',
+        domain: 'unmapped-domain',
+      },
+    ]);
+    renderComposer();
+
+    fireEvent.changeText(screen.getByTestId('message-input'), '/');
+
+    await waitFor(() => expect(screen.getByTestId('command-palette')).toBeTruthy());
+    expect(screen.getByText('Training')).toBeTruthy();
+    expect(screen.getByText('Account')).toBeTruthy();
+    expect(screen.getByText('unmapped-domain')).toBeTruthy();
+    expect(screen.queryByText('training')).toBeNull();
+  });
 });

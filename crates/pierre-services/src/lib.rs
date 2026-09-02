@@ -19,6 +19,8 @@
 
 #![warn(missing_docs)]
 
+/// The activity-sport vocabulary shared with the clients, for server-rendered text.
+pub mod activity_sports;
 /// Admin operations: user lifecycle, token management, settings, and analytics
 pub mod admin_ops;
 /// System-wide operator settings — auto-approval and its env shadow

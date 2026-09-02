@@ -54,6 +54,7 @@ fn overlay_replaces_only_some_fields() {
         description: Some("Spécialiste de l'intégration du renforcement…".to_owned()),
         purpose: None,
         instructions: None,
+        tags: None,
     };
     ov.apply(&mut coach);
 
@@ -84,6 +85,7 @@ fn overlay_can_clear_optional_fields_when_translation_uses_empty_string() {
         description: Some(String::new()),
         purpose: None,
         instructions: None,
+        tags: None,
     };
     ov.apply(&mut coach);
     assert_eq!(coach.description.as_deref(), Some(""));

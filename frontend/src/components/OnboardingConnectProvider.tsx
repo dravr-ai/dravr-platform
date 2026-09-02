@@ -1,5 +1,5 @@
 // ABOUTME: First-run onboarding screen that forces a provider connection before the user reaches the dashboard
-// ABOUTME: Mirrors the PendingApproval system-page pattern (boreal-hero-gradient accent + DravrLogo + Card chrome)
+// ABOUTME: Sits in the shared OnboardingShell like every other step, the welcome as its heading
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { oauthApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import { Button, Card } from './ui';
+import { Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import ConnectPreview from './ConnectPreview';
@@ -16,7 +16,7 @@ import ConnectPreview from './ConnectPreview';
 // PendingApproval; gradient IDs are suffixed with `-onboarding` so the
 // embedded `<defs>` don't collide when multiple instances of the logo render
 // in the same document tree.
-import { DravrLogo } from './DravrLogo';
+import OnboardingShell from './OnboardingShell';
 import { useTranslation } from '@pierre/i18n';
 
 /**
@@ -196,24 +196,14 @@ export default function OnboardingConnectProvider({
   // this taller provider-list card clears it; `my-auto` still centers it when
   // the viewport has room.
   return (
-    <div className="min-h-dvh flex flex-col items-center px-4 sm:px-6 lg:px-8 py-12 pt-20 bg-surface-container-low">
-      <div className="max-w-2xl w-full my-auto">
-        <Card className="overflow-hidden">
-          {/* Gradient accent bar — matches the PendingApproval brand moment. */}
-          <div className="h-1 w-full boreal-hero-gradient" />
-
-          <div className="px-8 py-10">
-            <div className="flex flex-col items-center text-center">
-              <DravrLogo size={64} />
-
-              <h1 className="mt-6 font-display font-semibold text-3xl text-on-surface">
-                {userDisplayName ? t('onboarding.welcomeNamed', { name: userDisplayName }) : t('onboarding.welcomeToDravr')}
-              </h1>
-
-              <p className="mt-3 text-sm text-on-surface-variant max-w-md font-label">
-                {t('onboarding.connectProviderIntro')}
-              </p>
-            </div>
+    <>
+      <OnboardingShell
+        heading={userDisplayName ? t('onboarding.welcomeNamed', { name: userDisplayName }) : t('onboarding.welcomeToDravr')}
+      >
+        <div className="flex flex-col">
+          <p className="mt-3 text-sm text-on-surface-variant text-center mx-auto max-w-md font-label">
+            {t('onboarding.connectProviderIntro')}
+          </p>
 
             <div className="mt-8">
               <ProviderConnectionCards
@@ -264,9 +254,8 @@ export default function OnboardingConnectProvider({
                 {t('common.logout')}
               </Button>
             </div>
-          </div>
-        </Card>
-      </div>
+        </div>
+      </OnboardingShell>
 
       <OAuthAppSetupModal
         isOpen={showWhoopSetup}
@@ -279,6 +268,6 @@ export default function OnboardingConnectProvider({
         displayName="WHOOP"
         devPortalUrl="https://developer.whoop.com/"
       />
-    </div>
+    </>
   );
 }

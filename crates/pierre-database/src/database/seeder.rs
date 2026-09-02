@@ -930,14 +930,15 @@ impl SeederRepository for Database {
         // Re-running the seeder after a file edit refreshes the content + sha.
         sqlx::query(
             "INSERT INTO coach_translations \
-             (coach_id, locale, title, description, purpose, instructions, source_sha, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
+             (coach_id, locale, title, description, purpose, instructions, source_sha, tags, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
              ON CONFLICT(coach_id, locale) DO UPDATE SET \
                title = excluded.title, \
                description = excluded.description, \
                purpose = excluded.purpose, \
                instructions = excluded.instructions, \
                source_sha = excluded.source_sha, \
+               tags = excluded.tags, \
                updated_at = CURRENT_TIMESTAMP",
         )
         .bind(&translation.coach_id)
@@ -947,6 +948,12 @@ impl SeederRepository for Database {
         .bind(&translation.purpose)
         .bind(&translation.instructions)
         .bind(&translation.source_sha)
+        .bind(
+            translation
+                .tags
+                .as_ref()
+                .and_then(|tags| serde_json::to_string(tags).ok()),
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert coach translation: {e}")))?;

@@ -19,7 +19,10 @@ export default function OnboardingShell({
   // `flex-col` + `my-auto` centers short cards but lets tall cards (e.g. the
   // provider list) top-align and scroll below the bar rather than under it.
   return (
-    <div className="min-h-dvh flex flex-col items-center px-4 sm:px-6 lg:px-8 py-12 pt-20 bg-surface-container-low">
+    <div
+      data-testid="onboarding-shell"
+      className="min-h-dvh flex flex-col items-center px-4 sm:px-6 lg:px-8 py-12 pt-20 bg-surface-container-low"
+    >
       <div className="max-w-2xl w-full my-auto">
         <Card className="overflow-hidden">
           <div className="h-1 w-full boreal-hero-gradient" />

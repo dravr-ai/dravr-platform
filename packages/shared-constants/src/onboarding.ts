@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+import activitySports from './activity-sports.json' with { type: 'json' };
+
 /** Identifiers for the onboarding steps, in canonical journey order. */
 export type OnboardingStepId =
   | 'profile_type'
@@ -276,68 +278,14 @@ export function isOnboardingSport(value: string): value is OnboardingSport {
 }
 
 /**
- * The corpus key naming each activity sport the training profile can report —
- * the `dravr-cageux` `SportType` vocabulary, keyed by its `snake_case` serde
- * name. A separate table from {@link SPORT_LABEL_KEY}: that one is the six
- * onboarding chips and is pinned to them; this one is every sport a provider
- * sync can produce.
+ * Catalogue key per canonical activity sport, and the provider aliases that
+ * fold onto those canonical names. The table lives in `activity-sports.json`
+ * so the server reads the same vocabulary (`pierre_services::activity_sports`)
+ * when it names a sport in a messaging reply.
  */
-export const ACTIVITY_SPORT_LABEL_KEY: Record<string, string> = {
-  run: 'app.sportRun',
-  ride: 'app.sportRide',
-  swim: 'app.sportSwim',
-  walk: 'app.sportWalk',
-  hike: 'app.sportHike',
-  virtual_ride: 'app.sportVirtualRide',
-  virtual_run: 'app.sportVirtualRun',
-  workout: 'app.sportWorkout',
-  yoga: 'app.sportYoga',
-  ebike_ride: 'app.sportEbikeRide',
-  mountain_bike: 'app.sportMountainBike',
-  gravel_ride: 'app.sportGravelRide',
-  cross_country_skiing: 'app.sportCrossCountrySkiing',
-  alpine_skiing: 'app.sportAlpineSkiing',
-  snowboarding: 'app.sportSnowboarding',
-  snowshoe: 'app.sportSnowshoe',
-  ice_skating: 'app.sportIceSkating',
-  backcountry_skiing: 'app.sportBackcountrySkiing',
-  kayaking: 'app.sportKayaking',
-  canoeing: 'app.sportCanoeing',
-  rowing: 'app.sportRowing',
-  paddleboarding: 'app.sportPaddleboarding',
-  surfing: 'app.sportSurfing',
-  kitesurfing: 'app.sportKitesurfing',
-  strength_training: 'app.sportStrengthTraining',
-  crossfit: 'app.sportCrossfit',
-  pilates: 'app.sportPilates',
-  rock_climbing: 'app.sportRockClimbing',
-  trail_running: 'app.sportTrailRunning',
-  soccer: 'app.sportSoccer',
-  basketball: 'app.sportBasketball',
-  tennis: 'app.sportTennis',
-  golf: 'app.sportGolf',
-  skateboarding: 'app.sportSkateboarding',
-  inline_skating: 'app.sportInlineSkating',
-};
+export const ACTIVITY_SPORT_LABEL_KEY: Record<string, string> = activitySports.labelKeys;
 
-/** Provider spellings of the same sports, folded onto the canonical serde names. */
-const ACTIVITY_SPORT_ALIASES: Record<string, string> = {
-  alpine_ski: 'alpine_skiing',
-  nordic_ski: 'cross_country_skiing',
-  backcountry_ski: 'backcountry_skiing',
-  trail_run: 'trail_running',
-  weight_training: 'strength_training',
-  mountain_bike_ride: 'mountain_bike',
-  e_bike_ride: 'ebike_ride',
-  stand_up_paddling: 'paddleboarding',
-  snowboard: 'snowboarding',
-  ice_skate: 'ice_skating',
-  inline_skate: 'inline_skating',
-  kayak: 'kayaking',
-  canoe: 'canoeing',
-  surf: 'surfing',
-  kitesurf: 'kitesurfing',
-};
+const ACTIVITY_SPORT_ALIASES: Record<string, string> = activitySports.aliases;
 
 /**
  * The label key for a sport as the wire spells it, or `null` for a sport the

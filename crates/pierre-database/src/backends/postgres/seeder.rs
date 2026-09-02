@@ -1001,14 +1001,15 @@ impl SeederRepository for PostgresDatabase {
         // edit refreshes title/description/purpose/instructions/source_sha.
         sqlx::query(
             "INSERT INTO coach_translations \
-             (coach_id, locale, title, description, purpose, instructions, source_sha, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
+             (coach_id, locale, title, description, purpose, instructions, source_sha, tags, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
              ON CONFLICT (coach_id, locale) DO UPDATE SET \
                title = EXCLUDED.title, \
                description = EXCLUDED.description, \
                purpose = EXCLUDED.purpose, \
                instructions = EXCLUDED.instructions, \
                source_sha = EXCLUDED.source_sha, \
+               tags = EXCLUDED.tags, \
                updated_at = CURRENT_TIMESTAMP",
         )
         .bind(&translation.coach_id)
@@ -1018,6 +1019,12 @@ impl SeederRepository for PostgresDatabase {
         .bind(&translation.purpose)
         .bind(&translation.instructions)
         .bind(&translation.source_sha)
+        .bind(
+            translation
+                .tags
+                .as_ref()
+                .and_then(|tags| serde_json::to_string(tags).ok()),
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert coach translation: {e}")))?;

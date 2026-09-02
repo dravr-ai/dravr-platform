@@ -77,6 +77,9 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
             purpose: None,
             instructions: None,
             source_sha: None,
+            // The locale file declares its own chips; a coach without them
+            // keeps the English tags, which the second case below pins.
+            tags: Some(vec!["marathon".to_owned(), "endurance".to_owned()]),
         })
         .await
         .expect("translation row");
@@ -109,10 +112,88 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
     let detail = get_json(&resources, &token, &format!("/api/store/coaches/{id}")).await;
     assert_eq!(detail["title"], "Coach marathon");
     assert_eq!(detail["description"], "Pour courir loin, longtemps.");
+    // The tag chips are the locale's own words, not the English fixture's.
+    assert_eq!(
+        detail["tags"]
+            .as_array()
+            .expect("detail carries tags")
+            .iter()
+            .map(|tag| tag.as_str().expect("a tag is a string"))
+            .collect::<Vec<_>>(),
+        vec!["marathon", "endurance"]
+    );
 
     let search = get_json(&resources, &token, "/api/store/search?q=marathon").await;
     assert_eq!(
         title_of(search["coaches"].as_array().unwrap(), &id),
         "Coach marathon"
+    );
+}
+
+/// A translation that declares no tags leaves the English chips visible,
+/// rather than blanking them — partial translations are the norm.
+#[tokio::test]
+async fn a_translation_without_tags_keeps_the_english_chips() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, user) = create_test_user(&resources.coach.database)
+        .await
+        .expect("test user");
+    let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    let repos = resources.coach.database.repositories();
+    let tenant_id = repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("tenants")
+        .first()
+        .expect("the test user has a tenant")
+        .id;
+
+    let coach_id = publish_catalogue_coach(
+        &repos,
+        user_id,
+        tenant_id,
+        "Recovery Coach",
+        "You coach recovery.",
+    )
+    .await;
+    repos
+        .seeder
+        .seed_upsert_coach_translation(&SeedCoachTranslation {
+            coach_id: coach_id.to_string(),
+            locale: "fr".to_owned(),
+            title: Some("Coach récupération".to_owned()),
+            description: None,
+            purpose: None,
+            instructions: None,
+            source_sha: None,
+            tags: None,
+        })
+        .await
+        .expect("translation row");
+
+    repos
+        .users
+        .update_locale(user_id, "fr")
+        .await
+        .expect("set fr");
+    let detail = get_json(
+        &resources,
+        &token,
+        &format!("/api/store/coaches/{coach_id}"),
+    )
+    .await;
+    assert_eq!(detail["title"], "Coach récupération");
+    assert_eq!(
+        detail["tags"]
+            .as_array()
+            .expect("detail carries tags")
+            .iter()
+            .map(|tag| tag.as_str().expect("a tag is a string"))
+            .collect::<Vec<_>>(),
+        vec!["test"],
+        "an untranslated tag list stays as the canonical English one"
     );
 }

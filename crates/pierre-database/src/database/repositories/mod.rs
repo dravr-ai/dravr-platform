@@ -7,6 +7,7 @@
 pub use crate::repositories::*;
 
 /// Coach version history — snapshot, list, revert
+mod coach_translations;
 mod coaches_assignments;
 /// Direct `CoachesRepository` impl on `Database` (SQLite coaches catalogue)
 mod coaches_impl;

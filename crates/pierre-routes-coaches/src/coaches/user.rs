@@ -1,3 +1,4 @@
+use std::slice;
 // ABOUTME: User-facing coach route handlers for listing, CRUD, favorites, and generation
 // ABOUTME: Contains all non-admin coach endpoints that regular authenticated users access
 //
@@ -386,6 +387,18 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
         locale,
     )
     .await;
+
+    // The proposal reads in the athlete's locale end to end: the reasons
+    // already do, and the coach titles take the same translation overlay the
+    // store applies, so a French athlete is offered « Coach de trail », not
+    // its English name.
+    let mut ranked = ranked;
+    let coach_repo = &MiddlewareCtx::repos(ctx.as_ref()).coaches;
+    for (item, _, _) in &mut ranked {
+        coach_repo
+            .translate_coaches(slice::from_mut(&mut item.coach), locale)
+            .await?;
+    }
 
     let coaches: Vec<ProposedCoach> = ranked
         .into_iter()

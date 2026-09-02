@@ -529,6 +529,8 @@ pub struct CoachFieldOverlay {
     pub purpose: Option<String>,
     /// Localized instruction block; when `Some`, replaces `Coach::instructions`.
     pub instructions: Option<String>,
+    /// Localized tag list; when `Some`, replaces `Coach::tags` whole.
+    pub tags: Option<Vec<String>>,
 }
 
 impl CoachFieldOverlay {
@@ -544,6 +546,9 @@ impl CoachFieldOverlay {
         }
         if self.purpose.is_some() {
             coach.purpose.clone_from(&self.purpose);
+        }
+        if let Some(tags) = self.tags.clone() {
+            coach.tags = tags;
         }
         if self.instructions.is_some() {
             coach.instructions.clone_from(&self.instructions);

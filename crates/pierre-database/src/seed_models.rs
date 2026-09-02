@@ -333,6 +333,8 @@ pub struct SeedCoachTranslation {
     /// First 16 hex chars of `sha256(en.md)` at translation time — used by the
     /// reader to detect when English has drifted past this translation.
     pub source_sha: Option<String>,
+    /// Localized tag list the `<locale>.md` declares; `None` leaves `coaches.tags` visible.
+    pub tags: Option<Vec<String>>,
 }
 
 /// Coach relation for seeding

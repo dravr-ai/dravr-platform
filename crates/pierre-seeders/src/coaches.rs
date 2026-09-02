@@ -279,6 +279,9 @@ async fn upsert_single_translation(
         // the translation file doesn't declare its own source_sha. Phase 3
         // will add a frontmatter `source_sha:` override path.
         source_sha: Some(tr.source_sha_hint.clone()),
+        // A locale file that declares tags renames the chips for that locale;
+        // one that declares none leaves the English tags visible.
+        tags: (!tr.coach.frontmatter.tags.is_empty()).then(|| tr.coach.frontmatter.tags.clone()),
     };
     match repos.seeder.seed_upsert_coach_translation(&seed).await {
         Ok(()) => {

@@ -48,6 +48,14 @@ test.describe('Onboarding gate: connect a provider before chatting', () => {
     // renders this text — so visibility here is a clean redirect proof.
     await expect(page.getByRole('heading', { name: /welcome, fresh user/i })).toBeVisible();
 
+    // The connect step wears the same chrome as the other six steps: the
+    // shared OnboardingShell, with the welcome as its heading rather than a
+    // second logo-and-card layout of its own.
+    await expect(page.getByTestId('onboarding-shell')).toBeVisible();
+    await expect(
+      page.getByTestId('onboarding-shell').getByRole('heading', { name: /welcome, fresh user/i }),
+    ).toBeVisible();
+
     // The onboarding wrapper intentionally omits `onSkip` from
     // ProviderConnectionCards so the skip card never renders. Asserting the
     // absence of its aria-label proves the user cannot bypass the gate.

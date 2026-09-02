@@ -158,4 +158,38 @@ describe('slash-command palette (web composer)', () => {
     expect(screen.queryByTestId('command-palette')).toBeNull();
     expect(listCommands).not.toHaveBeenCalled();
   });
+
+
+  // Turns red if the domain badge goes back to printing the raw slug: the
+  // badge reads the same catalogue key /help heads its domains with, and a
+  // slug the catalogue has no word for stays as it is rather than rendering
+  // a missing-key placeholder.
+  it('names each command domain in the athlete\'s language, and keeps an unknown slug', async () => {
+    listCommands.mockResolvedValue([
+      CATALOGUE[2],
+      {
+        name: 'logout',
+        command: '/logout',
+        args: null,
+        description: 'Unlink this messaging account',
+        domain: 'account',
+      },
+      {
+        name: 'teleport',
+        command: '/teleport',
+        args: null,
+        description: 'Go somewhere new',
+        domain: 'unmapped-domain',
+      },
+    ]);
+    renderComposer('conv-1');
+
+    await userEvent.type(screen.getByPlaceholderText('Message Dravr...'), '/');
+
+    await waitFor(() => expect(screen.getByTestId('command-palette')).toBeTruthy());
+    expect(screen.getByText('Training')).toBeTruthy();
+    expect(screen.getByText('Account')).toBeTruthy();
+    expect(screen.getByText('unmapped-domain')).toBeTruthy();
+    expect(screen.queryByText('training')).toBeNull();
+  });
 });
