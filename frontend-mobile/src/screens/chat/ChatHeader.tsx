@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Chat header — back, the thread's initials avatar, its title, appearance, bell and the "+"
+// ABOUTME: Chat header — back, the thread's initials avatar, its title, the appearance toggle and the bell
 // ABOUTME: Tapping the avatar or the title opens the thread's info sheet, the way every messaging app does it
 
 import React from 'react';
@@ -21,8 +21,6 @@ interface ChatHeaderProps {
   insetTop: number;
   /** Back to the conversation list the thread was opened from. */
   onBackPress: () => void;
-  /** The chat "+": new chat, new group chat, add someone to this discussion. */
-  onPlusPress: () => void;
   /** Open the thread's info sheet — group info, coach info, or the plain rows. */
   onTitlePress: () => void;
 }
@@ -31,7 +29,6 @@ export function ChatHeader({
   currentConversation,
   insetTop,
   onBackPress,
-  onPlusPress,
   onTitlePress,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
@@ -100,19 +97,12 @@ export function ChatHeader({
       {/* Quick appearance toggle (sun/moon) — flips persisted Light/Dark pref */}
       <AppearanceToggleButton size={20} color={colors.text.secondary} />
 
-      {/* Notification bell */}
+      {/*
+        Notification bell. Nothing follows it: starting a discussion belongs
+        to the tab bar's "+", which is the app's one entry point for it and
+        the one within reach of a thumb (carnet#213).
+      */}
       <NotificationBellButton size={20} color={colors.text.secondary} />
-
-      {/* The chat "+" */}
-      <TouchableOpacity
-        className="w-10 h-10 items-center justify-center"
-        onPress={onPlusPress}
-        accessibilityRole="button"
-        accessibilityLabel={t('app.headerPlusAria')}
-        testID="chat-plus-button"
-      >
-        <Ionicons name="add" size={26} color={colors.pierre.violet} />
-      </TouchableOpacity>
     </View>
   );
 }

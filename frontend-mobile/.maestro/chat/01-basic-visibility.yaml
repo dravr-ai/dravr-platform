@@ -30,6 +30,11 @@ appId: ai.dravr.app
 - assertVisible:
     id: "chat-title"
 - assertVisible:
+    id: "notification-bell"
+
+# The thread's header carries no "+". Starting something belongs to the tab
+# bar's, which is the app's one entry point for it and the one a thumb reaches.
+- assertNotVisible:
     id: "chat-plus-button"
 
 # Test: should show message input area

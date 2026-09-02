@@ -10,14 +10,14 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { PRIMARY_PALETTE, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
-import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
+import { TAB_BAR_BOTTOM_OFFSET, tabBarBottomOffset } from '../../components/ui/ExpandableTabBar';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
@@ -57,6 +57,9 @@ export function StoreCoachDetailScreen() {
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
   const { isAuthenticated } = useAuth();
+  // The action bar is positioned absolutely, so no safe-area padding reaches
+  // it and it carries the device inset itself to clear the tab bar.
+  const actionBarBottom = tabBarBottomOffset(useSafeAreaInsets().bottom);
   const [coach, setCoach] = useState<StoreCoachDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isInstalling, setIsInstalling] = useState(false);
@@ -319,14 +322,17 @@ export function StoreCoachDetailScreen() {
           </View>
         </View>
 
-        {/* Bottom Spacer for Install Button + Tab Bar */}
+        {/* Scrolls the last card clear of the action bar and the tab bar. The
+            scroll view flows inside the safe area, so the inset is already
+            spent on it and the safe-area-relative constant is the right one. */}
         <View style={{ height: TAB_BAR_BOTTOM_OFFSET + 80 }} />
       </ScrollView>
 
       {/* Post-install hint + Install/Uninstall/Edit actions - Fixed above floating tab bar */}
       <View
         className="absolute left-0 right-0 bg-background-primary border-t border-border-subtle p-3"
-        style={{ bottom: TAB_BAR_BOTTOM_OFFSET }}
+        style={{ bottom: actionBarBottom }}
+        testID="coach-detail-action-bar"
       >
         {postInstall && (
           <View className="mb-3">

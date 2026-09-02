@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Individual row item for the expandable tab bar menu
-// ABOUTME: Supports active state, staggered enter animation, and haptic feedback
+// ABOUTME: One action row of the tab bar's "+" sheet — icon, label, haptic and staggered entrance
+// ABOUTME: Its height is fixed and exported, so the sheet can size itself from the rows it holds
 
 import React from 'react';
 import { Pressable, Text } from 'react-native';
@@ -11,23 +11,28 @@ import * as Haptics from 'expo-haptics';
 import type { LucideIcon } from 'lucide-react-native';
 import { useThemeColors } from '../../constants/theme';
 
+/**
+ * The height of one row, in points.
+ *
+ * Stated rather than intrinsic: the sheet's height is the sum of its rows, so
+ * a row that measured itself would leave the sheet guessing at how tall to
+ * open. Twelve points of padding above and below a 24pt line.
+ */
+export const MENU_ROW_HEIGHT = 48;
+
 interface TabMenuItemProps {
   icon: LucideIcon;
   label: string;
-  isActive: boolean;
   delay: number;
   onPress: () => void;
-  isQuickAction?: boolean;
   testID?: string;
 }
 
 export function TabMenuItem({
   icon: Icon,
   label,
-  isActive,
   delay,
   onPress,
-  isQuickAction = false,
   testID,
 }: TabMenuItemProps) {
   const colors = useThemeColors();
@@ -36,30 +41,18 @@ export function TabMenuItem({
     onPress();
   };
 
-  const iconColor = isQuickAction
-    ? colors.pierre.violet
-    : isActive
-      ? colors.pierre.violet
-      : colors.text.secondary;
-
-  const textColor = isActive ? colors.pierre.violet : colors.text.secondary;
-
   return (
     <Animated.View entering={FadeInDown.delay(delay).duration(100)}>
       <Pressable
         testID={testID}
         onPress={handlePress}
-        className="flex-row items-center px-4 py-3 rounded-xl"
-        style={
-          isActive
-            ? { backgroundColor: 'rgba(139, 92, 246, 0.15)' }
-            : undefined
-        }
+        className="flex-row items-center px-4 rounded-xl"
+        style={{ height: MENU_ROW_HEIGHT }}
       >
-        <Icon size={20} color={iconColor} />
+        <Icon size={20} color={colors.pierre.violet} />
         <Text
           className="ml-3 text-base font-medium"
-          style={{ color: textColor }}
+          style={{ color: colors.text.secondary }}
         >
           {label}
         </Text>

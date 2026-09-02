@@ -13,8 +13,9 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PRIMARY_PALETTE, spacing, useThemeColors, useTheme } from '../../constants/theme';
-import { TAB_BAR_BOTTOM_OFFSET } from './ExpandableTabBar';
+import { tabBarBottomOffset } from './ExpandableTabBar';
 
 // Transparent container — only the inner pill is visible
 const containerStyle: ViewStyle = {
@@ -44,13 +45,20 @@ export function FloatingSearchBar({
   const { scheme } = useTheme();
   const isDark = scheme === 'dark';
   const inputRef = useRef<TextInput>(null);
-  const bottomAnim = useRef(new Animated.Value(TAB_BAR_BOTTOM_OFFSET)).current;
+  // The bar is positioned absolutely, so it clears the floating tab bar only
+  // if it carries the device's bottom inset itself — its parent's safe-area
+  // padding does not reach an absolute child (carnet#208).
+  const insets = useSafeAreaInsets();
+  const restingBottom = tabBarBottomOffset(insets.bottom);
+  const bottomAnim = useRef(new Animated.Value(restingBottom)).current;
+  const keyboardUp = useRef(false);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const showSub = Keyboard.addListener(showEvent, (e) => {
+      keyboardUp.current = true;
       Animated.timing(bottomAnim, {
         toValue: e.endCoordinates.height,
         duration: Platform.OS === 'ios' ? e.duration : 250,
@@ -59,8 +67,9 @@ export function FloatingSearchBar({
     });
 
     const hideSub = Keyboard.addListener(hideEvent, (e) => {
+      keyboardUp.current = false;
       Animated.timing(bottomAnim, {
-        toValue: TAB_BAR_BOTTOM_OFFSET,
+        toValue: restingBottom,
         duration: Platform.OS === 'ios' ? (e.duration ?? 250) : 250,
         useNativeDriver: false,
       }).start();
@@ -70,7 +79,16 @@ export function FloatingSearchBar({
       showSub.remove();
       hideSub.remove();
     };
-  }, [bottomAnim]);
+  }, [bottomAnim, restingBottom]);
+
+  // A rotation gives the device a different bottom inset. With the keyboard
+  // down the bar is sitting on the old one, so move it; with the keyboard up
+  // it is riding the keyboard, and the hide handler reads the new value.
+  useEffect(() => {
+    if (!keyboardUp.current) {
+      bottomAnim.setValue(restingBottom);
+    }
+  }, [bottomAnim, restingBottom]);
 
   const handleClear = () => {
     onChangeText('');

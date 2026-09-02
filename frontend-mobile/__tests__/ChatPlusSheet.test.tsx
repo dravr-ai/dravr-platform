@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests the chat "+" — new chat, new group chat by name, add someone to the open thread
-// ABOUTME: Covers the conversation list's sheet, the thread header's sheet, and the flows each action opens
+// ABOUTME: Covers the conversation list's sheet, the flows each action opens, and the chat header that carries none
 
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -156,25 +156,35 @@ describe('the chat "+"', () => {
     expect(mockListParticipants).toHaveBeenCalledWith('conv-1');
   });
 
-  it('the thread header carries the "+" and a back button, not the old history button', () => {
-    const onPlusPress = jest.fn();
+  // The thread showed two "+" at once — one here, one in the tab bar — and
+  // both opened this same sheet. The header's was the copy out of thumb reach,
+  // so it went; the tab bar's is the app's one entry point (carnet#213).
+  it('the thread header carries no add control, only back, title, appearance and the bell', () => {
     const onBackPress = jest.fn();
-    const { getByTestId, queryByTestId } = render(
+    const { getAllByTestId, getByTestId, queryByTestId } = render(
       withClient(
         <ChatHeader
           currentConversation={null}
           insetTop={0}
           onBackPress={onBackPress}
-          onPlusPress={onPlusPress}
           onTitlePress={jest.fn()}
         />,
       ),
     );
 
-    fireEvent.press(getByTestId('chat-plus-button'));
-    fireEvent.press(getByTestId('back-button'));
-    expect(onPlusPress).toHaveBeenCalledTimes(1);
-    expect(onBackPress).toHaveBeenCalledTimes(1);
+    // The whole header, named: a control that grows back here fails this.
+    const rendered = getAllByTestId(/./).map((node) => node.props.testID);
+    expect(rendered).toEqual([
+      'back-button',
+      'chat-title-button',
+      'chat-title',
+      'appearance-toggle-button',
+      'notification-bell',
+    ]);
+    expect(queryByTestId('chat-plus-button')).toBeNull();
     expect(queryByTestId('history-button')).toBeNull();
+
+    fireEvent.press(getByTestId('back-button'));
+    expect(onBackPress).toHaveBeenCalledTimes(1);
   });
 });

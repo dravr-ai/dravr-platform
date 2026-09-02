@@ -37,6 +37,42 @@ jest.mock('expo-router', () => {
   };
 });
 
+// The shared setup's reanimated stand-in builds a fresh shared value on every
+// render, so every value the bar mutates is back at its initial by the time the
+// tree is read. The pill's height is exactly what this suite measures, so here
+// a shared value has to survive a render.
+jest.mock('react-native-reanimated', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const layoutAnimation: Record<string, () => unknown> = {
+    duration: () => layoutAnimation,
+    delay: () => layoutAnimation,
+  };
+  return {
+    __esModule: true,
+    default: {
+      View: React.forwardRef(
+        ({ style, ...props }: { style?: unknown; children?: React.ReactNode }, ref: unknown) =>
+          React.createElement(View, { ...props, ref, style }, props.children),
+      ),
+      createAnimatedComponent: (Component: React.ComponentType) =>
+        React.forwardRef((props: object, ref: unknown) =>
+          React.createElement(Component, { ...props, ref }),
+        ),
+    },
+    useSharedValue: (initial: unknown) => {
+      const ref = React.useRef(null);
+      if (ref.current === null) ref.current = { value: initial };
+      return ref.current;
+    },
+    useAnimatedStyle: (fn: () => unknown) => fn(),
+    withSpring: (toValue: unknown) => toValue,
+    withTiming: (toValue: unknown) => toValue,
+    withSequence: (...animations: unknown[]) => animations[animations.length - 1],
+    FadeInDown: layoutAnimation,
+  };
+});
+
 jest.mock('../src/hooks/useServerStatus', () => ({
   useServerStatus: () => ({ isServerReachable: true, isChecking: false, checkNow: jest.fn() }),
 }));
@@ -58,7 +94,12 @@ function render(ui: React.ReactElement) {
   return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
-import { ExpandableTabBar, TAB_BAR_TABS } from '../src/components/ui/ExpandableTabBar';
+import {
+  expandedSheetHeight,
+  ExpandableTabBar,
+  TAB_BAR_TABS,
+} from '../src/components/ui/ExpandableTabBar';
+import { MENU_ROW_HEIGHT } from '../src/components/ui/TabMenuItem';
 import TabsLayout from '../app/(app)/(tabs)/_layout';
 import { CHAT_LIST_ROUTE, CHAT_THREAD_ROUTE } from '../src/navigation/routes';
 
@@ -68,6 +109,16 @@ const TABS_DIR = path.join(__dirname, '..', 'app', '(app)', '(tabs)');
 /** The testIDs of the collapsed pill's tab buttons, in render order. */
 function renderedTabIds(getAllByTestId: (id: RegExp) => Array<{ props: { testID: string } }>): string[] {
   return getAllByTestId(/^tab-[a-z]+$/).map((node) => node.props.testID);
+}
+
+/** The pill's rendered height in points, sheet open or shut. */
+function pillHeight(getByTestId: (id: string) => { props: { style: unknown } }): number {
+  const style = getByTestId('expandable-tab-bar-pill').props.style as Array<Record<string, unknown>>;
+  const flat = Object.assign({}, ...style) as { height?: unknown };
+  if (typeof flat.height !== 'number') {
+    throw new Error(`pill rendered a non-numeric height: ${String(flat.height)}`);
+  }
+  return flat.height;
 }
 
 describe('ExpandableTabBar', () => {
@@ -125,7 +176,6 @@ describe('ExpandableTabBar', () => {
     const { queryByTestId } = render(<ExpandableTabBar />);
     expect(queryByTestId('tab-coaches')).toBeNull();
     expect(queryByTestId('tab-groups')).toBeNull();
-    expect(queryByTestId('tab-menu-item-(chat)', { includeHiddenElements: true })).toBeTruthy();
     expect(queryByTestId('tab-menu-item-(coaches)', { includeHiddenElements: true })).toBeNull();
     expect(queryByTestId('tab-menu-item-(groups)', { includeHiddenElements: true })).toBeNull();
     expect(queryByTestId('quick-action-new-coach', { includeHiddenElements: true })).toBeNull();
@@ -186,5 +236,72 @@ describe('ExpandableTabBar', () => {
     mockGlobalParams = { conversationId: 'conv-1' };
     const { getByTestId } = render(<ExpandableTabBar />);
     expect(getByTestId('quick-action-add-participant', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  // The sheet used to repeat the three destinations that sit in the row
+  // directly beneath it — same icons, same order — so most of it was a second
+  // copy of the navigation the athlete was already looking at (carnet#209).
+  it('holds actions only: no destination row, no destination label', () => {
+    const hidden = { includeHiddenElements: true };
+    const { getByLabelText, queryByTestId, queryByText, getAllByTestId } = render(<ExpandableTabBar />);
+    fireEvent.press(getByLabelText('Open menu'));
+
+    for (const tab of TAB_BAR_TABS) {
+      expect(queryByTestId(`tab-menu-item-${tab.route}`, hidden)).toBeNull();
+    }
+    expect(queryByText('Chat', hidden)).toBeNull();
+    expect(queryByText('Discover', hidden)).toBeNull();
+    expect(queryByText('Settings', hidden)).toBeNull();
+
+    const rows = getAllByTestId(/^quick-action-/, hidden).map((node) => node.props.testID);
+    expect(rows).toEqual(['quick-action-new-chat', 'quick-action-new-group-chat']);
+  });
+
+  it('holds actions only with a thread open, where the sheet has three', () => {
+    mockSegments = ['(app)', '(tabs)', '(chat)', '[conversationId]'];
+    mockGlobalParams = { conversationId: 'conv-1' };
+    const hidden = { includeHiddenElements: true };
+    const { getByLabelText, queryByTestId, queryByText, getAllByTestId } = render(<ExpandableTabBar />);
+    fireEvent.press(getByLabelText('Open menu'));
+
+    for (const tab of TAB_BAR_TABS) {
+      expect(queryByTestId(`tab-menu-item-${tab.route}`, hidden)).toBeNull();
+    }
+    expect(queryByText('Chat', hidden)).toBeNull();
+    expect(queryByText('Discover', hidden)).toBeNull();
+    expect(queryByText('Settings', hidden)).toBeNull();
+
+    const rows = getAllByTestId(/^quick-action-/, hidden).map((node) => node.props.testID);
+    expect(rows).toEqual([
+      'quick-action-new-chat',
+      'quick-action-new-group-chat',
+      'quick-action-add-participant',
+    ]);
+  });
+
+  // A fixed 380pt opened the same sheet whatever it held, so it was mostly
+  // empty — and emptier still once the destinations left it (carnet#209).
+  it('opens to the height of the rows it holds, and shuts back to the pill', () => {
+    const { getByLabelText, getByTestId } = render(<ExpandableTabBar />);
+    expect(pillHeight(getByTestId)).toBe(56);
+
+    fireEvent.press(getByLabelText('Open menu'));
+    // 56 collapsed row + 12 padding above + 12 below + two 48pt rows.
+    expect(pillHeight(getByTestId)).toBe(56 + 12 + 12 + 2 * MENU_ROW_HEIGHT);
+    expect(pillHeight(getByTestId)).toBe(expandedSheetHeight(2));
+
+    fireEvent.press(getByLabelText('Close menu'));
+    expect(pillHeight(getByTestId)).toBe(56);
+  });
+
+  it('opens taller for the third action a thread adds', () => {
+    mockSegments = ['(app)', '(tabs)', '(chat)', '[conversationId]'];
+    mockGlobalParams = { conversationId: 'conv-1' };
+    const { getByLabelText, getByTestId } = render(<ExpandableTabBar />);
+
+    fireEvent.press(getByLabelText('Open menu'));
+    expect(pillHeight(getByTestId)).toBe(expandedSheetHeight(3));
+    expect(expandedSheetHeight(3) - expandedSheetHeight(2)).toBe(MENU_ROW_HEIGHT);
+    expect(pillHeight(getByTestId)).toBe(56 + 12 + 12 + 3 * MENU_ROW_HEIGHT);
   });
 });

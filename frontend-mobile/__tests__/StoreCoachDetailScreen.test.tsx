@@ -45,6 +45,7 @@ jest.mock('../src/services/api', () => ({
 jest.spyOn(Alert, 'alert');
 
 import { StoreCoachDetailScreen } from '../src/screens/store/StoreCoachDetailScreen';
+import { tabBarBottomOffset } from '../src/components/ui/ExpandableTabBar';
 import { CHAT_THREAD_ROUTE, COACH_EDIT_ROUTE } from '../src/navigation/routes';
 import type { StoreCoach, StoreCoachDetail, CoachCategory } from '../src/types';
 
@@ -132,6 +133,20 @@ describe('StoreCoachDetailScreen', () => {
         // Title appears in both header and content area
         expect(getAllByText('Marathon Training Coach').length).toBeGreaterThan(0);
       });
+    });
+
+    // The action bar is absolute, so its parent's safe-area padding never
+    // reaches it. Pinned to the bare 68pt constant it sat inside the floating
+    // tab bar, which occupies 34..90 above the screen edge here (carnet#208).
+    it('floats its action bar above the tab bar rather than inside it', async () => {
+      const { findByTestId } = render(<StoreCoachDetailScreen />);
+
+      const bar = await findByTestId('coach-detail-action-bar');
+      const style = bar.props.style as Record<string, unknown> | Array<Record<string, unknown>>;
+      const flat = Array.isArray(style) ? Object.assign({}, ...style) : style;
+
+      expect(flat.bottom).toBe(102);
+      expect(flat.bottom).toBe(tabBarBottomOffset(34));
     });
 
     it('should render coach description', async () => {

@@ -17,7 +17,6 @@ import { trustedActionUrl } from '@pierre/chat-utils';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 
 import { ChatHeader } from './ChatHeader';
-import { ChatPlusSheet } from './ChatPlusSheet';
 import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
 import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigation/routes';
@@ -62,7 +61,6 @@ export function ChatScreen() {
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
-  const [plusVisible, setPlusVisible] = useState(false);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
   const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
   // The message whose verdicts the sheet shows, or `null` while it is closed.
@@ -84,8 +82,9 @@ export function ChatScreen() {
   }, [keyboard.height, scrollToBottom]);
   const providerStatus = useProviderStatus();
   const usageStatus = useUsageStatus();
-  // The "+" and the info sheet's "Participants" share one flow state, so
-  // "add someone to this discussion" and "Participants" open the same sheet.
+  // The flow state behind the info sheet's "Participants" row. The tab bar's
+  // "+" holds its own copy for the same thread, so "add someone to this
+  // discussion" and "Participants" open the same control either way.
   const chatPlus = useChatPlusActions(conversations.currentConversation?.id ?? null);
 
   const { messages } = messagesHook;
@@ -438,15 +437,9 @@ export function ChatScreen() {
           currentConversation={conversations.currentConversation}
           insetTop={insets.top}
           onBackPress={goBackToList}
-          onPlusPress={() => setPlusVisible(true)}
           onTitlePress={openInfoSheet}
         />
 
-        <ChatPlusSheet
-          visible={plusVisible}
-          onClose={() => setPlusVisible(false)}
-          actions={chatPlus.actions}
-        />
         <ChatPlusFlows flows={chatPlus.flows} />
 
         <ConversationInfoSheet

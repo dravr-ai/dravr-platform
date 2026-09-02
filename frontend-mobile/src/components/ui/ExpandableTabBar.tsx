@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Floating expandable tab bar with glassmorphism inspired by Linear
-// ABOUTME: Collapsed pill with Chat/Discover/Settings + "+" that expands into the tabs and the chat quick actions
+// ABOUTME: Collapsed pill with Chat/Discover/Settings + "+" that expands into the chat actions alone
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, Text, useWindowDimensions, View } from 'react-native';
@@ -24,7 +24,7 @@ import { useChatPlusActions, type ChatPlusAction } from '../../screens/chat/useC
 import { ChatPlusFlows } from '../../screens/chat/ChatPlusFlows';
 import { useConversationRows } from '../../screens/conversations/useConversationList';
 import { GlassContainer } from './GlassContainer';
-import { TabMenuItem } from './TabMenuItem';
+import { MENU_ROW_HEIGHT, TabMenuItem } from './TabMenuItem';
 import { useTranslation } from '@pierre/i18n';
 
 /** The route group a tab opens. */
@@ -62,26 +62,47 @@ const TAB_COUNT = TAB_BAR_TABS.length;
 
 const ICON_SIZE = 22;
 const COLLAPSED_HEIGHT = 56;
-const EXPANDED_HEIGHT = 380;
 const PLUS_BUTTON_SIZE = 48;
 
+/** Breathing room above the sheet's first row and below its last. */
+const MENU_VERTICAL_PADDING = 12;
+
 /**
- * Space screens reserve at the bottom so nothing sits under the floating tab bar.
+ * How tall the pill opens for a sheet of `rowCount` actions.
  *
- * The `+ 40` is a hardcoded stand-in for the home indicator, and it is wrong on
- * most hardware: an iPhone SE has a bottom inset of 0 and gets 40dp of dead
- * space, Android gesture navigation reports its own value, and a tablet
- * reports another. `tabBarBottomOffset(insets.bottom)` is the honest version
- * and is what every screen should call.
- *
- * The constant is kept because it is the correct value for an inset of 0 plus
- * the bar's own breathing room, and it is what a component without access to
- * the safe-area context falls back to.
+ * The collapsed icon row keeps its place beneath the sheet — it fades, it is
+ * not unmounted — so its height is part of every open sheet. Everything above
+ * it is the rows themselves and the padding around them, which is why a sheet
+ * of two actions and a sheet of three do not open to the same height.
  */
+export function expandedSheetHeight(rowCount: number): number {
+  return COLLAPSED_HEIGHT + MENU_VERTICAL_PADDING * 2 + rowCount * MENU_ROW_HEIGHT;
+}
+
+/** The clear air between the top of the tab bar and whatever sits above it. */
 export const TAB_BAR_GAP = 12;
+
+/**
+ * Clearance above the tab bar, measured from the SAFE-AREA bottom edge.
+ *
+ * This is the value for content that flows inside a bottom-edge
+ * `SafeAreaView`: the device inset is already spent as that view's padding,
+ * so a child in the flow starts above it and adding the inset again would
+ * reserve it twice.
+ */
 export const TAB_BAR_BOTTOM_OFFSET = COLLAPSED_HEIGHT + TAB_BAR_GAP;
 
-/** The bottom space to reserve, given the device's real safe-area inset. */
+/**
+ * Clearance above the tab bar, measured from the SCREEN bottom edge.
+ *
+ * This is the value for anything positioned absolutely. Yoga resolves a
+ * `bottom` offset against its parent's border box rather than its padding
+ * box, so an absolute child of a `SafeAreaView` never receives the inset its
+ * in-flow siblings do and has to carry it itself. The bar sits at
+ * `max(insets.bottom, 12)`, so an absolute element pinned to the bare
+ * constant lands underneath it on any device with a home indicator
+ * (carnet#208).
+ */
 export function tabBarBottomOffset(bottomInset: number): number {
   return COLLAPSED_HEIGHT + TAB_BAR_GAP + bottomInset;
 }
@@ -166,7 +187,9 @@ export function ExpandableTabBar() {
     setIsExpanded(expanding);
 
     if (expanding) {
-      expandHeight.value = withTiming(EXPANDED_HEIGHT, { duration: 150 });
+      expandHeight.value = withTiming(expandedSheetHeight(chatPlus.actions.length), {
+        duration: 150,
+      });
       expandOpacity.value = withSpring(1);
       plusRotation.value = withTiming(45, { duration: 200 });
     } else {
@@ -179,7 +202,7 @@ export function ExpandableTabBar() {
       withTiming(0.95, { duration: 75 }),
       withSpring(1, { damping: 15, stiffness: 200 }),
     );
-  }, [isExpanded, expandHeight, expandOpacity, plusRotation, tabBarScale]);
+  }, [isExpanded, chatPlus.actions.length, expandHeight, expandOpacity, plusRotation, tabBarScale]);
 
   const handleTabPress = useCallback(
     (index: number) => {
@@ -246,46 +269,35 @@ export function ExpandableTabBar() {
       pointerEvents="box-none"
     >
       {/* Main pill */}
-      <Animated.View style={[{ flex: 1 }, pillAnimatedStyle]}>
+      <Animated.View style={[{ flex: 1 }, pillAnimatedStyle]} testID="expandable-tab-bar-pill">
         <GlassContainer
           style={{ flex: 1 }}
           borderRadius={28}
           testID="expandable-tab-bar"
         >
           <View style={{ flex: 1, justifyContent: 'space-between' }}>
-            {/* Expanded menu items */}
-            <Animated.View style={[{ paddingTop: 12, paddingHorizontal: 8 }, expandedContentStyle]}>
-              {TAB_BAR_TABS.map((tab, index) => (
-                <TabMenuItem
-                  key={tab.route}
-                  icon={tab.icon}
-                  label={t(tab.labelKey)}
-                  isActive={activeIndex === index}
-                  delay={index * 80}
-                  onPress={() => handleTabPress(index)}
-                  testID={`tab-menu-item-${tab.route}`}
-                />
-              ))}
-
-              {/* Separator */}
-              <View
-                style={{
-                  height: 1,
-                  backgroundColor: colors.border.default,
-                  marginHorizontal: 16,
-                  marginVertical: 8,
-                }}
-              />
-
-              {/* Chat quick actions — the same set the chat screens' "+" offers */}
+            {/*
+              The sheet holds actions only. The three destinations are the
+              icons in the row directly beneath it, and offering them twice —
+              same icons, same order — spent the sheet on navigation the
+              athlete was already looking at (carnet#209).
+            */}
+            <Animated.View
+              style={[
+                {
+                  paddingTop: MENU_VERTICAL_PADDING,
+                  paddingBottom: MENU_VERTICAL_PADDING,
+                  paddingHorizontal: 8,
+                },
+                expandedContentStyle,
+              ]}
+            >
               {chatPlus.actions.map((action, index) => (
                 <TabMenuItem
                   key={action.id}
                   icon={action.icon}
                   label={action.label}
-                  isActive={false}
-                  isQuickAction
-                  delay={(TAB_COUNT + index) * 80}
+                  delay={index * 80}
                   onPress={() => handleQuickAction(action)}
                   testID={`quick-action-${action.id}`}
                 />

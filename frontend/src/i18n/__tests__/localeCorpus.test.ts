@@ -118,8 +118,13 @@ describe('client locale corpus', () => {
     // `notifications.*` keys carry the relative times instead: the catalogue
     // is on every runtime, and these four phrasings need no plural rule
     // (carnet#227).
+    //
+    // 2415 until the chat header's "+" left with the button it labelled. The
+    // phone showed two of them at once — one in the header, one in the tab
+    // bar — offering the same sheet, so the header's went and
+    // `app.headerPlusAria` had nothing left to describe (carnet#213).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2415);
+    expect(reference).toHaveLength(2414);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);
