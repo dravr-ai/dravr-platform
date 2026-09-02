@@ -10,7 +10,8 @@ import { CONVERSATION_ID, PROSE_OPENING, assistantTurn } from './helpers/chatFix
 import { chatApi } from '../../src/services/api';
 import { useMessages } from '../../src/screens/chat/useMessages';
 import { ChatProgressStrip } from '../../src/screens/chat/ChatProgressStrip';
-import { statusTextForProgress } from '@pierre/chat-utils';
+import { statusForProgress } from '@pierre/chat-utils';
+import fr from '@pierre/i18n/locales/fr/translation.json';
 
 const MESSAGES_URL = `/api/chat/conversations/${CONVERSATION_ID}/messages`;
 const QUESTION = 'Comment se presente ma semaine ?';
@@ -37,18 +38,22 @@ describe('PHASE 5 — one stream, and a progress strip that finally renders', ()
       },
     });
 
-    const lines: string[] = [];
+    const keys: string[] = [];
     await chatApi.sendTurn(CONVERSATION_ID, QUESTION, {
       onProgress: (progress) => {
-        const text = statusTextForProgress(progress);
-        if (text !== null) lines.push(text);
+        const status = statusForProgress(progress);
+        if (status !== null) keys.push(status.key);
       },
     });
 
-    expect(lines).toEqual(['reading your question…', 'generating response…']);
-    // And those exact words are what the strip puts on screen.
-    render(<ChatProgressStrip statusText={lines[1]} />);
-    expect(screen.getByText('generating response…')).toBeTruthy();
+    expect(keys).toEqual(['chat.status.readingQuestion', 'chat.status.generatingResponse']);
+    // And the athlete's own language is what the strip puts on screen: the
+    // mapper hands back a key precisely so this line is not English
+    // (carnet#206).
+    const french = fr.chat.status.generatingResponse;
+    expect(french).toBe('génération de la réponse…');
+    render(<ChatProgressStrip statusText={french} />);
+    expect(screen.getByText(french)).toBeTruthy();
   });
 
   it('feeds the hook that drives the strip, and collapses it once the reply lands', async () => {

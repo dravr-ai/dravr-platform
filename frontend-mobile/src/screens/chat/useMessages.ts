@@ -9,7 +9,8 @@ import { chatApi } from '../../services/api';
 import { holdIdleWhileBusy, idleSignal } from '../../services/idleSignal';
 import { replySceneBlocks } from '@pierre/api-client';
 import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
-import { filterDisplayMessages, statusTextForProgress } from '@pierre/chat-utils';
+import { filterDisplayMessages, statusForProgress } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 
 export interface MessagesState {
@@ -93,6 +94,7 @@ export interface MessagesActions {
 
 export function useMessages(): MessagesState & MessagesActions {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -222,8 +224,8 @@ export function useMessages(): MessagesState & MessagesActions {
         // open; the idle watch aborts it and the athlete re-sends on return.
         signal: idleSignal(),
         onProgress: progress => {
-          const text = statusTextForProgress(progress);
-          if (text !== null) setProgressText(text);
+          const status = statusForProgress(progress);
+          if (status !== null) setProgressText(t(status.key, status.params));
         },
         onBlock: block => {
           // A quota notice is a fact about the turn rather than about the
@@ -312,8 +314,8 @@ export function useMessages(): MessagesState & MessagesActions {
       await chatApi.sendTurn(conversationId, userMessage.content, {
         signal: idleSignal(),
         onProgress: progress => {
-          const text = statusTextForProgress(progress);
-          if (text !== null) setProgressText(text);
+          const status = statusForProgress(progress);
+          if (status !== null) setProgressText(t(status.key, status.params));
         },
         onBlock: block => {
           if (block.type === 'notice') {

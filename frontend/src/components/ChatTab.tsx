@@ -13,7 +13,7 @@ import {
   avatarSlot,
   defaultConversationTitle,
   initialsFor,
-  statusTextForProgress,
+  statusForProgress,
   trustedActionUrl,
 } from '@pierre/chat-utils';
 import {
@@ -503,8 +503,8 @@ export default function ChatTab({
       onProgress: progress => {
         // One vocabulary, rendered the same way here and on mobile and in the
         // messaging channels' placeholder edits.
-        const text = statusTextForProgress(progress);
-        if (text !== null) setProgressStatusText(text);
+        const status = statusForProgress(progress);
+        if (status !== null) setProgressStatusText(t(status.key, status.params));
       },
       onBlock: block => {
         // A quota notice is a fact about the turn rather than about the reply,

@@ -85,7 +85,11 @@ function getUsageBarColor(
 }
 
 /** Format ISO 8601 reset time in user's local timezone */
-function formatResetTime(isoString: string): string {
+/**
+ * `fallback` is the caller's translated wording for an unparseable timestamp:
+ * this runs outside the component, so it cannot reach the catalogue itself.
+ */
+function formatResetTime(isoString: string, fallback: string): string {
   try {
     const date = new Date(isoString);
     return new Intl.DateTimeFormat(undefined, {
@@ -94,7 +98,7 @@ function formatResetTime(isoString: string): string {
       timeZoneName: 'short',
     }).format(date);
   } catch {
-    return 'midnight UTC';
+    return fallback;
   }
 }
 
@@ -704,7 +708,10 @@ export function SettingsScreen() {
                 {/* Reset time */}
                 <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 16 }}>
                   {t('app.dailyLimitsResetAt', {
-                    time: formatResetTime(usageData.daily.messages.resets_at),
+                    time: formatResetTime(
+                      usageData.daily.messages.resets_at,
+                      t('settingsUi.midnightUtc'),
+                    ),
                   })}
                 </Text>
 

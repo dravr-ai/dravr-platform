@@ -50,7 +50,8 @@ export type {
 } from './conversation-row';
 
 // Turn-progress event → status text mapping (shared by web + mobile)
-export { statusTextForProgress, THINKING_PLACEHOLDER } from './progress';
+export { statusForProgress, THINKING_PLACEHOLDER_KEY } from './progress';
+export type { ProgressStatus } from './progress';
 
 // Inline visual blocks: split a reply on its positional markers, parse the
 // resolved scenes. Shared so web and mobile interleave prose and charts the

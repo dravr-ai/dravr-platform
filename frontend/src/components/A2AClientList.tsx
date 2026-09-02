@@ -9,23 +9,25 @@ import { Button, Card, CardHeader, Badge, StatusIndicator, StatusFilter, Confirm
 import type { StatusFilterValue } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
-// Helper functions for date formatting
-const formatDistanceToNow = (date: Date) => {
-  const now = new Date();
-  const diffInMs = now.getTime() - date.getTime();
-  const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
-  const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-
-  if (diffInDays > 0) {
-    return `${diffInDays} day${diffInDays > 1 ? 's' : ''}`;
-  } else if (diffInHours > 0) {
-    return `${diffInHours} hour${diffInHours > 1 ? 's' : ''}`;
-  } else if (diffInMinutes > 0) {
-    return `${diffInMinutes} minute${diffInMinutes > 1 ? 's' : ''}`;
-  } else {
-    return 'just now';
-  }
+/**
+ * How long ago `date` was, in the athlete's language.
+ *
+ * The hand-rolled version returned "3 days", "just now" and an English plural
+ * rule, and its callers appended a bare "ago" — five English strings on a
+ * settings pane an athlete sees whenever the API-tokens flag is on. The
+ * platform's own relative-time formatting carries the wording, the plural and
+ * the "ago" for every locale.
+ */
+const formatDistanceToNow = (date: Date, language: string): string => {
+  const relative = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
+  const elapsedMs = date.getTime() - Date.now();
+  const minutes = Math.round(elapsedMs / 60_000);
+  if (Math.abs(minutes) < 1) return relative.format(0, 'minute');
+  const hours = Math.round(elapsedMs / 3_600_000);
+  if (Math.abs(hours) < 1) return relative.format(minutes, 'minute');
+  const days = Math.round(elapsedMs / 86_400_000);
+  if (Math.abs(days) < 1) return relative.format(hours, 'hour');
+  return relative.format(days, 'day');
 };
 
 const format = (date: Date, pattern: string) => {
@@ -44,7 +46,7 @@ interface A2AClientListProps {
 }
 
 export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const [showCredentials, setShowCredentials] = useState<{ [key: string]: boolean }>({});
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('active');
@@ -250,7 +252,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                   </div>
 
                   <div className="flex items-center gap-4 text-sm text-outline">
-                    <span>{t('a2a.createdAgo', { when: formatDistanceToNow(new Date(client.created_at)) })}</span>
+                    <span>{t('a2a.createdAgo', { when: formatDistanceToNow(new Date(client.created_at), language) })}</span>
                     {client.agent_version && <span>v{client.agent_version}</span>}
                   </div>
                 </div>
@@ -332,7 +334,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                   <div className="flex justify-between">
                     <span className="text-on-surface-variant">{t('a2a.lastRequest')}</span>
                     <span className="font-medium text-on-surface">
-                      {formatDistanceToNow(new Date(clientUsage.last_request_at))} ago
+                      {formatDistanceToNow(new Date(clientUsage.last_request_at), language)}
                     </span>
                   </div>
                 )}

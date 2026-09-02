@@ -23,7 +23,7 @@
     "confirmDeactivate": "Veux-tu vraiment désactiver « {{name}} » ? Cette action est irréversible et toute application utilisant ce client perdra l'accès.",
     "contactEmailRequired": "E-mail de contact *",
     "created": "Créé",
-    "createdAgo": "Créé il y a {{when}}",
+    "createdAgo": "Créé {{when}}",
     "createdBody": "Ton client A2A a bien été enregistré. Conserve ces identifiants en lieu sûr : ils ne seront plus affichés.",
     "createdTitle": "Client A2A créé !",
     "creating": "Création…",
@@ -888,6 +888,7 @@
     "newPasswordPlaceholderSignUp": "Choisis un mot de passe (8 caractères min.)",
     "noAccountCreateOne": "Tu n’as pas de compte ? Crées-en un",
     "openConfirmationLink": "Ouvre le lien de confirmation qu’on t’a envoyé par e-mail",
+    "orDivider": "ou",
     "passwordLabel": "Mot de passe",
     "passwordMismatch": "Les deux mots de passe ne sont pas identiques",
     "passwordRequired": "Le mot de passe est obligatoire",
@@ -1126,6 +1127,14 @@
     "startConversationPrompt": "Démarre une conversation",
     "startupQueryLabel": "Requête de démarrage (facultatif)",
     "startupQueryPlaceholder": "Qu’est-ce que le coach doit analyser dès le premier message ? p. ex. Analyse ma charge d’entraînement et repère les tendances",
+    "status": {
+      "callingTool": "appel de {{tool}}…",
+      "generatingResponse": "génération de la réponse…",
+      "readingQuestion": "lecture de ta question…",
+      "runningTool": "exécution d'un outil…",
+      "stage": "{{stage}}…",
+      "thinking": "réflexion…"
+    },
     "streaming": "réflexion…",
     "suggestionHint": "Clique sur une suggestion pour remplir le champ :",
     "systemBadge": "Système",
@@ -2296,6 +2305,7 @@
     "expiresLabel": "Expire le :",
     "lastUsedLabel": "Dernière utilisation :",
     "manual": "Manuel",
+    "midnightUtc": "minuit UTC",
     "neverExpires": "N’expire jamais",
     "neverValue": "Jamais",
     "password": "Mot de passe",
@@ -2512,6 +2522,7 @@
     "updateReload": "Recharger"
   },
   "tokens": {
+    "activeCount": "{{count}} jetons actifs pour les connexions client IA",
     "connectedApps": "Applications connectées",
     "connectedAppsEmpty": "Aucune application connectée pour l’instant",
     "connectedAppsHint": "Applications externes que tu as autorisées à accéder à Dravr via OAuth",

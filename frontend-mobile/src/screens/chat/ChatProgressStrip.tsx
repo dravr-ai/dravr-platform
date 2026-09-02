@@ -11,7 +11,7 @@ interface ChatProgressStripProps {
    * Latest status line for the in-flight turn, or `null` between turns.
    *
    * Comes from `sendTurn`'s `onProgress` callback via
-   * `statusTextForProgress` — the same response body the reply arrives on, so
+   * `statusForProgress` — the same response body the reply arrives on, so
    * the strip cannot show progress for a turn that is not the one rendering.
    */
   statusText: string | null;

@@ -23,7 +23,7 @@
     "confirmDeactivate": "Möchtest du „{{name}}“ wirklich deaktivieren? Das lässt sich nicht rückgängig machen, und jede App, die diesen Client nutzt, verliert den Zugriff.",
     "contactEmailRequired": "Kontakt-E-Mail *",
     "created": "Erstellt",
-    "createdAgo": "Vor {{when}} erstellt",
+    "createdAgo": "Erstellt {{when}}",
     "createdBody": "Dein A2A-Client wurde erfolgreich registriert. Bewahre diese Zugangsdaten sicher auf — sie werden nicht erneut angezeigt.",
     "createdTitle": "A2A-Client erstellt!",
     "creating": "Wird erstellt…",
@@ -888,6 +888,7 @@
     "newPasswordPlaceholderSignUp": "Leg ein Passwort fest (mind. 8 Zeichen)",
     "noAccountCreateOne": "Noch kein Konto? Leg eines an",
     "openConfirmationLink": "Öffne den Bestätigungslink, den wir dir per E-Mail geschickt haben",
+    "orDivider": "oder",
     "passwordLabel": "Passwort",
     "passwordMismatch": "Die beiden Passwörter stimmen nicht überein",
     "passwordRequired": "Das Passwort ist erforderlich",
@@ -1126,6 +1127,14 @@
     "startConversationPrompt": "Starte eine Unterhaltung",
     "startupQueryLabel": "Startanfrage (optional)",
     "startupQueryPlaceholder": "Was soll der Coach bei der ersten Nachricht analysieren? z. B. Analysiere meine Trainingsbelastung und finde Trends",
+    "status": {
+      "callingTool": "{{tool}} wird aufgerufen…",
+      "generatingResponse": "Antwort wird erstellt…",
+      "readingQuestion": "liest deine Frage…",
+      "runningTool": "Werkzeug wird ausgeführt…",
+      "stage": "{{stage}}…",
+      "thinking": "denkt nach…"
+    },
     "streaming": "denke nach…",
     "suggestionHint": "Klick auf einen Vorschlag, um das Feld zu füllen:",
     "systemBadge": "System",
@@ -2296,6 +2305,7 @@
     "expiresLabel": "Läuft ab:",
     "lastUsedLabel": "Zuletzt verwendet:",
     "manual": "Manuell",
+    "midnightUtc": "Mitternacht UTC",
     "neverExpires": "Läuft nie ab",
     "neverValue": "Nie",
     "password": "Passwort",
@@ -2512,6 +2522,7 @@
     "updateReload": "Neu laden"
   },
   "tokens": {
+    "activeCount": "{{count}} aktive Token für KI-Client-Verbindungen",
     "connectedApps": "Verbundene Apps",
     "connectedAppsEmpty": "Noch keine verbundenen Apps",
     "connectedAppsHint": "Externe Anwendungen, denen du über OAuth Zugriff auf Dravr erlaubt hast",

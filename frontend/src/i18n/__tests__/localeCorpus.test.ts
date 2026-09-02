@@ -85,8 +85,15 @@ describe('client locale corpus', () => {
     // phone's empty conversation list), minus three that translated the
     // coaching persona names while both clients render `PERSONA_NAME`
     // untranslated on purpose — the stored value is quoted in the coach prompt.
+    //
+    // 2352 until driving the app in French found what no gate could see: the
+    // chat progress line ("generating response…") and the login divider
+    // ("or") were English literals inside a shared function and a two-letter
+    // text node. Six `chat.status.*` keys, `auth.orDivider`,
+    // `tokens.activeCount` and `settingsUi.midnightUtc` — nine — replaced
+    // them (carnet#206).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2352);
+    expect(reference).toHaveLength(2361);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

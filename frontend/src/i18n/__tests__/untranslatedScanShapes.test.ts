@@ -365,4 +365,69 @@ describe('prose longer than the text pattern bound', () => {
       sentence,
     );
   });
+
+  it('finds copy a function hands back, the shape the chat progress line hid in', () => {
+    // `packages/chat-utils/src/progress.ts` mapped every turn-progress event to
+    // English this way and both chat UIs rendered it verbatim, while the file
+    // was inside the scan and no shape matched a `return` (carnet#206).
+    const source = [
+      'export function statusText(stage: string): string {',
+      "  if (stage === 'dispatch') return 'generating response…';",
+      "  return 'running a tool…';",
+      '}',
+    ].join('\n');
+    const hits = scan(source);
+    expect(hits).toContain('generating response…');
+    expect(hits).toContain('running a tool…');
+  });
+
+  it('leaves an interpolated return to the render sweep, not to a regex', () => {
+    // `return \`calling ${tool}…\`` is copy, but NOT_PROSE rejects a brace on
+    // purpose: unpicking that flags every enum and brand constant in the app
+    // (the WhatsApp case below). The rendered line is caught instead — the
+    // French sweep fails when a page paints an English value the corpus
+    // translates (carnet#206).
+    const source = [
+      'export function calling(tool: string): string {',
+      '  return `calling ${tool} now…`;',
+      '}',
+    ].join('\n');
+    expect(scan(source)).toEqual([]);
+  });
+
+  it('leaves a returned Tailwind class list alone', () => {
+    // The verdict chips and the A2A badges choose styling with exactly the
+    // shape above. Flagging those buries the real copy in noise: sixteen of
+    // the eighteen first hits were class lists.
+    const source = [
+      'export function chipClass(kind: string): string {',
+      "  if (kind === 'supported') return 'bg-success/15 text-on-success-container';",
+      "  return 'bg-surface-container-high text-on-surface';",
+      '}',
+    ].join('\n');
+    expect(scan(source)).toEqual([]);
+  });
+
+  it('finds a two-letter text node, the shape the login divider hid in', () => {
+    // The divider between the password form and the Google button is the
+    // shortest real copy either app renders, and a three-character floor could
+    // not see it — in the text pattern or in the length filter after it. The
+    // provider modal spells it `Or`; the login page spells it `or`.
+    //
+    // Only the capitalised one is caught here. A bare lowercase pair is a unit
+    // as often as a word (`km`, `kg`), and an all-caps one reads as a constant
+    // name to NOT_PROSE, so both are left to rendering: `auth.orDivider` is a
+    // corpus key, and the French sweep fails when a page paints the English
+    // value (carnet#206).
+    expect(scan('<div>\n  <span className="uppercase">Or</span>\n</div>')).toContain('Or');
+  });
+
+  it('finds double-quoted prose assigned to a constant', () => {
+    // Every pattern that accepts two quote styles captures into two groups,
+    // and the reader took only the first — so a double-quoted constant matched
+    // and was then dropped on the floor.
+    expect(scan('const SLASH_HINT = "Type / for commands";')).toContain(
+      'Type / for commands',
+    );
+  });
 });

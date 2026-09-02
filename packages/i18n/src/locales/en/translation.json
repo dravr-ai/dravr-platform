@@ -23,7 +23,7 @@
     "confirmDeactivate": "Are you sure you want to deactivate \"{{name}}\"? This action cannot be undone and any applications using this client will lose access.",
     "contactEmailRequired": "Contact Email *",
     "created": "Created",
-    "createdAgo": "Created {{when}} ago",
+    "createdAgo": "Created {{when}}",
     "createdBody": "Your A2A client has been successfully registered. Save these credentials securely - they won't be shown again.",
     "createdTitle": "A2A Client Created!",
     "creating": "Creating...",
@@ -888,6 +888,7 @@
     "newPasswordPlaceholderSignUp": "Create a password (min 8 characters)",
     "noAccountCreateOne": "Don't have an account? Create one",
     "openConfirmationLink": "Open the confirmation link we emailed you",
+    "orDivider": "or",
     "passwordLabel": "Password",
     "passwordMismatch": "The passwords do not match",
     "passwordRequired": "Password is required",
@@ -1126,6 +1127,14 @@
     "startConversationPrompt": "Start a conversation",
     "startupQueryLabel": "Startup Query (optional)",
     "startupQueryPlaceholder": "What should the coach analyze on first message? e.g., Analyze my training load and identify trends",
+    "status": {
+      "callingTool": "calling {{tool}}…",
+      "generatingResponse": "generating response…",
+      "readingQuestion": "reading your question…",
+      "runningTool": "running a tool…",
+      "stage": "{{stage}}…",
+      "thinking": "thinking…"
+    },
     "streaming": "thinking...",
     "suggestionHint": "Click a suggestion to fill the input:",
     "systemBadge": "System",
@@ -2296,6 +2305,7 @@
     "expiresLabel": "Expires:",
     "lastUsedLabel": "Last Used:",
     "manual": "Manual",
+    "midnightUtc": "midnight UTC",
     "neverExpires": "Never expires",
     "neverValue": "Never",
     "password": "Password",
@@ -2512,6 +2522,7 @@
     "updateReload": "Reload"
   },
   "tokens": {
+    "activeCount": "{{count}} active tokens for AI client connections",
     "connectedApps": "Connected Apps",
     "connectedAppsEmpty": "No connected apps yet",
     "connectedAppsHint": "External applications you authorized to access Dravr via OAuth",

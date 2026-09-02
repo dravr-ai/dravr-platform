@@ -85,8 +85,13 @@ function getUsageBarColor(current: number, limit: number): string {
   return 'bg-activity';
 }
 
-/** Format ISO 8601 reset time in user's local timezone */
-function formatResetTime(isoString: string): string {
+/**
+ * Format ISO 8601 reset time in the user's local timezone.
+ *
+ * `fallback` is the caller's translated wording for an unparseable timestamp:
+ * this runs outside the component, so it cannot reach the catalogue itself.
+ */
+function formatResetTime(isoString: string, fallback: string): string {
   try {
     const date = new Date(isoString);
     return new Intl.DateTimeFormat(undefined, {
@@ -95,7 +100,7 @@ function formatResetTime(isoString: string): string {
       timeZoneName: 'short',
     }).format(date);
   } catch {
-    return 'midnight UTC';
+    return fallback;
   }
 }
 
@@ -1083,7 +1088,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 <div>
                   <h2 className="text-lg font-semibold text-on-surface">{t('tokens.title')}</h2>
                   <p className="text-sm text-on-surface-variant mt-1">
-                    {activeTokens.length} active tokens for AI client connections
+                    {t('tokens.activeCount', { count: activeTokens.length })}
                   </p>
                 </div>
               </div>
@@ -1456,7 +1461,8 @@ Authorization: Bearer <your-token-here>`}
 
                   {/* Reset time */}
                   <p className="text-xs text-outline">
-                    {t('frag.dailyLimitsResetAt')} {formatResetTime(usageData.daily.messages.resets_at)}
+                    {t('frag.dailyLimitsResetAt')}{' '}
+                    {formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc'))}
                   </p>
 
                   {/* Resource counts (user-facing only, not shown for admin) */}

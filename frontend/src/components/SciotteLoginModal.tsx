@@ -363,7 +363,9 @@ export default function SciotteLoginModal({
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t ghost-border" /></div>
                 <div className="relative flex justify-center text-xs">
-                  <span className="px-3 bg-surface-container-highest text-on-surface/50">Or</span>
+                  <span className="px-3 bg-surface-container-highest text-on-surface/50">
+                    {t('auth.orDivider')}
+                  </span>
                 </div>
               </div>
 

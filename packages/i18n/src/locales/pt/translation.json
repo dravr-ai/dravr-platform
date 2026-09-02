@@ -23,7 +23,7 @@
     "confirmDeactivate": "Queres mesmo desativar «{{name}}»? Esta ação é irreversível e qualquer aplicação que use este cliente perderá o acesso.",
     "contactEmailRequired": "E-mail de contacto *",
     "created": "Criado",
-    "createdAgo": "Criado há {{when}}",
+    "createdAgo": "Criado {{when}}",
     "createdBody": "O teu cliente A2A foi registado com sucesso. Guarda estas credenciais num local seguro: não voltarão a ser mostradas.",
     "createdTitle": "Cliente A2A criado!",
     "creating": "A criar…",
@@ -888,6 +888,7 @@
     "newPasswordPlaceholderSignUp": "Cria uma palavra-passe (mín. 8 caracteres)",
     "noAccountCreateOne": "Não tens conta? Cria uma",
     "openConfirmationLink": "Abre o link de confirmação que te enviámos por e-mail",
+    "orDivider": "ou",
     "passwordLabel": "Palavra-passe",
     "passwordMismatch": "As duas palavras-passe não coincidem",
     "passwordRequired": "A palavra-passe é obrigatória",
@@ -1126,6 +1127,14 @@
     "startConversationPrompt": "Começa uma conversa",
     "startupQueryLabel": "Pergunta inicial (opcional)",
     "startupQueryPlaceholder": "O que deve o coach analisar na primeira mensagem? p. ex. Analisa a minha carga de treino e identifica tendências",
+    "status": {
+      "callingTool": "a chamar {{tool}}…",
+      "generatingResponse": "a gerar a resposta…",
+      "readingQuestion": "a ler a tua pergunta…",
+      "runningTool": "a executar uma ferramenta…",
+      "stage": "{{stage}}…",
+      "thinking": "a pensar…"
+    },
     "streaming": "a pensar…",
     "suggestionHint": "Clica numa sugestão para preencher o campo:",
     "systemBadge": "Sistema",
@@ -2296,6 +2305,7 @@
     "expiresLabel": "Expira:",
     "lastUsedLabel": "Última utilização:",
     "manual": "Manual",
+    "midnightUtc": "meia-noite UTC",
     "neverExpires": "Nunca expira",
     "neverValue": "Nunca",
     "password": "Palavra-passe",
@@ -2512,6 +2522,7 @@
     "updateReload": "Recarregar"
   },
   "tokens": {
+    "activeCount": "{{count}} tokens ativos para ligações de clientes de IA",
     "connectedApps": "Aplicações ligadas",
     "connectedAppsEmpty": "Ainda não há aplicações ligadas",
     "connectedAppsHint": "Aplicações externas que autorizaste a aceder ao Dravr através de OAuth",

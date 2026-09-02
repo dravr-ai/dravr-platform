@@ -62,7 +62,24 @@ const ROOTS = [
  * Operators are internal and nobody needs Harness Config in Portuguese. The
  * count is still reported below so the decision stays visible.
  */
-const CEILING = 0;
+/**
+ * The athlete ceiling, and why it is not 0.
+ *
+ * It read 0 for weeks while the scan walked `.tsx` files only. Every hook,
+ * helper and shared module — the whole `.ts` half of both apps — was outside
+ * it, and that half holds the voice-input errors, the provider-connection
+ * alerts, the conversation failures and the chat progress line an athlete
+ * watches on every turn. Extending the walk to `.ts` turned an honest-looking
+ * 0 into 83, none of them new (carnet#206).
+ *
+ * So this number is debt, measured, and it only ever goes down. It is not an
+ * allowance to add to: a new hardcoded string still fails this gate, because
+ * clearing one is the only way to make room. The file list the failure prints
+ * is the work order, and `#207` tracks it file by file — several of those
+ * files belong to other sessions' open issues right now, which is why this
+ * change measures the debt rather than paying it.
+ */
+const CEILING = 83;
 
 describe('untranslated string ratchet', () => {
   it('carries no more hardcoded user-facing strings than the ceiling', () => {
@@ -94,7 +111,7 @@ describe('untranslated string ratchet', () => {
           'constant instead. Shape cannot tell `Telegram` from `Cancel`: both are\n' +
           'one capitalised word, so the scanner flags both, and translating a\n' +
           'trademark into five languages is the wrong way to clear it.\n' +
-          `Or say why the ceiling should rise.\n${worst}`,
+          `The ceiling only goes DOWN. Clear one to add one.\n${worst}`,
       );
     }
 

@@ -361,7 +361,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                   <div className="relative flex justify-center">
                     <span className="px-3 bg-surface text-xs font-label uppercase text-on-surface-variant"
                           style={{ letterSpacing: '0.12em' }}>
-                      or
+                      {t('auth.orDivider')}
                     </span>
                   </div>
                 </div>

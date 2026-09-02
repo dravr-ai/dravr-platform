@@ -37,7 +37,12 @@ import path from 'path';
 // actually leaves the device, on the one surface whose own comment insists
 // both clients must promise the same thing. The longest real string in either
 // app is 379 raw characters.
-const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{2,800}?)\s*[<{]/g;
+//
+// The floor is two characters, not three. `<span>or</span>` between the login
+// form and the Google button is the shortest real copy either app renders, and
+// a three-character floor could not see it — nor any other two-letter word a
+// designer reaches for.
+const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{1,800}?)\s*[<{]/g;
 /**
  * A quoted prop that carries prose.
  *
@@ -62,6 +67,23 @@ const STRING_PROP =
  * (`'app.sportRunning'`) and an enum value (`'north_star'`) stay out.
  */
 const CONST_PROSE = /^\s*(?:export\s+)?const\s+[A-Z_][A-Z0-9_]*\s*=\s*(?:'([A-Z][^'\n]*\s[^'\n]{2,})'|"([A-Z][^"\n]*\s[^"\n]{2,})")/gm;
+
+/**
+ * A string literal a function hands back as display text.
+ *
+ * `packages/chat-utils/src/progress.ts` mapped every turn-progress event to
+ * English this way — `return 'generating response…'`, `return 'running a
+ * tool…'`, a template literal for `calling {tool}…` — and both chat UIs
+ * rendered it verbatim. The file was already inside the scan; no shape above
+ * matched a `return`, so a French athlete read English on the main surface
+ * while every gate reported zero (carnet#206).
+ *
+ * Backticks are included because an interpolated status line is still copy.
+ * Two or more words keeps a returned key (`return 'chat.status.thinking'`) and
+ * a returned enum value out.
+ */
+const RETURN_PROSE =
+  /\breturn\s+(?:'([A-Za-z][^'\n]*\s[^'\n]{2,})'|"([A-Za-z][^"\n]*\s[^"\n]{2,})"|`([A-Za-z][^`\n]*\s[^`\n]{2,})`)/g;
 
 /**
  * Prose handed to a function, rather than rendered.
@@ -377,6 +399,24 @@ export interface UntranslatedString {
 }
 
 /**
+ * Whether a string is a Tailwind class list rather than copy.
+ *
+ * The chat verdict chips and the A2A client badges pick their styling with
+ * `return 'bg-success/15 text-on-success-container hover:bg-success/25'`, the
+ * same shape as a returned status line and not copy. A class list is every
+ * token lowercase with at least one `-`, `/` or `:` — the separators Tailwind
+ * builds on and prose does not use between words.
+ */
+function isUtilityClassList(text: string): boolean {
+  const tokens = text.split(/\s+/);
+  return (
+    tokens.length > 1 &&
+    /[-/:]/.test(text) &&
+    tokens.every(token => /^[a-z0-9][a-z0-9:/[\]._-]*$/.test(token))
+  );
+}
+
+/**
  * Comments are not copy. Since the text pattern may close on `{` as well as
  * `<`, a prose comment sitting between two tags reads as a text node — one
  * explaining a routing decision was picked up and very nearly translated.
@@ -473,22 +513,47 @@ function collect(input: string): string[] {
    * exists to throw out loose JSX-text captures that are really code; a value
    * sitting behind `text:` is not a guess, and real copy contains brackets.
    */
+  //
+  // A `return` capture joins them: `return \`calling ${tool}…\`` is the shape
+  // the chat progress line hid in, and CODE_SHAPE rejects anything with an
+  // interpolation, so without this the pattern matches and the filter throws
+  // the hit away. A returned literal that reads as a sentence is copy.
   const trusted = new Set<string>();
-  for (const re of [STRING_PROP, OBJECT_LITERAL]) {
+  for (const re of [STRING_PROP, OBJECT_LITERAL, RETURN_PROSE]) {
     re.lastIndex = 0;
     let m = re.exec(source);
     while (m !== null) {
-      trusted.add(m[1].replace(/\s+/g, ' ').trim());
+      const captured = m.slice(1).find(group => typeof group === 'string');
+      if (captured !== undefined) {
+        const text = captured.replace(/\s+/g, ' ').trim();
+        if (!isUtilityClassList(text)) trusted.add(text);
+      }
       m = re.exec(source);
     }
   }
-  for (const re of [JSX_TEXT, STRING_PROP, OBJECT_LITERAL, CALL_ARG_PROSE, CALL_LATER_ARG_PROSE, CONST_PROSE]) {
+  for (const re of [
+    JSX_TEXT,
+    STRING_PROP,
+    OBJECT_LITERAL,
+    CALL_ARG_PROSE,
+    CALL_LATER_ARG_PROSE,
+    CONST_PROSE,
+    RETURN_PROSE,
+  ]) {
     re.lastIndex = 0;
     let m = re.exec(source);
     while (m !== null) {
+      // A pattern that accepts more than one quote style captures into more
+      // than one group; the one that matched is the copy. Reading `m[1]`
+      // alone threw away every double-quoted `CONST_PROSE` hit.
+      const captured = m.slice(1).find(group => typeof group === 'string');
+      if (captured === undefined) {
+        m = re.exec(source);
+        continue;
+      }
       // JSX text may wrap across lines; the reader sees one collapsed string.
-      const text = m[1].replace(/\s+/g, ' ').trim();
-      if (/^[A-Z]/.test(text) || text.includes(' ')) {
+      const text = captured.replace(/\s+/g, ' ').trim();
+      if ((/^[A-Z]/.test(text) || text.includes(' ')) && !isUtilityClassList(text)) {
         found.add(text);
       }
       m = re.exec(source);
@@ -529,7 +594,10 @@ function collect(input: string): string[] {
   }
   return [...found].filter(
     (text) =>
-      text.length >= 3 &&
+      // Two characters, because `<span>or</span>` between the login form and
+      // the Google button is the shortest copy either app renders and a
+      // three-character floor could not see it.
+      text.length >= 2 &&
       /[a-z]/.test(text) &&
       !NOT_PROSE.test(text) &&
       // CODE_SHAPE only applies to the LOOSE captures. A value behind a named
@@ -545,7 +613,12 @@ function walk(dir: string, out: string[]): string[] {
       if (entry.name !== '__tests__') {
         walk(full, out);
       }
-    } else if (entry.name.endsWith('.tsx')) {
+      // `.ts` as well as `.tsx`. The chat progress line — the status an
+      // athlete watches on every turn — lived in `packages/chat-utils/src/
+      // progress.ts`, inside a root this scan already walked, and no `.tsx`
+      // filter could ever see it. A file's extension says whether it renders
+      // markup, not whether it holds copy (carnet#206).
+    } else if (entry.name.endsWith('.tsx') || entry.name.endsWith('.ts')) {
       out.push(full);
     }
   }

@@ -177,6 +177,25 @@ async function loginExpectingWizard(page: Page): Promise<void> {
 }
 
 test.describe('French rendering sweep', () => {
+  test('the sign-in page renders no English the corpus translates', async ({ page }) => {
+    // The sweep logged in before it looked at anything, so the first screen an
+    // athlete ever sees was the one surface it never read — and the divider
+    // between the password form and the Google button said "or" under French
+    // chrome for as long as the page has existed (carnet#206).
+    const english = [...englishValuesWithFrenchTranslations()];
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem('pierre_app_language', 'fr');
+      } catch { /* */ }
+    });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: frenchValue('auth.signInButton') })).toBeVisible({
+      timeout: 10_000,
+    });
+    const found = await page.evaluate(TEXT_NODE_OFFENDERS, { values: english, root: 'body' });
+    expect(found, `Sign-in page rendering English:\n${found.join('\n')}`).toEqual([]);
+  });
+
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       try {

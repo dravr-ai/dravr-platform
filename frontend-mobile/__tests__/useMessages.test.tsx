@@ -27,7 +27,7 @@ jest.mock('@pierre/chat-utils', () => ({
     messages.filter((m) => m.role !== 'tool_call' && m.role !== 'tool_result'),
   // The real mapping, not a stub: the progress line the athlete reads is the
   // point of the strip, and a stubbed mapper would let a broken one pass.
-  statusTextForProgress: jest.requireActual('@pierre/chat-utils').statusTextForProgress,
+  statusForProgress: jest.requireActual('@pierre/chat-utils').statusForProgress,
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';
