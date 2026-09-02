@@ -1889,6 +1889,29 @@
       "too_many_attempts": "Demasiados intentos incorrectos. La sesión de vinculación se ha cancelado. Envía un mensaje para empezar de nuevo.",
       "verification_error": "Ocurrió un error al verificar tu cuenta. Inténtalo de nuevo."
     },
+    "memory": {
+      "predicate": {
+        "avoid": "Evitas {0}",
+        "can_train_on": "Puedes entrenar {0}",
+        "cannot_train_on": "No puedes entrenar {0}",
+        "flagged": "Tu coach señaló: {0}",
+        "have": "Tienes {0}",
+        "have_baseline": "Tu referencia: {0}",
+        "need_session_on": "Necesitas una sesión {0}",
+        "own": "Tienes {0}",
+        "parq_yes": "Respondiste que sí: {0}",
+        "prefer": "Prefieres {0}",
+        "primarily_train": "Tu deporte principal: {0}",
+        "recovering_from": "Te estás recuperando de {0}",
+        "states": "{0}",
+        "target_race": "Tu carrera objetivo: {0}",
+        "train_because": "Entrenas porque {0}",
+        "train_on": "Entrenas con {0}",
+        "training_for": "Estás entrenando para {0}",
+        "unavailable": "No estás disponible {0}",
+        "working_toward": "Tu objetivo es {0}"
+      }
+    },
     "provider": {
       "reauth_required": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 24 horas):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.",
       "reauth_required_no_link": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar {0} desde los ajustes y pregúntame de nuevo.",

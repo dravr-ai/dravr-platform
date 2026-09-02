@@ -9,6 +9,7 @@ use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::CoachesRepository;
 use pierre_database::RepositoryRegistry;
@@ -58,6 +59,10 @@ impl ToolRuntime for ServerContext {
 
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry> {
         &self.fitness.cageux_config_registry
+    }
+
+    fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {
+        &self.mcp.messaging_strings_registry
     }
 
     fn guardian(&self) -> Arc<Guardian> {

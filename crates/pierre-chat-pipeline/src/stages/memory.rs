@@ -26,6 +26,7 @@ use pierre_database::repositories::{
     ActivityCacheRepository, DossierRepository, PlaybookRepository, TrainingPlanRepository,
 };
 use pierre_memory::playbooks::{ArchetypePrior, Playbook};
+use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
 use pierre_services::training_plan_render::render_training_plan_block;
@@ -40,9 +41,10 @@ pub async fn inject_okf_bundle(
     tenant_id: TenantId,
     user_id: Uuid,
     base_prompt: String,
+    sentences: SentenceRenderer<'_>,
 ) -> String {
     match dossier_repo.compose_dossier(tenant_id, user_id).await {
-        Ok(dossier) => match render_okf_bundle_default(&dossier) {
+        Ok(dossier) => match render_okf_bundle_default(&dossier, sentences) {
             Some(block) => format!("{base_prompt}{block}"),
             None => base_prompt,
         },

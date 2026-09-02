@@ -43,12 +43,12 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, TopicSlug};
 use pierre_database::repositories::{ChatRepository, HarnessMemoryRepository};
+use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
 use pierre_services::intake::{
     is_outstanding, parse_persona, parse_yes_no, persona_to_store, record_parq_yes, record_steps,
     IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_SKIPPED,
 };
-use pierre_services::parq::PARQ_PREDICATE;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -457,7 +457,7 @@ async fn count_medical_flags(
         .await
         .unwrap_or_default()
         .iter()
-        .filter(|f| f.kind == FactKind::Medical && f.predicate == PARQ_PREDICATE)
+        .filter(|f| f.kind == FactKind::Medical && f.predicate_code == PredicateCode::ParqYes)
         .count()
 }
 

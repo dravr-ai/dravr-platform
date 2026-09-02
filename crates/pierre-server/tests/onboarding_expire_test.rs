@@ -14,7 +14,7 @@ use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use uuid::Uuid;
 
 async fn open_in_memory_db() -> Result<Database> {
@@ -40,8 +40,7 @@ async fn seed(
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar,
-            subject: "you",
-            predicate: "have",
+            predicate_code: PredicateCode::States,
             object,
             confidence: 0.9,
             source,

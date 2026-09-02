@@ -31,7 +31,7 @@ use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanBlock, PlanWeek, PlannedDay, RacePriority, WeekStatus,
     MAX_DAYS_PER_WEEK,
 };
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::ramp_check::assess_ramp;
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
@@ -372,11 +372,10 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
     Ok(())
 }
 
-/// Subject/predicate the coach-agnostic goal `user_fact` is written under. The
+/// Predicate code the coach-agnostic goal `user_fact` is written under. The
 /// save converges every outline on a single fact with this identity so
 /// `/pillars` and conversational goal-stating never fork into duplicates.
-const GOAL_SUBJECT: &str = "you";
-const GOAL_PREDICATE: &str = "target race";
+const GOAL_CODE: PredicateCode = PredicateCode::TargetRace;
 
 /// Render a race priority (`A`/`B`/`C`) as its serialized string.
 fn race_priority_str(priority: RacePriority) -> String {
@@ -483,7 +482,7 @@ async fn converge_goal_fact(
         .await?;
     let agnostic_targets: Vec<&_> = facts
         .iter()
-        .filter(|f| f.coach_id.is_none() && f.predicate == GOAL_PREDICATE)
+        .filter(|f| f.coach_id.is_none() && f.predicate_code == GOAL_CODE)
         .collect();
     let fact_id = match agnostic_targets.iter().find(|f| f.object == object) {
         Some(existing) => existing.id.clone(),
@@ -497,8 +496,7 @@ async fn converge_goal_fact(
                     scope: MemoryScope::User,
                     kind: FactKind::Goal,
                     pillar: Some(Pillar::TrainingAndMovement),
-                    subject: GOAL_SUBJECT,
-                    predicate: GOAL_PREDICATE,
+                    predicate_code: GOAL_CODE,
                     object: &object,
                     confidence: 0.95,
                     source: FactSource::Coach,

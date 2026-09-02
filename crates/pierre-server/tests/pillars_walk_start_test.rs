@@ -29,7 +29,7 @@ use pierre_core::models::{
 };
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_runtime_context::CoachesCtx;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -169,8 +169,7 @@ async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> 
             scope: MemoryScope::User,
             kind: FactKind::Preference,
             pillar: Some(Pillar::MentalResilience),
-            subject: "you",
-            predicate: "manage stress with",
+            predicate_code: PredicateCode::States,
             object: "evening walks",
             confidence: 0.9,
             source: FactSource::Onboarding,

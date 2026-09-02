@@ -61,7 +61,7 @@ pub use commitments::{
     MAX_WINDOW_DAYS, MIN_TARGET_SESSIONS,
 };
 pub use compaction::CompactionBlock;
-pub use facts::{FactKind, FactSource, UserFact, UserFactMetrics};
+pub use facts::{FactKind, FactSource, PredicateCode, UserFact, UserFactMetrics};
 pub use followups::{CoachFollowup, FollowupStatus};
 pub use notes::CoachNote;
 pub use playbooks::{

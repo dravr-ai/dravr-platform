@@ -1301,14 +1301,11 @@ export interface RememberFactParams {
   /** One of: preference | physiology | injury | goal | schedule | equipment | other. */
   kind: string;
 
-  /** Asserted value or detail. */
+  /** The athlete's own words for the value, verbatim, in the athlete's language — never translated or paraphrased. */
   object: string;
 
-  /** Short verb phrase (prefers, has, runs, targets, avoids, ...). */
-  predicate: string;
-
-  /** Short subject phrase, usually 'you'. */
-  subject: string;
+  /** What the fact says, as a code for the kind: goal → training_for | working_toward | target_race; preference → prefer | avoid | primarily_train; physiology → have_baseline; injury → have | recovering_from; schedule → can_train_on | cannot_train_on | need_session_on | unavailable; equipment → own | train_on; other → states. `states` is allowed on every kind and means the object stands alone. Unknown codes are rejected. */
+  predicate_code: string;
 }
 
 

@@ -14,7 +14,7 @@ use pierre_core::models::{
 };
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -825,7 +825,7 @@ async fn agnostic_goal_facts(
         .await?;
     Ok(facts
         .into_iter()
-        .filter(|f| f.coach_id.is_none() && f.predicate == "target race")
+        .filter(|f| f.coach_id.is_none() && f.predicate_code == PredicateCode::TargetRace)
         .map(|f| (f.id, f.object))
         .collect())
 }
@@ -1005,8 +1005,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
             scope: MemoryScope::User,
             kind: FactKind::Schedule,
             pillar: Some(Pillar::TrainingAndMovement),
-            subject: "you",
-            predicate: "can train on",
+            predicate_code: PredicateCode::CanTrainOn,
             object: "Tuesday and Thursday evenings",
             confidence: 0.9,
             source: FactSource::Conversation,
@@ -1372,8 +1371,7 @@ async fn seed_agnostic_goal_fact(
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: Some(Pillar::TrainingAndMovement),
-            subject: "you",
-            predicate: "target race",
+            predicate_code: PredicateCode::TargetRace,
             object,
             confidence: 0.95,
             source: FactSource::Coach,
@@ -1474,8 +1472,7 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
                 scope: MemoryScope::User,
                 kind: FactKind::Goal,
                 pillar: Some(Pillar::TrainingAndMovement),
-                subject: "you",
-                predicate: "want to",
+                predicate_code: PredicateCode::WorkingToward,
                 object: &format!("hit checkpoint {i}"),
                 confidence: 0.8,
                 source: FactSource::Conversation,

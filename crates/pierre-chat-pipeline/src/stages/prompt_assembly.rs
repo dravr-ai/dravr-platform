@@ -40,6 +40,7 @@ use super::prompt_builder::{
 };
 use super::refresh::inject_refresh_context;
 use super::viz_blocks;
+use pierre_services::memory_facts::SentenceRenderer;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
 ///
@@ -761,6 +762,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         input.conversation_tenant_id,
         user_uuid,
         base_prompt,
+        SentenceRenderer::new(&ctx.messaging_strings_registry, &profile.locale),
     )
     .await;
 

@@ -14,8 +14,7 @@ use uuid::Uuid;
 fn fact(object: &str, stale: bool) -> DossierFact {
     DossierFact {
         kind: "north_star".to_owned(),
-        subject: "you".to_owned(),
-        predicate: "value".to_owned(),
+        predicate_code: "states".to_owned(),
         object: object.to_owned(),
         confidence: 0.9,
         source: "onboarding".to_owned(),

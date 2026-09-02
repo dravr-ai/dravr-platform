@@ -1889,6 +1889,29 @@
       "too_many_attempts": "Too many incorrect attempts. The linking session has been cancelled. Send a message to start again.",
       "verification_error": "Something went wrong verifying your account. Please try again."
     },
+    "memory": {
+      "predicate": {
+        "avoid": "You avoid {0}",
+        "can_train_on": "You can train {0}",
+        "cannot_train_on": "You cannot train {0}",
+        "flagged": "Your coach flagged: {0}",
+        "have": "You have {0}",
+        "have_baseline": "Your baseline: {0}",
+        "need_session_on": "You need a session {0}",
+        "own": "You own {0}",
+        "parq_yes": "You answered yes: {0}",
+        "prefer": "You prefer {0}",
+        "primarily_train": "Your main sport: {0}",
+        "recovering_from": "You are recovering from {0}",
+        "states": "{0}",
+        "target_race": "Your target race: {0}",
+        "train_because": "You train because {0}",
+        "train_on": "You train on {0}",
+        "training_for": "You are training for {0}",
+        "unavailable": "You are unavailable {0}",
+        "working_toward": "You are working toward {0}"
+      }
+    },
     "provider": {
       "reauth_required": "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 24 hours):\n\n{1}\n\nOnce reconnected, ask me again.",
       "reauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. Reconnect {0} from your settings, then ask me again.",

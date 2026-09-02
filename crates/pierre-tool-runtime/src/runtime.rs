@@ -35,6 +35,7 @@ use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::CoachesRepository;
 use pierre_database::RepositoryRegistry;
@@ -133,6 +134,10 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Hot-reloadable `IntelligenceConfig` snapshot registry.
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry>;
+
+    /// The string catalogue registry, for tools that hand the coach a fact as
+    /// a sentence in the athlete's locale.
+    fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry>;
 
     /// Convenience: snapshot of the current `IntelligenceConfig`.
     fn cageux_config(&self) -> Arc<IntelligenceConfig<true>> {

@@ -197,7 +197,7 @@ mod tests {
     use super::assess;
     use chrono::{Duration, Utc};
     use pierre_core::models::CalibrationTopic;
-    use pierre_memory::{FactKind, FactSource, MemoryScope, UserFact};
+    use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 
     fn fact(kind: FactKind, age_minutes: i64) -> UserFact {
         let ts = Utc::now() - Duration::minutes(age_minutes);
@@ -209,8 +209,7 @@ mod tests {
             scope: MemoryScope::User,
             kind,
             pillar: None,
-            subject: "you".to_owned(),
-            predicate: "p".to_owned(),
+            predicate_code: PredicateCode::States,
             object: "o".to_owned(),
             confidence: 0.9,
             source: FactSource::Onboarding,

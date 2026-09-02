@@ -75,8 +75,12 @@ describe('client locale corpus', () => {
     // from the Rust table they used to live in, so the registry, the web app
     // and the phone read one source. A key counts once whichever side
     // renders it.
+    //
+    // 2334 until the memory predicate codes joined: 19 `messaging.memory.predicate.*`
+    // keys, one sentence template per code, rendered on the server for the
+    // memory screens, the recall tool and the coach dossier alike.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2334);
+    expect(reference).toHaveLength(2353);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

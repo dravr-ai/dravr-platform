@@ -37,14 +37,15 @@ pub struct Manifest {
     /// without a schema bump because every entry is optional.
     #[serde(default)]
     pub config: ManifestConfig,
-    /// User-facing messaging strings keyed by flat dotted key (version 4+).
+    /// Sparse per-locale override bundles for the string catalogue.
     ///
-    /// Entries map dotted keys like `messaging.error.generic` to Markdown
-    /// files under `strings/` in the contremaitre repo. Absent on v1–v3
-    /// manifests so older repos keep deserializing without an explicit
-    /// `strings: {}`.
+    /// One entry per locale, pointing at `strings/<locale>.json`: a nested
+    /// JSON file in the same shape as the catalogue the platform embeds,
+    /// holding only the keys an operator wants to override. Any of the
+    /// catalogue's keys can be hot-fixed this way. Optional, so a manifest
+    /// without bundles still parses.
     #[serde(default)]
-    pub strings: ManifestStrings,
+    pub string_bundles: ManifestStringBundles,
 }
 
 /// Prompt entries grouped by type: system prompts, coach personas, and
@@ -74,21 +75,9 @@ pub struct ManifestPrompts {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ManifestTools(pub HashMap<String, ManifestEntry>);
 
-/// User-facing messaging strings (version 4+).
-///
-/// Two-level structure: outer key is the flat dotted message identifier
-/// (e.g. `messaging.error.generic`), inner key is a BCP-47 locale code
-/// (e.g. `fr`, `en`). Each leaf entry references a Markdown file under
-/// `strings/messaging/<locale>/<key>.md` in the contremaitre repo.
-///
-/// The stored string may contain `{0}`, `{1}`, … positional placeholders
-/// resolved at render time by
-/// [`super::messaging_strings::format_template`]. Lookups fall back from
-/// the requested locale to
-/// [`super::messaging_strings::DEFAULT_LOCALE`] then to the compiled-in
-/// default.
+/// String override bundles keyed by locale (`"fr"` → `strings/fr.json`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ManifestStrings(pub HashMap<String, HashMap<String, ManifestEntry>>);
+pub struct ManifestStringBundles(pub HashMap<String, ManifestEntry>);
 
 /// Evidence registry entries (version 3+).
 ///

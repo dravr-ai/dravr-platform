@@ -12,7 +12,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Pillar, TenantId};
 use pierre_memory::{
     CoachFollowup, CoachNote, CoachSession, CompactionBlock, FactKind, FactSource, FollowupStatus,
-    MemoryScope, SessionStatus, UserFact, UserFactMetrics,
+    MemoryScope, PredicateCode, SessionStatus, UserFact, UserFactMetrics,
 };
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -90,6 +90,10 @@ fn row_to_user_fact(row: &PgRow) -> AppResult<UserFact> {
     let scope = MemoryScope::parse(&scope_str)
         .ok_or_else(|| AppError::internal(format!("Invalid scope in user_facts: {scope_str}")))?;
     let pillar_str: Option<String> = row.get("pillar");
+    let code_str: String = row.get("predicate_code");
+    let predicate_code = PredicateCode::parse(&code_str).ok_or_else(|| {
+        AppError::internal(format!("Invalid predicate_code in user_facts: {code_str}"))
+    })?;
     let source_str: String = row
         .try_get("source")
         .unwrap_or_else(|_| "conversation".into());
@@ -101,8 +105,7 @@ fn row_to_user_fact(row: &PgRow) -> AppResult<UserFact> {
         scope,
         kind: FactKind::parse_lenient(&kind_str),
         pillar: pillar_str.as_deref().and_then(Pillar::parse),
-        subject: row.get("subject"),
-        predicate: row.get("predicate"),
+        predicate_code,
         object: row.get("object"),
         confidence: row.get("confidence"),
         source: FactSource::parse_lenient(&source_str),
@@ -259,10 +262,10 @@ impl HarnessMemoryRepository for PostgresDatabase {
             r"
             INSERT INTO user_facts (
                 id, tenant_id, user_id, coach_id, scope, kind, pillar,
-                subject, predicate, object, confidence, source, valid_until,
+                predicate_code, object, confidence, source, valid_until,
                 source_msg_id, embedding, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
             ",
         )
         .bind(&id)
@@ -272,8 +275,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(params.scope.as_str())
         .bind(params.kind.as_str())
         .bind(params.pillar.map(Pillar::as_str))
-        .bind(params.subject)
-        .bind(params.predicate)
+        .bind(params.predicate_code.as_str())
         .bind(params.object)
         .bind(params.confidence)
         .bind(params.source.as_str())
@@ -293,8 +295,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
             scope: params.scope,
             kind: params.kind,
             pillar: params.pillar,
-            subject: params.subject.to_owned(),
-            predicate: params.predicate.to_owned(),
+            predicate_code: params.predicate_code,
             object: params.object.to_owned(),
             confidence: params.confidence,
             source: params.source,
@@ -463,7 +464,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<DateTime<Utc>>,
-        predicate: Option<&str>,
+        predicate_code: Option<PredicateCode>,
     ) -> AppResult<u64> {
         let now = Utc::now();
         let result = sqlx::query(
@@ -473,7 +474,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
              WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
                AND ($4::text IS NULL OR pillar = $4)
                AND ($5::timestamptz IS NULL OR created_at >= $5)
-               AND ($6::text IS NULL OR predicate = $6)
+               AND ($6::text IS NULL OR predicate_code = $6)
                AND (valid_until IS NULL OR valid_until > $1)
             ",
         )
@@ -482,7 +483,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(user_id)
         .bind(pillar.map(Pillar::as_str))
         .bind(created_after)
-        .bind(predicate)
+        .bind(predicate_code.map(PredicateCode::as_str))
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to expire onboarding facts: {e}")))?;

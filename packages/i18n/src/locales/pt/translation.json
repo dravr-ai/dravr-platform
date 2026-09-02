@@ -1889,6 +1889,29 @@
       "too_many_attempts": "Demasiadas tentativas incorretas. A sessão de ligação foi cancelada. Envia uma mensagem para começar de novo.",
       "verification_error": "Algo correu mal a verificar a tua conta. Tenta de novo."
     },
+    "memory": {
+      "predicate": {
+        "avoid": "Evitas {0}",
+        "can_train_on": "Podes treinar {0}",
+        "cannot_train_on": "Não podes treinar {0}",
+        "flagged": "O teu coach assinalou: {0}",
+        "have": "Tens {0}",
+        "have_baseline": "A tua referência: {0}",
+        "need_session_on": "Precisas de uma sessão {0}",
+        "own": "Tens {0}",
+        "parq_yes": "Respondeste que sim: {0}",
+        "prefer": "Preferes {0}",
+        "primarily_train": "O teu desporto principal: {0}",
+        "recovering_from": "Estás a recuperar de {0}",
+        "states": "{0}",
+        "target_race": "A tua prova alvo: {0}",
+        "train_because": "Treinas porque {0}",
+        "train_on": "Treinas com {0}",
+        "training_for": "Estás a treinar para {0}",
+        "unavailable": "Não estás disponível {0}",
+        "working_toward": "Estás a trabalhar para {0}"
+      }
+    },
     "provider": {
       "reauth_required": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 24 horas):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.",
       "reauth_required_no_link": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente o {0} nas definições e volta a perguntar-me.",

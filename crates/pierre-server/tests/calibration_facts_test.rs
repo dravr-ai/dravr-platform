@@ -23,7 +23,7 @@ use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
 /// Mirrors `pierre_database::dossier_facts::FACT_BUNDLE_LIMIT`, which is
 /// crate-private. The flood only needs to exceed the recency window; a drift
@@ -57,8 +57,7 @@ async fn seed(
             scope: MemoryScope::User,
             kind,
             pillar,
-            subject: "you",
-            predicate: "prefer",
+            predicate_code: PredicateCode::Prefer,
             object,
             confidence: 0.9,
             source,

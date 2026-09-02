@@ -467,8 +467,7 @@ mod tests {
     fn covered_fact() -> DossierFact {
         DossierFact {
             kind: "goal".to_owned(),
-            subject: "you".to_owned(),
-            predicate: "want".to_owned(),
+            predicate_code: "states".to_owned(),
             object: "x".to_owned(),
             confidence: 0.9,
             source: "onboarding".to_owned(),

@@ -120,6 +120,233 @@ impl FactSource {
     }
 }
 
+/// The closed vocabulary of what a fact says about the athlete.
+///
+/// A fact used to carry a free-text `predicate` the extraction LLM wrote in
+/// English, and every renderer glued it to the object as a sentence — so a
+/// French athlete read "are training for un ultra de 26 km" in her own
+/// memory screen and her coach's prompt. The predicate is now one of these
+/// codes, the object is the athlete's own words, and the sentence is rendered
+/// once per locale from the string catalogue (`messaging.memory.predicate.<code>`,
+/// `{0}` = object). [`Self::States`] is the honest catch-all on every kind: its
+/// sentence is the object alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PredicateCode {
+    /// Goal: a race or event the athlete is preparing for.
+    TrainingFor,
+    /// Goal: a target the athlete named without an event (onboarding "goal").
+    WorkingToward,
+    /// Goal: the target race a saved training plan converges on.
+    TargetRace,
+    /// Preference: something the athlete wants more of.
+    Prefer,
+    /// Preference: something the athlete wants none of.
+    Avoid,
+    /// Preference: the athlete's main sport (onboarding).
+    PrimarilyTrain,
+    /// Physiology: a baseline number (resting HR, weight, FTP).
+    HaveBaseline,
+    /// Injury: a current injury, pain or constraint.
+    Have,
+    /// Injury: something the athlete is coming back from.
+    RecoveringFrom,
+    /// Schedule: a day or slot the athlete can train.
+    CanTrainOn,
+    /// Schedule: a day or slot the athlete cannot train.
+    CannotTrainOn,
+    /// Schedule: a session that must fall on a given day.
+    NeedSessionOn,
+    /// Schedule: a blackout period.
+    Unavailable,
+    /// Equipment: kit the athlete owns.
+    Own,
+    /// Equipment: what the athlete trains on.
+    TrainOn,
+    /// North star: why the athlete trains at all (onboarding).
+    TrainBecause,
+    /// Medical: a "yes" on a PAR-Q question; the object is the question.
+    ParqYes,
+    /// Medical: a flag a coach tool raised.
+    Flagged,
+    /// Any kind: the athlete's own words, with no verb of ours in front.
+    States,
+}
+
+impl PredicateCode {
+    /// Every code, in a stable order (the order the catalogue lists them).
+    pub const ALL: [Self; 19] = [
+        Self::TrainingFor,
+        Self::WorkingToward,
+        Self::TargetRace,
+        Self::Prefer,
+        Self::Avoid,
+        Self::PrimarilyTrain,
+        Self::HaveBaseline,
+        Self::Have,
+        Self::RecoveringFrom,
+        Self::CanTrainOn,
+        Self::CannotTrainOn,
+        Self::NeedSessionOn,
+        Self::Unavailable,
+        Self::Own,
+        Self::TrainOn,
+        Self::TrainBecause,
+        Self::ParqYes,
+        Self::Flagged,
+        Self::States,
+    ];
+
+    /// Stable string identifier used in the database, the wire and the
+    /// extraction prompt.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TrainingFor => "training_for",
+            Self::WorkingToward => "working_toward",
+            Self::TargetRace => "target_race",
+            Self::Prefer => "prefer",
+            Self::Avoid => "avoid",
+            Self::PrimarilyTrain => "primarily_train",
+            Self::HaveBaseline => "have_baseline",
+            Self::Have => "have",
+            Self::RecoveringFrom => "recovering_from",
+            Self::CanTrainOn => "can_train_on",
+            Self::CannotTrainOn => "cannot_train_on",
+            Self::NeedSessionOn => "need_session_on",
+            Self::Unavailable => "unavailable",
+            Self::Own => "own",
+            Self::TrainOn => "train_on",
+            Self::TrainBecause => "train_because",
+            Self::ParqYes => "parq_yes",
+            Self::Flagged => "flagged",
+            Self::States => "states",
+        }
+    }
+
+    /// Parse the stable identifier. Strict: an unknown code is `None`, never
+    /// silently `States` — a tool or a row naming a code we do not have is a
+    /// bug to surface, not a fact to keep.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|code| code.as_str() == s)
+    }
+
+    /// Whether this code may be written under `kind`. [`Self::States`] is
+    /// allowed on every kind; every other code belongs to exactly one.
+    #[must_use]
+    pub const fn allowed_for(self, kind: FactKind) -> bool {
+        matches!(
+            (self, kind),
+            (Self::States, _)
+                | (
+                    Self::TrainingFor | Self::WorkingToward | Self::TargetRace,
+                    FactKind::Goal
+                )
+                | (
+                    Self::Prefer | Self::Avoid | Self::PrimarilyTrain,
+                    FactKind::Preference
+                )
+                | (Self::HaveBaseline, FactKind::Physiology)
+                | (Self::Have | Self::RecoveringFrom, FactKind::Injury)
+                | (
+                    Self::CanTrainOn
+                        | Self::CannotTrainOn
+                        | Self::NeedSessionOn
+                        | Self::Unavailable,
+                    FactKind::Schedule
+                )
+                | (Self::Own | Self::TrainOn, FactKind::Equipment)
+                | (Self::TrainBecause, FactKind::NorthStar)
+                | (Self::ParqYes | Self::Flagged, FactKind::Medical)
+        )
+    }
+
+    /// What the code means, in the words the extraction prompt shows the
+    /// model. Lives beside the code so the prompt's vocabulary is generated
+    /// from this enum and can never name a code the parser rejects.
+    #[must_use]
+    pub const fn gloss(self) -> &'static str {
+        match self {
+            Self::TrainingFor => "a race or event the athlete is preparing for",
+            Self::WorkingToward => "a target the athlete named without an event",
+            Self::TargetRace => "the target race a saved training plan converges on",
+            Self::Prefer => "something the athlete wants more of",
+            Self::Avoid => "something the athlete wants none of",
+            Self::PrimarilyTrain => "the athlete's main sport",
+            Self::HaveBaseline => "a baseline number: resting HR, weight, FTP",
+            Self::Have => "a current injury, pain or constraint",
+            Self::RecoveringFrom => "something the athlete is coming back from",
+            Self::CanTrainOn => "a day or slot the athlete can train",
+            Self::CannotTrainOn => "a day or slot the athlete cannot train",
+            Self::NeedSessionOn => "a session that must fall on a given day",
+            Self::Unavailable => "a blackout period",
+            Self::Own => "kit the athlete owns",
+            Self::TrainOn => "what the athlete trains on",
+            Self::TrainBecause => "why the athlete trains at all",
+            Self::ParqYes => "a yes on a PAR-Q question; the object is the question",
+            Self::Flagged => "a flag a coach tool raised",
+            Self::States => "the athlete's own words, when no other code fits",
+        }
+    }
+
+    /// Whether the extraction model may pick this code. [`Self::TargetRace`]
+    /// is minted by `save_training_plan` when a plan converges on a race,
+    /// [`Self::ParqYes`] by the PAR-Q screen and [`Self::Flagged`] by coach
+    /// tools; each passes [`Self::allowed_for`] on its kind, so without this
+    /// gate the model could pass a chat remark off as a tool's work.
+    #[must_use]
+    pub const fn extractable(self) -> bool {
+        !matches!(self, Self::TargetRace | Self::ParqYes | Self::Flagged)
+    }
+
+    /// The code an English predicate phrase from the pre-code era maps to.
+    ///
+    /// Only the seven phrases the server itself used to author are known; an
+    /// extractor phrase from an old prompt is `None` and becomes
+    /// [`Self::States`] with the phrase folded into the object, so nothing
+    /// the athlete said is lost and nothing pretends to be structured.
+    #[must_use]
+    pub fn legacy_from_phrase(phrase: &str) -> Option<Self> {
+        match phrase.trim() {
+            "train because" => Some(Self::TrainBecause),
+            "primarily train" => Some(Self::PrimarilyTrain),
+            "are working toward" | "want" => Some(Self::WorkingToward),
+            "answered yes (PAR-Q)" => Some(Self::ParqYes),
+            "target race" => Some(Self::TargetRace),
+            "flagged" => Some(Self::Flagged),
+            _ => None,
+        }
+    }
+
+    /// The catalogue key whose text renders this code as a sentence
+    /// (`{0}` = the object).
+    #[must_use]
+    pub const fn catalogue_key(self) -> &'static str {
+        match self {
+            Self::TrainingFor => "messaging.memory.predicate.training_for",
+            Self::WorkingToward => "messaging.memory.predicate.working_toward",
+            Self::TargetRace => "messaging.memory.predicate.target_race",
+            Self::Prefer => "messaging.memory.predicate.prefer",
+            Self::Avoid => "messaging.memory.predicate.avoid",
+            Self::PrimarilyTrain => "messaging.memory.predicate.primarily_train",
+            Self::HaveBaseline => "messaging.memory.predicate.have_baseline",
+            Self::Have => "messaging.memory.predicate.have",
+            Self::RecoveringFrom => "messaging.memory.predicate.recovering_from",
+            Self::CanTrainOn => "messaging.memory.predicate.can_train_on",
+            Self::CannotTrainOn => "messaging.memory.predicate.cannot_train_on",
+            Self::NeedSessionOn => "messaging.memory.predicate.need_session_on",
+            Self::Unavailable => "messaging.memory.predicate.unavailable",
+            Self::Own => "messaging.memory.predicate.own",
+            Self::TrainOn => "messaging.memory.predicate.train_on",
+            Self::TrainBecause => "messaging.memory.predicate.train_because",
+            Self::ParqYes => "messaging.memory.predicate.parq_yes",
+            Self::Flagged => "messaging.memory.predicate.flagged",
+            Self::States => "messaging.memory.predicate.states",
+        }
+    }
+}
+
 /// A structured claim the harness has extracted about a user.
 ///
 /// Facts are the unit of semantic memory. They are tenant-scoped, have
@@ -144,11 +371,9 @@ pub struct UserFact {
     /// that are pillar-agnostic (e.g. North Star, medical flags, or older rows
     /// recorded before pillar tagging).
     pub pillar: Option<Pillar>,
-    /// Short subject phrase — typically "you" or a named entity.
-    pub subject: String,
-    /// Predicate phrase ("prefers", "runs", "has").
-    pub predicate: String,
-    /// Object phrase — the value being asserted.
+    /// What the fact says about the athlete, as a closed code.
+    pub predicate_code: PredicateCode,
+    /// The athlete's own words for the value being asserted, in their language.
     pub object: String,
     /// Extractor confidence in `[0.0, 1.0]`.
     pub confidence: f32,
@@ -227,7 +452,7 @@ impl UserFactMetrics {
 
 #[cfg(test)]
 mod tests {
-    use super::{FactKind, FactSource, MemoryScope, UserFact};
+    use super::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
     use chrono::Utc;
 
     #[test]
@@ -280,8 +505,7 @@ mod tests {
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: None,
-            subject: "you".into(),
-            predicate: "want".into(),
+            predicate_code: PredicateCode::WorkingToward,
             object: "sub-3 marathon".into(),
             confidence: 0.72,
             source: FactSource::Conversation,

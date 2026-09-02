@@ -20,7 +20,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::routes::memory::MemoryRoutes;
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
 #[tokio::test]
 async fn facts_carry_the_coach_title_when_the_coach_resolves() {
@@ -82,8 +82,7 @@ async fn facts_carry_the_coach_title_when_the_coach_resolves() {
                 scope: MemoryScope::User,
                 kind: FactKind::Goal,
                 pillar: None,
-                subject: "you",
-                predicate: "are working toward",
+                predicate_code: PredicateCode::WorkingToward,
                 object,
                 confidence: 0.9,
                 source: FactSource::Conversation,

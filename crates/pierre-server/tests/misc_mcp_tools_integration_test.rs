@@ -329,8 +329,7 @@ async fn test_remember_fact_happy_path() -> Result<()> {
             "remember_fact",
             json!({
                 "kind": "preference",
-                "subject": "you",
-                "predicate": "prefers",
+                "predicate_code": "prefer",
                 "object": "morning workouts",
                 "confidence": 0.95,
             }),
@@ -359,8 +358,7 @@ async fn test_remember_fact_missing_confidence() -> Result<()> {
             "remember_fact",
             json!({
                 "kind": "preference",
-                "subject": "you",
-                "predicate": "prefers",
+                "predicate_code": "prefer",
                 "object": "morning workouts",
             }),
             user_id,
@@ -382,8 +380,7 @@ async fn test_remember_fact_rejects_no_tenant() -> Result<()> {
             "remember_fact",
             json!({
                 "kind": "preference",
-                "subject": "you",
-                "predicate": "prefers",
+                "predicate_code": "prefer",
                 "object": "x",
                 "confidence": 0.9,
             }),
@@ -393,6 +390,52 @@ async fn test_remember_fact_rejects_no_tenant() -> Result<()> {
         .await
         .expect_err("no-tenant call must be rejected");
     assert_tool_errored(&err, "remember_fact");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_remember_fact_rejects_an_unknown_code() -> Result<()> {
+    let executor = create_misc_test_executor().await?;
+    let (user_id, tenant) = create_test_user(&executor).await?;
+
+    let err = executor
+        .execute_tool(make_request(
+            "remember_fact",
+            json!({
+                "kind": "preference",
+                "predicate_code": "prefers",
+                "object": "morning workouts",
+                "confidence": 0.9,
+            }),
+            user_id,
+            Some(&tenant),
+        ))
+        .await
+        .expect_err("a phrase is not a code");
+    assert_invalid_request(&err, "remember_fact");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_remember_fact_rejects_a_code_from_another_kind() -> Result<()> {
+    let executor = create_misc_test_executor().await?;
+    let (user_id, tenant) = create_test_user(&executor).await?;
+
+    let err = executor
+        .execute_tool(make_request(
+            "remember_fact",
+            json!({
+                "kind": "injury",
+                "predicate_code": "target_race",
+                "object": "Boston",
+                "confidence": 0.9,
+            }),
+            user_id,
+            Some(&tenant),
+        ))
+        .await
+        .expect_err("target_race is a goal code, not an injury code");
+    assert_invalid_request(&err, "remember_fact");
     Ok(())
 }
 
@@ -431,8 +474,7 @@ async fn test_recall_user_memory_returns_seeded_fact() -> Result<()> {
             "remember_fact",
             json!({
                 "kind": "goal",
-                "subject": "you",
-                "predicate": "targets",
+                "predicate_code": "target_race",
                 "object": "sub-3 marathon",
                 "confidence": 0.99,
             }),
@@ -457,10 +499,17 @@ async fn test_recall_user_memory_returns_seeded_fact() -> Result<()> {
         "expected at least one recalled fact, got {count}"
     );
     let facts = result["facts"].as_array().unwrap();
-    let has_goal = facts.iter().any(|f| {
-        f["kind"].as_str() == Some("goal") && f["object"].as_str() == Some("sub-3 marathon")
-    });
-    assert!(has_goal, "recall must include the seeded goal fact");
+    let goal = facts
+        .iter()
+        .find(|f| {
+            f["kind"].as_str() == Some("goal") && f["object"].as_str() == Some("sub-3 marathon")
+        })
+        .expect("recall must include the seeded goal fact");
+    assert_eq!(goal["predicate_code"], "target_race");
+    // The coach reads the fact as a sentence in the athlete's locale (the
+    // test user has the default locale, French), never as a code.
+    assert_eq!(goal["sentence"], "Ta course cible : sub-3 marathon");
+    assert!(goal.get("subject").is_none() && goal.get("predicate").is_none());
     Ok(())
 }
 

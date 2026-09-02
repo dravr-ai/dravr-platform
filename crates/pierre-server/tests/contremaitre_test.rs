@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use pierre_contremaitre::errors::ContremaitreError;
 use pierre_contremaitre::manifest::{
     compute_sha256, parse_manifest, Manifest, ManifestConfig, ManifestEntry, ManifestEvidence,
-    ManifestPrompts, ManifestStrings, ManifestTools,
+    ManifestPrompts, ManifestStringBundles, ManifestTools,
 };
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, DEFAULT_LOCALE, KEY_EMPTY_REPLY,
@@ -141,7 +141,7 @@ fn test_manifest_round_trip() {
         tools: ManifestTools::default(),
         evidence: ManifestEvidence::default(),
         config: ManifestConfig::default(),
-        strings: ManifestStrings::default(),
+        string_bundles: ManifestStringBundles::default(),
     };
 
     let json = serde_json::to_string(&manifest).expect("serialize");

@@ -30,7 +30,7 @@
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
 /// Longest accepted free-text answer.
 ///
@@ -53,14 +53,14 @@ pub struct AboutYouAnswers {
     pub goal: Option<String>,
 }
 
-/// The predicate each answer is filed under.
+/// The predicate code each answer is filed under.
 ///
 /// These double as the supersede key: re-answering the step expires the
 /// previous answer to the *same question* rather than any neighbouring fact, so
 /// a second submission replaces rather than accumulates.
-const PREDICATE_NORTH_STAR: &str = "train because";
-const PREDICATE_SPORT: &str = "primarily train";
-const PREDICATE_GOAL: &str = "are working toward";
+const CODE_NORTH_STAR: PredicateCode = PredicateCode::TrainBecause;
+const CODE_SPORT: PredicateCode = PredicateCode::PrimarilyTrain;
+const CODE_GOAL: PredicateCode = PredicateCode::WorkingToward;
 
 /// Trim, reject empties, and cap length.
 fn clean(value: Option<&String>) -> Option<String> {
@@ -101,7 +101,7 @@ where
     let mut written = 0u64;
 
     if let Some(north_star) = clean(answers.north_star.as_ref()) {
-        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(PREDICATE_NORTH_STAR))
+        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(CODE_NORTH_STAR))
             .await?;
         // No pillar: the North Star sits above them, which is how the guided
         // walk stamps it too (`extraction_params`).
@@ -112,8 +112,7 @@ where
             scope: MemoryScope::User,
             kind: FactKind::NorthStar,
             pillar: None,
-            subject: "you",
-            predicate: PREDICATE_NORTH_STAR,
+            predicate_code: CODE_NORTH_STAR,
             object: &north_star,
             confidence: 1.0,
             source: FactSource::Onboarding,
@@ -126,7 +125,7 @@ where
     }
 
     if let Some(sport) = clean(answers.primary_sport.as_ref()) {
-        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(PREDICATE_SPORT))
+        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(CODE_SPORT))
             .await?;
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
@@ -135,8 +134,7 @@ where
             scope: MemoryScope::User,
             kind: FactKind::Preference,
             pillar: Some(Pillar::TrainingAndMovement),
-            subject: "you",
-            predicate: PREDICATE_SPORT,
+            predicate_code: CODE_SPORT,
             object: &sport,
             confidence: 1.0,
             source: FactSource::Onboarding,
@@ -149,7 +147,7 @@ where
     }
 
     if let Some(goal) = clean(answers.goal.as_ref()) {
-        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(PREDICATE_GOAL))
+        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(CODE_GOAL))
             .await?;
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
@@ -158,8 +156,7 @@ where
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: Some(Pillar::TrainingAndMovement),
-            subject: "you",
-            predicate: PREDICATE_GOAL,
+            predicate_code: CODE_GOAL,
             object: &goal,
             confidence: 1.0,
             source: FactSource::Onboarding,

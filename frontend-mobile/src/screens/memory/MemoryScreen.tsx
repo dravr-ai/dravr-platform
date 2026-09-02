@@ -34,26 +34,6 @@ function formatUpdated(iso: string, language: string): string {
   return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
-// The memory-extraction prompt models predicates as third-person verbs
-// ("has", "is", "wants"), so a literal {subject} {predicate} {object}
-// render produces "you has connected WHOOP". When the subject is the
-// "you" pronoun we drop it and capitalize the predicate so the line
-// reads as a sentence the user already knows is about themselves.
-function isUserSubject(subject: string): boolean {
-  return subject.trim().toLowerCase() === 'you';
-}
-
-function capitalizeFirst(text: string): string {
-  return text.length === 0 ? text : text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function factSentence(fact: Pick<MemoryFactRow, 'subject' | 'predicate' | 'object'>): string {
-  if (isUserSubject(fact.subject)) {
-    return `${capitalizeFirst(fact.predicate)} ${fact.object}`.trim();
-  }
-  return `${fact.subject} ${fact.predicate} ${fact.object}`.trim();
-}
-
 export function MemoryScreen(): React.JSX.Element {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -98,7 +78,7 @@ export function MemoryScreen(): React.JSX.Element {
   const handleForget = (fact: MemoryFactRow): void => {
     Alert.alert(
       t('app.forgetThisFactQ'),
-      t('app.confirmForgetFact', { fact: factSentence(fact) }),
+      t('app.confirmForgetFact', { fact: fact.sentence }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -294,24 +274,7 @@ export function MemoryScreen(): React.JSX.Element {
                         fontSize: fontSize.sm,
                       }}
                     >
-                      {isUserSubject(fact.subject) ? (
-                        <>
-                          {capitalizeFirst(fact.predicate)}{' '}
-                          <Text style={{ fontWeight: fontWeight.semibold }}>
-                            {fact.object}
-                          </Text>
-                        </>
-                      ) : (
-                        <>
-                          <Text style={{ fontWeight: fontWeight.semibold }}>
-                            {fact.subject}
-                          </Text>{' '}
-                          {fact.predicate}{' '}
-                          <Text style={{ fontWeight: fontWeight.semibold }}>
-                            {fact.object}
-                          </Text>
-                        </>
-                      )}
+                      {fact.sentence}
                     </Text>
                     <Text
                       testID="memory-fact-meta"
@@ -331,7 +294,7 @@ export function MemoryScreen(): React.JSX.Element {
                   </View>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={t('shell.memoryForgetFactLabel', { fact: factSentence(fact) })}
+                    accessibilityLabel={t('shell.memoryForgetFactLabel', { fact: fact.sentence })}
                     onPress={() => handleForget(fact)}
                     disabled={forgetMutation.isPending}
                     style={{

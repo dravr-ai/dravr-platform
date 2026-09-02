@@ -24,18 +24,10 @@ use chrono::{Duration, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
 /// Months a PAR-Q flag stays fresh before it goes stale and prompts re-screening.
 const PARQ_VALID_DAYS: i64 = 365;
-
-/// The predicate every raised PAR-Q flag is filed under.
-///
-/// Public because it is the only way to tell a flag this screen raised from any
-/// other medical fact the coach may have extracted from conversation — a count
-/// that confused the two would report someone's mentioned knee twinge as a
-/// PAR-Q finding.
-pub const PARQ_PREDICATE: &str = "answered yes (PAR-Q)";
 
 /// The seven standard PAR-Q+ question ids, in the order the instrument asks
 /// them.
@@ -92,8 +84,7 @@ where
             scope: MemoryScope::User,
             kind: FactKind::Medical,
             pillar: None,
-            subject: "you",
-            predicate: PARQ_PREDICATE,
+            predicate_code: PredicateCode::ParqYes,
             object: id,
             confidence: 1.0,
             source: FactSource::Onboarding,

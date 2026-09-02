@@ -23,10 +23,11 @@ function sampleFact(overrides: Partial<MemoryFactRow> = {}): MemoryFactRow {
   return {
     id: 'fact-1',
     coach_id: null,
+    coach_title: null,
     kind: 'goal',
-    subject: 'You',
-    predicate: 'targeting',
+    predicate_code: 'working_toward',
     object: 'sub-3:30 marathon by October',
+    sentence: 'You are working toward sub-3:30 marathon by October',
     confidence: 0.85,
     source_msg_id: null,
     updated_at: '2026-04-13T18:00:00Z',
@@ -61,11 +62,32 @@ describe('MemoryPanel', () => {
     });
   });
 
+  it('names the coach a fact belongs to by title, never by id', async () => {
+    vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({
+      facts: [
+        sampleFact({
+          coach_id: '7c1f7d2e-4b0a-4f0e-9d3a-0f6c2b8e9a11',
+          coach_title: 'Coach Marie',
+        }),
+      ],
+      total: 1,
+    });
+    renderPanel();
+    expect(await screen.findByText(/Coach Marie/)).toBeInTheDocument();
+    expect(screen.queryByText(/7c1f7d2e/)).not.toBeInTheDocument();
+  });
+
   it('renders facts grouped by kind', async () => {
     vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({
       facts: [
         sampleFact(),
-        sampleFact({ id: 'fact-2', kind: 'injury', subject: 'You', predicate: 'have', object: 'left achilles tendinitis' }),
+        sampleFact({
+          id: 'fact-2',
+          kind: 'injury',
+          predicate_code: 'have',
+          object: 'left achilles tendinitis',
+          sentence: 'You have left achilles tendinitis',
+        }),
       ],
       total: 2,
     });
@@ -113,45 +135,43 @@ describe('MemoryPanel', () => {
     });
   });
 
-  it('drops the "you" subject and capitalizes the predicate so the line never reads "you has connected X"', async () => {
+  it('shows the sentence the server rendered, verbatim and in the athlete\'s language', async () => {
+    // The sentence is rendered on the server in the athlete\'s locale; the
+    // panel must not glue an English verb to it or reorder it. A French
+    // athlete\'s goal reads as French here even while the chrome is English.
     vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({
       facts: [
         sampleFact({
-          id: 'fact-broken',
-          kind: 'equipment',
-          subject: 'you',
-          predicate: 'has connected',
-          object: 'WHOOP',
+          id: 'fact-fr',
+          kind: 'goal',
+          predicate_code: 'training_for',
+          object: 'un ultra de 26 km au Mont Albert',
+          sentence: "Tu t'entraînes pour un ultra de 26 km au Mont Albert",
         }),
       ],
       total: 1,
     });
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByText(/WHOOP/i)).toBeInTheDocument();
+      expect(screen.getByText("Tu t'entraînes pour un ultra de 26 km au Mont Albert")).toBeInTheDocument();
     });
-    expect(screen.queryByText(/you has connected/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Has connected/)).toBeInTheDocument();
+    expect(screen.queryByText(/training_for/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/You are/)).not.toBeInTheDocument();
   });
 
-  it('keeps the literal subject for facts whose subject is a named entity', async () => {
+  it('names the fact by its sentence in the forget confirmation', async () => {
     vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({
-      facts: [
-        sampleFact({
-          id: 'fact-coach',
-          kind: 'other',
-          subject: 'Coach Sarah',
-          predicate: 'recommends',
-          object: 'cadence drills weekly',
-        }),
-      ],
+      facts: [sampleFact({ sentence: 'You are working toward sub-3:30 marathon by October' })],
       total: 1,
     });
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByText(/Coach Sarah/)).toBeInTheDocument();
+      expect(screen.getByText(/sub-3:30 marathon/i)).toBeInTheDocument();
     });
-    expect(screen.getByText(/recommends/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Forget/i }));
+    // The sentence now appears twice: the list row and the confirmation.
+    const mentions = await screen.findAllByText(/You are working toward sub-3:30 marathon by October/);
+    expect(mentions).toHaveLength(2);
   });
 
   it('passes the kind filter into the API call', async () => {

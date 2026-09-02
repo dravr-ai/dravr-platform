@@ -1889,6 +1889,29 @@
       "too_many_attempts": "Zu viele falsche Versuche. Die Verknüpfungssitzung wurde abgebrochen. Schreib eine Nachricht, um neu zu beginnen.",
       "verification_error": "Beim Überprüfen deines Kontos ist etwas schiefgelaufen. Bitte versuch es erneut."
     },
+    "memory": {
+      "predicate": {
+        "avoid": "Du vermeidest {0}",
+        "can_train_on": "Du kannst {0} trainieren",
+        "cannot_train_on": "Du kannst {0} nicht trainieren",
+        "flagged": "Dein Coach hat markiert: {0}",
+        "have": "Du hast {0}",
+        "have_baseline": "Dein Ausgangswert: {0}",
+        "need_session_on": "Du brauchst eine Einheit {0}",
+        "own": "Du besitzt {0}",
+        "parq_yes": "Du hast mit Ja geantwortet: {0}",
+        "prefer": "Du bevorzugst {0}",
+        "primarily_train": "Deine Hauptsportart: {0}",
+        "recovering_from": "Du erholst dich von {0}",
+        "states": "{0}",
+        "target_race": "Dein Zielwettkampf: {0}",
+        "train_because": "Du trainierst, weil {0}",
+        "train_on": "Du trainierst auf {0}",
+        "training_for": "Du trainierst für {0}",
+        "unavailable": "Du bist {0} nicht verfügbar",
+        "working_toward": "Du arbeitest auf {0} hin"
+      }
+    },
     "provider": {
       "reauth_required": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 24 Stunden gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.",
       "reauth_required_no_link": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde {0} in den Einstellungen neu und frag mich dann noch einmal.",

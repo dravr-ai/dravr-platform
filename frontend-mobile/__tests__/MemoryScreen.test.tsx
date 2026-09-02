@@ -23,10 +23,11 @@ import { MemoryScreen } from '../src/screens/memory/MemoryScreen';
 type Fact = {
   id: string;
   coach_id: string | null;
+  coach_title: string | null;
   kind: string;
-  subject: string;
-  predicate: string;
+  predicate_code: string;
   object: string;
+  sentence: string;
   confidence: number;
   source_msg_id: string | null;
   updated_at: string;
@@ -36,10 +37,11 @@ function createFact(overrides: Partial<Fact> = {}): Fact {
   return {
     id: 'fact-1',
     coach_id: null,
+    coach_title: null,
     kind: 'goal',
-    subject: 'You',
-    predicate: 'targeting',
+    predicate_code: 'working_toward',
     object: 'sub-3:30 marathon by October',
+    sentence: 'You are working toward sub-3:30 marathon by October',
     confidence: 0.85,
     source_msg_id: null,
     updated_at: '2026-04-13T18:00:00Z',
@@ -71,6 +73,21 @@ describe('MemoryScreen', () => {
     });
   });
 
+  it('names the coach a fact belongs to by title, never by id', async () => {
+    mockListMemoryFacts.mockResolvedValueOnce({
+      facts: [
+        createFact({
+          coach_id: '7c1f7d2e-4b0a-4f0e-9d3a-0f6c2b8e9a11',
+          coach_title: 'Coach Marie',
+        }),
+      ],
+      total: 1,
+    });
+    const { findByText, queryByText } = renderScreen();
+    expect(await findByText(/Coach Marie/)).toBeTruthy();
+    expect(queryByText(/7c1f7d2e/)).toBeNull();
+  });
+
   it('renders facts grouped by kind', async () => {
     mockListMemoryFacts.mockResolvedValueOnce({
       facts: [
@@ -78,9 +95,9 @@ describe('MemoryScreen', () => {
         createFact({
           id: 'fact-2',
           kind: 'injury',
-          subject: 'You',
-          predicate: 'have',
+          predicate_code: 'have',
           object: 'left achilles tendinitis',
+          sentence: 'You have left achilles tendinitis',
         }),
       ],
       total: 2,
@@ -96,25 +113,28 @@ describe('MemoryScreen', () => {
     expect(getAllByText('Injury').length).toBeGreaterThan(0);
   });
 
-  it('does not render the "you has connected X" pattern when the LLM emits a third-person predicate for a "you" subject', async () => {
+  it('shows the sentence the server rendered, verbatim and in the athlete\'s language', async () => {
+    // The sentence is rendered on the server in the athlete\'s locale; the
+    // screen shows it as-is and carries no grammar of its own, so a French
+    // athlete\'s goal reads as French even under English chrome.
     mockListMemoryFacts.mockResolvedValueOnce({
       facts: [
         createFact({
-          id: 'fact-broken',
-          kind: 'equipment',
-          subject: 'you',
-          predicate: 'has connected',
-          object: 'WHOOP',
+          id: 'fact-fr',
+          kind: 'goal',
+          predicate_code: 'training_for',
+          object: 'un ultra de 26 km au Mont Albert',
+          sentence: "Tu t'entraînes pour un ultra de 26 km au Mont Albert",
         }),
       ],
       total: 1,
     });
     const { queryByText, getByText } = renderScreen();
     await waitFor(() => {
-      expect(getByText('WHOOP')).toBeTruthy();
+      expect(getByText("Tu t'entraînes pour un ultra de 26 km au Mont Albert")).toBeTruthy();
     });
-    expect(queryByText(/you has connected/i)).toBeNull();
-    expect(getByText(/Has connected/)).toBeTruthy();
+    expect(queryByText(/training_for/)).toBeNull();
+    expect(queryByText(/You are/)).toBeNull();
   });
 
   it('fires forget mutation when Alert confirm is tapped', async () => {
@@ -134,14 +154,11 @@ describe('MemoryScreen', () => {
       });
 
     const { getByLabelText } = renderScreen();
-    // The "You" subject is dropped at render time and the predicate is
-    // capitalized to avoid grammatically-broken renders like
-    // "you has connected WHOOP". So the accessibility label reads
-    // "Forget Targeting sub-3:30 marathon..." rather than "Forget You targeting...".
+    // The accessibility label names the fact by the server's sentence.
     await waitFor(() => {
-      expect(getByLabelText(/Forget Targeting sub-3:30 marathon/i)).toBeTruthy();
+      expect(getByLabelText(/Forget You are working toward sub-3:30 marathon/i)).toBeTruthy();
     });
-    fireEvent.press(getByLabelText(/Forget Targeting sub-3:30 marathon/i));
+    fireEvent.press(getByLabelText(/Forget You are working toward sub-3:30 marathon/i));
     await waitFor(() => {
       expect(mockForgetMemoryFact).toHaveBeenCalledWith('fact-1');
     });

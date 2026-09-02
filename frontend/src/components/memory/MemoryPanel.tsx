@@ -49,26 +49,6 @@ function factCount(t: (key: string, options: { count: number }) => string, count
   return t(count === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', { count });
 }
 
-// The memory-extraction prompt models predicates as third-person verbs
-// ("has", "is", "wants"), so a literal {subject} {predicate} {object}
-// render produces "you has connected WHOOP". When the subject is the
-// "you" pronoun we drop it and capitalize the predicate so the line
-// reads as a sentence the user already knows is about themselves.
-function isUserSubject(subject: string): boolean {
-  return subject.trim().toLowerCase() === 'you';
-}
-
-function capitalizeFirst(text: string): string {
-  return text.length === 0 ? text : text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function factSentence(fact: Pick<MemoryFactRow, 'subject' | 'predicate' | 'object'>): string {
-  if (isUserSubject(fact.subject)) {
-    return `${capitalizeFirst(fact.predicate)} ${fact.object}`.trim();
-  }
-  return `${fact.subject} ${fact.predicate} ${fact.object}`.trim();
-}
-
 export default function MemoryPanel() {
   const { t, language } = useTranslation();
   const queryClient = useQueryClient();
@@ -183,22 +163,9 @@ export default function MemoryPanel() {
                 {items.map((fact) => (
                   <li key={fact.id} className="flex items-start justify-between gap-4 px-4 py-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-on-surface">
-                        {isUserSubject(fact.subject) ? (
-                          <>
-                            <span className="text-on-surface-variant">
-                              {capitalizeFirst(fact.predicate)}
-                            </span>{' '}
-                            <span className="font-medium">{fact.object}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-medium">{fact.subject}</span>{' '}
-                            <span className="text-on-surface-variant">{fact.predicate}</span>{' '}
-                            <span className="font-medium">{fact.object}</span>
-                          </>
-                        )}
-                      </p>
+                      {/* The server renders the sentence in the athlete's locale;
+                          the panel shows it verbatim so no client grammar exists. */}
+                      <p className="text-sm text-on-surface">{fact.sentence}</p>
                       <p data-testid="memory-fact-meta" className="mt-1 text-xs text-on-surface-variant">
                         {t('shell.memoryFactMeta', {
                           confidence: (fact.confidence * 100).toFixed(0),
@@ -227,7 +194,7 @@ export default function MemoryPanel() {
         <ConfirmDialog
           isOpen
           title={t('shell.memoryForgetConfirm')}
-          message={t('app.confirmForgetFact', { fact: factSentence(pendingForget) })}
+          message={t('app.confirmForgetFact', { fact: pendingForget.sentence })}
           confirmLabel={t('app.forget')}
           cancelLabel={t('common.cancel')}
           variant="danger"

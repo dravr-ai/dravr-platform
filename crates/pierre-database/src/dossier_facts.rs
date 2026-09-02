@@ -37,8 +37,7 @@ const FALLBACK_PILLAR: Pillar = Pillar::TrainingAndMovement;
 fn project(fact: &UserFact, now: DateTime<Utc>) -> DossierFact {
     DossierFact {
         kind: fact.kind.as_str().to_owned(),
-        subject: fact.subject.clone(),
-        predicate: fact.predicate.clone(),
+        predicate_code: fact.predicate_code.as_str().to_owned(),
         object: fact.object.clone(),
         confidence: fact.confidence,
         source: fact.source.as_str().to_owned(),

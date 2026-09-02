@@ -11,6 +11,8 @@
 //! the Letta/MemGPT-style "active memory" complement to the background
 //! fact extractor in `services/memory_extraction.rs`.
 
+use pierre_core::models::default_locale;
+use pierre_services::memory_facts::SentenceRenderer;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,7 +22,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     InsertCoachFollowupParams, InsertCoachNoteParams, UpsertUserFactParams,
 };
-use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use serde_json::{json, Value};
 
 use crate::capabilities::ToolCapabilities;
@@ -343,19 +345,11 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             },
         );
         properties.insert(
-            "subject".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Short subject phrase, usually 'you'.".to_owned()),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "predicate".to_owned(),
+            "predicate_code".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Short verb phrase (prefers, has, runs, targets, avoids, ...).".to_owned(),
+                    "What the fact says, as a code for the kind: goal → training_for | working_toward | target_race; preference → prefer | avoid | primarily_train; physiology → have_baseline; injury → have | recovering_from; schedule → can_train_on | cannot_train_on | need_session_on | unavailable; equipment → own | train_on; other → states. `states` is allowed on every kind and means the object stands alone. Unknown codes are rejected.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -364,7 +358,9 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             "object".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Asserted value or detail.".to_owned()),
+                description: Some(
+                    "The athlete's own words for the value, verbatim, in the athlete's language — never translated or paraphrased.".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -392,8 +388,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             properties,
             Some(vec![
                 "kind".to_owned(),
-                "subject".to_owned(),
-                "predicate".to_owned(),
+                "predicate_code".to_owned(),
                 "object".to_owned(),
                 "confidence".to_owned(),
             ]),
@@ -424,8 +419,16 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
         let result: AppResult<ToolResult> = async move {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let kind_str = require_string_field(&args, "kind")?;
-            let subject = require_string_field(&args, "subject")?;
-            let predicate = require_string_field(&args, "predicate")?;
+            let kind = FactKind::parse_lenient(&kind_str);
+            let code_str = require_string_field(&args, "predicate_code")?;
+            let predicate_code = PredicateCode::parse(&code_str)
+                .filter(|code| code.allowed_for(kind))
+                .ok_or_else(|| {
+                    AppError::invalid_input(format!(
+                        "predicate_code '{code_str}' is not a known code for kind '{}'",
+                        kind.as_str()
+                    ))
+                })?;
             let object = require_string_field(&args, "object")?;
             #[allow(clippy::cast_possible_truncation)]
             let confidence_f64 = args
@@ -441,10 +444,9 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 user_id: &user_id,
                 coach_id: coach_id.as_deref(),
                 scope: MemoryScope::User,
-                kind: FactKind::parse_lenient(&kind_str),
+                kind,
                 pillar: None,
-                subject: &subject,
-                predicate: &predicate,
+                predicate_code,
                 object: &object,
                 confidence,
                 source: FactSource::Coach,
@@ -555,6 +557,19 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
                 .memory
                 .list_user_facts(tenant_id, &user_id, coach_id.as_deref(), kind, limit)
                 .await?;
+            // The coach reads each fact as a sentence in the athlete's own
+            // locale, rendered by the same function the memory screen uses.
+            let locale = context
+                .resources
+                .repos()
+                .users
+                .get_global(context.user_id)
+                .await
+                .ok()
+                .flatten()
+                .map_or_else(default_locale, |user| user.locale);
+            let sentences =
+                SentenceRenderer::new(context.resources.messaging_strings_registry(), &locale);
 
             let payload: Vec<_> = facts
                 .into_iter()
@@ -562,8 +577,8 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
                     json!({
                         "id": f.id,
                         "kind": f.kind.as_str(),
-                        "subject": f.subject,
-                        "predicate": f.predicate,
+                        "predicate_code": f.predicate_code.as_str(),
+                        "sentence": sentences.render(f.predicate_code, &f.object),
                         "object": f.object,
                         "confidence": f.confidence,
                         "source_msg_id": f.source_msg_id,

@@ -12,13 +12,16 @@ use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
+use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
 use tracing::field::{Field, Visit};
 use tracing::subscriber::DefaultGuard;
@@ -119,8 +122,7 @@ async fn seed_fact(
             scope: MemoryScope::User,
             kind,
             pillar,
-            subject: "you",
-            predicate: "have",
+            predicate_code: PredicateCode::Have,
             object,
             confidence: 0.9,
             source: FactSource::Onboarding,
@@ -180,7 +182,11 @@ async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
     assert_eq!(dossier.medical.len(), 1, "medical fact routed");
 
     // The OKF bundle renders the pillar section with the fact inside the fence.
-    let bundle = render_okf_bundle_default(&dossier).expect("non-empty bundle");
+    let bundle = render_okf_bundle_default(
+        &dossier,
+        SentenceRenderer::new(&MessagingStringsRegistry::new(), "en"),
+    )
+    .expect("non-empty bundle");
     assert!(bundle.contains("pillar: fuelling"));
     assert!(bundle.contains("avoid dairy before long runs"));
     assert!(bundle.contains("be present and energetic for my kids"));
@@ -233,7 +239,11 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
         1,
         "medical flag must survive eviction from the recency window"
     );
-    let bundle = render_okf_bundle_default(&dossier).expect("non-empty bundle");
+    let bundle = render_okf_bundle_default(
+        &dossier,
+        SentenceRenderer::new(&MessagingStringsRegistry::new(), "en"),
+    )
+    .expect("non-empty bundle");
     // The flag reaches the coach prompt (PHI redacted); raw text withheld.
     assert!(bundle.contains("a medical/PAR-Q flag is on file"));
     assert!(!bundle.contains("chest pain during exercise (PAR-Q)"));
@@ -264,7 +274,11 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     // Composing the same user under tenant A must not see tenant B's fact.
     let dossier_a = repos.dossier.compose_dossier(tenant_a, user).await?;
     assert!(dossier_a.pillars.is_empty(), "no cross-tenant facts leak");
-    assert!(render_okf_bundle_default(&dossier_a).is_none());
+    assert!(render_okf_bundle_default(
+        &dossier_a,
+        SentenceRenderer::new(&MessagingStringsRegistry::new(), "en")
+    )
+    .is_none());
 
     // Tenant B sees its own fact.
     let dossier_b = repos.dossier.compose_dossier(tenant_b, user).await?;

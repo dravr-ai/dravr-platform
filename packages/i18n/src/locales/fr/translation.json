@@ -1889,6 +1889,29 @@
       "too_many_attempts": "Trop de tentatives incorrectes. La session de liaison est annulée. Envoie un message pour recommencer.",
       "verification_error": "Une erreur est survenue lors de la vérification de ton compte. Réessaie."
     },
+    "memory": {
+      "predicate": {
+        "avoid": "Tu évites {0}",
+        "can_train_on": "Tu peux t'entraîner {0}",
+        "cannot_train_on": "Tu ne peux pas t'entraîner {0}",
+        "flagged": "Ton coach a signalé : {0}",
+        "have": "Tu as {0}",
+        "have_baseline": "Ta référence : {0}",
+        "need_session_on": "Tu as besoin d'une séance {0}",
+        "own": "Tu possèdes {0}",
+        "parq_yes": "Tu as répondu oui : {0}",
+        "prefer": "Tu préfères {0}",
+        "primarily_train": "Ton sport principal : {0}",
+        "recovering_from": "Tu te remets de {0}",
+        "states": "{0}",
+        "target_race": "Ta course cible : {0}",
+        "train_because": "Tu t'entraînes parce que {0}",
+        "train_on": "Tu t'entraînes sur {0}",
+        "training_for": "Tu t'entraînes pour {0}",
+        "unavailable": "Tu n'es pas disponible {0}",
+        "working_toward": "Tu vises {0}"
+      }
+    },
     "provider": {
       "reauth_required": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 24 heures) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.",
       "reauth_required_no_link": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte {0} depuis les réglages, puis repose-moi ta question.",

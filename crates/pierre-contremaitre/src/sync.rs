@@ -6,13 +6,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::BuildHasher;
 
 use pierre_llm::prompts::{missing_placeholders, required_placeholders_for_system_prompt};
 use tracing::{debug, error, info, warn};
 
 use super::errors::ContremaitreError;
 use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
-use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry};
+use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry, ManifestStringBundles};
 use super::messaging_strings::MessagingStringsRegistry;
 use super::narration_vocab;
 use super::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
@@ -426,8 +427,8 @@ pub async fn full_sync(
     let tool_result =
         sync_all_tool_descriptions(tool_desc_registry, store, &manifest.tools.0).await?;
     let evidence_result = sync_all_evidence(evidence_registry, store, &manifest.evidence.0).await?;
-    let strings_result =
-        sync_all_messaging_strings(messaging_strings_registry, store, &manifest.strings.0).await?;
+    let bundles_result =
+        sync_all_string_bundles(messaging_strings_registry, store, &manifest.string_bundles).await;
     let overlays = sync_config_overlays(
         cageux_config_registry,
         persona_contract_registry,
@@ -444,7 +445,7 @@ pub async fn full_sync(
         &evidence_result,
         &overlays.cageux,
         &overlays.contracts,
-        &strings_result,
+        &bundles_result,
         &overlays.notify_routing,
         &overlays.narration,
     ]);
@@ -458,7 +459,7 @@ pub async fn full_sync(
         evidence_synced = evidence_result.synced,
         cageux_synced = overlays.cageux.synced,
         persona_contracts_synced = overlays.contracts.synced,
-        strings_synced = strings_result.synced,
+        bundles_synced = bundles_result.synced,
         notify_routing_synced = overlays.notify_routing.synced,
         narration_synced = overlays.narration.synced,
         "Contremaitre full sync complete"
@@ -664,13 +665,13 @@ pub async fn selective_sync(
     let evidence_result =
         sync_changed_evidence(evidence_registry, store, &manifest.evidence.0, &changed_set).await?;
 
-    let strings_result = sync_changed_messaging_strings(
+    let bundles_result = sync_changed_string_bundles(
         messaging_strings_registry,
         store,
-        &manifest.strings.0,
+        &manifest.string_bundles,
         &changed_set,
     )
-    .await?;
+    .await;
 
     let overlays = sync_changed_config_overlays(
         cageux_config_registry,
@@ -689,7 +690,7 @@ pub async fn selective_sync(
         &evidence_result,
         &overlays.cageux,
         &overlays.contracts,
-        &strings_result,
+        &bundles_result,
         &overlays.notify_routing,
         &overlays.narration,
     ]);
@@ -1015,98 +1016,97 @@ async fn fetch_and_apply_cageux_config(
 // Messaging-strings sync (user-facing canned replies — locale-aware, hot-reloadable)
 // =============================================================================
 
-/// Nested `key → locale → entry` shape used by the manifest's strings tree.
-/// Aliased to keep [`sync_all_messaging_strings`] and
-/// [`sync_changed_messaging_strings`] signatures under the `type_complexity`
-/// threshold.
-type MessagingStringsTree = HashMap<String, HashMap<String, ManifestEntry>>;
-
-/// Sync every localized messaging string listed in the manifest, skipping
-/// `(key, locale)` pairs whose hash already matches the registry.
-async fn sync_all_messaging_strings(
+/// Sync every string override bundle the manifest lists (full-sync path).
+///
+/// A bundle whose manifest hash matches the one last applied is skipped; a
+/// bundle that fails to download or parse is reported as failed and the
+/// previous strings stay live.
+pub async fn sync_all_string_bundles(
     registry: &MessagingStringsRegistry,
     store: &dyn PromptStore,
-    manifest_strings: &MessagingStringsTree,
-) -> Result<SyncResult, ContremaitreError> {
+    bundles: &ManifestStringBundles,
+) -> SyncResult {
     let mut result = SyncResult {
         synced: 0,
         skipped: 0,
         failed: 0,
     };
-
-    for (key, per_locale) in manifest_strings {
-        for (locale, entry) in per_locale {
-            if registry.sha256(key, locale).as_deref() == Some(&entry.sha256) {
-                debug!(key, locale, "messaging string unchanged, skipping");
-                result.skipped += 1;
-                continue;
-            }
-            let outcome =
-                fetch_and_apply_messaging_string(registry, store, key, locale, entry).await;
-            accumulate_outcome(&mut result, outcome);
+    for (locale, entry) in &bundles.0 {
+        if registry.bundle_sha256(locale).as_deref() == Some(entry.sha256.as_str()) {
+            debug!(locale, "string bundle unchanged, skipping");
+            result.skipped += 1;
+            continue;
         }
+        let outcome = fetch_and_apply_string_bundle(registry, store, locale, entry).await;
+        accumulate_outcome(&mut result, outcome);
     }
-
-    Ok(result)
+    result
 }
 
-/// Sync only the localized messaging strings whose repo path appears in
+/// Sync only the string override bundles whose repo path appears in
 /// `changed_set` (selective sync from a webhook push).
-async fn sync_changed_messaging_strings(
+pub async fn sync_changed_string_bundles<S: BuildHasher + Sync>(
     registry: &MessagingStringsRegistry,
     store: &dyn PromptStore,
-    manifest_strings: &MessagingStringsTree,
-    changed_set: &HashSet<&str>,
-) -> Result<SyncResult, ContremaitreError> {
+    bundles: &ManifestStringBundles,
+    changed_set: &HashSet<&str, S>,
+) -> SyncResult {
     let mut result = SyncResult {
         synced: 0,
         skipped: 0,
         failed: 0,
     };
-
-    for (key, per_locale) in manifest_strings {
-        for (locale, entry) in per_locale {
-            if !changed_set.contains(entry.path.as_str()) {
-                continue;
-            }
-            let outcome =
-                fetch_and_apply_messaging_string(registry, store, key, locale, entry).await;
-            accumulate_outcome(&mut result, outcome);
+    for (locale, entry) in &bundles.0 {
+        if !changed_set.contains(entry.path.as_str()) {
+            continue;
         }
+        let outcome = fetch_and_apply_string_bundle(registry, store, locale, entry).await;
+        accumulate_outcome(&mut result, outcome);
     }
-
-    Ok(result)
+    result
 }
 
-/// Download a single `(key, locale)` messaging-string Markdown file and
-/// install it in the registry. The stored content is the file bytes
-/// verbatim — any `{0}`, `{1}` placeholders are resolved later at render
-/// time by [`super::messaging_strings::format_template`].
-async fn fetch_and_apply_messaging_string(
+/// Download one locale's override bundle and apply it to the registry.
+async fn fetch_and_apply_string_bundle(
     registry: &MessagingStringsRegistry,
     store: &dyn PromptStore,
-    key: &str,
     locale: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
     match store.read_file(&entry.path).await {
-        Ok(file) => {
-            let actual_sha = compute_sha256(file.content.as_bytes());
-            if actual_sha != entry.sha256 {
-                warn!(
-                    key,
-                    locale,
-                    expected = entry.sha256,
-                    actual = actual_sha,
-                    "manifest hash mismatch for messaging string, using downloaded content"
-                );
-            }
-            registry.update(key, locale, file.content, actual_sha);
-            debug!(key, locale, "synced messaging string from contremaitre");
+        Ok(file) => apply_downloaded_bundle(registry, locale, entry, &file.content),
+        Err(e) => {
+            warn!(locale, error = %e, "failed to download string bundle");
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Apply a downloaded bundle, keeping the previous strings live when the
+/// file is not valid JSON. A hash that differs from the manifest's is logged
+/// and the downloaded content wins, as for every other synced file.
+fn apply_downloaded_bundle(
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+    entry: &ManifestEntry,
+    content: &str,
+) -> SyncOutcome {
+    let actual_sha = compute_sha256(content.as_bytes());
+    if actual_sha != entry.sha256 {
+        warn!(
+            locale,
+            expected = entry.sha256,
+            actual = actual_sha,
+            "manifest hash mismatch for string bundle, using downloaded content"
+        );
+    }
+    match registry.apply_bundle(locale, content, &actual_sha) {
+        Ok(keys) => {
+            info!(locale, keys, "synced string bundle from contremaitre");
             SyncOutcome::Synced
         }
         Err(e) => {
-            warn!(key, locale, error = %e, "failed to sync messaging string");
+            warn!(locale, error = %e, "string bundle is not valid JSON; keeping previous strings");
             SyncOutcome::Failed
         }
     }

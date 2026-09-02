@@ -22,10 +22,11 @@ use axum::{
 use serde::Deserialize;
 
 use pierre_core::errors::AppError;
+use pierre_core::models::default_locale;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 use pierre_services::memory_facts::{
-    fact_kind_from_query, forget_user_fact, list_user_facts, DEFAULT_LIST_LIMIT,
+    fact_kind_from_query, forget_user_fact, list_user_facts, SentenceRenderer, DEFAULT_LIST_LIMIT,
 };
 
 use crate::mcp::resources::ServerContext;
@@ -63,9 +64,21 @@ pub async fn get_facts_handler(
     let data = resources.data();
     let limit = params.limit.unwrap_or(DEFAULT_LIST_LIMIT);
     let kind = fact_kind_from_query(params.kind.as_deref());
+    // The sentence is rendered here, once, in the athlete's stored locale —
+    // the same way every REST read resolves it.
+    let locale = resources
+        .common
+        .repos
+        .users
+        .get_global(auth.user_id)
+        .await
+        .ok()
+        .flatten()
+        .map_or_else(default_locale, |user| user.locale);
 
     let response = list_user_facts(
         &data.repos().coach_repos(),
+        SentenceRenderer::new(&resources.mcp.messaging_strings_registry, &locale),
         tenant_id,
         &auth.user_id.to_string(),
         params.coach_id.as_deref(),

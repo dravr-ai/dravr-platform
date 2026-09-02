@@ -483,9 +483,12 @@ export interface MemoryFactRow {
     | 'north_star'
     | 'medical'
     | 'other';
-  subject: string;
-  predicate: string;
+  /** What the fact says, as a `PredicateCode` slug (`training_for`, `states`, ...). */
+  predicate_code: string;
+  /** The athlete's own words for the value, in their language. */
   object: string;
+  /** The whole fact as one sentence in the athlete's locale, rendered by the server. */
+  sentence: string;
   confidence: number;
   source_msg_id: string | null;
   updated_at: string;

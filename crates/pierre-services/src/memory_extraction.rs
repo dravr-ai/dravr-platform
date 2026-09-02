@@ -16,13 +16,14 @@
 //! [`pierre_llm::judge::ask_for_json`] — an extractor returning garbage is
 //! logged and swallowed, never propagated.
 
+use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
-use pierre_memory::{FactKind, FactSource, MemoryScope, UserFact};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
@@ -51,8 +52,20 @@ static EXTRACTION_PERMITS: LazyLock<Arc<Semaphore>> =
 #[derive(Debug, Deserialize)]
 struct RawFact {
     kind: String,
-    subject: String,
-    predicate: String,
+    /// The closed predicate code the current prompt asks for.
+    #[serde(default)]
+    predicate_code: Option<String>,
+    /// The free-text verb phrase the pre-code prompt produced. The prompt is
+    /// live config synced from contremaitre main, so a deployed binary and
+    /// the prompt it reads never change together; whichever is older must
+    /// still parse. A phrase folds into the object under
+    /// [`PredicateCode::States`] so nothing is lost.
+    #[serde(default)]
+    predicate: Option<String>,
+    /// The pre-code prompt's subject phrase; kept only to fold a third-party
+    /// subject into the object of a legacy fact.
+    #[serde(default)]
+    subject: Option<String>,
     object: String,
     confidence: f32,
     /// Who asserted the fact: `"user"` or `"coach"`. Absent on responses
@@ -77,6 +90,50 @@ const PROVENANCE_ADDENDUM: &str = r#"
 
 Each fact object MUST also carry a "stated_by" field: "user" when the USER stated or confirmed the fact in their own words, "coach" when it originates in the coach's reply (a prescription, suggestion, or plan detail). Training prescriptions the coach makes — what to do on which day, session targets, weekly structure — are stated_by "coach" and are stored elsewhere; still label them honestly.
 "#;
+
+/// The kinds the base prompt lets the model choose, in the order it lists
+/// them. `north_star` and `medical` are never the model's to pick: the
+/// onboarding walk and the PAR-Q screen write those with their own codes.
+const EXTRACTABLE_KINDS: [FactKind; 7] = [
+    FactKind::Goal,
+    FactKind::Preference,
+    FactKind::Physiology,
+    FactKind::Injury,
+    FactKind::Schedule,
+    FactKind::Equipment,
+    FactKind::Other,
+];
+
+/// Platform-appended vocabulary for the `predicate_code` field.
+///
+/// Generated from [`PredicateCode`], so the list the model reads is the list
+/// [`code_from_prompt`] accepts: the prompt can neither name a code the
+/// parser rejects nor miss one it takes. The base `memory_extraction.md`
+/// (dravr-contremaitre, live config) teaches the shape and the "athlete's
+/// own words" rule and points here for the codes; the codes are schema and
+/// ship with the binary that validates them.
+static PREDICATE_CODES_ADDENDUM: LazyLock<String> = LazyLock::new(predicate_codes_addendum);
+
+fn predicate_codes_addendum() -> String {
+    let mut out = String::from(
+        "\n\n## Predicate codes (required)\n\n\
+         Each fact object carries a \"predicate_code\": one of the codes listed below for its \
+         kind, chosen for what the athlete said. The object is the athlete's own words with no \
+         verb in front of them. When no code fits, use \"states\" and let the object carry the \
+         whole statement. Any other value is rejected.\n\n",
+    );
+    for kind in EXTRACTABLE_KINDS {
+        let codes = PredicateCode::ALL
+            .into_iter()
+            .filter(|code| code.extractable() && code.allowed_for(kind))
+            .map(|code| format!("\"{}\" ({})", code.as_str(), code.gloss()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Writing into a String cannot fail; the Result is the trait's shape.
+        let _ = writeln!(out, "- {}: {codes}", kind.as_str());
+    }
+    out
+}
 
 /// Parameters for a single extraction pass.
 pub struct ExtractionRequest<'a> {
@@ -219,6 +276,83 @@ fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f
     Some((kind, clamped_confidence))
 }
 
+/// Resolve the code and object a raw fact is stored under.
+///
+/// A `predicate_code` the prompt emitted wins when it is a known code allowed
+/// for `kind`. Otherwise the fact came from the pre-code prompt (or named a
+/// code we do not have): it is stored as [`PredicateCode::States`] with the
+/// old `subject predicate object` sentence folded into the object — the
+/// athlete's words survive, nothing pretends to be structured, and the log
+/// says which branch fired so the prompt switch-over can be verified.
+fn resolve_predicate(fact: &RawFact, kind: FactKind) -> (PredicateCode, String) {
+    if let Some(code) = code_from_prompt(fact, kind) {
+        return (code, fact.object.clone());
+    }
+    let phrase = fact.predicate.as_deref().map_or("", str::trim);
+    if let Some(code) = PredicateCode::legacy_from_phrase(phrase)
+        .filter(|code| code.extractable() && code.allowed_for(kind))
+    {
+        info!(
+            phrase,
+            code = code.as_str(),
+            "extractor used a pre-code phrase; mapped"
+        );
+        return (code, fact.object.clone());
+    }
+    info!(
+        phrase,
+        "extractor used the pre-code shape; storing as states"
+    );
+    (PredicateCode::States, fold_legacy_sentence(fact, phrase))
+}
+
+/// The code the prompt emitted, when it is one we have and it fits `kind`.
+fn code_from_prompt(fact: &RawFact, kind: FactKind) -> Option<PredicateCode> {
+    let raw = fact.predicate_code.as_deref()?;
+    match PredicateCode::parse(raw) {
+        Some(code) if code.extractable() && code.allowed_for(kind) => {
+            debug!(
+                code = raw,
+                kind = kind.as_str(),
+                "extractor emitted a predicate code"
+            );
+            Some(code)
+        }
+        Some(_) => {
+            warn!(
+                code = raw,
+                kind = kind.as_str(),
+                "predicate code not open to the extractor for this kind; storing as states"
+            );
+            None
+        }
+        None => {
+            warn!(
+                code = raw,
+                "unknown predicate code from extractor; storing as states"
+            );
+            None
+        }
+    }
+}
+
+/// The pre-code `subject predicate object` sentence as one object string;
+/// the "you" subject is dropped, a third-party subject is kept.
+fn fold_legacy_sentence(fact: &RawFact, phrase: &str) -> String {
+    let subject = fact.subject.as_deref().map_or("", str::trim);
+    let mut words = String::new();
+    if !subject.is_empty() && !subject.eq_ignore_ascii_case("you") {
+        words.push_str(subject);
+        words.push(' ');
+    }
+    if !phrase.is_empty() {
+        words.push_str(phrase);
+        words.push(' ');
+    }
+    words.push_str(fact.object.trim());
+    words.trim().to_owned()
+}
+
 /// Persist each fact that survives [`gate_fact`], dropping the rest.
 async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
     repo: &R,
@@ -230,6 +364,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
         let Some((kind, clamped_confidence)) = gate_fact(&fact, req) else {
             continue;
         };
+        let (predicate_code, object) = resolve_predicate(&fact, kind);
         let params = UpsertUserFactParams {
             tenant_id: req.tenant_id,
             user_id: req.user_id,
@@ -237,9 +372,8 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             scope: MemoryScope::User,
             kind,
             pillar: req.pillar,
-            subject: &fact.subject,
-            predicate: &fact.predicate,
-            object: &fact.object,
+            predicate_code,
+            object: &object,
             confidence: clamped_confidence,
             source: req.source,
             valid_until: None,
@@ -279,7 +413,10 @@ async fn run_llm_extraction(
     let user_payload = format!(
         "User turn:\n{user_message}\n\nCoach reply:\n{assistant_reply}\n\nReturn the JSON array only."
     );
-    let system_prompt = format!("{system_prompt}{PROVENANCE_ADDENDUM}");
+    let system_prompt = format!(
+        "{system_prompt}{}{PROVENANCE_ADDENDUM}",
+        PREDICATE_CODES_ADDENDUM.as_str()
+    );
 
     // The extraction prompt instructs the LLM to return a bare JSON array,
     // so we invoke the provider directly and parse the response with our
@@ -435,8 +572,97 @@ pub fn spawn_extract_for_turn(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_coach_prescription, parse_raw_facts, PROVENANCE_ADDENDUM};
-    use pierre_memory::{FactKind, FactSource};
+    use super::{
+        is_coach_prescription, parse_raw_facts, resolve_predicate, RawFact, EXTRACTABLE_KINDS,
+        PREDICATE_CODES_ADDENDUM, PROVENANCE_ADDENDUM,
+    };
+    use pierre_memory::{FactKind, FactSource, PredicateCode};
+
+    fn raw(
+        code: Option<&str>,
+        predicate: Option<&str>,
+        subject: Option<&str>,
+        object: &str,
+    ) -> RawFact {
+        RawFact {
+            kind: "goal".to_owned(),
+            predicate_code: code.map(str::to_owned),
+            predicate: predicate.map(str::to_owned),
+            subject: subject.map(str::to_owned),
+            object: object.to_owned(),
+            confidence: 0.9,
+            stated_by: Some("user".to_owned()),
+        }
+    }
+
+    #[test]
+    fn the_new_prompt_shape_keeps_the_code_and_the_athletes_words() {
+        let (code, object) = resolve_predicate(
+            &raw(
+                Some("training_for"),
+                None,
+                None,
+                "un ultra de 26 km au Mont Albert",
+            ),
+            FactKind::Goal,
+        );
+        assert_eq!(code, PredicateCode::TrainingFor);
+        assert_eq!(object, "un ultra de 26 km au Mont Albert");
+    }
+
+    #[test]
+    fn a_code_from_another_kind_or_an_unknown_code_falls_to_states() {
+        let (code, object) =
+            resolve_predicate(&raw(Some("parq_yes"), None, None, "Boston"), FactKind::Goal);
+        assert_eq!((code, object.as_str()), (PredicateCode::States, "Boston"));
+        let (code, _) =
+            resolve_predicate(&raw(Some("targets"), None, None, "Boston"), FactKind::Goal);
+        assert_eq!(code, PredicateCode::States);
+    }
+
+    #[test]
+    fn the_old_prompt_shape_survives_the_switch_over() {
+        // A server phrase maps to its code; an extractor phrase folds into the
+        // object under `states`, dropping the "you" subject and keeping a
+        // third-party one — nothing the athlete said is lost.
+        let (code, object) = resolve_predicate(
+            &raw(None, Some("are working toward"), Some("you"), "a 5k"),
+            FactKind::Goal,
+        );
+        assert_eq!(
+            (code, object.as_str()),
+            (PredicateCode::WorkingToward, "a 5k")
+        );
+        let (code, object) = resolve_predicate(
+            &raw(
+                None,
+                Some("are racing"),
+                Some("you"),
+                "Big Red on 2026-08-08",
+            ),
+            FactKind::Goal,
+        );
+        assert_eq!(
+            (code, object.as_str()),
+            (PredicateCode::States, "are racing Big Red on 2026-08-08")
+        );
+        let (code, object) = resolve_predicate(
+            &raw(
+                None,
+                Some("recommends"),
+                Some("Coach Sarah"),
+                "cadence drills",
+            ),
+            FactKind::Goal,
+        );
+        assert_eq!(
+            (code, object.as_str()),
+            (
+                PredicateCode::States,
+                "Coach Sarah recommends cadence drills"
+            )
+        );
+    }
 
     #[test]
     fn schedule_gate_drops_coach_prescriptions_from_conversation() {
@@ -493,6 +719,46 @@ mod tests {
         let facts = parse_raw_facts(without);
         assert_eq!(facts.len(), 1);
         assert_eq!(facts[0].stated_by, None);
+    }
+
+    #[test]
+    fn predicate_codes_addendum_lists_exactly_what_the_parser_accepts() {
+        let addendum = PREDICATE_CODES_ADDENDUM.as_str();
+        assert!(addendum.contains("\"predicate_code\""));
+        for kind in EXTRACTABLE_KINDS {
+            assert!(
+                addendum.contains(&format!("\n- {}: ", kind.as_str())),
+                "kind {} missing from the addendum",
+                kind.as_str()
+            );
+        }
+        for code in PredicateCode::ALL {
+            let quoted = format!("\"{}\"", code.as_str());
+            let offered =
+                code.extractable() && EXTRACTABLE_KINDS.iter().any(|kind| code.allowed_for(*kind));
+            assert_eq!(
+                addendum.contains(&quoted),
+                offered,
+                "{} is {}offered but {}listed",
+                code.as_str(),
+                if offered { "" } else { "not " },
+                if offered { "not " } else { "" }
+            );
+        }
+        // `states` is the honest catch-all on every kind the model may pick.
+        for line in addendum.lines().filter(|line| line.starts_with("- ")) {
+            assert!(line.contains("\"states\""), "no states on {line}");
+        }
+    }
+
+    #[test]
+    fn a_tool_only_code_from_the_model_is_stored_as_states() {
+        // target_race passes allowed_for(Goal); only the extractable gate
+        // keeps the model from passing a chat remark off as the plan tool's.
+        let fact = raw(Some("target_race"), None, None, "Boston in April");
+        let (code, object) = resolve_predicate(&fact, FactKind::Goal);
+        assert_eq!(code, PredicateCode::States);
+        assert_eq!(object, "Boston in April");
     }
 
     #[test]

@@ -3,6 +3,9 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+//
+// file-size-ok: one `KEY_*` literal per server-rendered catalogue key — data the
+// Tier 1b gate reads from this file, not logic; the registry itself is ~250 lines.
 
 //! # Messaging Strings Registry
 //!
@@ -39,10 +42,12 @@
 //! 2. `(key, DEFAULT_LOCALE)` — fall back to the default locale (`"fr"`)
 //! 3. Empty string
 //!
-//! Contremaitre overlays any `(key, locale)` at runtime: drop a file under
-//! `strings/messaging/<locale>/<key>.md`, list it in `manifest.json`, and the
-//! next sync installs it over the embedded text. `GET /api/i18n/{locale}`
-//! serves the overlaid registry to the clients.
+//! Contremaitre overlays the embedded text at runtime through a sparse
+//! per-locale bundle, `strings/<locale>.json`, holding only the keys to
+//! override in the catalogue's own nested shape; the manifest lists each
+//! bundle and the next sync applies it ([`MessagingStringsRegistry::apply_bundle`]).
+//! `GET /api/i18n/{locale}` serves the overlaid registry to the clients, so
+//! a fix pushed to contremaitre reaches every surface without a deploy.
 //!
 //! ## Templating
 //!
@@ -55,7 +60,7 @@ use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use tracing::error;
+use tracing::{error, warn};
 
 use super::manifest::compute_sha256;
 use super::registry::PromptSource;
@@ -504,6 +509,49 @@ pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
 /// Key: `/reset` note appended when the reset ended an in-progress profile walk.
 pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";
 
+// ── memory fact sentences ──────────────────────────────────────────────────
+// One key per `PredicateCode`; `{0}` is the athlete's own words (the object).
+// Rendered once, on the server, in the athlete's locale — for the memory
+// screen, the recall tool and the coach dossier alike.
+/// Key: memory fact sentence for the `training_for` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_TRAINING_FOR: &str = "messaging.memory.predicate.training_for";
+/// Key: memory fact sentence for the `working_toward` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_WORKING_TOWARD: &str = "messaging.memory.predicate.working_toward";
+/// Key: memory fact sentence for the `target_race` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_TARGET_RACE: &str = "messaging.memory.predicate.target_race";
+/// Key: memory fact sentence for the `prefer` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_PREFER: &str = "messaging.memory.predicate.prefer";
+/// Key: memory fact sentence for the `avoid` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_AVOID: &str = "messaging.memory.predicate.avoid";
+/// Key: memory fact sentence for the `primarily_train` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_PRIMARILY_TRAIN: &str = "messaging.memory.predicate.primarily_train";
+/// Key: memory fact sentence for the `have_baseline` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_HAVE_BASELINE: &str = "messaging.memory.predicate.have_baseline";
+/// Key: memory fact sentence for the `have` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_HAVE: &str = "messaging.memory.predicate.have";
+/// Key: memory fact sentence for the `recovering_from` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_RECOVERING_FROM: &str = "messaging.memory.predicate.recovering_from";
+/// Key: memory fact sentence for the `can_train_on` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_CAN_TRAIN_ON: &str = "messaging.memory.predicate.can_train_on";
+/// Key: memory fact sentence for the `cannot_train_on` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_CANNOT_TRAIN_ON: &str = "messaging.memory.predicate.cannot_train_on";
+/// Key: memory fact sentence for the `need_session_on` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_NEED_SESSION_ON: &str = "messaging.memory.predicate.need_session_on";
+/// Key: memory fact sentence for the `unavailable` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_UNAVAILABLE: &str = "messaging.memory.predicate.unavailable";
+/// Key: memory fact sentence for the `own` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_OWN: &str = "messaging.memory.predicate.own";
+/// Key: memory fact sentence for the `train_on` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_TRAIN_ON: &str = "messaging.memory.predicate.train_on";
+/// Key: memory fact sentence for the `train_because` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_TRAIN_BECAUSE: &str = "messaging.memory.predicate.train_because";
+/// Key: memory fact sentence for the `parq_yes` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_PARQ_YES: &str = "messaging.memory.predicate.parq_yes";
+/// Key: memory fact sentence for the `flagged` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_FLAGGED: &str = "messaging.memory.predicate.flagged";
+/// Key: memory fact sentence for the `states` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_STATES: &str = "messaging.memory.predicate.states";
+
 // ── messaging intake keys ─────────────────────────────────────────────────
 /// Key: intake opener — sent with the first question after a channel is linked.
 pub const KEY_INTAKE_OPENER: &str = "messaging.intake.opener";
@@ -935,6 +983,9 @@ type LocaleMap = HashMap<String, HashMap<String, MessagingStringEntry>>;
 /// from the GitHub repo and calls [`MessagingStringsRegistry::update`].
 pub struct MessagingStringsRegistry {
     entries: RwLock<LocaleMap>,
+    /// Digest of the last override bundle applied per locale, so the sync
+    /// engine can skip a bundle the manifest still lists at the same hash.
+    bundle_shas: RwLock<HashMap<String, String>>,
 }
 
 impl MessagingStringsRegistry {
@@ -971,7 +1022,70 @@ impl MessagingStringsRegistry {
         }
         Self {
             entries: RwLock::new(entries),
+            bundle_shas: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Apply a sparse override bundle for `locale`.
+    ///
+    /// `json` is a nested object in the catalogue's own shape; every leaf
+    /// replaces the registry's text for that key in that locale. Returns the
+    /// number of keys applied. A key the catalogue does not hold is applied
+    /// too and logged, so a typo shows up in the sync log instead of
+    /// vanishing. Records `bundle_sha256` so an unchanged bundle is skipped
+    /// on the next sync.
+    ///
+    /// # Errors
+    ///
+    /// Returns the parse error when `json` is not valid JSON; nothing is
+    /// applied in that case and the previous strings stay live.
+    pub fn apply_bundle(
+        &self,
+        locale: &str,
+        json: &str,
+        bundle_sha256: &str,
+    ) -> Result<usize, serde_json::Error> {
+        let tree: Value = serde_json::from_str(json)?;
+        let mut leaves = Vec::new();
+        flatten("", &tree, &mut leaves);
+        let now = Utc::now();
+        let applied = leaves.len();
+        {
+            let mut guard = self.write();
+            for (key, content) in leaves {
+                if !guard.contains_key(&key) {
+                    warn!(
+                        key,
+                        locale, "override bundle names a key the catalogue does not hold"
+                    );
+                }
+                let sha256 = compute_sha256(content.as_bytes());
+                guard.entry(key).or_default().insert(
+                    locale.to_owned(),
+                    MessagingStringEntry {
+                        content,
+                        sha256,
+                        source: PromptSource::Contremaitre,
+                        loaded_at: now,
+                    },
+                );
+            }
+        }
+        self.bundle_shas
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(locale.to_owned(), bundle_sha256.to_owned());
+        Ok(applied)
+    }
+
+    /// Digest of the override bundle last applied for `locale`, if any.
+    #[must_use]
+    pub fn bundle_sha256(&self, locale: &str) -> Option<String> {
+        self.bundle_shas
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(locale)
+            .cloned()
     }
 
     /// Get the template for `(key, locale)` using the documented fallback

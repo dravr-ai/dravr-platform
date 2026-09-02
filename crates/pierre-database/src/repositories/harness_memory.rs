@@ -26,11 +26,9 @@ pub struct UpsertUserFactParams<'a> {
     pub kind: pierre_memory::FactKind,
     /// Health pillar this fact belongs to, or `None` if pillar-agnostic.
     pub pillar: Option<Pillar>,
-    /// Subject phrase (typically "you" or an entity name).
-    pub subject: &'a str,
-    /// Predicate phrase.
-    pub predicate: &'a str,
-    /// Object phrase.
+    /// What the fact says, as a closed code.
+    pub predicate_code: pierre_memory::PredicateCode,
+    /// The athlete's own words for the value, in their language.
     pub object: &'a str,
     /// Confidence in `[0.0, 1.0]`.
     pub confidence: f32,
@@ -204,7 +202,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<chrono::DateTime<chrono::Utc>>,
-        predicate: Option<&str>,
+        predicate_code: Option<pierre_memory::PredicateCode>,
     ) -> AppResult<u64>;
 
     /// Tenant-wide aggregate snapshot of the memory extraction worker's output.

@@ -17,10 +17,11 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::CoachRepos;
-use pierre_memory::FactKind;
+use pierre_memory::{FactKind, PredicateCode};
 
 /// Default page size when the client omits `limit`. Bounded to 100 by
 /// [`MAX_LIST_LIMIT`] so a misconfigured client cannot drag the database.
@@ -44,12 +45,14 @@ pub struct UserFactRow {
     /// The `FactKind` serde name — `preference`, `physiology`, `injury`,
     /// `goal`, `schedule`, `equipment`, `north_star`, `medical` or `other`.
     pub kind: String,
-    /// Subject phrase, typically `"you"`.
-    pub subject: String,
-    /// Verb phrase (`prefers`, `has`, `runs`, etc.).
-    pub predicate: String,
-    /// Object phrase — the fact value the user can review.
+    /// What the fact says, as a `PredicateCode` slug (`training_for`, `states`, …).
+    pub predicate_code: String,
+    /// The athlete's own words for the value, in their language.
     pub object: String,
+    /// The whole fact as one sentence in the athlete's locale — what the memory
+    /// screen shows. Rendered here from the string catalogue so the web app,
+    /// the phone and the coach prompt say the same thing.
+    pub sentence: String,
     /// Confidence in `[0.0, 1.0]` from the extractor.
     pub confidence: f32,
     /// Source message id for "jump to source" UI affordances.
@@ -75,6 +78,46 @@ pub struct ForgetFactResponse {
     pub deleted: bool,
 }
 
+/// Renders facts as sentences in one locale.
+///
+/// This is the one renderer — the memory screens, the recall tool and the
+/// coach dossier all go through it, so a fact reads the same everywhere and
+/// no surface glues an English verb to the athlete's words again.
+#[derive(Clone, Copy)]
+pub struct SentenceRenderer<'a> {
+    strings: &'a MessagingStringsRegistry,
+    locale: &'a str,
+}
+
+impl<'a> SentenceRenderer<'a> {
+    /// A renderer for `locale` over the live string catalogue.
+    #[must_use]
+    pub const fn new(strings: &'a MessagingStringsRegistry, locale: &'a str) -> Self {
+        Self { strings, locale }
+    }
+
+    /// The catalogue text for `code` with the athlete's own words in place of
+    /// `{0}`. A PAR-Q flag's object is the question id, so it is first turned
+    /// into the question's text in this locale (`messaging.intake.parq.<id>`).
+    #[must_use]
+    pub fn render(&self, code: PredicateCode, object: &str) -> String {
+        let object = if code == PredicateCode::ParqYes {
+            let question = self
+                .strings
+                .get(&format!("messaging.intake.parq.{object}"), self.locale);
+            if question.is_empty() {
+                object.to_owned()
+            } else {
+                question
+            }
+        } else {
+            object.to_owned()
+        };
+        self.strings
+            .render(code.catalogue_key(), self.locale, &[object.as_str()])
+    }
+}
+
 /// Parse a `snake_case` fact-kind filter into a [`FactKind`] enum value.
 #[must_use]
 pub fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
@@ -93,6 +136,7 @@ pub fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
 /// [`pierre_database::repositories::HarnessMemoryRepository::list_user_facts`].
 pub async fn list_user_facts(
     repos: &CoachRepos,
+    sentences: SentenceRenderer<'_>,
     tenant_id: TenantId,
     user_id: &str,
     coach_id: Option<&str>,
@@ -117,8 +161,8 @@ pub async fn list_user_facts(
                 .and_then(|id| coach_titles.get(id).cloned()),
             coach_id: f.coach_id,
             kind: f.kind.as_str().to_owned(),
-            subject: f.subject,
-            predicate: f.predicate,
+            predicate_code: f.predicate_code.as_str().to_owned(),
+            sentence: sentences.render(f.predicate_code, &f.object),
             object: f.object,
             confidence: f.confidence,
             source_msg_id: f.source_msg_id,

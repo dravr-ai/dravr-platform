@@ -25,11 +25,10 @@ use super::{Pillar, UserPhysiologicalProfile};
 pub struct DossierFact {
     /// `FactKind` slug (e.g. `goal`, `injury`, `north_star`, `medical`).
     pub kind: String,
-    /// Subject phrase (typically "you").
-    pub subject: String,
-    /// Predicate phrase.
-    pub predicate: String,
-    /// Object phrase — UNTRUSTED user free text.
+    /// `PredicateCode` slug (e.g. `training_for`, `parq_yes`, `states`): what
+    /// the fact says. The sentence is rendered per locale by the consumer.
+    pub predicate_code: String,
+    /// The athlete's own words — UNTRUSTED user free text, in their language.
     pub object: String,
     /// Extractor/author confidence in `[0.0, 1.0]`.
     pub confidence: f32,
