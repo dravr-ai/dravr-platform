@@ -29,7 +29,7 @@ use tracing::{info, warn};
 use pierre_core::config::CompactionConfig;
 
 use crate::harness_config_document::{
-    HarnessCompactionConfig, HarnessConfigDocument, HarnessGuardrailsConfig,
+    HarnessCompactionConfig, HarnessConfigDocument, HarnessGuardrailsConfig, HarnessMemoryConfig,
     HarnessVerificationConfig, HARNESS_CONFIG_SETTING_KEY,
 };
 use crate::text_guardrails::TextGuardrails;
@@ -163,6 +163,13 @@ impl HarnessConfigRegistry {
     #[must_use]
     pub fn current_guardrails(&self) -> Arc<TextGuardrails> {
         Arc::clone(&self.read().guardrails)
+    }
+
+    /// Memory de-duplication tunables for the current snapshot. Returned by
+    /// value because [`HarnessMemoryConfig`] is `Copy`.
+    #[must_use]
+    pub fn current_memory(&self) -> HarnessMemoryConfig {
+        self.read().document.memory
     }
 
     /// Verification-stage config for the current snapshot. Returned by value

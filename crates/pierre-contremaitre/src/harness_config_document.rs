@@ -136,6 +136,55 @@ impl Default for HarnessVerificationConfig {
     }
 }
 
+/// Memory de-duplication tunables.
+///
+/// An athlete states one goal and every later extraction re-derives it in its
+/// own words; without these the restatements pile up as separate facts. The
+/// exact-key layer is not configurable — it costs a string comparison and
+/// cannot merge two different facts — so only the similarity layer is tuned
+/// here.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct HarnessMemoryConfig {
+    /// Whether similarity matching runs. Off leaves the exact-key layer alone.
+    #[serde(default = "default_memory_similarity_enabled")]
+    pub dedup_similarity_enabled: bool,
+    /// Cosine score at or above which two facts of one kind are the same fact.
+    ///
+    /// Higher merges less and leaves duplicates; lower risks collapsing two
+    /// real goals into one, which loses athlete data — so the default sits
+    /// deliberately on the conservative side.
+    #[serde(default = "default_memory_similarity_threshold")]
+    pub dedup_similarity_threshold: f32,
+    /// How many of the athlete's facts of that kind are compared.
+    #[serde(default = "default_memory_candidate_limit")]
+    pub dedup_candidate_limit: u32,
+}
+
+/// Default for [`HarnessMemoryConfig::dedup_similarity_enabled`].
+fn default_memory_similarity_enabled() -> bool {
+    true
+}
+
+/// Default for [`HarnessMemoryConfig::dedup_similarity_threshold`].
+fn default_memory_similarity_threshold() -> f32 {
+    0.86
+}
+
+/// Default for [`HarnessMemoryConfig::dedup_candidate_limit`].
+fn default_memory_candidate_limit() -> u32 {
+    50
+}
+
+impl Default for HarnessMemoryConfig {
+    fn default() -> Self {
+        Self {
+            dedup_similarity_enabled: default_memory_similarity_enabled(),
+            dedup_similarity_threshold: default_memory_similarity_threshold(),
+            dedup_candidate_limit: default_memory_candidate_limit(),
+        }
+    }
+}
+
 /// Top-level document persisted under [`HARNESS_CONFIG_SETTING_KEY`].
 ///
 /// Round-tripped to JSON in `system_settings.value`. Versioned via the
@@ -153,6 +202,10 @@ pub struct HarnessConfigDocument {
     /// persisted before the field existed still deserialize.
     #[serde(default)]
     pub verification: HarnessVerificationConfig,
+    /// Memory de-duplication tunables. Additive (serde-defaulted) so documents
+    /// persisted before the field existed still deserialize.
+    #[serde(default)]
+    pub memory: HarnessMemoryConfig,
 }
 
 impl Default for HarnessConfigDocument {
@@ -169,6 +222,7 @@ impl Default for HarnessConfigDocument {
             compaction: HarnessCompactionConfig::default(),
             guardrails: HarnessGuardrailsConfig::default(),
             verification: HarnessVerificationConfig::default(),
+            memory: HarnessMemoryConfig::default(),
         }
     }
 }
@@ -224,6 +278,20 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
                 "locale '{locale}': disclaimer_text must be non-empty when disclaimer_triggers is set"
             )));
         }
+    }
+
+    // A threshold outside (0, 1] is not a mistuning, it is a switch: at or
+    // below 0 every fact of a kind merges into one row and the athlete loses
+    // data; above 1 nothing ever matches and the setting reads as enabled
+    // while doing nothing.
+    let m = &doc.memory;
+    if m.dedup_similarity_threshold <= 0.0 || m.dedup_similarity_threshold > 1.0 {
+        return Err(AppError::invalid_input(
+            "dedup_similarity_threshold must be in (0, 1]",
+        ));
+    }
+    if m.dedup_candidate_limit == 0 {
+        return Err(AppError::invalid_input("dedup_candidate_limit must be > 0"));
     }
 
     Ok(())

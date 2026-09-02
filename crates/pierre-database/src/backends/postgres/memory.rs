@@ -21,7 +21,7 @@ use uuid::Uuid;
 use super::PostgresDatabase;
 use crate::repositories::{
     HarnessMemoryRepository, InsertCoachFollowupParams, InsertCoachNoteParams,
-    InsertCompactionBlockParams, UpsertUserFactParams,
+    InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
 
 // Embeddings are serialized as little-endian f32 sequences in BYTEA to keep
@@ -305,6 +305,54 @@ impl HarnessMemoryRepository for PostgresDatabase {
             created_at: now,
             updated_at: now,
         })
+    }
+
+    async fn merge_user_fact(
+        &self,
+        params: &MergeUserFactParams<'_>,
+    ) -> AppResult<Option<UserFact>> {
+        let now = Utc::now().to_rfc3339();
+        let embedding_bytes = params.embedding.map(embedding_to_bytes);
+
+        // COALESCE keeps the anchor's own words and its embedding when it
+        // already has one; MAX keeps the higher confidence, so a restatement
+        // can only ever raise it.
+        sqlx::query(
+            r"
+            UPDATE user_facts
+            SET confidence = MAX(confidence, $1),
+                source_msg_id = COALESCE($2, source_msg_id),
+                embedding = COALESCE(embedding, $3),
+                updated_at = $4
+            WHERE id = $5 AND tenant_id = $6
+            ",
+        )
+        .bind(params.confidence)
+        .bind(params.source_msg_id)
+        .bind(embedding_bytes)
+        .bind(&now)
+        .bind(params.fact_id)
+        .bind(params.tenant_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to merge user fact: {e}")))?;
+
+        let row = sqlx::query(
+            r"
+            SELECT id, tenant_id, user_id, coach_id, scope, kind, pillar,
+                   predicate_code, object, confidence, source, valid_until,
+                   source_msg_id, embedding, created_at, updated_at
+            FROM user_facts
+            WHERE id = $1 AND tenant_id = $2
+            ",
+        )
+        .bind(params.fact_id)
+        .bind(params.tenant_id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read merged user fact: {e}")))?;
+
+        row.as_ref().map(row_to_user_fact).transpose()
     }
 
     async fn list_user_facts(

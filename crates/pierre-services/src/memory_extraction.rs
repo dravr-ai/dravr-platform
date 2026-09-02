@@ -21,13 +21,17 @@ use std::sync::{Arc, LazyLock};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Pillar, TenantId};
-use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
+use pierre_database::repositories::{
+    HarnessMemoryRepository, MergeUserFactParams, UpsertUserFactParams,
+};
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
+use crate::memory_dedup::{decide, Candidate, DedupConfig, FactWrite};
+use pierre_llm::embeddings::InstrumentedEmbeddingProvider;
 use pierre_llm::ChatProvider;
 
 /// Minimum confidence for an extracted fact to be persisted.
@@ -181,6 +185,8 @@ pub async fn extract_and_persist<R>(
     provider: &ChatProvider,
     system_prompt: &str,
     req: &ExtractionRequest<'_>,
+    embedder: Option<&InstrumentedEmbeddingProvider>,
+    dedup: DedupConfig,
 ) -> AppResult<ExtractionOutcome>
 where
     R: HarnessMemoryRepository + ?Sized,
@@ -206,7 +212,7 @@ where
     }
 
     let raw_count = raw.len();
-    let persisted = persist_facts(repo, req, raw).await;
+    let persisted = persist_facts(repo, req, raw, embedder, dedup).await;
 
     info!(
         raw = raw_count,
@@ -357,10 +363,70 @@ fn fold_legacy_sentence(fact: &RawFact, phrase: &str) -> String {
 }
 
 /// Persist each fact that survives [`gate_fact`], dropping the rest.
+/// Embed `text`, or `None` when there is no provider or the call fails.
+///
+/// De-duplication degrades to its exact-key layer without an embedding rather
+/// than failing the extraction: a missed merge is one duplicate row, while a
+/// failed extraction loses the fact entirely.
+async fn embed_candidate(
+    embedder: Option<&InstrumentedEmbeddingProvider>,
+    tenant_id: &str,
+    user_id: &str,
+    text: &str,
+) -> Option<Vec<f32>> {
+    let embedder = embedder?;
+    match embedder.embed_for(tenant_id, user_id, text).await {
+        Ok(vector) => Some(vector),
+        Err(e) => {
+            warn!(error = %e, "fact embedding failed; falling back to exact-key dedup only");
+            None
+        }
+    }
+}
+
+/// Fold a restatement into the fact it restates.
+///
+/// `None` means the caller should insert instead: either the anchor vanished
+/// between the read and the write, or the write failed. Both are better served
+/// by a duplicate row than by dropping what the athlete said.
+async fn merge_restatement<R: HarnessMemoryRepository + ?Sized>(
+    repo: &R,
+    req: &ExtractionRequest<'_>,
+    fact_id: &str,
+    kind: FactKind,
+    confidence: f32,
+    embedding: Option<&[f32]>,
+) -> Option<UserFact> {
+    let params = MergeUserFactParams {
+        tenant_id: req.tenant_id,
+        fact_id,
+        source_msg_id: req.source_msg_id,
+        confidence,
+        embedding,
+    };
+    match repo.merge_user_fact(&params).await {
+        Ok(Some(row)) => {
+            info!(
+                fact_id = %row.id,
+                kind = ?kind,
+                "extracted fact restates an existing one; merged"
+            );
+            Some(row)
+        }
+        Ok(None) => None,
+        Err(e) => {
+            error!(error = %e, kind = ?kind, "failed to merge extracted user fact");
+            None
+        }
+    }
+}
+
 async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
     repo: &R,
     req: &ExtractionRequest<'_>,
     facts: Vec<RawFact>,
+    embedder: Option<&InstrumentedEmbeddingProvider>,
+    dedup: DedupConfig,
 ) -> Vec<UserFact> {
     let mut out = Vec::with_capacity(facts.len());
     for fact in facts {
@@ -368,6 +434,54 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             continue;
         };
         let (predicate_code, object) = resolve_predicate(&fact, kind);
+
+        // What the athlete already has of this kind decides whether this is a
+        // new fact or the same one said again.
+        let existing = repo
+            .list_user_facts(
+                req.tenant_id,
+                req.user_id,
+                req.coach_id,
+                Some(kind),
+                i64::from(dedup.candidate_limit_i64()),
+            )
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "could not read existing facts; writing without dedup");
+                Vec::new()
+            });
+        // Nothing to compare against means nothing to pay an embedding for.
+        let embedding = if existing.is_empty() {
+            None
+        } else {
+            embed_candidate(embedder, &req.tenant_id.to_string(), req.user_id, &object).await
+        };
+        let write = decide(
+            &existing,
+            &Candidate {
+                kind,
+                predicate_code,
+                object: &object,
+                embedding: embedding.as_deref(),
+            },
+            dedup,
+        );
+        if let FactWrite::MergeInto(fact_id) = write {
+            if let Some(row) = merge_restatement(
+                repo,
+                req,
+                &fact_id,
+                kind,
+                clamped_confidence,
+                embedding.as_deref(),
+            )
+            .await
+            {
+                out.push(row);
+                continue;
+            }
+        }
+
         let params = UpsertUserFactParams {
             tenant_id: req.tenant_id,
             user_id: req.user_id,
@@ -381,7 +495,8 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             source: req.source,
             valid_until: None,
             source_msg_id: req.source_msg_id,
-            embedding: None,
+            // Stored so the next restatement has something to match against.
+            embedding: embedding.as_deref(),
         };
         match repo.upsert_user_fact(&params).await {
             Ok(row) => out.push(row),
@@ -523,6 +638,8 @@ pub struct SpawnedExtractionRequest {
 pub fn spawn_extract_for_turn(
     memory_repo: Arc<dyn HarnessMemoryRepository>,
     chat_provider: Option<Arc<pierre_llm::ChatProvider>>,
+    embedder: Option<Arc<InstrumentedEmbeddingProvider>>,
+    dedup: DedupConfig,
     system_prompt: String,
     req: SpawnedExtractionRequest,
 ) {
@@ -561,7 +678,16 @@ pub fn spawn_extract_for_turn(
             source: req.source,
             force_kind: req.force_kind,
         };
-        match extract_and_persist(memory_repo.as_ref(), provider, &system_prompt, &request).await {
+        match extract_and_persist(
+            memory_repo.as_ref(),
+            provider,
+            &system_prompt,
+            &request,
+            embedder.as_deref(),
+            dedup,
+        )
+        .await
+        {
             Ok(outcome) => debug!(
                 raw = outcome.raw_count,
                 persisted = outcome.persisted.len(),

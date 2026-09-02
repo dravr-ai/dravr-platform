@@ -9,6 +9,29 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::{Pillar, TenantId};
 
+/// A restatement merging into the fact it restates.
+///
+/// The anchor keeps what the athlete said: neither the object text nor a lower
+/// confidence is written here, because the rewording that triggered a merge is
+/// often the poorer wording. What a merge records is that the athlete said it
+/// again — the newest message that stated it, an embedding for the row if it
+/// had none, and a fresh `updated_at`.
+#[derive(Debug, Clone, Copy)]
+pub struct MergeUserFactParams<'a> {
+    /// Tenant that owns the fact, so a merge cannot cross a tenant boundary.
+    pub tenant_id: TenantId,
+    /// The anchor row.
+    pub fact_id: &'a str,
+    /// Message that restated it, when the caller has one.
+    pub source_msg_id: Option<&'a str>,
+    /// Confidence of the restatement. Applied only when it is higher than the
+    /// anchor's — repetition is evidence, a poorer rewording is not.
+    pub confidence: f32,
+    /// Embedding to store when the anchor has none, so a row written before
+    /// embeddings existed becomes matchable after its first restatement.
+    pub embedding: Option<&'a [f32]>,
+}
+
 /// Parameters for a [`HarnessMemoryRepository::upsert_user_fact`] call.
 ///
 /// Grouped into a struct to avoid a trait method with seven positional
@@ -127,6 +150,20 @@ pub trait HarnessMemoryRepository: Send + Sync {
         &self,
         params: &UpsertUserFactParams<'_>,
     ) -> AppResult<pierre_memory::UserFact>;
+
+    /// Merge a restatement into the fact it restates.
+    ///
+    /// Returns the anchor as it now stands, or `None` when no such fact exists
+    /// in this tenant — a fact deleted between the read and the write is a
+    /// normal race, not an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::database`] when the statement fails.
+    async fn merge_user_fact(
+        &self,
+        params: &MergeUserFactParams<'_>,
+    ) -> AppResult<Option<pierre_memory::UserFact>>;
 
     /// List user facts for recall. Filters by user, optional coach, and
     /// optional kind; callers apply vector similarity on the returned set.

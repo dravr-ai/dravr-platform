@@ -118,6 +118,10 @@ pub mod health_sync;
 pub mod memory_extraction;
 
 /// User-facing memory fact service — list and forget what the coach remembers
+/// Deciding whether an extracted fact is new or a restatement of an existing one.
+pub mod memory_dedup;
+/// Folding an athlete's already-stored duplicate facts into their anchors.
+pub mod memory_dedup_backfill;
 pub mod memory_facts;
 
 /// OKF bundle rendering — the per-user Dossier projected to markdown for the prompt

@@ -26,6 +26,10 @@ use pierre_evals::VerificationConfig;
 use pierre_services::claim_verdict_backfill::{
     run_backfill, BackfillParams, DEFAULT_MESSAGES_SCANNED,
 };
+use pierre_services::memory_dedup::DedupConfig;
+use pierre_services::memory_dedup_backfill::{
+    embedder_from_env, run_backfill as run_memory_backfill, BackfillParams as MemoryBackfillParams,
+};
 
 /// `pierre-cli harness <subcommand>` dispatch.
 #[derive(Subcommand)]
@@ -61,6 +65,38 @@ pub enum HarnessCommand {
         /// Resume from the stored per-tenant cursor in `system_settings`.
         #[arg(long)]
         resume: bool,
+    },
+
+    /// Fold an athlete's duplicate facts into the fact they restate.
+    ///
+    /// The live extraction path stops new duplicates; this reaches the rows
+    /// written before it existed — one athlete stating one goal, stored three
+    /// times in three wordings. Reports and changes nothing unless `--apply`
+    /// is given, and a merge never rewrites the athlete's own words.
+    DedupMemory {
+        /// Tenant id that owns the facts (UUID string).
+        #[arg(long)]
+        tenant_id: String,
+
+        /// Athlete whose facts are folded.
+        #[arg(long)]
+        user_id: String,
+
+        /// Most facts to read per kind.
+        #[arg(long, default_value_t = 200)]
+        limit: i64,
+
+        /// Write the merges. Without it the run only reports them.
+        #[arg(long)]
+        apply: bool,
+
+        /// Cosine score at or above which two facts are the same fact.
+        #[arg(long, default_value_t = 0.86)]
+        threshold: f32,
+
+        /// Sleep N milliseconds between embedding calls.
+        #[arg(long, default_value_t = 0)]
+        sleep_ms: u64,
     },
 }
 
@@ -118,6 +154,57 @@ pub async fn dispatch(
                 serde_json::to_string_pretty(&stats).map_err(|e| AppError::internal(format!(
                     "Failed to serialize backfill stats: {e}"
                 )))?
+            );
+        }
+        HarnessCommand::DedupMemory {
+            tenant_id,
+            user_id,
+            limit,
+            apply,
+            threshold,
+            sleep_ms,
+        } => {
+            let parsed_tenant = TenantId::parse_str(&tenant_id)
+                .map_err(|_| AppError::invalid_input(format!("Invalid tenant id: {tenant_id}")))?;
+            if !(0.0..=1.0).contains(&threshold) || threshold <= 0.0 {
+                return Err(AppError::invalid_input(
+                    "threshold must be in (0, 1]: at or below 0 every fact of a kind merges into one",
+                ));
+            }
+            // Embeddings are what catch a paraphrase; without a provider the
+            // run still folds exact repeats, so it is worth saying which
+            // half the operator is getting.
+            let embedder = embedder_from_env(repos);
+            if embedder.is_none() {
+                info!("no embedding provider configured — exact repeats only, paraphrases stay");
+            }
+            let params = MemoryBackfillParams {
+                tenant_id: parsed_tenant,
+                user_id: &user_id,
+                limit,
+                dry_run: !apply,
+                sleep_between: Duration::from_millis(sleep_ms),
+            };
+            let config = DedupConfig {
+                similarity_enabled: embedder.is_some(),
+                similarity_threshold: threshold,
+                candidate_limit: usize::try_from(limit).unwrap_or(usize::MAX),
+            };
+            let stats =
+                run_memory_backfill(repos.memory.as_ref(), embedder.as_deref(), &params, config)
+                    .await?;
+            println!(
+                "scanned {} · would merge {} · merged {} · deleted {} · embedded {}{}",
+                stats.facts_scanned,
+                if apply { 0 } else { stats.facts_merged },
+                if apply { stats.facts_merged } else { 0 },
+                stats.facts_deleted,
+                stats.embeddings_computed,
+                if apply {
+                    ""
+                } else {
+                    "  (dry run — pass --apply to write)"
+                }
             );
         }
     }
