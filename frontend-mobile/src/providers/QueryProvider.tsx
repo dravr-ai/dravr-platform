@@ -43,7 +43,7 @@ function createQueryClient(
           return;
         }
 
-        const message = extractErrorMessage(error, t('app.somethingWentWrongRetry'));
+        const message = extractErrorMessage(error, t('app.somethingWentWrongRetry'), t);
 
         Toast.show({
           type: 'error',

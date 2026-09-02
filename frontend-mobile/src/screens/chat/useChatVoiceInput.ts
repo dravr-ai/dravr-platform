@@ -5,6 +5,7 @@ import { useEffect, useCallback } from 'react';
 import * as Linking from 'expo-linking';
 import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
+import { useTranslation } from '@pierre/i18n';
 import { useVoiceInput as useBaseVoiceInput } from '../../hooks/useVoiceInput';
 import type { VoiceError } from '../../hooks/useVoiceInput';
 
@@ -25,6 +26,7 @@ export function useChatVoiceInput(
   onTranscript: (text: string) => void,
   setInputText: (text: string) => void
 ): ChatVoiceInputState & ChatVoiceInputActions {
+  const { t } = useTranslation();
   const {
     isListening,
     transcript,
@@ -52,8 +54,8 @@ export function useChatVoiceInput(
         if (error.type === 'permission_denied') {
           Toast.show({
             type: 'voiceError',
-            text1: 'Microphone Access Required',
-            text2: error.message,
+            text1: t('voice.titleMicAccess'),
+            text2: error.detail ?? t(error.messageKey),
             visibilityTime: 5000,
             props: {
               onOpenSettings: () => {
@@ -65,8 +67,8 @@ export function useChatVoiceInput(
         } else if (error.type === 'no_speech') {
           Toast.show({
             type: 'voiceError',
-            text1: 'No Speech Detected',
-            text2: error.message,
+            text1: t('voice.titleNoSpeech'),
+            text2: error.detail ?? t(error.messageKey),
             visibilityTime: 3000,
             props: {
               onRetry: () => {
@@ -78,8 +80,8 @@ export function useChatVoiceInput(
         } else if (error.type === 'network_error') {
           Toast.show({
             type: 'voiceError',
-            text1: 'Network Error',
-            text2: error.message,
+            text1: t('voice.titleNetwork'),
+            text2: error.detail ?? t(error.messageKey),
             visibilityTime: 4000,
             props: {
               onRetry: () => {
@@ -91,15 +93,15 @@ export function useChatVoiceInput(
         } else if (error.type === 'timeout') {
           Toast.show({
             type: 'info',
-            text1: 'Voice Input Timeout',
-            text2: error.message,
+            text1: t('voice.titleTimeout'),
+            text2: error.detail ?? t(error.messageKey),
             visibilityTime: 3000,
           });
         } else {
           Toast.show({
             type: 'error',
-            text1: 'Voice Input Error',
-            text2: error.message,
+            text1: t('voice.titleError'),
+            text2: error.detail ?? t(error.messageKey),
             visibilityTime: 3000,
           });
         }
@@ -110,7 +112,7 @@ export function useChatVoiceInput(
         clearVoiceError();
       }
     }
-  }, [voiceError, clearVoiceError, startListening]);
+  }, [voiceError, clearVoiceError, startListening, t]);
 
   const handleVoicePress = useCallback(async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

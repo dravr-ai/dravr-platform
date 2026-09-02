@@ -79,10 +79,17 @@ function makeStatusResponse(overrides: Partial<{
   };
 }
 
+/**
+ * A translator that returns the key and appends its params, so an assertion
+ * names the key the hook chose without pinning any locale's wording.
+ */
+const translate = (key: string, params?: Record<string, string | number>): string =>
+  params === undefined ? key : `${key} ${JSON.stringify(params)}`;
+
 describe('computeWarningState', () => {
   it('returns none when all counters are within limits', () => {
     const data = makeStatusResponse({});
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
@@ -90,7 +97,7 @@ describe('computeWarningState', () => {
   });
 
   it('returns none when data is undefined', () => {
-    const state = computeWarningState(undefined);
+    const state = computeWarningState(undefined, translate);
 
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
@@ -102,45 +109,45 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
     expect(state.level).toBe('warning');
     expect(state.sendDisabled).toBe(false);
-    expect(state.message).toContain('80%');
-    expect(state.message).toContain('daily messages');
+    expect(state.message).toContain('"percent":80');
+    expect(state.message).toContain('usage.dailyMessages');
   });
 
   it('returns burst when in burst zone', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
     expect(state.level).toBe('burst');
     expect(state.sendDisabled).toBe(false);
-    expect(state.message).toContain('burst zone');
-    expect(state.message).toContain('daily messages');
+    expect(state.message).toContain('usage.burstZone');
+    expect(state.message).toContain('usage.dailyMessages');
   });
 
   it('returns blocked when not allowed', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 75, limit: 50, allowed: false, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
-    expect(state.message).toContain('limit reached');
+    expect(state.message).toContain('usage.blockedLimitReached');
   });
 
   it('uses the triggering counter label in blocked message', () => {
     const data = makeStatusResponse({
       dailyTokens: makeLimitCheck({ current: 100, limit: 50, allowed: false, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
     expect(state.level).toBe('blocked');
-    expect(state.message).toContain('Daily tokens');
+    expect(state.message).toContain('usage.dailyTokens');
   });
 
   it('picks the most severe level across counters', () => {
@@ -148,10 +155,10 @@ describe('computeWarningState', () => {
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }), // warning
       dailyTokens: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }), // burst
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
     expect(state.level).toBe('burst');
-    expect(state.message).toContain('daily tokens');
+    expect(state.message).toContain('usage.dailyTokens');
   });
 
   it('blocked overrides burst and warning', () => {
@@ -160,20 +167,20 @@ describe('computeWarningState', () => {
       dailyTokens: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }), // burst
       weeklyMessages: makeLimitCheck({ current: 200, limit: 100, allowed: false }), // blocked
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
-    expect(state.message).toContain('Weekly messages');
+    expect(state.message).toContain('usage.weeklyMessages');
   });
 
   it('includes reset time in message', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true, resets_at: '2026-02-18T12:00:00Z' }),
     });
-    const state = computeWarningState(data);
+    const state = computeWarningState(data, translate);
 
-    expect(state.message).toContain('reset');
+    expect(state.message).toContain('"time"');
     expect(state.resetsAt).toBe('2026-02-18T12:00:00Z');
   });
 });

@@ -65,12 +65,13 @@ describe('Google Sign-In on a binary without the native module', () => {
     expect(isFirebaseEnabled()).toBe(false);
   });
 
-  it('refuses the sign-in flow with a reason naming the binary', async () => {
+  it('refuses the sign-in flow with the code the login screen translates', async () => {
     const { signInWithGoogle } = loadFirebaseModule();
 
-    await expect(signInWithGoogle()).rejects.toThrow(
-      'This binary has no native Google Sign-In module.'
-    );
+    // A code, not a sentence: `LoginScreen` shows this failure to the athlete
+    // and maps the code to `errors.googleSignInUnavailable` in their own
+    // language (carnet#207).
+    await expect(signInWithGoogle()).rejects.toThrow('google-signin-unavailable');
   });
 
   it('signs out of Firebase without reaching for the native session', async () => {

@@ -45,7 +45,20 @@ export type VoiceErrorType =
 
 export interface VoiceError {
   type: VoiceErrorType;
-  message: string;
+  /**
+   * Catalogue key for the detail line the toast shows.
+   *
+   * A key rather than a sentence: this hook runs outside any component and
+   * the wording it used to return was English, which the chat toast rendered
+   * verbatim under French chrome (carnet#207).
+   */
+  messageKey: string;
+  /**
+   * The platform's own words, when the recognizer failed in a way we have no
+   * wording for. Shown in place of the generic key so a device-specific
+   * reason is not swallowed.
+   */
+  detail?: string;
 }
 
 interface VoiceInputState {
@@ -74,18 +87,18 @@ const FALLBACK_RECOGNITION_LOCALE = 'en-US';
 function mapErrorCode(code: ExpoSpeechRecognitionErrorCode, message: string): VoiceError {
   switch (code) {
     case 'not-allowed':
-      return { type: 'permission_denied', message: 'Microphone access denied' };
+      return { type: 'permission_denied', messageKey: 'voice.micAccessDenied' };
     case 'no-speech':
     case 'speech-timeout':
-      return { type: 'no_speech', message: "Didn't catch that. Try again." };
+      return { type: 'no_speech', messageKey: 'voice.noSpeech' };
     case 'network':
-      return { type: 'network_error', message: 'Network error. Please try again.' };
+      return { type: 'network_error', messageKey: 'voice.networkError' };
     case 'service-not-allowed':
-      return { type: 'not_available', message: 'Speech recognition is not available.' };
+      return { type: 'not_available', messageKey: 'voice.notAvailable' };
     case 'aborted':
-      return { type: 'timeout', message: 'Voice input was cancelled.' };
+      return { type: 'timeout', messageKey: 'voice.cancelled' };
     default:
-      return { type: 'unknown', message };
+      return { type: 'unknown', messageKey: 'voice.unknown', detail: message };
   }
 }
 
@@ -163,7 +176,7 @@ export function useVoiceInput(): UseVoiceInputResult {
         return {
           ...prev,
           isListening: false,
-          error: { type: 'no_speech', message: "Didn't catch that. Try again." },
+          error: { type: 'no_speech', messageKey: 'voice.noSpeech' },
         };
       }
       return { ...prev, isListening: false };
@@ -204,7 +217,7 @@ export function useVoiceInput(): UseVoiceInputResult {
     if (isExpoGo || !state.isAvailable) {
       setState((prev) => ({
         ...prev,
-        error: { type: 'not_available', message: 'Speech recognition is not available on this device.' },
+        error: { type: 'not_available', messageKey: 'voice.notAvailableOnDevice' },
       }));
       return;
     }
@@ -223,7 +236,7 @@ export function useVoiceInput(): UseVoiceInputResult {
       if (!permissionResult?.granted) {
         setState((prev) => ({
           ...prev,
-          error: { type: 'permission_denied', message: 'Microphone permission denied.' },
+          error: { type: 'permission_denied', messageKey: 'voice.micPermissionDenied' },
         }));
         return;
       }
@@ -247,23 +260,27 @@ export function useVoiceInput(): UseVoiceInputResult {
         setState((prev) => ({
           ...prev,
           isListening: false,
-          error: { type: 'timeout', message: 'Voice input timed out. Try again.' },
+          error: { type: 'timeout', messageKey: 'voice.timedOut' },
         }));
       }, VOICE_TIMEOUT_MS);
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to start voice recognition';
-      // Check for permission-related errors
+      // The platform's own words, matched for a permission refusal. They are
+      // the recognizer's, not ours, so they classify the failure and then ride
+      // along as `detail` rather than becoming the wording.
+      const platformMessage = error instanceof Error ? error.message : '';
       const isPermissionError =
-        errorMessage.toLowerCase().includes('permission') ||
-        errorMessage.toLowerCase().includes('denied') ||
-        errorMessage.toLowerCase().includes('not authorized');
+        platformMessage.toLowerCase().includes('permission') ||
+        platformMessage.toLowerCase().includes('denied') ||
+        platformMessage.toLowerCase().includes('not authorized');
       setState((prev) => ({
         ...prev,
-        error: {
-          type: isPermissionError ? 'permission_denied' : 'unknown',
-          message: errorMessage,
-        },
+        error: isPermissionError
+          ? { type: 'permission_denied', messageKey: 'voice.micPermissionDenied' }
+          : {
+              type: 'unknown',
+              messageKey: 'voice.startFailed',
+              detail: platformMessage === '' ? undefined : platformMessage,
+            },
       }));
     }
   }, [state.isAvailable, clearTimeoutRef, user?.locale]);

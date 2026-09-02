@@ -154,7 +154,7 @@ describe('native Google Sign-In', () => {
 
     const { signInWithGoogle } = loadFirebaseModule();
 
-    await expect(signInWithGoogle()).rejects.toThrow('No ID token received from Google');
+    await expect(signInWithGoogle()).rejects.toThrow('no-google-id-token');
     expect(mockSignInWithCredential).not.toHaveBeenCalled();
   });
 

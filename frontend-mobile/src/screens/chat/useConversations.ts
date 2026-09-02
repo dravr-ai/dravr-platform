@@ -8,6 +8,7 @@ import { QUERY_KEYS } from '@pierre/shared-constants';
 import { chatApi } from '../../services/api';
 import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Conversation } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
 export interface ConversationsState {
   conversations: Conversation[];
@@ -48,6 +49,7 @@ export interface ConversationsActions {
 }
 
 export function useConversations(): ConversationsState & ConversationsActions {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
@@ -81,7 +83,8 @@ export function useConversations(): ConversationsState & ConversationsActions {
       });
       setConversations(sorted);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load conversations';
+      const errorMessage =
+        err instanceof Error ? err.message : t('app.failedLoadConversations');
       setError(errorMessage);
       console.error('Failed to load conversations:', err);
     } finally {
@@ -94,7 +97,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       setError(null);
       const conversation = await chatApi.createConversation(params);
       if (!conversation || !conversation.id) {
-        throw new Error('Invalid conversation response');
+        throw new Error(t('app.invalidConversationResponse'));
       }
       setConversations(prev => [conversation, ...prev]);
       justCreatedConversationRef.current = conversation.id;
@@ -102,7 +105,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       invalidateConversationList();
       return conversation;
     } catch (err) {
-      const errorMessage = extractErrorMessage(err, 'Failed to create conversation');
+      const errorMessage = extractErrorMessage(err, t('app.failedCreateConversation'), t);
       setError(errorMessage);
       console.error('Failed to create conversation:', err);
       throw err;
@@ -119,9 +122,10 @@ export function useConversations(): ConversationsState & ConversationsActions {
       }
       invalidateConversationList();
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to delete conversation';
+      const errorMessage =
+        err instanceof Error ? err.message : t('app.failedDeleteConversation');
       setError(errorMessage);
-      Alert.alert('Error', 'Failed to delete conversation');
+      Alert.alert(t('common.error'), t('app.failedDeleteConversation'));
     }
   }, [currentConversation?.id, invalidateConversationList]);
 
@@ -146,10 +150,11 @@ export function useConversations(): ConversationsState & ConversationsActions {
       });
       invalidateConversationList();
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to rename conversation';
+      const errorMessage =
+        err instanceof Error ? err.message : t('app.failedRenameConversation');
       setError(errorMessage);
       console.error('Failed to rename conversation:', err);
-      Alert.alert('Error', 'Failed to rename conversation');
+      Alert.alert(t('common.error'), t('app.failedRenameConversation'));
     }
   }, [invalidateConversationList]);
 

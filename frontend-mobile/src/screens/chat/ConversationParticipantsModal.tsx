@@ -45,7 +45,7 @@ export function ConversationParticipantsModal({
     try {
       setParticipants(await chatApi.listParticipants(conversationId));
     } catch (err) {
-      setError(extractErrorMessage(err, t('app.failedLoadParticipants')));
+      setError(extractErrorMessage(err, t('app.failedLoadParticipants'), t));
     } finally {
       setIsLoading(false);
     }
@@ -67,7 +67,7 @@ export function ConversationParticipantsModal({
       setNewUserId('');
       await load();
     } catch (err) {
-      setError(extractErrorMessage(err, t('app.failedAddParticipant')));
+      setError(extractErrorMessage(err, t('app.failedAddParticipant'), t));
     } finally {
       setIsSaving(false);
     }
@@ -82,7 +82,7 @@ export function ConversationParticipantsModal({
         await chatApi.removeParticipant(conversationId, userId);
         await load();
       } catch (err) {
-        setError(extractErrorMessage(err, t('app.failedRemoveParticipant')));
+        setError(extractErrorMessage(err, t('app.failedRemoveParticipant'), t));
       } finally {
         setIsSaving(false);
       }

@@ -180,20 +180,29 @@ function configureGoogleSignin(googleSignin: GoogleSigninModule): void {
 }
 
 /**
+ * Failure codes `signInWithGoogle` throws, mapped to catalogue keys by the
+ * screen that catches them. The screen renders `error.message` directly, so
+ * these must never be prose.
+ */
+export const GOOGLE_SIGNIN_UNAVAILABLE = 'google-signin-unavailable';
+export const FIREBASE_NOT_CONFIGURED = 'firebase-not-configured';
+export const NO_GOOGLE_ID_TOKEN = 'no-google-id-token';
+
+/**
  * Run the native Google sign-in flow and exchange the result for a Firebase session.
  * Returns null when the user dismisses the native sheet.
  */
 export async function signInWithGoogle(): Promise<GoogleSignInResult | null> {
   const googleSignin = getGoogleSignin();
   if (!googleSignin) {
-    throw new Error(
-      'Google Sign-In is not available. This binary has no native Google Sign-In module.'
-    );
+    // Codes, not sentences: `LoginScreen` shows `error.message` to the
+    // athlete, so prose here is English on a French phone (carnet#207).
+    throw new Error(GOOGLE_SIGNIN_UNAVAILABLE);
   }
 
   const firebaseAuth = getFirebaseAuth();
   if (!firebaseAuth) {
-    throw new Error('Google Sign-In is not available. Firebase is not configured.');
+    throw new Error(FIREBASE_NOT_CONFIGURED);
   }
 
   configureGoogleSignin(googleSignin);
@@ -209,7 +218,7 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult | null> {
 
   const googleIdToken = response.data.idToken;
   if (!googleIdToken) {
-    throw new Error('No ID token received from Google');
+    throw new Error(NO_GOOGLE_ID_TOKEN);
   }
 
   // Create Firebase credential from Google ID token

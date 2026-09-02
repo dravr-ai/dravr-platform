@@ -447,6 +447,9 @@ const DATA_MODULES = [
   'shared-constants/src/commands.ts',
   // Font family names.
   'shared-constants/src/design-system.ts',
+  // The keys a keyboard reports (`Enter`, `Escape`, `ArrowDown`). Translating
+  // one would stop the palette answering to it.
+  'src/hooks/composerKeys.ts',
 ];
 
 /** Whether `file` is one of the data registries above. */

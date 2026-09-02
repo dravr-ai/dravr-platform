@@ -98,8 +98,14 @@ describe('client locale corpus', () => {
     // carry them, counter labels included, and the notification and A2A
     // relative times became `Intl.RelativeTimeFormat` rather than more keys
     // (carnet#207).
+    //
+    // 2369 until the mobile half of that debt was paid: the voice-input
+    // vocabulary, the provider-connection alerts, the conversation and quota
+    // failures and the Google sign-in refusals — the hooks return keys now,
+    // and the ratchet's athlete ceiling is 0 again with the whole `.ts` half
+    // of both apps inside it.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2369);
+    expect(reference).toHaveLength(2402);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

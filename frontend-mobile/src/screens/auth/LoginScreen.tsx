@@ -20,10 +20,38 @@ import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
 import { PROVIDER_COLORS, spacing, glassCard, buttonGlow, BOREAL_LIGHT } from '../../constants/theme';
-import { isFirebaseEnabled, signInWithGoogle } from '../../firebase';
+import {
+  FIREBASE_NOT_CONFIGURED,
+  GOOGLE_SIGNIN_UNAVAILABLE,
+  NO_GOOGLE_ID_TOKEN,
+  isFirebaseEnabled,
+  signInWithGoogle,
+} from '../../firebase';
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+
+/**
+ * The catalogue key for a Google sign-in failure.
+ *
+ * `signInWithGoogle` throws codes rather than sentences, because this screen
+ * used to show `error.message` to the athlete and every one of those messages
+ * was English (carnet#207). An unrecognised failure — the native module's own
+ * error — falls back to the generic wording rather than leaking its text.
+ */
+function googleFailureKey(error: unknown): string {
+  const code = error instanceof Error ? error.message : '';
+  switch (code) {
+    case GOOGLE_SIGNIN_UNAVAILABLE:
+      return 'errors.googleSignInUnavailable';
+    case FIREBASE_NOT_CONFIGURED:
+      return 'errors.firebaseNotConfigured';
+    case NO_GOOGLE_ID_TOKEN:
+      return 'errors.noGoogleIdToken';
+    default:
+      return 'auth.googleSignInFailed';
+  }
+}
 
 export function LoginScreen() {
   const { t } = useTranslation();
@@ -88,11 +116,7 @@ export function LoginScreen() {
       }
       // A null result means the user dismissed the native sheet — no alert.
     } catch (error) {
-      let message = 'Google sign-in failed. Please try again.';
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      Alert.alert(t('app.signInFailedTitle'), message);
+      Alert.alert(t('app.signInFailedTitle'), t(googleFailureKey(error)));
     } finally {
       setIsGoogleLoading(false);
     }

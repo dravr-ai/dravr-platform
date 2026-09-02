@@ -190,7 +190,7 @@ export function useMessages(): MessagesState & MessagesActions {
 
       deferredScrollToBottom(100);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load messages';
+      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMessages');
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
@@ -401,7 +401,7 @@ export function useMessages(): MessagesState & MessagesActions {
         }
       } catch (err) {
         setMessageFeedback(prev => ({ ...prev, [messageId]: previous }));
-        setError(err instanceof Error ? err.message : 'Failed to save feedback');
+        setError(err instanceof Error ? err.message : t('chat.feedbackSaveFailed'));
       }
     },
     [messageFeedback]
@@ -431,7 +431,7 @@ export function useMessages(): MessagesState & MessagesActions {
           trimmed || undefined
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to save feedback');
+        setError(err instanceof Error ? err.message : t('chat.feedbackSaveFailed'));
       }
     },
     []

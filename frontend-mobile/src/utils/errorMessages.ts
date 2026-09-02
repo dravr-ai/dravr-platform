@@ -3,6 +3,7 @@
 
 import axios from 'axios';
 import { TurnRequestError } from '@pierre/api-client';
+import type { Translate } from '@pierre/chat-utils';
 
 interface QuotaDetails {
   limit_type: string;
@@ -17,20 +18,21 @@ interface QuotaErrorData {
   details?: QuotaDetails;
 }
 
-function formatQuotaMessage(details: QuotaDetails): string {
+function formatQuotaMessage(details: QuotaDetails, t: Translate): string {
   const { limit_type, current, limit } = details;
+  const counts = { current, limit };
 
   switch (limit_type) {
     case 'max_active_conversations':
-      return `Conversation limit reached (${current}/${limit}). Delete an existing conversation to start a new one.`;
+      return t('errors.conversationLimitReached', counts);
     case 'daily_messages':
-      return `Daily message limit reached (${current}/${limit}). Resets tomorrow.`;
+      return t('errors.dailyMessageLimitReached', counts);
     case 'daily_tokens':
-      return `Daily token limit reached (${current}/${limit}). Resets tomorrow.`;
+      return t('errors.dailyTokenLimitReached', counts);
     case 'weekly_messages':
-      return `Weekly message limit reached (${current}/${limit}). Resets next week.`;
+      return t('errors.weeklyMessageLimitReached', counts);
     default:
-      return `Usage quota reached (${current}/${limit}). Please try again later.`;
+      return t('errors.usageQuotaReached', counts);
   }
 }
 
@@ -50,7 +52,12 @@ function refusal(err: unknown): { status?: number; data?: QuotaErrorData } | nul
   return null;
 }
 
-export function extractErrorMessage(err: unknown, fallback: string): string {
+/**
+ * `t` is the caller's translator: this module runs outside any component, and
+ * the sentences it used to build were English on every screen that shows a
+ * refusal (carnet#207).
+ */
+export function extractErrorMessage(err: unknown, fallback: string, t: Translate): string {
   const refused = refusal(err);
   if (!refused) {
     return err instanceof Error ? err.message : fallback;
@@ -59,11 +66,11 @@ export function extractErrorMessage(err: unknown, fallback: string): string {
   const { status, data } = refused;
 
   if (status === 429 && data?.details?.limit_type) {
-    return formatQuotaMessage(data.details);
+    return formatQuotaMessage(data.details, t);
   }
 
   if (status === 404) {
-    return 'Coach not found. It may have been removed.';
+    return t('errors.coachNotFoundRemoved');
   }
 
   return data?.message || (err instanceof Error ? err.message : '') || fallback;

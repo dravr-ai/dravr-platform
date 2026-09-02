@@ -9,6 +9,7 @@ import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { oauthApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import type { ExtendedProviderStatus } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
 export interface ProviderStatusState {
   connectedProviders: ExtendedProviderStatus[];
@@ -33,6 +34,7 @@ export interface ProviderStatusActions {
 }
 
 export function useProviderStatus(): ProviderStatusState & ProviderStatusActions {
+  const { t } = useTranslation();
   const [connectedProviders, setConnectedProviders] = useState<ExtendedProviderStatus[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [providerModalVisible, setProviderModalVisible] = useState(false);
@@ -46,11 +48,12 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       const response = await oauthApi.getProvidersStatus();
       setConnectedProviders(response.providers || []);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load provider status';
+      const errorMessage =
+        err instanceof Error ? err.message : t('providers.failedLoadProviderStatus');
       setError(errorMessage);
       console.error('Failed to load provider status:', err);
     }
-  }, []);
+  }, [t]);
 
   // Refresh provider status when app returns from OAuth flow
   useEffect(() => {
@@ -60,7 +63,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       }
     });
     return () => subscription.remove();
-  }, [loadProviderStatus]);
+  }, [loadProviderStatus, t]);
 
   const hasConnectedProvider = useCallback((): boolean => {
     return connectedProviders.some(p => p.connected);
@@ -99,8 +102,8 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
         const expectedPrefix = getOAuthCallbackUrl();
         if (!result.url.startsWith(expectedPrefix)) {
           console.error('OAuth callback URL does not match expected scheme:', result.url);
-          setError('Unexpected OAuth callback URL');
-          Alert.alert('Connection Failed', 'Unexpected OAuth callback URL');
+          setError(t('app.unexpectedOauthCallback'));
+          Alert.alert(t('app.connectionFailed'), t('app.unexpectedOauthCallback'));
           return;
         }
 
@@ -116,19 +119,24 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
             await onSuccess();
           }
         } else if (errorParam) {
-          setError(`Failed to connect: ${errorParam}`);
+          const reason = t('providers.failedToConnectReason', { reason: errorParam });
+          setError(reason);
           console.error('OAuth error from server:', errorParam);
-          Alert.alert('Connection Failed', `Failed to connect: ${errorParam}`);
+          Alert.alert(t('app.connectionFailed'), reason);
         } else {
           await loadProviderStatus();
-          Alert.alert('Connection Complete', `${provider} connection flow completed.`);
+          Alert.alert(
+            t('providers.connectionComplete'),
+            t('providers.connectionFlowCompleted', { provider }),
+          );
         }
       } else if (result.type === 'cancel') {
         console.log('OAuth cancelled by user');
       }
     } catch (err) {
       setConnectingProvider(null);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to connect provider';
+      const errorMessage =
+        err instanceof Error ? err.message : t('providers.failedConnectProvider');
 
       // Detect missing OAuth credentials — show credential entry instead of error
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
@@ -141,10 +149,10 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       } else {
         setError(errorMessage);
         console.error('Failed to start OAuth:', err);
-        Alert.alert('Error', 'Failed to connect provider. Please try again.');
+        Alert.alert(t('common.error'), t('providers.failedConnectRetry'));
       }
     }
-  }, [loadProviderStatus]);
+  }, [loadProviderStatus, t]);
 
   return {
     connectedProviders,

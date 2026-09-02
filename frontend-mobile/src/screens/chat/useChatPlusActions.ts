@@ -10,6 +10,7 @@ import { MessageSquarePlus, UserPlus, Users } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import { threadHref } from '../../navigation/routes';
+import { useTranslation } from '@pierre/i18n';
 
 /** The three things the chat "+" can do. */
 export type ChatPlusActionId = 'new-chat' | 'new-group-chat' | 'add-participant';
@@ -22,9 +23,16 @@ export interface ChatPlusAction {
   onPress: () => void;
 }
 
-export const NEW_CHAT_LABEL = 'New chat';
-export const NEW_GROUP_CHAT_LABEL = 'New group chat';
-export const ADD_PARTICIPANT_LABEL = 'Add someone to this discussion';
+/**
+ * Catalogue keys for the three actions the composer's "+" offers.
+ *
+ * Keys rather than the words: this module has no locale, and the finished
+ * English it used to export was what the sheet rendered under French chrome
+ * (carnet#207).
+ */
+export const NEW_CHAT_LABEL_KEY = 'chat.newChat';
+export const NEW_GROUP_CHAT_LABEL_KEY = 'chat.newGroupChat';
+export const ADD_PARTICIPANT_LABEL_KEY = 'chat.addSomeoneHint';
 
 /** The modal flows an action opens; rendered by {@link ChatPlusFlows}. */
 export interface ChatPlusFlowState {
@@ -57,6 +65,7 @@ export interface UseChatPlusActionsResult {
  * the app has no second way to make one.
  */
 export function useChatPlusActions(conversationId: string | null): UseChatPlusActionsResult {
+  const { t } = useTranslation();
   const router = useRouter();
   const [groupNamePromptVisible, setGroupNamePromptVisible] = useState(false);
   const [participantsVisible, setParticipantsVisible] = useState(false);
@@ -75,13 +84,13 @@ export function useChatPlusActions(conversationId: string | null): UseChatPlusAc
     const list: ChatPlusAction[] = [
       {
         id: 'new-chat',
-        label: NEW_CHAT_LABEL,
+        label: t(NEW_CHAT_LABEL_KEY),
         icon: MessageSquarePlus,
         onPress: () => router.push(threadHref()),
       },
       {
         id: 'new-group-chat',
-        label: NEW_GROUP_CHAT_LABEL,
+        label: t(NEW_GROUP_CHAT_LABEL_KEY),
         icon: Users,
         onPress: () => setGroupNamePromptVisible(true),
       },
@@ -89,13 +98,13 @@ export function useChatPlusActions(conversationId: string | null): UseChatPlusAc
     if (conversationId !== null) {
       list.push({
         id: 'add-participant',
-        label: ADD_PARTICIPANT_LABEL,
+        label: t(ADD_PARTICIPANT_LABEL_KEY),
         icon: UserPlus,
         onPress: () => setParticipantsVisible(true),
       });
     }
     return list;
-  }, [conversationId, router]);
+  }, [conversationId, router, t]);
 
   const flows = useMemo<ChatPlusFlowState>(
     () => ({

@@ -68,7 +68,7 @@ function getCounterLevel(counter: LimitCheckResult): WarningLevel {
   return 'none';
 }
 
-function formatResetTime(isoString: string): string {
+function formatResetTime(isoString: string, fallback: string): string {
   try {
     const date = new Date(isoString);
     return new Intl.DateTimeFormat(undefined, {
@@ -77,19 +77,28 @@ function formatResetTime(isoString: string): string {
       timeZoneName: 'short',
     }).format(date);
   } catch {
-    return 'midnight UTC';
+    return fallback;
   }
 }
 
-export function computeWarningState(data: UsageStatusResponse | undefined): UsageWarningState {
+/**
+ * `t` is the caller's translator. The three sentences below were built as
+ * English templates and the banner rendered them verbatim under French chrome
+ * (carnet#207); the counter label is a catalogue key too, so the sentence and
+ * the thing it names agree on one language.
+ */
+export function computeWarningState(
+  data: UsageStatusResponse | undefined,
+  t: Translate,
+): UsageWarningState {
   if (!data) {
     return { level: 'none', sendDisabled: false, message: '', resetsAt: '' };
   }
 
   const counters: Array<{ counter: LimitCheckResult; label: string }> = [
-    { counter: data.daily.messages, label: 'daily messages' },
-    { counter: data.daily.tokens, label: 'daily tokens' },
-    { counter: data.weekly.messages, label: 'weekly messages' },
+    { counter: data.daily.messages, label: 'usage.dailyMessages' },
+    { counter: data.daily.tokens, label: 'usage.dailyTokens' },
+    { counter: data.weekly.messages, label: 'usage.weeklyMessages' },
   ];
 
   let worstLevel: WarningLevel = 'none';
@@ -109,21 +118,26 @@ export function computeWarningState(data: UsageStatusResponse | undefined): Usag
     return { level: 'none', sendDisabled: false, message: '', resetsAt: '' };
   }
 
-  const resetTime = formatResetTime(worstCounter.resets_at);
-  const pct = worstCounter.limit > 0
-    ? Math.round((worstCounter.current / worstCounter.limit) * 100)
-    : 0;
+  const params = {
+    label: t(worstLabel),
+    current: worstCounter.current,
+    limit: worstCounter.limit,
+    time: formatResetTime(worstCounter.resets_at, t('settingsUi.midnightUtc')),
+    percent: worstCounter.limit > 0
+      ? Math.round((worstCounter.current / worstCounter.limit) * 100)
+      : 0,
+  };
 
   let message: string;
   switch (worstLevel) {
     case 'blocked':
-      message = `${worstLabel.charAt(0).toUpperCase() + worstLabel.slice(1)} limit reached. Limits reset at ${resetTime}.`;
+      message = t('usage.blockedLimitReached', params);
       break;
     case 'burst':
-      message = `You're in the burst zone for ${worstLabel} (${worstCounter.current}/${worstCounter.limit}). Limits reset at ${resetTime}.`;
+      message = t('usage.burstZone', params);
       break;
     case 'warning':
-      message = `You've used ${pct}% of your ${worstLabel} (${worstCounter.current}/${worstCounter.limit}). Limits reset at ${resetTime}.`;
+      message = t('usage.percentUsed', params);
       break;
     default:
       message = '';
@@ -193,8 +207,8 @@ export function useUsageStatus() {
   }, [data]);
 
   const warningState = useMemo(
-    () => (turnNotice ? warningStateFromNotice(turnNotice, t) : computeWarningState(data)),
-    [turnNotice, data],
+    () => (turnNotice ? warningStateFromNotice(turnNotice, t) : computeWarningState(data, t)),
+    [turnNotice, data, t],
   );
 
   const invalidate = useCallback(() => {

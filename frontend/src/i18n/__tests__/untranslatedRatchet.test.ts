@@ -63,23 +63,22 @@ const ROOTS = [
  * count is still reported below so the decision stays visible.
  */
 /**
- * The athlete ceiling, and why it is not 0.
+ * The athlete ceiling is 0, and this time the number means it.
  *
  * It read 0 for weeks while the scan walked `.tsx` files only. Every hook,
  * helper and shared module — the whole `.ts` half of both apps — was outside
- * it, and that half holds the voice-input errors, the provider-connection
- * alerts, the conversation failures and the chat progress line an athlete
- * watches on every turn. Extending the walk to `.ts` turned an honest-looking
- * 0 into 83, none of them new (carnet#206).
+ * it, and that half held the voice-input errors, the provider-connection
+ * alerts, the conversation failures, the quota banner and the chat progress
+ * line an athlete watches on every turn. Extending the walk turned an
+ * honest-looking 0 into 83, none of them new (carnet#206, carnet#207).
  *
- * Web and the shared packages are clear: the remaining 41 are all under
- * `frontend-mobile/src`, one file per hook, and `#207` lists them. The number
- * only ever goes down. It is not an allowance to add to — a new hardcoded
- * string on either client still fails this gate, because clearing one is the
- * only way to make room, and the failure prints the files carrying the most
- * so it reads as a work order rather than a number to bump.
+ * Those 83 are now translated, and a module with no locale of its own hands
+ * back a `TranslatableText` — a catalogue key plus params — for the screen to
+ * translate at the edge, rather than a finished English sentence. That is the
+ * pattern to follow when this gate fails: return the key, translate where the
+ * athlete's language is known.
  */
-const CEILING = 41;
+const CEILING = 0;
 
 describe('untranslated string ratchet', () => {
   it('carries no more hardcoded user-facing strings than the ceiling', () => {
