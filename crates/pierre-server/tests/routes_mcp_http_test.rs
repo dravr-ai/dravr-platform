@@ -1093,3 +1093,58 @@ async fn test_mcp_tools_rejects_disallowed_origin() {
         "an absent Origin is a non-browser client and must not be blocked"
     );
 }
+
+/// The tool catalog carries a cache validator, and honours it. This is only
+/// coherent because the registry is name-ordered: over a randomly-ordered list
+/// the digest would change on every process and the validator would be noise.
+///
+/// The digest covers the caller's *filtered* view, so two principals entitled
+/// to different tools can never collide on one cache entry — asserted here by
+/// checking a mismatched validator still returns the body rather than a 304.
+#[tokio::test]
+async fn test_mcp_tools_carries_and_honours_a_cache_validator() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    let first = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(setup.routes())
+        .await;
+    assert_eq!(first.status(), 200);
+    let etag = first
+        .header("etag")
+        .expect("the catalog must ship an ETag")
+        .to_owned();
+    assert!(
+        etag.starts_with('"') && etag.ends_with('"'),
+        "expected a strong quoted entity tag, got {etag}"
+    );
+    assert_eq!(
+        first.header("cache-control"),
+        Some("private, no-cache, must-revalidate"),
+        "a principal-specific catalog must not be publicly cacheable"
+    );
+
+    // The same catalog re-requested with its validator is not re-sent. This is
+    // the assertion that fails if the list is not deterministic: a reshuffled
+    // catalog digests differently and returns 200 forever.
+    let second = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("if-none-match", &etag)
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        second.status(),
+        304,
+        "an unchanged catalog must answer 304, not re-send the body"
+    );
+
+    // A stale validator gets the real body back, not a spurious 304.
+    let stale = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("if-none-match", "\"not-the-current-catalog\"")
+        .send(setup.routes())
+        .await;
+    assert_eq!(stale.status(), 200);
+    let body: serde_json::Value = stale.json();
+    assert!(body["tools"].is_array());
+}

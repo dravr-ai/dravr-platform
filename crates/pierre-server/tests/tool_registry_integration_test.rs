@@ -831,3 +831,52 @@ async fn test_list_tools_advertises_task_support() {
         tools.len()
     );
 }
+
+/// `tools/list` must answer in a stable order. The registry was backed by a
+/// `HashMap`, whose iteration order Rust randomizes per process, so the catalog
+/// came back shuffled on every replica and every restart. Three consequences,
+/// only the first of which is cosmetic: the spec asks for a deterministic list;
+/// a cache validator computed over a shuffled list is meaningless; and an LLM
+/// prompt whose tool block is reordered loses the cache prefix it was sharing.
+///
+/// Sorted-ness is the assertion, not merely equality between two calls in one
+/// process: within a single process a `HashMap` yields the *same* arbitrary
+/// order twice, so a two-call comparison would pass against the bug.
+#[tokio::test]
+async fn test_tool_list_is_deterministically_ordered() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let names: Vec<String> = registry
+        .all_schemas()
+        .into_iter()
+        .map(|schema| schema.name)
+        .collect();
+    assert!(
+        names.len() >= 50,
+        "expected the full builtin registry, got {}",
+        names.len()
+    );
+
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(
+        names, sorted,
+        "tools/list must be ordered by name so the catalog is stable across replicas and restarts"
+    );
+
+    // The role-filtered views are the ones clients actually receive, so they
+    // carry the same guarantee rather than relying on the caller to sort.
+    for schemas in [
+        registry.list_schemas_for_role(false),
+        registry.list_schemas_for_role(true),
+    ] {
+        let names: Vec<String> = schemas.into_iter().map(|schema| schema.name).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(
+            names, sorted,
+            "role-filtered tool lists must also be ordered"
+        );
+    }
+}

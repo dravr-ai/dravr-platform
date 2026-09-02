@@ -16,7 +16,7 @@
 //! to maintain consistency across the codebase.
 
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -102,10 +102,20 @@ fn schema_from_definition(def: Tool) -> ToolSchema {
 /// let schemas = registry.list_schemas_for_role(false);
 /// ```
 pub struct ToolRegistry {
-    /// Registered tools by name
-    tools: HashMap<String, Arc<dyn RuntimeTool>>,
-    /// Tool categories for organization
-    categories: HashMap<String, Vec<String>>,
+    /// Registered tools by name.
+    ///
+    /// `BTreeMap`, not `HashMap`, so every accessor that walks it yields tools
+    /// in name order. `HashMap` iteration is randomized per process, which made
+    /// `tools/list` answer in a different order on every replica and every
+    /// restart: the spec asks for a deterministic list, a cache validator over
+    /// a shuffled list is meaningless, and an LLM prompt whose tool block is
+    /// reordered loses its cache prefix. Ordering the container rather than
+    /// sorting at each call site means a newly added accessor cannot forget.
+    /// The O(log n) lookup over ~110 tools is a handful of comparisons against
+    /// a dispatch that then does network I/O.
+    tools: BTreeMap<String, Arc<dyn RuntimeTool>>,
+    /// Tool categories for organization, ordered for the same reason.
+    categories: BTreeMap<String, Vec<String>>,
     /// External tool description overlays from contremaitre (hot-reloadable)
     tool_descriptions: Option<Arc<ToolDescriptionRegistry>>,
 }
@@ -115,8 +125,8 @@ impl ToolRegistry {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            tools: HashMap::new(),
-            categories: HashMap::new(),
+            tools: BTreeMap::new(),
+            categories: BTreeMap::new(),
             tool_descriptions: None,
         }
     }
@@ -354,7 +364,7 @@ impl ToolRegistry {
             .flat_map(|cat| self.tools_in_category(cat))
             .collect();
 
-        let mut schemas: Vec<ToolSchema> = self
+        let schemas: Vec<ToolSchema> = self
             .tools
             .iter()
             .filter(|(name, tool)| {
@@ -363,16 +373,19 @@ impl ToolRegistry {
             })
             .map(|(_, tool)| self.build_schema(tool))
             .collect();
-        // Sorted because this Vec IS the `tools` array on the wire
+        // Order matters here and is guaranteed by `self.tools` being a
+        // `BTreeMap`: this Vec IS the `tools` array on the wire
         // (`build_mcp_tools`), and `tools` renders BEFORE `system` in every
-        // provider's cache prefix. `self.tools` is a HashMap, whose iteration
-        // order is seeded per instance — stable within one process, different in
-        // the next. Two Cloud Run replicas therefore sent the same catalogue in
-        // two different orders, so an athlete whose consecutive turns landed on
-        // different instances could never hit a prompt cache: the very first
-        // bytes of the prefix disagreed. Provider-agnostic — it defeats implicit
-        // prefix caching and explicit `cache_control` breakpoints alike.
-        schemas.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        // provider's cache prefix. When the registry was a `HashMap` its
+        // iteration order was seeded per instance — stable within one process,
+        // different in the next — so two Cloud Run replicas sent the same
+        // catalogue in two different orders and an athlete whose consecutive
+        // turns landed on different instances could never hit a prompt cache:
+        // the very first bytes of the prefix disagreed. Provider-agnostic; it
+        // defeated implicit prefix caching and explicit `cache_control`
+        // breakpoints alike. This call site used to re-sort defensively, which
+        // fixed the chat path alone and left `tools/list` shuffled; ordering
+        // the container fixes every accessor at once.
         schemas
     }
 

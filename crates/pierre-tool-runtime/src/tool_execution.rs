@@ -27,7 +27,6 @@ use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
 use crate::headless_stream;
 use crate::protocol::UniversalResponse;
-use crate::registry::ToolRegistry;
 use crate::tool_loop_io::{
     GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult, ToolLoopTally,
     ToolRoundRecord,
@@ -36,6 +35,7 @@ use crate::tool_results::{
     extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
     reconnect_offer_in_steps, render_tool_payload_for_prompt,
 };
+use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 use pierre_core::errors::AppError;
 use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
@@ -1715,7 +1715,7 @@ pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
         .map(|schema| FunctionDeclaration {
             name: schema.name,
             description: schema.description,
-            parameters: serde_json::to_value(&schema.input_schema).ok(),
+            parameters: Some(to_canonical_value(&schema.input_schema)),
         })
         .collect();
     Tool {

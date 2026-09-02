@@ -49,6 +49,7 @@ use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use serde_json::{Map, Value};
 use tokio::task::{JoinError, JoinHandle};
@@ -124,7 +125,10 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
     Tool {
         name: schema.name,
         description: schema.description,
-        input_schema: serde_json::to_value(schema.input_schema).unwrap_or_default(),
+        // Canonical so the catalog is byte-identical across replicas: the
+        // schema's `properties` is a HashMap and serde_json runs with
+        // preserve_order, so an unsorted render reshuffles on every request.
+        input_schema: to_canonical_value(&schema.input_schema),
         annotations: schema.annotations,
         output_schema: None,
         execution,

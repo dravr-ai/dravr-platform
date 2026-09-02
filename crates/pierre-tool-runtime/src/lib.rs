@@ -95,6 +95,7 @@ pub mod protocols;
 pub mod reconnect;
 pub mod registry;
 pub mod runtime;
+pub mod schema_canonical;
 /// Guardian security classification: the egress/trust axis every tool declares
 /// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
 pub mod security;

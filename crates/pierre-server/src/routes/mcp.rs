@@ -31,6 +31,7 @@ use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::transport::http::mcp_router;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::task::yield_now;
 use tracing::debug;
@@ -143,7 +144,61 @@ impl McpRoutes {
 
         let dispatcher = PierreToolDispatcher::new(state.resources);
         let tools = dispatcher.list_tools(&runtime, &ctx).await;
+        let body = json!({ "tools": tools });
 
-        Json(json!({ "tools": tools })).into_response()
+        // Cache validator over the rendered catalog. Meaningful only because
+        // the registry is name-ordered: over a randomly-ordered list the digest
+        // would change on every process, making the validator noise. The digest
+        // covers the caller's *filtered* view, so two principals entitled to
+        // different tools can never share a cache entry.
+        let Some(etag) = catalog_etag(&body) else {
+            return Json(body).into_response();
+        };
+        if headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|candidate| etag_matches(candidate, &etag))
+        {
+            return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response();
+        }
+
+        (
+            [
+                (header::ETAG, etag),
+                // The catalog turns over on deploy and on a contremaitre
+                // description reload, so it is revalidated rather than held:
+                // `no-cache` means "ask me, with your validator", not "do not
+                // store". Private because the body is principal-specific.
+                (
+                    header::CACHE_CONTROL,
+                    "private, no-cache, must-revalidate".to_owned(),
+                ),
+            ],
+            Json(body),
+        )
+            .into_response()
     }
+}
+
+/// Strong entity tag for a rendered tool catalog, or `None` if it will not
+/// serialize (in which case the response simply ships without a validator
+/// rather than failing the request).
+fn catalog_etag(body: &serde_json::Value) -> Option<String> {
+    let rendered = serde_json::to_vec(body).ok()?;
+    let digest = Sha256::digest(&rendered);
+    Some(format!("\"{digest:x}\""))
+}
+
+/// Whether an `If-None-Match` header matches our tag.
+///
+/// Handles the `*` wildcard and comma-separated lists, and tolerates the weak
+/// `W/` prefix a proxy may have added — a weak comparison is the correct
+/// semantic for a cache validator on a body we regenerate deterministically.
+fn etag_matches(if_none_match: &str, etag: &str) -> bool {
+    let strip_weak = |value: &str| value.trim().trim_start_matches("W/").to_owned();
+    let ours = strip_weak(etag);
+    if_none_match.trim() == "*"
+        || if_none_match
+            .split(',')
+            .any(|candidate| strip_weak(candidate) == ours)
 }
