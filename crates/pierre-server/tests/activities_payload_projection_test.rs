@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_llm::{ChatMessage, FunctionResponse};
-use pierre_tool_runtime::implementations::data::provider_reconnect_note;
+use pierre_tool_runtime::implementations::data_helpers::provider_reconnect_note;
 use pierre_tool_runtime::tool_execution::add_function_responses_to_messages;
 use pierre_tool_runtime::tool_results::{format_tool_results_as_text, project_activities_payload};
 use serde_json::{json, Value};

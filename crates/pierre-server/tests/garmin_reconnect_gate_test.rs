@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
-use pierre_tool_runtime::implementations::data::connection_needs_reauth;
+use pierre_tool_runtime::implementations::data_helpers::connection_needs_reauth;
 
 #[path = "helpers/db_fixtures.rs"]
 mod db_fixtures;
