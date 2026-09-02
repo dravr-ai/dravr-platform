@@ -196,7 +196,7 @@ jobs:
             > "$RUNNER_TEMP/ollama-logs/ollama-systemd.log" 2>&1 || true
 
       - name: Cache Ollama model store
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # ~/.ollama/models is where the binary stores blobs + manifests.
           # Cache key pinned on the model tag so a model bump cleanly busts

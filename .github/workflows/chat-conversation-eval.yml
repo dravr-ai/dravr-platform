@@ -246,7 +246,7 @@ jobs:
           free -g || true
 
       - name: Cache Ollama model store
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # ~/.ollama/models holds the pulled blobs + manifests. Key pinned
           # on the model tag so a model bump cleanly busts the cache.
