@@ -350,6 +350,9 @@ pub fn should_refresh_activity_context(
     if history_len <= 1 || guided_flow_active {
         return false;
     }
+    // LIMITATION(registre#201): `should_refresh_activity_context` requires a bound coach, as does
+    // `get_startup_context_if_applicable`, so a conversation with no coach receives no
+    // deterministic activity prefetch on any turn.
     let Some(coach) = coach_ctx else {
         return false;
     };

@@ -337,6 +337,9 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
         }
     }
     if let Some(tsb) = m.recent_tsb {
+        // LIMITATION(registre#204): these `recent_tsb` probe anchors are English-only, as are
+        // every other probe's in this function, so a reply in any of the four other shipped
+        // locales carries its numeric claims past this layer unchecked.
         for kw in ["tsb", "training stress balance", "current form"] {
             if let Some(v) = extract_number_near(text, kw) {
                 return verdict_for(ctx, (tsb - 5.0, tsb + 5.0), v, &point_descr("TSB", tsb, v));

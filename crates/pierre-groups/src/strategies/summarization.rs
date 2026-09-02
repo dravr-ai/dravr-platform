@@ -237,6 +237,9 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                     "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0} ({pct:.0}% of CTL)"
                 );
             } else {
+                // LIMITATION(registre#199): this `TSB` field ships as a bare absolute number —
+                // no `tsb_pct_of_ctl` and no `FormBand` label, both of which are computed a few
+                // lines away for the health flags and which `analyze_training_load` returns.
                 let _ = writeln!(text, "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0}");
             }
         }
@@ -249,6 +252,9 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
         if !snapshot.recent_activities.is_empty() {
             text.push_str("  Recent:\n");
             for act in &snapshot.recent_activities {
+                // LIMITATION(registre#200): `act.start` is `DateTime<Utc>` and is never converted
+                // to the athlete's zone, so this `%a` weekday is the UTC one — an activity after
+                // 20:00 America/Toronto prints the following day's name.
                 let date = act.start.format("%Y-%m-%d %a").to_string();
                 let dur_h = format_recent_duration_hours(act.duration_minutes);
                 let dist = match act.distance_km {

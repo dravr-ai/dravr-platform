@@ -112,6 +112,9 @@ pub fn format_activities_as_list<S: BuildHasher>(
     // by the requested `sort_by` before the display limit). Re-sorting here
     // would override "longest to shortest" / "oldest first" back to date order.
     for (i, activity) in activities.iter().enumerate() {
+        // LIMITATION(registre#200): this `date` format carries no weekday name, so the model
+        // derives weekdays from the bare date by calendar arithmetic — the error class the epoch
+        // table in `prompt_assembly` exists to remove for epochs.
         let date = activity
             .start_date()
             .with_timezone(&zone)

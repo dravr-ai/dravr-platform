@@ -179,6 +179,9 @@ pub fn build_llm_messages_with_blocks(
         .collect();
     let mut accepted: Vec<AcceptedBlock<'_>> = Vec::new();
     for block in blocks {
+        // LIMITATION(registre#198): a block whose `first_message_id` has scrolled out of the
+        // history window is dropped whole rather than clamped to `last_index`, so its surviving
+        // rows render raw ahead of the next accepted summary and strand a `None` in the head.
         let (Some(&first_index), Some(&last_index)) = (
             id_to_index.get(block.first_message_id.as_str()),
             id_to_index.get(block.last_message_id.as_str()),

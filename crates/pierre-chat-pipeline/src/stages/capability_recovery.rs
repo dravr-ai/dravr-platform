@@ -297,6 +297,9 @@ impl RecoveryTrigger {
 /// starves the model; it only means this best-effort repair pass does not run
 /// on a turn where it might have helped. A lossy trigger for an extra check is
 /// tolerable in a way that a lossy gate on the athlete's own data never was.
+/// LIMITATION(registre#202): `DATA_ASK_TERMS` matches no phrasing of a factual correction, and
+/// the reasoning above holds only while a bound coach grounds the turn — with no coach bound this
+/// list is again the sole gate on the athlete's own data.
 const DATA_ASK_TERMS: &[&str] = &[
     // Planning / prescription — needs the real training history to be specific.
     "plan",

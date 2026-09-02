@@ -218,6 +218,9 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             let (from, to) = resolve_window(&args)?;
             let rows =
                 fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
+            // LIMITATION(registre#199): these `days` rows serialize bare ctl/atl/tsb floats with
+            // no tsb_pct_of_ctl, form_band or interpretation key, unlike `analyze_training_load`,
+            // so the coach reads an absolute TSB it cannot normalize or explain.
             Ok(ToolResult::ok(json!({
                 "from": from.format("%Y-%m-%d").to_string(),
                 "to": to.format("%Y-%m-%d").to_string(),

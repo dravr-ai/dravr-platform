@@ -191,6 +191,9 @@ impl ConversationCompactor {
                 // the message cap, slide as the backstop so the cap is never
                 // violated.
                 let outcome = self.try_summarize(&mut ctx, before).await?;
+                // LIMITATION(registre#198): this `over_messages` backstop is the live path on a
+                // cap-only thread — `plan_summary` returns `NoOp` and the history is raw-dropped
+                // with no `CompactionBlock` persisted, inverting the intent documented above.
                 if over_messages && matches!(outcome, CompactionOutcome::NoOp { .. }) {
                     Ok(self.run_emergency_sliding(ctx.llm_messages, before))
                 } else {
@@ -369,6 +372,10 @@ impl ConversationCompactor {
         if window_end > source_ids.len() {
             return None;
         }
+        // LIMITATION(registre#198): this contiguity guard is what jams `pick_range` in
+        // production — once an injected summary's `None` lands within the first
+        // `summarize_oldest_n` slots it never leaves, so the conversation can never
+        // summarize again and falls to the raw sliding drop on every turn.
         if source_ids[start..window_end].iter().any(Option::is_none) {
             return None;
         }

@@ -265,6 +265,9 @@ fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f
     let kind = req
         .force_kind
         .unwrap_or_else(|| FactKind::parse_lenient(&fact.kind));
+    // LIMITATION(registre#203): `is_coach_prescription` drops the fact on the assumption that
+    // `save_training_plan` ran, without checking that it did; when the tool is not called the
+    // prescription is persisted nowhere.
     if is_coach_prescription(kind, fact.stated_by.as_deref(), req.source) {
         info!(
             kind = kind.as_str(),
