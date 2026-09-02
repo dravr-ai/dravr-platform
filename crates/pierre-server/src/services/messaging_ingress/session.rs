@@ -8,24 +8,24 @@ use std::env;
 
 use chrono::{Duration, Utc};
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage, LINK_CODE_TTL_MINUTES};
-use pierre_core::models::{CoverageMap, GuidedFlow, OnboardingState, TenantId};
+use pierre_core::models::{OnboardingState, TenantId};
 use pierre_database::backends::{CreateLinkStateParams, CreateSessionParams, MessagingRepository};
 use pierre_database::repositories::ChatRepository;
 use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use super::intake::maybe_start_intake;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
-use pierre_chat_pipeline::stages::persistence::create_conversation;
 use pierre_contremaitre::messaging_strings::{
-    format_template, DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_LINK_FALLBACK_PROMPT,
-    KEY_LINK_INITIAL_PROMPT, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
+    format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
 };
 use pierre_core::errors::AppError;
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
-use pierre_services::messaging_broadcast::{proactive_rich_text, proactive_text};
+use pierre_services::conversation_forge::{
+    forge_conversation, messaging_title, selected_coach_id, ForgeCoach, ForgeParams,
+};
+use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
 
 use super::linking::hydrate_analytics_consent;
@@ -93,6 +93,10 @@ async fn resolve_session_conversation(
 /// `pierre_conversation_id` cannot be reused for the current linked
 /// user (NULL column, deleted row, rebind to a different user, or
 /// cross-tenant move). Returns the new conversation id.
+///
+/// The row itself is forged by the shared ceremony in
+/// `pierre_services::conversation_forge`, which `/reset` and a first-ever
+/// session run too: all three must produce the same kind of thread.
 pub(super) async fn forge_fresh_session_conversation(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
@@ -108,59 +112,26 @@ pub(super) async fn forge_fresh_session_conversation(
         channel_type = %channel_type,
         "Session pierre_conversation_id missing or unreachable; self-healing with a fresh conversation"
     );
-    let title = format!("Messaging: {channel_type}");
-    // Bind the user's selected coach so verdicts/grades/myth-busting attribute
-    // correctly. When nothing is selected, leave it null and the downstream
-    // attribution panels simply skip the row.
-    let coach_id = resolve_selected_coach_id(resources, tenant_id, user_id).await;
-    let conversation = create_conversation(
-        resources.common.repos.chat.as_ref(),
-        user_id,
-        tenant_id,
-        &title,
-        None,
-        coach_id.as_deref(),
-        None,
+    let title = messaging_title(channel_type);
+    let new_id = forge_conversation(
+        &resources.common.repos,
+        ForgeParams {
+            user_id,
+            tenant_id,
+            title: &title,
+            model: None,
+            // A messaging session carries no coach of its own, so the
+            // athlete's tenant-level selection is the only answer available.
+            coach: ForgeCoach::Selected,
+            group_id: None,
+            channel_type,
+            selection_source: CoachSelectionSource::MessagingSession,
+            guided_flow: is_direct_message,
+        },
     )
     .await?;
-    if let Some(coach_id_str) = coach_id.as_deref() {
-        record_coach_usage(resources, coach_id_str, user_id, tenant_id).await;
-    }
-    let new_id = conversation.conversation.id.clone();
-    start_guided_flow(resources, tenant_id, user_id, &new_id, is_direct_message).await;
-    stamp_channel_origin(
-        resources.common.repos.chat.as_ref(),
-        &new_id,
-        user_id,
-        tenant_id,
-        channel_type,
-    )
-    .await;
     db.set_session_conversation(session_id, &new_id).await?;
     Ok(new_id)
-}
-
-/// Whether the conversation being rotated away from was mid guided profile walk.
-///
-/// `/reset` forges a conversation whose `onboarding_state` is `NULL`, which ends
-/// an active walk silently — the athlete answered six questions and the seventh
-/// never comes. Read before the rotation so the confirmation can say so. A
-/// lookup failure reports `false`: a missing note is better than a wrong one.
-async fn walk_was_active(
-    resources: &ServerContext,
-    session: &ResolvedSession,
-    session_tenant_id: TenantId,
-) -> bool {
-    resources
-        .common
-        .repos
-        .chat
-        .get_conversation(&session.conversation, &session.user_id, session_tenant_id)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|conv| OnboardingState::from_column(conv.onboarding_state.as_deref()))
-        .is_some()
 }
 
 /// Whether the sender of an unaddressed room message is mid guided walk on
@@ -201,148 +172,6 @@ pub(super) async fn sender_room_walk_is_active(
         .flatten()
         .and_then(|conv| OnboardingState::from_column(conv.onboarding_state.as_deref()))
         .is_some()
-}
-
-/// Everything [`handle_reset`] needs to rotate one session.
-///
-/// A struct rather than positional parameters, for the reason
-/// [`super::intake::IntakeParams`] gives: the `&str` fields are trivially
-/// swappable at a call site, and this one forges the conversation every later
-/// turn dispatches under.
-pub(super) struct ResetParams<'a> {
-    /// The session's tenant (user's own for DMs) — the fresh conversation must
-    /// be forged here so the live dispatch, which reads under the same tenant,
-    /// finds it. Forging under the bot tenant would make every post-reset turn
-    /// self-heal.
-    pub session_tenant_id: TenantId,
-    /// Channel the confirmation goes back out on.
-    pub channel_type: ChannelType,
-    /// Channel name as the ledger and conversation title record it.
-    pub channel: &'a str,
-    /// Channel-side sender id, the confirmation's recipient.
-    pub sender_id: &'a str,
-    /// The session being rotated, with the conversation it currently points at.
-    pub session: &'a ResolvedSession,
-    /// Whether this arrived in a 1:1 conversation.
-    pub is_direct_message: bool,
-    /// The athlete's stored locale for the channel — every body is rendered in
-    /// it, resolved by the caller the way every other command reply's is.
-    pub locale: &'a str,
-}
-
-/// Handle the `/reset` (`/nouveau`, `/new`) command: rotate the messaging
-/// session onto a fresh conversation so a user can abandon a long or degraded
-/// thread without operator help. The previous conversation row is left intact
-/// (only unlinked from the session) — nothing is destroyed. Returns the
-/// confirmation reply, or the generic error reply if the rotation fails.
-/// Addressed to `sender_id`; the caller applies thread/room recipient routing.
-pub(super) async fn handle_reset(
-    resources: &ServerContext,
-    params: ResetParams<'_>,
-) -> OutgoingMessage {
-    let ResetParams {
-        session_tenant_id,
-        channel_type,
-        channel,
-        sender_id,
-        session,
-        is_direct_message,
-        locale,
-    } = params;
-    let registry = &resources.mcp.messaging_strings_registry;
-    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
-    let interrupted_walk = walk_was_active(resources, session, session_tenant_id).await;
-    let body = match forge_fresh_session_conversation(
-        resources,
-        db,
-        &session.session_id,
-        &session.user_id,
-        session_tenant_id,
-        channel,
-        is_direct_message,
-    )
-    .await
-    {
-        Ok(new_id) => {
-            info!(
-                session_id = %session.session_id,
-                old_conversation_id = %session.conversation,
-                new_conversation_id = %new_id,
-                channel = %channel,
-                interrupted_walk,
-                "Reset command: rotated messaging session onto a fresh conversation"
-            );
-            let confirm = registry.get(KEY_RESET_CONFIRM, locale);
-            if interrupted_walk {
-                format!(
-                    "{confirm}{}",
-                    registry.get(KEY_RESET_WALK_INTERRUPTED, locale)
-                )
-            } else {
-                confirm
-            }
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                session_id = %session.session_id,
-                "Reset command failed to forge a fresh conversation"
-            );
-            format_template(&registry.get(KEY_ERROR_GENERIC, locale), &["reset"])
-        }
-    };
-    // Rich, because the interrupted-walk branch above appends
-    // `KEY_RESET_WALK_INTERRUPTED`, which names the command in backticks.
-    // The other two bodies this arm can produce carry no markup, so the envelope is
-    // a no-op for them.
-    proactive_rich_text(channel_type, sender_id.to_owned(), &body)
-}
-
-/// Best-effort `coach_assignments.use_count++` for messaging-channel
-/// conversations, via the shared selection recorder that also emits
-/// `coach.selected` — the event the chat path used to be missing entirely.
-/// Logs and swallows errors so transient DB issues don't break the
-/// user-visible turn.
-async fn record_coach_usage(
-    resources: &ServerContext,
-    coach_id: &str,
-    user_id_str: &str,
-    tenant_id: TenantId,
-) {
-    let Ok(user_id) = Uuid::parse_str(user_id_str) else {
-        return;
-    };
-    if let Err(e) = record_coach_selection(
-        resources.coaches_manager(),
-        coach_id,
-        user_id,
-        tenant_id,
-        CoachSelectionSource::MessagingSession,
-    )
-    .await
-    {
-        warn!(coach_id, error = %e, "failed to record coach usage from messaging path");
-    }
-}
-
-/// Resolve the user's default coach for messaging-channel conversations so
-/// claim verdicts, coach grades, and myth-busting can attribute the
-/// generated content to a coach. Returns `None` when the user has no
-/// default coach or the lookup fails — callers must not panic on the
-/// missing attribution.
-async fn resolve_selected_coach_id(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    user_id_str: &str,
-) -> Option<String> {
-    let parsed = Uuid::parse_str(user_id_str).ok()?;
-    resources
-        .common
-        .repos
-        .tenants
-        .get_selected_coach(tenant_id, parsed)
-        .await
-        .ok()?
 }
 
 /// Resolve a messaging session for a linked channel user.
@@ -542,7 +371,7 @@ async fn rebind_conversation_coach(
     user_id: &str,
     conversation_id: &str,
 ) {
-    let selected = resolve_selected_coach_id(resources, tenant_id, user_id).await;
+    let selected = selected_coach_id(&resources.common.repos, tenant_id, user_id).await;
     let chat = resources.common.repos.chat.as_ref();
 
     let current = match chat
@@ -608,28 +437,31 @@ async fn apply_coach_rebind(
         "Rebound messaging conversation to the athlete's selected coach"
     );
     if let Some(coach_id) = selected {
-        record_coach_usage(resources, coach_id, user_id, tenant_id).await;
+        record_rebound_coach_usage(resources, coach_id, user_id, tenant_id).await;
     }
 }
 
-/// Best-effort stamp of the durable channel of origin onto a freshly forged
-/// messaging conversation. The `channel_type` column defaults to `web`; this
-/// records the real channel so the client badge survives a later title rename
-/// (rows created before the column was populated fall back to the title
-/// prefix). A stamp failure must never break the turn, so the error is logged
-/// and swallowed — the title fallback still badges the row.
-async fn stamp_channel_origin(
-    chat: &dyn ChatRepository,
-    conversation_id: &str,
+/// Best-effort `coach_assignments.use_count++` for a rebound conversation,
+/// through the shared recorder that also emits `coach.selected`.
+async fn record_rebound_coach_usage(
+    resources: &ServerContext,
+    coach_id: &str,
     user_id: &str,
     tenant_id: TenantId,
-    channel_type: &str,
 ) {
-    if let Err(e) = chat
-        .set_conversation_channel(conversation_id, user_id, tenant_id, channel_type)
-        .await
+    let Ok(caller) = Uuid::parse_str(user_id) else {
+        return;
+    };
+    if let Err(e) = record_coach_selection(
+        resources.common.repos.coaches.as_ref(),
+        coach_id,
+        caller,
+        tenant_id,
+        CoachSelectionSource::MessagingSession,
+    )
+    .await
     {
-        warn!(error = %e, conversation_id, "Failed to stamp messaging channel_type");
+        warn!(error = %e, coach_id, "Failed to record the rebound coach's usage");
     }
 }
 
@@ -660,39 +492,22 @@ async fn open_new_session(
     )
     .await;
 
-    let title = format!("Messaging: {channel_type}");
-    let coach_id = resolve_selected_coach_id(resources, tenant_id, &user_id).await;
-    let conversation = create_conversation(
-        resources.common.repos.chat.as_ref(),
-        &user_id,
-        tenant_id,
-        &title,
-        None,
-        coach_id.as_deref(),
-        group_id_opt.as_deref(),
+    let title = messaging_title(channel_type);
+    let conversation_id = forge_conversation(
+        &resources.common.repos,
+        ForgeParams {
+            user_id: &user_id,
+            tenant_id,
+            title: &title,
+            model: None,
+            coach: ForgeCoach::Selected,
+            group_id: group_id_opt.as_deref(),
+            channel_type,
+            selection_source: CoachSelectionSource::MessagingSession,
+            guided_flow: is_direct_message,
+        },
     )
     .await?;
-    if let Some(coach_id_str) = coach_id.as_deref() {
-        record_coach_usage(resources, coach_id_str, &user_id, tenant_id).await;
-    }
-
-    let conversation_id = conversation.conversation.id.clone();
-    start_guided_flow(
-        resources,
-        tenant_id,
-        &user_id,
-        &conversation_id,
-        is_direct_message,
-    )
-    .await;
-    stamp_channel_origin(
-        resources.common.repos.chat.as_ref(),
-        &conversation_id,
-        &user_id,
-        tenant_id,
-        channel_type,
-    )
-    .await;
     let session_id = Uuid::new_v4().to_string();
 
     let session_params = CreateSessionParams {
@@ -963,95 +778,4 @@ pub async fn create_link_and_prompt(
     let body = format_template(&template, &[&link_url]);
 
     proactive_text(channel_type, sender_id.to_owned(), body)
-}
-/// Start whichever guided flow a fresh conversation owes this athlete.
-///
-/// Intake first, and only one of the two: both own the same `onboarding_state`
-/// column, and the web wizard asks profile type and the PAR-Q ahead of
-/// everything the coach reasons from. When the intake retires itself it hands
-/// the conversation to the pillar walk, so the walk is deferred here rather
-/// than skipped.
-///
-/// Direct messages only. A fresh GROUP conversation used to auto-start too,
-/// which wrote a subject-less walk under the bot tenant: the intake variant
-/// then never advanced (its ask path is DM-gated) and sat permanently active
-/// on the row, and the pillars variant probed the athlete in front of the
-/// room without them asking. A room walk exists now, and it is entered one
-/// way — the athlete typing `/calibrate` or `/pillars` there themselves.
-async fn start_guided_flow(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    user_id: &str,
-    conversation_id: &str,
-    is_direct_message: bool,
-) {
-    if !is_direct_message {
-        return;
-    }
-    if !maybe_start_intake(resources, user_id, conversation_id, tenant_id).await {
-        maybe_start_pillar_walk(resources, tenant_id, user_id, conversation_id).await;
-    }
-}
-
-/// Start the guided pillar walk on a freshly created messaging conversation when
-/// the athlete has told us nothing about themselves yet.
-///
-/// This is how messaging reaches parity with the web wizard. Web asks who the
-/// athlete is on a form before the provider gate; messaging has no form, so it
-/// asks the same things the way a chat surface should — conversationally, woven
-/// into the reply rather than as an interrogation. The pillar walk already does
-/// exactly that, and it was previously reachable only by typing `/pillars`,
-/// which nothing advertises.
-///
-/// Only fires on a genuinely empty dossier. A returning athlete, or anyone who
-/// already answered on web, is left alone: coverage is shared across surfaces,
-/// so answering once anywhere counts everywhere.
-///
-/// Best-effort throughout. A failure here costs a conversational nicety, never
-/// the turn — the athlete still gets their answer, just without the follow-up
-/// question threaded into it.
-pub(super) async fn maybe_start_pillar_walk(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    user_id_str: &str,
-    conversation_id: &str,
-) {
-    let Ok(user_uuid) = Uuid::parse_str(user_id_str) else {
-        return;
-    };
-
-    let Ok(dossier) = resources
-        .common
-        .repos
-        .dossier
-        .compose_dossier(tenant_id, user_uuid)
-        .await
-    else {
-        return;
-    };
-
-    // Anything already captured means the walk has run, or web asked. Coverage
-    // is the shared signal precisely so the two surfaces do not both ask.
-    if CoverageMap::from_dossier(&dossier).covered_count() > 0 {
-        return;
-    }
-
-    let json = OnboardingState::start_now_column(GuidedFlow::Pillars);
-    match resources
-        .common
-        .repos
-        .chat
-        .set_conversation_onboarding_state(conversation_id, Some(&json), tenant_id)
-        .await
-    {
-        Ok(true) => info!(
-            conversation_id,
-            "pillar walk started for a messaging user with no captured context"
-        ),
-        Ok(false) => warn!(
-            conversation_id,
-            "pillar walk activation matched no conversation row"
-        ),
-        Err(e) => warn!(error = %e, "failed to start the pillar walk"),
-    }
 }

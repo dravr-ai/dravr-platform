@@ -344,6 +344,7 @@ impl TurnEgress {
             text,
             card_title,
             actions,
+            rotated_to,
             persisted,
             ..
         } = command;
@@ -376,6 +377,7 @@ impl TurnEgress {
                 finish_reason: Some(COMMAND_FINISH_REASON.to_owned()),
             },
             conversation_updated_at,
+            rotated_to_conversation_id: rotated_to,
             telemetry: TurnTelemetryResponse {
                 model: COMMAND_MODEL.to_owned(),
                 provider_name: COMMAND_PROVIDER.to_owned(),

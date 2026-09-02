@@ -34,11 +34,16 @@ export interface ConversationsActions {
   loadConversations: () => Promise<void>;
   setCurrentConversation: (conversation: Conversation | null) => void;
   createConversation: (params: CreateConversationParams) => Promise<Conversation>;
+  /**
+   * Open `conversationId`, reading the row from the server first.
+   *
+   * For a thread the server forged rather than this screen: `/reset` archives
+   * the current one and continues on a fresh row nothing local has yet.
+   * Answers whether it resolved.
+   */
+  switchToConversation: (conversationId: string) => Promise<boolean>;
   deleteConversation: (conversationId: string) => Promise<void>;
   renameConversation: (conversationId: string, newTitle: string) => Promise<void>;
-  handleNewChat: () => void;
-  updateConversationInList: (conversation: Conversation) => void;
-  addConversationToTop: (conversation: Conversation) => void;
   justCreatedConversationRef: React.MutableRefObject<string | null>;
 }
 
@@ -148,22 +153,28 @@ export function useConversations(): ConversationsState & ConversationsActions {
     }
   }, [invalidateConversationList]);
 
-  const handleNewChat = useCallback(() => {
-    setCurrentConversation(null);
-  }, []);
-
-  const updateConversationInList = useCallback((conversation: Conversation) => {
-    setConversations(prev => {
-      const others = prev.filter(c => c.id !== conversation.id);
-      return [conversation, ...others];
-    });
-  }, []);
-
-  const addConversationToTop = useCallback((conversation: Conversation) => {
-    setConversations(prev => [conversation, ...prev]);
-    justCreatedConversationRef.current = conversation.id;
-    setCurrentConversation(conversation);
-  }, []);
+  /**
+   * Move the athlete onto `conversationId`, reading the row from the server.
+   *
+   * `/reset` forges its fresh thread server-side, so the only copy of it this
+   * screen can have is the one the list read returns. Answers whether the row
+   * was found: a switch that cannot resolve its thread leaves the athlete
+   * where they are rather than on a blank screen.
+   */
+  const switchToConversation = useCallback(async (conversationId: string): Promise<boolean> => {
+    try {
+      const response = await chatApi.getConversations();
+      const found = (response.conversations ?? []).find(c => c.id === conversationId);
+      if (!found) return false;
+      setConversations(prev => [found, ...prev.filter(c => c.id !== found.id)]);
+      setCurrentConversation(found);
+      invalidateConversationList();
+      return true;
+    } catch (err) {
+      console.error('Failed to open the conversation the turn moved to:', err);
+      return false;
+    }
+  }, [invalidateConversationList]);
 
   return {
     conversations,
@@ -173,11 +184,9 @@ export function useConversations(): ConversationsState & ConversationsActions {
     loadConversations,
     setCurrentConversation,
     createConversation,
+    switchToConversation,
     deleteConversation,
     renameConversation,
-    handleNewChat,
-    updateConversationInList,
-    addConversationToTop,
     justCreatedConversationRef,
   };
 }

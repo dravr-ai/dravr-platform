@@ -66,7 +66,9 @@ vi.mock('../../hooks/useUsageStatus', () => ({
   }),
 }));
 
-function renderChatTab(props: { onNavigate?: (route: string) => void } = {}) {
+function renderChatTab(
+  props: { onNavigate?: (route: string) => void; onSelectConversation?: (id: string | null) => void } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -75,7 +77,7 @@ function renderChatTab(props: { onNavigate?: (route: string) => void } = {}) {
       <ToastProvider>
         <ChatTab
           selectedConversation={CONVERSATION_ID}
-          onSelectConversation={vi.fn()}
+          onSelectConversation={props.onSelectConversation ?? vi.fn()}
           onNavigate={props.onNavigate}
         />
       </ToastProvider>
@@ -391,6 +393,67 @@ describe('ChatTab verdict drawer', () => {
     expect(screen.queryByText('Loading verdicts…')).toBeNull();
     // And the chip now counts the one row, not the two chips beside it.
     expect(screen.getByTestId('verdict-chip')).toHaveTextContent('1 verdict · contradicted');
+  });
+});
+
+describe('ChatTab conversation rotation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
+    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Long thread', coach_id: null }],
+      total: 1,
+    });
+    listCoaches.mockResolvedValue({ coaches: [] });
+    getConversationMessages.mockResolvedValue({ messages: [] });
+  });
+
+  /** Answer the next send with a command turn that rotated the thread. */
+  function answerWithRotation(rotatedTo: string | undefined) {
+    sendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _content: string,
+        options: {
+          onBlock?: (block: ReplyBlock) => void;
+          onDone?: (turn: TurnEnvelope) => void;
+        },
+      ) => {
+        options.onBlock?.({ type: 'prose', text: 'New conversation started.' });
+        const turn = turnEnvelope();
+        turn.assistant.finish_reason = 'command';
+        turn.rotated_to_conversation_id = rotatedTo;
+        options.onDone?.(turn);
+      },
+    );
+  }
+
+  // `/reset` archives the thread server-side; the client's only job is to open
+  // the one the turn names. Asserted on the selection callback rather than on
+  // rendered text: what matters is that the surface MOVED, not what it drew.
+  it('opens the conversation a rotating turn names', async () => {
+    const onSelectConversation = vi.fn();
+    answerWithRotation('conv-fresh');
+
+    renderChatTab({ onSelectConversation });
+    await send('/reset');
+
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-fresh'));
+    // The list is re-read before the switch, so the fresh row is there to open.
+    expect(getConversations).toHaveBeenCalled();
+  });
+
+  it('stays put when the turn names no other conversation', async () => {
+    const onSelectConversation = vi.fn();
+    answerWithRotation(undefined);
+
+    renderChatTab({ onSelectConversation });
+    await send('What is my VO2max?');
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalled());
+    expect(onSelectConversation).not.toHaveBeenCalled();
   });
 });
 

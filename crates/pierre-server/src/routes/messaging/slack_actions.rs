@@ -214,7 +214,7 @@ pub async fn execute_postback_command(
 ) -> AppResult<String> {
     use pierre_messaging::commands::CommandMatcher;
 
-    use pierre_commands::PlatformCommandContext;
+    use pierre_commands::{ConversationRotation, PlatformCommandContext};
 
     let (user_id, user_tenant) = authorize_postback(resources, slack_user_id).await?;
 
@@ -274,6 +274,7 @@ pub async fn execute_postback_command(
         // No conversation to scope, so this tracks the caller's tenant.
         conversation_tenant_id: user_tenant,
         sender_id: Some(slack_user_id.to_owned()),
+        rotation: ConversationRotation::default(),
         tool_runtime,
     };
 

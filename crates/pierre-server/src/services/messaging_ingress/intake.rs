@@ -46,14 +46,14 @@ use pierre_database::repositories::{ChatRepository, HarnessMemoryRepository};
 use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
 use pierre_services::intake::{
-    is_outstanding, parse_persona, parse_yes_no, persona_to_store, record_parq_yes, record_steps,
-    IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_SKIPPED,
+    parse_persona, parse_yes_no, persona_to_store, record_parq_yes, record_steps, IntakeTopic,
+    PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_SKIPPED,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::session::maybe_start_pillar_walk;
 use crate::mcp::resources::ServerContext;
+use pierre_services::conversation_forge::maybe_start_pillar_walk;
 use pierre_services::messaging_broadcast::{proactive_rich_text, proactive_text};
 
 /// How many onboarding-sourced facts to scan when counting raised flags.
@@ -522,7 +522,7 @@ async fn finish(args: FinishArgs<'_>) {
     // never run for anyone who arrived through a channel. The walk makes its own
     // decision from dossier coverage; an athlete who already has context is left
     // alone, exactly as at conversation creation.
-    maybe_start_pillar_walk(resources, tenant_id, user_id, conversation_id).await;
+    maybe_start_pillar_walk(&resources.common.repos, tenant_id, user_id, conversation_id).await;
 }
 
 /// Persist the ledger, refusing to clobber a state written under this turn.
@@ -695,69 +695,4 @@ pub(super) async fn try_build_pending_question(
     })
     .await;
     None
-}
-
-/// Start an intake on a conversation when the athlete still owes both steps.
-///
-/// Mirrors [`super::session::maybe_start_pillar_walk`]'s posture: best-effort,
-/// and silent when there is nothing to ask. Ordering matters — the intake runs
-/// before the pillar walk, matching the web wizard, where profile type and the
-/// PAR-Q sit ahead of everything the coach reasons from.
-pub(super) async fn maybe_start_intake(
-    resources: &ServerContext,
-    user_id_str: &str,
-    conversation_id: &str,
-    tenant_id: TenantId,
-) -> bool {
-    let steps = match resources
-        .common
-        .repos
-        .user_onboarding
-        .get_onboarding_steps(user_id_str)
-        .await
-    {
-        Ok(steps) => steps,
-        Err(e) => {
-            warn!(error = %e, "intake: could not read the onboarding steps; not starting");
-            return false;
-        }
-    };
-    if !is_outstanding(&steps) {
-        return false;
-    }
-    activate(resources, conversation_id, tenant_id).await
-}
-
-/// Write the fresh intake state onto the conversation.
-///
-/// Split from the decision above so each half reads as one thing: whether the
-/// athlete is owed an intake, and whether the row took it.
-async fn activate(resources: &ServerContext, conversation_id: &str, tenant_id: TenantId) -> bool {
-    let json = OnboardingState::start_now_column(GuidedFlow::Intake);
-    match resources
-        .common
-        .repos
-        .chat
-        .set_conversation_onboarding_state(conversation_id, Some(&json), tenant_id)
-        .await
-    {
-        Ok(true) => {
-            info!(
-                conversation_id,
-                "intake started for a messaging athlete who has answered neither step"
-            );
-            true
-        }
-        Ok(false) => {
-            warn!(
-                conversation_id,
-                "intake activation matched no conversation row"
-            );
-            false
-        }
-        Err(e) => {
-            warn!(error = %e, "intake: failed to activate");
-            false
-        }
-    }
 }

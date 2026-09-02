@@ -332,7 +332,7 @@ describe('useMessages', () => {
 
       const { result } = renderHook(() => useMessages());
 
-      let sending: Promise<void>;
+      let sending: Promise<string | null>;
       await act(async () => {
         sending = result.current.sendTurn('conv-1', 'Hello');
         await Promise.resolve();
@@ -490,5 +490,61 @@ describe('useMessages', () => {
       // No raw scaffolding survives into the rendered thread.
       expect(result.current.messages.some((m) => m.content.includes('<tool_'))).toBe(false);
     });
+  });
+});
+
+describe('useMessages conversation rotation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  /** Finish the next turn with an envelope that names another conversation. */
+  function answerWithRotation(rotatedTo?: string) {
+    mockSendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _text: string,
+        options: { onDone?: (turn: Record<string, unknown>) => void },
+      ) => {
+        options.onDone?.({
+          turn_id: 't1',
+          user_message: { id: 'u1', role: 'user', content: '/reset', created_at: '2026-09-02T10:00:00Z' },
+          assistant: {
+            message: { id: 'a1', role: 'assistant', content: 'New conversation started.', created_at: '2026-09-02T10:00:01Z' },
+            blocks: [],
+            finish_reason: 'command',
+          },
+          conversation_updated_at: '2026-09-02T10:00:01Z',
+          rotated_to_conversation_id: rotatedTo,
+          telemetry: { model: 'command', provider_name: 'platform', tool_calls_count: 0, tools_called: [], execution_time_ms: 0 },
+        });
+      },
+    );
+  }
+
+  // `/reset` archives the thread server-side. The hook's only job is to hand
+  // the new id back, because the screen — not the hook — owns navigation.
+  it('answers with the conversation the turn moved the athlete to', async () => {
+    answerWithRotation('conv-fresh');
+    const { result } = renderHook(() => useMessages());
+
+    let rotatedTo: string | null = null;
+    await act(async () => {
+      rotatedTo = await result.current.sendTurn('conv-1', '/reset');
+    });
+
+    expect(rotatedTo).toBe('conv-fresh');
+  });
+
+  it('answers with null for an ordinary turn that moved nobody', async () => {
+    answerWithRotation(undefined);
+    const { result } = renderHook(() => useMessages());
+
+    let rotatedTo: string | null = 'unset';
+    await act(async () => {
+      rotatedTo = await result.current.sendTurn('conv-1', 'How was my week?');
+    });
+
+    expect(rotatedTo).toBeNull();
   });
 });

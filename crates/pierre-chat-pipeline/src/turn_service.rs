@@ -129,6 +129,13 @@ pub struct CommandTurn {
     pub card_title: Option<String>,
     /// Controls the athlete can press.
     pub actions: Vec<TurnAction>,
+    /// The conversation the athlete is now on, when the command moved them
+    /// — `/reset` and nothing else today.
+    ///
+    /// A messaging channel has already had its session repointed by the
+    /// handler, so this is the in-app clients' copy of the same fact: the
+    /// thread they posted to is not the thread the next turn belongs to.
+    pub rotated_to: Option<String>,
     /// The transcript rows this turn wrote, when the surface's
     /// [`CommandPersistence`] covered the command and the write succeeded.
     /// `None` is a turn the transcript does not hold: a private reply in a
@@ -390,11 +397,13 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
             is_rich_text: false,
             card_title: None,
             actions: Vec::new(),
+            rotated_to: None,
             persisted: None,
         }),
         DispatchOutcome::Executed {
             command_name,
             response,
+            rotated_to,
         } => {
             info!(
                 command = %command_name,
@@ -421,6 +430,7 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
                 is_rich_text: response.is_rich_text,
                 card_title,
                 actions,
+                rotated_to,
                 persisted: None,
             })
         }

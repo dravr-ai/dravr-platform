@@ -15,7 +15,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{CommandHandlerRegistry, PlatformCommandContext};
+use crate::{CommandHandlerRegistry, ConversationRotation, PlatformCommandContext};
 
 /// Minimal request payload for [`try_dispatch`].
 ///
@@ -117,6 +117,11 @@ pub enum DispatchOutcome {
         command_name: String,
         /// Handler output. May be a plain text reply or a card with actions.
         response: CommandResponse,
+        /// The conversation the athlete is now on, when the handler moved
+        /// them — `/reset` and nothing else today. The surface follows it:
+        /// a messaging channel already had its session repointed, the in-app
+        /// clients open the id.
+        rotated_to: Option<String>,
     },
 }
 
@@ -187,6 +192,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         conversation_id: req.conversation_id.map(ToOwned::to_owned),
         conversation_tenant_id: req.conversation_tenant_id,
         sender_id: req.sender_id.map(ToOwned::to_owned),
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::clone(req.tool_runtime),
     };
 
@@ -206,5 +212,6 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
     Ok(DispatchOutcome::Executed {
         command_name: parsed.name,
         response,
+        rotated_to: ctx.rotation.taken().map(ToOwned::to_owned),
     })
 }

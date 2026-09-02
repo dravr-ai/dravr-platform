@@ -1,5 +1,5 @@
-// ABOUTME: Tests the /reset (/nouveau, /new) conversation-reset command — the matcher and the confirmation's locale
-// ABOUTME: Only explicit slash forms reset; the ledgered confirmation speaks the athlete's stored locale, not the default
+// ABOUTME: Tests /reset (/nouveau, /new) — the catalogue matches it, and the rotation it performs
+// ABOUTME: The confirmation speaks the athlete's stored locale, and the session lands on a new conversation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,24 +10,36 @@
 mod common;
 mod helpers;
 
-use pierre_core::models::messaging::MessageContent;
-use pierre_mcp_server::services::messaging_ingress::is_reset_command;
+use pierre_commands::parser::load_command_catalog;
+use pierre_messaging::commands::{CommandMatcher, CommandRegistry};
 
-fn text(s: &str) -> MessageContent {
-    MessageContent::Text { body: s.to_owned() }
-}
+use crate::helpers::command_e2e::commands_dir;
 
+/// `/reset` is an ordinary catalogue command, so the matcher every surface
+/// shares is what decides whether a message is one.
+///
+/// The negative cases are the point: a conversation the athlete meant to keep
+/// must survive them saying the word.
 #[test]
-fn reset_command_matches_only_explicit_slash_forms() {
-    // Explicit slash forms (case-insensitive, surrounding whitespace ok).
-    for cmd in ["/reset", "/RESET", " /nouveau ", "/new", "/New"] {
-        assert!(
-            is_reset_command(&text(cmd)),
-            "{cmd:?} should be recognized as the reset command"
-        );
+fn the_catalogue_matches_only_the_explicit_reset_forms() {
+    let definitions = load_command_catalog(&commands_dir()).definitions;
+    assert!(
+        !definitions.is_empty(),
+        "the commands/ catalogue must load — otherwise this test asserts nothing"
+    );
+    let mut registry = CommandRegistry::new();
+    for definition in definitions {
+        registry.register(definition);
     }
-    // Bare words or near-misses must stay normal chat so we never reset a
-    // conversation the user meant to keep (e.g. "reset my training plan").
+    let matcher = CommandMatcher::from_registry(&registry);
+
+    for cmd in ["/reset", "/RESET", " /nouveau ", "/new", "/New"] {
+        let parsed = matcher
+            .try_match(cmd.trim(), &registry)
+            .unwrap_or_else(|| panic!("{cmd:?} should match the reset command"));
+        assert_eq!(parsed.name, "reset", "{cmd:?} matched {}", parsed.name);
+    }
+
     for not in [
         "reset",
         "nouveau",
@@ -36,21 +48,19 @@ fn reset_command_matches_only_explicit_slash_forms() {
         "show me 2022",
     ] {
         assert!(
-            !is_reset_command(&text(not)),
+            matcher
+                .try_match(not, &registry)
+                .is_none_or(|p| p.name != "reset"),
             "{not:?} must NOT be treated as the reset command"
         );
     }
 }
 
-/// The confirmation over the real wire, for an athlete whose stored locale is
-/// not the registry default.
+/// `/reset` over the real wire: what it says, and what it moves.
 ///
-/// `/reset` is answered ahead of the slash dispatcher, so it does not inherit
-/// the dispatcher's locale resolution — the confirmation has to resolve the
-/// athlete's locale itself, the way every other command reply does. Both
-/// tests read the expected rows from the registry rather than hardcoding
-/// them, and pin that the `en` row differs from the `fr` one so a registry
-/// fallback to the default cannot pass them vacuously.
+/// The locale tests read their expected rows from the registry rather than
+/// hardcoding them, and pin that the `en` row differs from the `fr` one so a
+/// registry fallback to the default cannot pass them vacuously.
 #[cfg(feature = "client-messaging")]
 mod reset_locale {
     use crate::common::create_test_server_resources_with_chat_provider;
@@ -58,6 +68,7 @@ mod reset_locale {
     use pierre_contremaitre::messaging_strings::{
         DEFAULT_LOCALE, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
     };
+    use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
     use serial_test::serial;
     use std::env;
     use std::sync::atomic::Ordering;
@@ -103,7 +114,7 @@ mod reset_locale {
         assert_eq!(
             ack.messages_stored(),
             0,
-            "/reset must be intercepted, not stored as a chat turn"
+            "/reset must dispatch as a command, not be stored as a chat turn"
         );
         e2e.wait_outbound_for_session(session, baseline + 1).await;
         assert_eq!(
@@ -201,7 +212,11 @@ mod reset_locale {
         );
 
         let bodies = reset_bodies(&e2e, &member, &session, baseline).await;
-        let expected = format!("{en_confirm}{en_note}");
+        // The catalogue rows carry inline markdown and the messaging egress
+        // converts them into the channel's dialect, so the ledgered body is
+        // the converted form — the note names `/pillars` as a code span.
+        let expected = render_rich_text(&parse_markdown(&format!("{en_confirm}{en_note}")));
+        let fr_note = render_rich_text(&parse_markdown(&fr_note));
         assert!(
             bodies.contains(&expected),
             "the ledgered /reset confirmation must end with the en interrupted-walk note {en_note:?}; ledgered after the prime: {bodies:?}"
@@ -209,6 +224,66 @@ mod reset_locale {
         assert!(
             !bodies.iter().any(|b| b.ends_with(&fr_note)),
             "an en athlete must not get the default-locale walk note: {bodies:?}"
+        );
+    }
+
+    /// The rotation itself: the session ends up on a different conversation,
+    /// and the one it left is still there.
+    ///
+    /// This is what a canned confirmation would not do — the reply can be
+    /// perfect while nothing moved, which is exactly the state the command
+    /// existed to fix.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn reset_moves_the_session_onto_a_fresh_conversation_and_keeps_the_old_one() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
+            .await
+            .unwrap();
+        let e2e = CommandE2e::start(resources, llm).await;
+
+        let (member, session, baseline) = primed_en_member(&e2e).await;
+        let before = e2e
+            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the primed session names its conversation");
+
+        let _ = reset_bodies(&e2e, &member, &session, baseline).await;
+
+        let after = e2e
+            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the session still names a conversation after the reset");
+        assert_ne!(
+            before, after,
+            "the session must point at a different conversation after /reset"
+        );
+
+        let chat = e2e.resources.common.repos.chat.as_ref();
+        let user = member.user_id.to_string();
+        let archived = chat
+            .get_conversation(&before, &user, member.home_tenant)
+            .await
+            .unwrap();
+        assert!(
+            archived.is_some(),
+            "the conversation the athlete left must survive the reset, not be deleted"
+        );
+
+        let previous = archived.expect("the archived conversation reads back");
+        let fresh = chat
+            .get_conversation(&after, &user, member.home_tenant)
+            .await
+            .unwrap()
+            .expect("the forged conversation is readable by its owner");
+        assert_eq!(
+            fresh.model, previous.model,
+            "the fresh thread must run on the same model as the one it replaced"
+        );
+        assert_eq!(
+            fresh.coach_id, previous.coach_id,
+            "a reset changes the thread, not the coach the athlete trains with"
         );
     }
 }

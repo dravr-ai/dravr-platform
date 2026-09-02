@@ -71,11 +71,17 @@ export interface MessagesActions {
    * the live turn may have no row yet; the sheet asks for them on open.
    */
   refreshVerdicts: (conversationId: string) => Promise<void>;
+  /**
+   * Send one turn.
+   *
+   * Answers with the conversation the athlete is now on when the turn moved
+   * them — `/reset` archives the thread and continues on a fresh one — and
+   * `null` when they stayed put, which is every other turn.
+   */
   sendTurn: (
     conversationId: string,
-    messageText: string,
-    onConversationNeeded?: () => Promise<string | null>
-  ) => Promise<void>;
+    messageText: string
+  ) => Promise<string | null>;
   retryMessage: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsUp: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsDown: (messageId: string, conversationId: string) => Promise<void>;
@@ -193,8 +199,8 @@ export function useMessages(): MessagesState & MessagesActions {
   const sendTurn = useCallback(async (
     conversationId: string,
     messageText: string,
-  ) => {
-    if (!messageText.trim() || isSending) return;
+  ): Promise<string | null> => {
+    if (!messageText.trim() || isSending) return null;
 
     setIsSending(true);
     setError(null);
@@ -214,6 +220,9 @@ export function useMessages(): MessagesState & MessagesActions {
     // render capabilities and decided which pieces get their own block. Held
     // until `onDone` supplies the assistant message id they are keyed by.
     const turnBlocks: ReplyBlock[] = [];
+    // Set from the turn envelope when the turn moved the athlete to another
+    // thread, and handed back so the screen can open it.
+    let rotatedTo: string | null = null;
     // A streaming turn holds the client active: the athlete asked and is
     // waiting, even with the screen untouched. Released in the finally so
     // the idle threshold measures the quiet after the turn, not during it.
@@ -264,6 +273,7 @@ export function useMessages(): MessagesState & MessagesActions {
             return [...filtered, ...newMessages];
           });
           invalidateConversationList();
+          rotatedTo = turn.rotated_to_conversation_id ?? null;
         },
         onError: sendErr => {
           setError(sendErr.message);
@@ -290,6 +300,7 @@ export function useMessages(): MessagesState & MessagesActions {
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
+    return rotatedTo;
   }, [isSending, deferredScrollToBottom, invalidateConversationList]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {

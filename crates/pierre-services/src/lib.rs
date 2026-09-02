@@ -96,6 +96,9 @@ pub mod commitment_sweep;
 
 /// Conversation compaction: keeps long conversations under the context window
 pub mod conversation_compaction;
+/// Forging a fresh chat conversation — the ceremony the messaging self-heal
+/// and `/reset` both run.
+pub mod conversation_forge;
 
 /// Bridge adapter so `pierre_llm::InstrumentedEmbeddingProvider` can persist
 /// every embedding call into `embedding_usage` via the shared repository.

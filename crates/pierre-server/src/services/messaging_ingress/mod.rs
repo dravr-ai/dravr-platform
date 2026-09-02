@@ -66,9 +66,6 @@ use channel_auth_outcome::{
     handle_channel_auth_outcome, resolve_channel_user_email, ChannelAuthOutcomeInputs,
 };
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
-// Re-exported (not just `use`) so the messaging-reset integration test can
-// reach the helper — pierre-server keeps test modules external, not in src/.
-pub use otp::is_reset_command;
 /// Re-exported so integration tests can assert on an unlinked sender's reply.
 ///
 /// The outbound adapters post to hardcoded hosts, so the built message is the
@@ -77,7 +74,7 @@ pub use otp::start_otp_flow;
 use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
-use session::{handle_reset, resolve_linked_session, ChannelChatRef, ResetParams};
+use session::{resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
 pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};
 #[cfg(feature = "client-messaging")]
@@ -637,50 +634,6 @@ async fn persist_single_message(
         }
         Err(_) => DEFAULT_LOCALE.to_owned(),
     };
-
-    // Reset command: rotate onto a fresh conversation so a user can abandon a
-    // long or degraded thread. Handled here rather than via the generic slash
-    // dispatcher because it mutates the messaging session binding the dispatcher
-    // cannot reach; must run before the slash dispatch below (which would
-    // otherwise report "/reset" as an unknown command).
-    if is_reset_command(&message.content) {
-        emit_messaging_intent(&session.user_id, tenant_id, channel, "reset");
-        let mut reset_response = handle_reset(
-            resources,
-            ResetParams {
-                session_tenant_id,
-                channel_type,
-                channel,
-                sender_id: &message.sender_id,
-                session: &session,
-                is_direct_message: message.is_direct_message,
-                locale: &locale,
-            },
-        )
-        .await;
-        reset_response.thread_id = thread_id;
-        apply_conversation_recipient(&mut reset_response, message.conversation_id.as_deref());
-        // The confirmation joins the outbound ledger like every dispatched
-        // reply: the ledger row is the record of what the athlete was told
-        // (delivery itself is fire-and-forget), and an unledgered reset
-        // confirmation was invisible to ops and to the e2e suite alike.
-        let reset_persist = Some(OutboundPersistSpec {
-            db: Arc::clone(&resources.common.repos.messaging),
-            session_tenant_id,
-            session_id: session.session_id.clone(),
-            chat_message_id: None,
-        });
-        send_channel_response(
-            db,
-            tenant_id,
-            channel,
-            adapter,
-            reset_response,
-            reset_persist,
-        )
-        .await;
-        return Ok(PersistOutcome::HandledNotStored);
-    }
 
     // An answer to a question the platform asked: profile type, or one of the
     // seven PAR-Q+ questions. Sits ahead of the coach-proposal reply because an

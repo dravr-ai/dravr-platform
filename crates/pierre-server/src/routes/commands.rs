@@ -38,7 +38,9 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use pierre_commands::{caller_group_standing, CallerGroupStanding, PlatformCommandContext};
+use pierre_commands::{
+    caller_group_standing, CallerGroupStanding, ConversationRotation, PlatformCommandContext,
+};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppError;
 use pierre_core::models::default_locale;
@@ -231,6 +233,7 @@ pub async fn list_commands(
         conversation_tenant_id: tenant_id,
         // No channel link behind a REST call, so there is no channel sender.
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime,
     };
 

@@ -25,10 +25,10 @@
 //!   order-dependent.
 //! - **A `/status` prime before the command under test.** The prime forges
 //!   the member's session, which is where the ledger attaches replies; it
-//!   also keeps the lane honest for `/logout` and `/reset`, whose replies
-//!   are answered before the slash dispatcher and are ledgered against the
-//!   already-existing session. The prime's own reply is the per-member
-//!   baseline row.
+//!   also keeps the lane honest for `/logout`, whose reply is answered before
+//!   the slash dispatcher and is ledgered against the already-existing
+//!   session, and for `/reset`, which rotates that session onto a fresh
+//!   conversation. The prime's own reply is the per-member baseline row.
 //! - **A fresh conversation per command** (implied by the fresh member): a
 //!   command that inspects the conversation — `/coach create` reads its
 //!   coaching turns — must meet the empty conversation it meets in

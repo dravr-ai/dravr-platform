@@ -580,6 +580,18 @@ export default function ChatTab({
         if (turn.assistant.finish_reason === COMMAND_FINISH_REASON) {
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
         }
+
+        // `/reset` archives this thread and continues on a fresh one. Selecting
+        // it is the whole switch: the selection drives the hash, the messages
+        // query, the verdicts read and the read marker. Last in the handler,
+        // because everything above is keyed on the conversation the turn was
+        // posted to — including the cache write that clears the streaming
+        // bubble — and the list invalidation above has already brought the new
+        // row in.
+        const rotatedTo = turn.rotated_to_conversation_id;
+        if (rotatedTo && rotatedTo !== selectedConversation) {
+          onSelectConversation(rotatedTo);
+        }
       },
       onError: error => {
         setErrorMessage(error.message);
@@ -594,7 +606,7 @@ export default function ChatTab({
     // line has nothing left to say.
     setProgressStatusText(null);
     usageStatus.invalidate();
-  }, [selectedConversation, isStreaming, queryClient, usageStatus]);
+  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation]);
 
   /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
   const handleSendMessage = useCallback(() => {

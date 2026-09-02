@@ -1381,6 +1381,7 @@
       "description": "Dar o consentimento às estatísticas anónimas"
     },
     "reset": {
+      "description": "Começar uma conversa nova; a anterior fica arquivada",
       "confirm": "🔄 Nova conversa iniciada — recomeçando do zero. O teu histórico anterior fica arquivado.",
       "walk_interrupted": "\n\nO teu perfil estava em curso — escreve `/pillars` para retomar."
     },

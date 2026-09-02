@@ -28,6 +28,8 @@ pub const KEY_COMMAND_DESC_PRIVACY_ON: &str = "commands.privacy-on.description";
 pub const KEY_COMMAND_DESC_PRIVACY: &str = "commands.privacy.description";
 /// Key: one-line description of the `timezone` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_TIMEZONE: &str = "commands.timezone.description";
+/// Key: one-line description of the `reset` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_RESET: &str = "commands.reset.description";
 /// Key: one-line description of the `coach-add` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_COACH_ADD: &str = "commands.coach-add.description";
 /// Key: one-line description of the `coach-assign` catalogue command — `/help`, the command palette and the Telegram menu.

@@ -1381,6 +1381,7 @@
       "description": "In anonyme Statistiken einwilligen"
     },
     "reset": {
+      "description": "Ein neues Gespräch beginnen; das alte bleibt archiviert",
       "confirm": "🔄 Neue Unterhaltung gestartet — wir fangen frisch an. Dein bisheriger Verlauf bleibt archiviert.",
       "walk_interrupted": "\n\nDein Profil war in Arbeit — schreib `/pillars`, um weiterzumachen."
     },

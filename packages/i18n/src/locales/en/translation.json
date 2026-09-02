@@ -1381,6 +1381,7 @@
       "description": "Enable analytics consent"
     },
     "reset": {
+      "description": "Start a fresh conversation, keeping the old one archived",
       "confirm": "🔄 New conversation started — fresh slate. Your previous thread stays archived.",
       "walk_interrupted": "\n\nYour profile walk was in progress — send `/pillars` to resume."
     },

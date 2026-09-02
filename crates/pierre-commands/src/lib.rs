@@ -53,6 +53,8 @@ pub mod parser;
 pub mod plan;
 /// Privacy consent commands (view, enable, disable analytics)
 pub mod privacy;
+/// `/reset` — rotate the athlete onto a fresh conversation
+pub mod reset;
 /// Status command showing user and platform state
 pub mod status;
 /// Timezone command persisting the user's IANA timezone
@@ -62,7 +64,9 @@ pub use group::{caller_group_standing, CallerGroupStanding};
 pub use parser::{load_command_catalog, CommandCatalog};
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+use tracing::warn;
 
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
@@ -141,12 +145,50 @@ pub struct PlatformCommandContext {
     /// messaging surfaces; `None` on web/mobile and synthetic dispatch.
     /// `/logout` uses it to unlink the exact channel sender.
     pub sender_id: Option<String>,
+    /// Where a handler records that it moved the athlete onto a different
+    /// conversation, for the dispatcher to carry back to the surface.
+    ///
+    /// A reply cannot say this: `CommandResponse` is dravr-canot's type and
+    /// describes what to render, while "you are now on conversation X" is
+    /// navigation the platform owns. So it travels beside the reply rather
+    /// than inside it, written once by the handler and read once by
+    /// [`dispatch::try_dispatch`].
+    pub rotation: ConversationRotation,
     /// Tool-dispatch runtime for handlers that execute MCP tools (`/confirm`
     /// re-dispatches a Guardian-parked call). Deliberately a separate handle
     /// from [`Self::ctx`]: widening [`CommandCtx`] would cycle
     /// `pierre-runtime-context` → `pierre-tool-runtime` →
     /// `pierre-runtime-context`. Concrete type is the same `ServerContext`.
     pub tool_runtime: Arc<dyn ToolRuntime>,
+}
+
+/// The conversation a handler moved the athlete onto, if any.
+///
+/// Write-once: a command rotates a thread at most once, and a second write
+/// would mean two handlers each believing they owned the turn. Defaults to
+/// "nothing moved", which is the answer for all but `/reset`.
+#[derive(Debug, Default)]
+pub struct ConversationRotation(OnceLock<String>);
+
+impl ConversationRotation {
+    /// Record the conversation the athlete is now on.
+    ///
+    /// A second call is ignored and logged: the first writer is the one that
+    /// actually rotated the thread.
+    pub fn record(&self, conversation_id: String) {
+        if let Err(ignored) = self.0.set(conversation_id) {
+            warn!(
+                conversation_id = %ignored,
+                "a second conversation rotation was recorded for one command turn; keeping the first"
+            );
+        }
+    }
+
+    /// The recorded conversation, or `None` when the turn stayed put.
+    #[must_use]
+    pub fn taken(&self) -> Option<&str> {
+        self.0.get().map(String::as_str)
+    }
 }
 
 /// Handler for a slash command.

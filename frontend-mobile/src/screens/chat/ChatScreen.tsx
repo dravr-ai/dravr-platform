@@ -20,7 +20,7 @@ import { ChatHeader } from './ChatHeader';
 import { ChatPlusSheet } from './ChatPlusSheet';
 import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
-import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID } from '../../navigation/routes';
+import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigation/routes';
 import { ChatInputBar } from './ChatInputBar';
 import { tabBarBottomOffset } from '../../components/ui';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
@@ -250,11 +250,19 @@ export function ChatScreen() {
 
     try {
       trackMobile({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
-      await messagesHook.sendTurn(conversationId, trimmed);
+      const rotatedTo = await messagesHook.sendTurn(conversationId, trimmed);
+      // `/reset` archives this thread and continues on a fresh one. Resolve the
+      // new row before navigating, so the screen lands on a thread it can
+      // actually draw; `replace`, not `push`, because Back must not return the
+      // athlete to the thread they just abandoned.
+      if (rotatedTo && rotatedTo !== conversationId) {
+        const opened = await conversations.switchToConversation(rotatedTo);
+        if (opened) router.replace(threadHref(rotatedTo));
+      }
     } finally {
       usageStatus.invalidate();
     }
-  }, [messagesHook, conversations, usageStatus]);
+  }, [messagesHook, conversations, usageStatus, router]);
 
   const handleSendMessage = useCallback(async () => {
     const messageText = inputText.trim();

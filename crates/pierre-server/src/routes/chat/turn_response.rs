@@ -38,6 +38,15 @@ pub struct TurnResponse {
     pub assistant: AssistantResponse,
     /// Conversation `updated_at` after the turn landed.
     pub conversation_updated_at: String,
+    /// The conversation the athlete is now on, when the turn moved them.
+    ///
+    /// Absent on every ordinary turn. `/reset` sets it: the thread the client
+    /// posted to is archived and the next turn belongs to this one, so a
+    /// client that reads it back different from the id it posted to opens
+    /// this one. A messaging channel needs no such field — its session was
+    /// already repointed server-side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rotated_to_conversation_id: Option<String>,
     /// Cost and provenance facts about the turn. Not for rendering.
     pub telemetry: TurnTelemetryResponse,
 }
@@ -198,6 +207,8 @@ impl TurnResponse {
                 finish_reason: assistant.finish_reason,
             },
             conversation_updated_at: conversation.updated_at,
+            // Only a command rotates a thread, and this is the pipeline path.
+            rotated_to_conversation_id: None,
             telemetry: telemetry_response(telemetry, execution_time_ms),
         }
     }

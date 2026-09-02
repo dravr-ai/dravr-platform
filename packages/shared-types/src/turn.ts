@@ -113,6 +113,14 @@ export interface TurnEnvelope {
   user_message: Message;
   assistant: AssistantTurn;
   conversation_updated_at: string;
+  /**
+   * The conversation the athlete is now on, when the turn moved them.
+   *
+   * Absent on every ordinary turn. `/reset` sets it: the thread this turn was
+   * posted to is archived and the next one belongs here, so a client that
+   * reads back an id different from the one it posted to opens that thread.
+   */
+  rotated_to_conversation_id?: string;
   telemetry: TurnTelemetry;
 }
 
