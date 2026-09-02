@@ -19,6 +19,8 @@ use serde_json::{json, Value};
 use pierre_formatters::OutputFormat;
 use pierre_mcp_schema::ToolAnnotations;
 
+/// How far forward the coverage probe looks from `after`.
+///
 /// When a historical `get_activities` query leaves `before` open, the backfill
 /// gate checks cache coverage over `[after, after + 1 year]` so recent rows in
 /// `[after, now]` don't mask a missing historical season.
@@ -40,10 +42,13 @@ pub const fn historical_window_read_limit() -> usize {
 /// the binding condition, so the scrape pages the full season.
 const DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT: usize = 2_000;
 
-/// Fetch limit a background backfill requests, from
-/// `PIERRE_HISTORICAL_BACKFILL_FETCH_LIMIT` (falls back to
-/// [`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`]). Operators raise this for athletes
-/// with very deep histories; zero/unparseable values fall back to the default.
+/// Fetch limit a background backfill requests.
+///
+/// Read from `PIERRE_HISTORICAL_BACKFILL_FETCH_LIMIT`, falling back to
+/// [`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`]. Operators raise this for
+/// athletes with very deep histories; zero or unparseable values fall back to
+/// the default.
+#[must_use]
 pub fn historical_backfill_fetch_limit() -> usize {
     env::var("PIERRE_HISTORICAL_BACKFILL_FETCH_LIMIT")
         .ok()
@@ -189,6 +194,7 @@ pub fn parse_output_format(args: &Value) -> OutputFormat {
 }
 
 /// Annotations for read-only data retrieval tools
+#[must_use]
 pub fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {
         read_only_hint: Some(true),
