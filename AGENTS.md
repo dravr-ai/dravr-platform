@@ -109,6 +109,8 @@ Two humans run many Claude Code sessions at once (nine were live when this rule 
 - **Read the comments before you implement** — `gh issue view <n> -R dravr-ai/dravr-carnet --comments`. "Directive from JF" comments carry requirements the body does not.
 - Titles are `[<project>] <Thing>`, one shape; `create` applies it. `limitation` only when a `LIMITATION(registre#n)` marker will point at the issue — the `register-limitation` skill files through this same script.
 
+The skill's files live in this repo at `.agents/skills/carnet/`, like the obsidian skills and unlike everything under `.build/`. A submodule needs a *second* update step, so a worktree can sit on the newest commit and still have no skill — the symlink dangles, the hooks hit their `[ -f … ]` guard, and claiming silently stops happening. That cost three hours on 2026-09-02. A tracked file has no second step.
+
 **Claiming is mechanical, not advisory — three hooks do it.** `UserPromptSubmit` prints the claim status of every issue a prompt names and records those numbers; `PreToolUse` claims them on your first write-shaped tool call, so an issue you were told about is held before your first edit lands; `SessionEnd` releases what this session still holds. You still run `claim <n>` yourself when the number never came from a prompt — you found the issue by searching, or you are picking work up mid-session.
 
 A prompt that only asks about an issue claims nothing: a question never reaches a write tool. When a live peer holds the issue the hook blocks that one tool call and names them — once, not forever. After it has told you, the duplicate work is yours, not the hook's.
