@@ -377,8 +377,9 @@ test.describe('Chat - one verdict affordance per surface', () => {
 
     const turn = assistantTurn(page);
 
-    // Half one: the chips are present, and they say what was flagged.
-    const chip = turn.getByRole('button', { name: /1 verdict · none/ });
+    // Half one: the chips are present, and they say what was flagged — the
+    // qualifier is the verdict's status word; its evidence strength stays in the drawer.
+    const chip = turn.getByRole('button', { name: /1 verdict · contradicted/ });
     await expect(chip).toHaveCount(1);
     await expect(turn.getByRole('button', { name: 'Ask me about this claim' })).toHaveCount(1);
 
