@@ -47,48 +47,78 @@ echo -e "${BLUE}==== Contremaitre Coupling Sync (static) ====${NC}"
 FAILED=false
 
 # ---------------------------------------------------------------------------
-# Check 1: messaging-string locale invariant (5 locales per key)
+# Check 1: the string catalogue ships every key in all 5 locales
 # ---------------------------------------------------------------------------
+# The catalogue is the five nested packages/i18n/src/locales/<l>/translation.json
+# files: the messaging-strings registry seeds from them (include_str!), both
+# clients embed them, GET /api/i18n/{locale} serves them, contremaitre overlays
+# them. One key set across the five files is the invariant that used to be
+# `entries == keys × 5` over the Rust COMPILED_IN table. Every `KEY_*` literal
+# the registry declares must exist in the catalogue, and a key is rendered by
+# exactly one side: server-rendered keys (the KEY_* set) take positional {0}
+# placeholders, client keys take i18next {{name}} placeholders.
+CATALOGUE_DIR="packages/i18n/src/locales"
 MS="crates/pierre-contremaitre/src/messaging_strings.rs"
 
-if [[ ! -f "$MS" ]]; then
-    echo -e "${RED}❌ messaging_strings.rs not found at $MS — this check is stale.${NC}"
+if [[ ! -f "$MS" ]] || [[ ! -f "$CATALOGUE_DIR/fr/translation.json" ]]; then
+    echo -e "${RED}❌ Catalogue or registry source not found — this check is stale.${NC}"
     FAILED=true
 else
-    # Extract the COMPILED_IN (KEY, "locale", VALUE) table, collapse multi-line
-    # tuples by joining on spaces, then pull (KEY, locale) pairs. The only quoted
-    # literals inside the table are the locale codes, so this is unambiguous.
-    BLOCK="$(awk '/const COMPILED_IN/{f=1} f{print} f&&/^\];/{exit}' "$MS")"
-    PAIRS="$(printf '%s' "$BLOCK" | tr '\n' ' ' \
-        | grep -oE '\(\s*KEY_[A-Z0-9_]+\s*,\s*"(fr|en|es|de|pt)"' \
-        | sed -E 's/.*(KEY_[A-Z0-9_]+)[^"]*"(fr|en|es|de|pt)".*/\1 \2/' || true)"
+    if CATALOGUE_REPORT="$(python3 - "$CATALOGUE_DIR" "$MS" <<'PY'
+import json, re, sys
 
-    PAIR_COUNT="$(printf '%s\n' "$PAIRS" | grep -c . || true)"
-    if [[ "$PAIR_COUNT" -eq 0 ]]; then
-        echo -e "${RED}❌ Could not parse the COMPILED_IN locale table — structure changed; update this check.${NC}"
-        FAILED=true
+catalogue_dir, registry_src = sys.argv[1], sys.argv[2]
+locales = ["fr", "en", "es", "de", "pt"]
+
+
+def flatten(tree, prefix=""):
+    for key, value in tree.items():
+        dotted = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            yield from flatten(value, dotted)
+        else:
+            yield dotted, value
+
+
+trees = {}
+for locale in locales:
+    with open(f"{catalogue_dir}/{locale}/translation.json", encoding="utf-8") as fh:
+        trees[locale] = dict(flatten(json.load(fh)))
+
+reference = set(trees["en"])
+problems = []
+for locale in locales:
+    keys = set(trees[locale])
+    problems += [f"{locale} is missing {k}" for k in sorted(reference - keys)]
+    problems += [f"{locale} has an extra key {k}" for k in sorted(keys - reference)]
+
+with open(registry_src, encoding="utf-8") as fh:
+    source = fh.read()
+server_keys = set(re.findall(r'^pub const KEY_[A-Z0-9_]+: &str =\s*"([^"]+)"', source, re.M | re.S))
+problems += [f"registry declares {k} but the catalogue has no such key" for k in sorted(server_keys - reference)]
+
+positional = re.compile(r"\{\d+\}")
+for locale in locales:
+    for key, value in trees[locale].items():
+        if key in server_keys and "{{" in value:
+            problems.append(f"{locale} {key}: a server-rendered key must use positional {{0}} placeholders, not {{{{name}}}}")
+        elif key not in server_keys and positional.search(value):
+            problems.append(f"{locale} {key}: a client-rendered key must use {{{{name}}}} placeholders, not positional {{0}}")
+
+print(f"{len(reference)} keys × {len(locales)} locales, {len(server_keys)} server-rendered")
+if problems:
+    print("\n".join(problems[:40]))
+    if len(problems) > 40:
+        print(f"... and {len(problems) - 40} more")
+    sys.exit(1)
+PY
+)"; then
+        echo -e "${GREEN}✅ Catalogue invariant: ${CATALOGUE_REPORT}, every key in all 5 locales.${NC}"
     else
-        # Per-key locale audit: any key without exactly the 5 locales is drift.
-        MISSING="$(printf '%s\n' "$PAIRS" | awk '
-            { have[$1] = have[$1] " " $2 }
-            END {
-                split("fr en es de pt", want, " ")
-                for (k in have)
-                    for (i = 1; i <= 5; i++)
-                        if (index(have[k], " " want[i]) == 0)
-                            print k " missing:" want[i]
-            }' | sort)"
-        if [[ -n "$MISSING" ]]; then
-            KEYS_AFFECTED="$(printf '%s\n' "$MISSING" | awk '{print $1}' | sort -u | grep -c .)"
-            echo -e "${RED}❌ Messaging locale drift: ${KEYS_AFFECTED} key(s) do not ship all 5 locales (fr/en/es/de/pt):${NC}"
-            printf '%s\n' "$MISSING" | sed 's/^/   /'
-            echo -e "${YELLOW}   Add the missing locale const(s) in ${MS} so every key has fr/en/es/de/pt.${NC}"
-            echo -e "${YELLOW}   (This is the recurrence behind commits d73eec36f and a60209307.)${NC}"
-            FAILED=true
-        else
-            KEYS="$(printf '%s\n' "$PAIRS" | awk '{print $1}' | sort -u | grep -c . || true)"
-            echo -e "${GREEN}✅ Locale invariant: ${KEYS} keys × 5 locales = ${PAIR_COUNT} entries, all complete.${NC}"
-        fi
+        echo -e "${RED}❌ Catalogue drift:${NC}"
+        printf '%s\n' "$CATALOGUE_REPORT" | sed 's/^/   /'
+        echo -e "${YELLOW}   Every key ships in fr/en/es/de/pt under ${CATALOGUE_DIR}, every KEY_* in ${MS} names one of them.${NC}"
+        FAILED=true
     fi
 fi
 

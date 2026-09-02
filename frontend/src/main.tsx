@@ -10,12 +10,15 @@ import { initI18n } from '@pierre/i18n'
 import './index.css'
 import App from './App.tsx'
 import { persistLocale } from './i18n/localePersister'
+import { fetchBundle } from './i18n/fetchBundle'
 
 // One preference, two owners: i18next renders the chrome, `users.locale`
 // decides the language the coach answers in. Registering the writer here — the
 // only place the app is constructed — means every language change made
 // anywhere in the app reaches the server, instead of stopping at localStorage.
-initI18n({ persistLocale })
+// The fetcher is the other direction: the live catalogue overlays the embedded
+// copy, so a string fixed upstream reaches the app without a deploy.
+initI18n({ persistLocale, fetchBundle })
 
 // Register Chart.js components globally
 import {

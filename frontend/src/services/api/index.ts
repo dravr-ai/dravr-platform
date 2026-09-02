@@ -22,6 +22,8 @@ export const messagingLinkApi = pierreApi.messaging;
 export const notificationsApi = pierreApi.notifications;
 export const groupsApi = pierreApi.groups;
 export const featureFlagsApi = pierreApi.featureFlags;
+// The live string catalogue, overlaid on the embedded copy at start-up.
+export const i18nApi = pierreApi.i18n;
 
 // Providers API delegates to shared oauth module
 export const providersApi = {

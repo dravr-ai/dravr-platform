@@ -215,3 +215,6 @@ export type {
   KnownFeatureFlag,
   MeFeaturesResponse,
 } from './feature-flags.js';
+
+// The live string catalogue a client overlays on its embedded copy
+export type { I18nBundle, I18nBundleResult } from './i18n';

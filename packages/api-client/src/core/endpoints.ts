@@ -219,6 +219,11 @@ export const ENDPOINTS = {
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },
+  // ==================== I18N ====================
+  I18N: {
+    /** The live string catalogue for one locale, revalidated by ETag */
+    BUNDLE: (locale: string) => `/api/i18n/${locale}`,
+  },
   // ==================== FEATURE FLAGS ====================
   FEATURE_FLAGS: {
     /** Effective feature flags for the calling user, plus the known-flag registry */

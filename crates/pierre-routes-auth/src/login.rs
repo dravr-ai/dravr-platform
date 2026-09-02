@@ -23,7 +23,7 @@ use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csr
 use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::{CoachingPersona, ColorScheme, UserStatus};
+use pierre_core::models::{CoachingPersona, ColorScheme, UserStatus, SUPPORTED_LOCALES};
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
@@ -1013,14 +1013,6 @@ pub async fn handle_analytics_consent(
     )
         .into_response())
 }
-
-/// Supported BCP-47 short locales.
-///
-/// Matches the set compiled into `MessagingStringsRegistry::new()`. The
-/// PATCH handler rejects anything outside this set so the frontend can't
-/// persist a locale that would silently fall back to French at every
-/// registry lookup.
-const SUPPORTED_LOCALES: &[&str] = &["fr", "en", "es", "de", "pt"];
 
 /// Handle locale preference update for authenticated users
 ///

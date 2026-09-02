@@ -51,6 +51,7 @@ import { bootMobileAnalytics, shutdownMobileAnalytics, trackMobile } from '../sr
 import { CHAT_LIST_ROUTE } from '../src/navigation/routes';
 import { initI18n } from '@pierre/i18n';
 import { persistLocale } from '../src/i18n/localePersister';
+import { fetchBundle } from '../src/i18n/fetchBundle';
 
 LogBox.ignoreLogs([
   'Failed to send message:',
@@ -65,8 +66,10 @@ SplashScreen.preventAutoHideAsync();
 // One preference, two owners: i18next renders the chrome, `users.locale`
 // decides the language the coach answers in. Registering the writer here — the
 // root of the app, before any screen mounts — means every language change
-// reaches the server instead of stopping at AsyncStorage.
-initI18n({ persistLocale });
+// reaches the server instead of stopping at AsyncStorage. The fetcher is the
+// other direction: the live catalogue overlays the embedded copy, so a string
+// fixed upstream reaches the app on its next open without a store release.
+initI18n({ persistLocale, fetchBundle });
 
 /** Map an onboarding step id to its `(onboarding)` route (literals for typed routes). */
 function routeForStep(id: OnboardingStepId) {

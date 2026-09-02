@@ -163,6 +163,9 @@ import { createMessagingApi } from './domains/messaging';
 import { createNotificationsApi } from './domains/notifications';
 import { createGroupsApi } from './domains/groups';
 import { createFeatureFlagsApi } from './domains/featureFlags';
+export { createI18nApi } from './domains/i18n';
+export type { I18nApi, I18nBundle, I18nBundleResult } from './domains/i18n';
+import { createI18nApi } from './domains/i18n';
 
 /**
  * Complete API service combining all domain APIs.
@@ -189,6 +192,8 @@ export interface PierreApiService {
   groups: ReturnType<typeof createGroupsApi>;
   /** Feature flags API */
   featureFlags: ReturnType<typeof createFeatureFlagsApi>;
+  /** The live string catalogue, overlaid on the embedded copy at start-up and on language change */
+  i18n: ReturnType<typeof createI18nApi>;
   /** Underlying axios instance for custom requests */
   axios: AxiosInstance;
   /** Platform adapter */
@@ -233,6 +238,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     notifications: createNotificationsApi(axios),
     groups: createGroupsApi(axios),
     featureFlags: createFeatureFlagsApi(axios),
+    i18n: createI18nApi(axios),
     axios,
     adapter,
   };

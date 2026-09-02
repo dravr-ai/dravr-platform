@@ -19,9 +19,7 @@
 use std::sync::Arc;
 
 use pierre_chat_pipeline::stages::guardian_denied::apply_guardian_denied;
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, EN_GUARDIAN_DENIED, FR_GUARDIAN_DENIED,
-};
+use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_GUARDIAN_DENIED};
 use pierre_tool_runtime::tool_loop_io::{GuardianDenial, ToolLoopResult};
 
 /// A `ToolLoopResult` with an empty body, optionally carrying a Guardian
@@ -54,9 +52,11 @@ fn denial_renders_localized_reply_and_short_circuits() {
 
     assert!(fired, "the stage must fire when a tool was guardian-denied");
     assert_eq!(
-        result.content, EN_GUARDIAN_DENIED,
+        result.content,
+        registry.get(KEY_GUARDIAN_DENIED, "en"),
         "the reply must be the locale-resolved guardian-denied string"
     );
+    assert!(result.content.contains("blocked for safety"));
 }
 
 #[test]
@@ -69,9 +69,11 @@ fn denial_respects_resolved_locale() {
 
     assert!(apply_guardian_denied(&registry, "fr", &mut result));
     assert_eq!(
-        result.content, FR_GUARDIAN_DENIED,
+        result.content,
+        registry.get(KEY_GUARDIAN_DENIED, "fr"),
         "a French turn must get the French guardian-denied string"
     );
+    assert!(result.content.contains("bloquée par sécurité"));
 }
 
 #[test]
@@ -88,9 +90,11 @@ fn unsupported_locale_falls_back_to_the_default_string() {
 
     assert!(apply_guardian_denied(&registry, "is", &mut result));
     assert_eq!(
-        result.content, FR_GUARDIAN_DENIED,
+        result.content,
+        registry.get(KEY_GUARDIAN_DENIED, "fr"),
         "an unstocked locale must render DEFAULT_LOCALE's string, never empty"
     );
+    assert!(result.content.contains("bloquée"));
 }
 
 #[test]

@@ -1114,8 +1114,12 @@ impl ProviderToolRouter {
 
         #[cfg(feature = "client-api-keys")]
         use crate::routes::api_keys::ApiKeyRoutes;
+        #[cfg(feature = "client-messaging")]
+        use crate::routes::commands::CommandRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
+        #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
+        use crate::routes::surfaces::SurfaceRoutes;
         #[cfg(feature = "client-tenants")]
         use crate::routes::tenants::TenantRoutes;
         #[cfg(feature = "client-mcp-tokens")]
@@ -1127,7 +1131,7 @@ impl ProviderToolRouter {
             configuration::ConfigurationRoutes, fitness::FitnessConfigurationRoutes,
             health_data::HealthDataRoutes,
         };
-        use crate::routes::{memory::MemoryRoutes, personas::PersonasRoutes};
+        use crate::routes::{i18n::I18nRoutes, memory::MemoryRoutes, personas::PersonasRoutes};
         #[cfg(feature = "protocol-a2a")]
         use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
         #[cfg(feature = "client-llm-settings")]
@@ -1359,25 +1363,21 @@ impl ProviderToolRouter {
         // reads. Public and stateless: compiled-in product capabilities, the
         // same bytes for every caller.
         #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
-        let app = {
-            use crate::routes::surfaces::SurfaceRoutes;
-            app.merge(SurfaceRoutes::routes())
-        };
+        let app = app.merge(SurfaceRoutes::routes());
 
-        // User-facing harness memory facts (list / forget), and the persona
-        // cards served from the live contract registry (no copy drift).
+        // Memory facts (list / forget), persona cards from the live contract, and
+        // the live string catalogue both clients overlay (public, ETag-revalidated).
         let app = app
             .merge(MemoryRoutes::routes(Arc::clone(resources)))
             .merge(PersonasRoutes::routes(Arc::clone(resources)));
+        let catalogue = Arc::clone(&resources.mcp.messaging_strings_registry);
+        let app = app.merge(I18nRoutes::routes(catalogue));
 
         // The slash commands this caller may actually run. Resolved per caller
         // through the same availability predicates `/help` asks, so the in-app
         // palette advertises exactly what the messaging `/help` would list.
         #[cfg(feature = "client-messaging")]
-        let app = {
-            use crate::routes::commands::CommandRoutes;
-            app.merge(CommandRoutes::routes(Arc::clone(resources)))
-        };
+        let app = app.merge(CommandRoutes::routes(Arc::clone(resources)));
 
         // Runtime feature flags — self-read endpoint. The admin CRUD
         // endpoints come in through `AdminRoutes::cookie_admin_routes`

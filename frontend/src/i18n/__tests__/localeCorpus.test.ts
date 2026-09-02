@@ -69,8 +69,14 @@ describe('client locale corpus', () => {
     // anything to render it with, so the prescription was validated and then
     // dropped. Five keys, five locales, because a surface finally displays
     // something it had been sent all along.
+    //
+    // 1972 until the catalogue became one: the 237 server-rendered keys
+    // (`messaging.*`, `commands.*`, `notifications.*`, `persona.*`) moved into these files
+    // from the Rust table they used to live in, so the registry, the web app
+    // and the phone read one source. A key counts once whichever side
+    // renders it.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(1972);
+    expect(reference).toHaveLength(2209);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

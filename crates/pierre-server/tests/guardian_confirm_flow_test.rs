@@ -24,7 +24,7 @@ use common::{create_test_server_resources, create_test_user};
 use pierre_commands::guardian_confirm::{ConfirmHandler, DenyHandler};
 use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, EN_GUARDIAN_CONFIRM_DENIED, KEY_GUARDIAN_CONFIRM_DONE,
+    MessagingStringsRegistry, KEY_GUARDIAN_CONFIRM_DENIED, KEY_GUARDIAN_CONFIRM_DONE,
     KEY_GUARDIAN_CONFIRM_EXPIRED, KEY_GUARDIAN_CONFIRM_FAILED, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
 };
 use pierre_core::models::TenantId;
@@ -248,7 +248,11 @@ async fn deny_handler_consumes_the_row_and_wrong_user_probes_see_nothing() {
     // The owner denies: localized ack, row consumed.
     let owner = command_ctx(&resources, user_id, tenant, &action.id);
     let resp = DenyHandler.execute(&owner).await.expect("deny runs");
-    assert_eq!(resp.text, EN_GUARDIAN_CONFIRM_DENIED);
+    assert_eq!(
+        resp.text,
+        registry.render(KEY_GUARDIAN_CONFIRM_DENIED, "en", &[])
+    );
+    assert!(resp.text.contains("cancelled"));
     assert!(matches!(
         repos
             .guardian_actions

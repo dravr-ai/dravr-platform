@@ -134,6 +134,12 @@ pub mod user_profile;
 #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
 pub mod surfaces;
 
+/// The live string catalogue for one locale (`GET /api/i18n/{locale}`).
+///
+/// What both clients overlay on the copy they embed at build time, so a
+/// contremaitre string change reaches them without a client deploy.
+pub mod i18n;
+
 /// Chart images for messaging channels: signed short-TTL PNG URLs.
 pub mod viz;
 /// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).

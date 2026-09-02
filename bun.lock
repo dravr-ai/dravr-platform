@@ -196,6 +196,7 @@
       "name": "@pierre/i18n",
       "version": "1.0.0",
       "dependencies": {
+        "@pierre/shared-types": "*",
         "i18next": "^25.7.3",
         "react-i18next": "^16.2.0",
       },

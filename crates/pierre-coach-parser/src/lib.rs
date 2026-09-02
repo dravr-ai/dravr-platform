@@ -110,7 +110,7 @@ pub enum RelationType {
 /// BCP-47 short codes the seeder recognizes as translation filenames.
 ///
 /// Matches the compiled-in locales in
-/// [`pierre_contremaitre::messaging_strings::COMPILED_IN`]; adding a new
+/// the string catalogue `pierre_contremaitre::messaging_strings` embeds; adding a new
 /// locale requires only appending here and shipping the corresponding
 /// `<slug>/<locale>.md` file.
 pub const SUPPORTED_LOCALES: &[&str] = &["en", "fr", "es", "de", "pt"];

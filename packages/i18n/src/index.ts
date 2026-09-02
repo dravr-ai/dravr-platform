@@ -16,6 +16,8 @@ export {
 export type { SupportedLanguage, I18nInitOptions } from './config';
 export { registerLocalePersister, persistLocaleToServer, LocalePersisterMissingError } from './localeSync';
 export type { LocalePersister } from './localeSync';
+export { applyLiveBundle, installLiveOverlay, nestDotted } from './liveBundle';
+export type { BundleFetcher, LiveOverlay } from './liveBundle';
 export { LANGUAGE_STORAGE_KEY } from './switcherCore';
 export type {
   LanguageSwitcherOptions,

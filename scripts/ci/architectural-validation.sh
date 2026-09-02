@@ -941,13 +941,13 @@ echo -e "${BLUE}==== Brand Leak Enforcement ====${NC}"
 # Check 1: surfaces that are 100% user-facing — no occurrence is legitimate,
 # not even in a comment (HTML comments ship to the browser; the messaging
 # catalogue and the SDK are read verbatim by users and MCP hosts).
-BRAND_LEAK_FILES=$(rg '\bPierre\b' templates/ sdk/src/ crates/pierre-contremaitre/src/messaging_strings.rs 2>/dev/null | wc -l | tr -d ' ')
+BRAND_LEAK_FILES=$(rg '\bPierre\b' templates/ sdk/src/ packages/i18n/src/locales/ 2>/dev/null | wc -l | tr -d ' ')
 if [ "$BRAND_LEAK_FILES" -gt 0 ]; then
     echo -e "${RED}❌ Found $BRAND_LEAK_FILES occurrence(s) of the internal codename on a user-facing surface:${NC}"
-    rg '\bPierre\b' templates/ sdk/src/ crates/pierre-contremaitre/src/messaging_strings.rs -n 2>/dev/null | head -10
-    fail_validation "Rendered pages, the messaging string catalogue and the SDK must say Dravr, never Pierre"
+    rg '\bPierre\b' templates/ sdk/src/ packages/i18n/src/locales/ -n 2>/dev/null | head -10
+    fail_validation "Rendered pages, the string catalogue and the SDK must say Dravr, never Pierre"
 else
-    pass_validation "No brand leak in templates/, sdk/src/ or the messaging string catalogue"
+    pass_validation "No brand leak in templates/, sdk/src/ or the string catalogue"
 fi
 
 # Check 2: string literals in the onboarding + transactional-email paths. Matches

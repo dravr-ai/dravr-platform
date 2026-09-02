@@ -12,6 +12,7 @@ import esTranslation from './locales/es/translation.json';
 import frTranslation from './locales/fr/translation.json';
 import ptTranslation from './locales/pt/translation.json';
 import { registerLocalePersister, type LocalePersister } from './localeSync';
+import { installLiveOverlay, type BundleFetcher } from './liveBundle';
 
 /**
  * The locales both surfaces offer, in menu order.
@@ -62,15 +63,20 @@ export const defaultI18nConfig = {
   },
   lng: DEFAULT_LANGUAGE,
   fallbackLng: DEFAULT_LANGUAGE,
-  // Resources are compiled in, so there is nothing to fetch: initialize on the
-  // spot rather than deferring to a timer. Without this the first paint can
-  // render raw keys, and a test process is left holding i18next's timeout.
+  // Resources are compiled in, so there is nothing to wait for: initialize on
+  // the spot rather than deferring to a timer. Without this the first paint can
+  // render raw keys, and a test process is left holding i18next's timeout. The
+  // live catalogue arrives later, as an overlay (see `installLiveOverlay`).
   initImmediate: false,
   interpolation: {
     escapeValue: false, // React already escapes values
   },
   react: {
     useSuspense: false,
+    // Repaint mounted chrome when a resource bundle is added — the live
+    // catalogue overlay lands through `addResourceBundle`, which emits the
+    // store's `added` event and, without this, nothing until navigation.
+    bindI18nStore: 'added',
   },
 };
 
@@ -86,6 +92,15 @@ export interface I18nInitOptions {
    * omission.
    */
   persistLocale: LocalePersister;
+  /**
+   * Reads the live catalogue from the server (`GET /api/i18n/{locale}`).
+   *
+   * Optional: an app passes its api-client's `i18n.bundle`, so a string fixed
+   * upstream reaches it on the next open without a deploy; a test process or
+   * a tool leaves it out and renders the embedded copy alone. The overlay is
+   * fail-open — a fetch that fails changes nothing on screen.
+   */
+  fetchBundle?: BundleFetcher;
   /** i18next overrides — resource bundles, interpolation, initial `lng`. */
   config?: Partial<typeof defaultI18nConfig>;
 }
@@ -97,10 +112,14 @@ export interface I18nInitOptions {
  */
 export function initI18n(options: I18nInitOptions) {
   registerLocalePersister(options.persistLocale);
-  return i18n.use(initReactI18next).init({
+  const ready = i18n.use(initReactI18next).init({
     ...defaultI18nConfig,
     ...options.config,
   });
+  if (options.fetchBundle !== undefined) {
+    installLiveOverlay(i18n, options.fetchBundle);
+  }
+  return ready;
 }
 
 export { i18n };

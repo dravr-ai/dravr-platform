@@ -1098,6 +1098,164 @@
     "whatItDoesSection": "O que faz",
     "yourGroupsHeading": "Os teus grupos de coaching"
   },
+  "commands": {
+    "answered_privately": "Respondi-te em privado — está na nossa conversa direta. Uma sala pode juntar vários atletas, por isso as respostas pessoais não aparecem aqui.",
+    "calibrate": {
+      "complete_header": "Calibração terminada — retive {0} respostas de {1}.",
+      "complete_missing": "Falta-me a tua resposta sobre {0}. É isso que limita até onde te posso empurrar, por isso vamos repetir essa pergunta — escreve /calibrate.",
+      "followup_no_plan": "Queres que te construa um plano com isto?",
+      "followup_plan": "Queres que reconstrua as tuas próximas semanas com isto?",
+      "opener": "Vamos calibrar a dificuldade do teu treino. Parto dos teus dados recentes e faço-te seis perguntas curtas, uma a uma. Primeira: como queres que fique mais duro — mais horas, mais dias fortes, ou saídas longas mais longas?",
+      "opener_room": "Vamos calibrar o teu treino aqui, no grupo — as tuas respostas ficam visíveis para todos, e só tu respondes. Seis perguntas curtas, uma a uma. Primeira: como queres que fique mais duro — mais horas, mais dias fortes, ou saídas longas mais longas?",
+      "start_failed": "Não consegui iniciar a calibração nesta conversa. Tenta outra vez dentro de um momento.",
+      "topic_injury": "as tuas lesões e queixas recentes",
+      "topic_recovery": "a tua velocidade de recuperação"
+    },
+    "coach": {
+      "add_unknown": "Nenhum treinador instalado responde a {0}. Escreve /coach para veres a tua lista, ou /discover para o instalares.",
+      "add_usage": "Indica que treinador adicionar: /coach add @handle. Escreve /coach para veres a tua lista.",
+      "assign_forbidden": "Apenas administradores e proprietários do grupo podem mudar o coach.",
+      "assign_not_a_member": "Não és membro deste grupo",
+      "create_card_title": "Rascunho de treinador",
+      "create_confirm_label": "Criar",
+      "create_discard_label": "Descartar",
+      "create_discarded": "Rascunho descartado. Volta a lançar /coach create quando quiseres.",
+      "create_done": "Treinador {0} criado — @{1}. Responde aqui a partir da tua próxima mensagem. Escreve /coach add @{1} em qualquer outra conversa, ou edita-o a partir da sua página no Discover.",
+      "create_done_unbound": "Treinador {0} criado — @{1}. Escreve /coach add @{1} numa das tuas conversas para o usares, ou edita-o a partir da sua página no Discover.",
+      "create_empty": "Esta conversa ainda está vazia. Troca primeiro algumas mensagens com o teu treinador e volta a lançar /coach create.",
+      "create_no_conversation": "Abre primeiro uma conversa: /coach create redige um treinador a partir do que lá foi dito.",
+      "create_proposal_body": "{0}\n{1}\n\nCategoria: {2}\nEtiquetas: {3}\n\nResponde /coach create confirm {4} para o criares, ou /deny {4} para o descartares. O rascunho expira em 10 minutos.",
+      "create_quota": "Já tens {0} treinadores, o máximo do teu plano ({1}). Elimina um a partir do Discover antes de criares outro.",
+      "create_usage": "Utilização: /coach create para propor um treinador a partir desta conversa, depois /coach create confirm token para o criares.",
+      "group_updated": "Coach atualizado para {0} no grupo {1}.",
+      "invite_body": "Convite de coach para {0} — quem o usar torna-se o coach humano do grupo:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 dias.",
+      "list_card_title": "Os teus treinadores",
+      "list_empty": "Nenhum treinador na tua lista. Escreve /discover para explorares o catálogo, ou /coach create para criares um a partir desta conversa.",
+      "list_footer": "Menciona @handle numa mensagem para lhe confiares só essa mensagem, ou escreve /coach add @handle para que responda aqui a partir de agora.",
+      "list_item": "• {0} — @{1}\n  {2}\n",
+      "list_item_no_handle": "• {0}\n  {1}\n",
+      "no_description": "Sem descrição",
+      "remove_group_thread": "Num grupo, o treinador pertence ao grupo — usa /group coach para o mudares.",
+      "remove_nothing": "Nenhum treinador está associado a esta conversa.",
+      "removed": "{0} já não responde nesta conversa.",
+      "user_updated": "Treinador selecionado: {0}."
+    },
+    "discover": {
+      "add_label": "Usar aqui",
+      "card_title": "Catálogo de coaches",
+      "catalogue_empty": "O catálogo de coaches está vazio.",
+      "empty": "Nenhum coach do catálogo corresponde a «{0}». Escreve /discover para veres os mais recentes.",
+      "install_already": "{0} já está instalado. Usa-o em qualquer conversa: /coach add @{1}, ou menciona @{1} numa mensagem para uma única resposta.",
+      "install_unknown_handle": "Nenhum coach publicado responde a {0}. Escreve /discover para explorares o catálogo.",
+      "install_usage": "Uso: /discover install @handle — o @handle aparece em /discover.",
+      "installed": "{0} está instalado. Usa-o em qualquer conversa: /coach add @{1}, ou menciona @{1} numa mensagem para uma única resposta.",
+      "item": "• {0} — @{1} [{2}]\n  {3}\n",
+      "more_label": "Mais"
+    },
+    "group": {
+      "coach_detached": "{0} já não tem um treinador humano associado.",
+      "consent_updated": "Partilhar os teus dados com os outros membros de {1} está agora {0}.",
+      "consent_usage": "Uso: /group consent yes  ou  /group consent no",
+      "create_forbidden": "A criação de grupos está reservada aos administradores do teu espaço.",
+      "create_no_coach": "Escolhe primeiro o coach do grupo: /coach add @handle nesta conversa e volta a correr /group create.",
+      "create_unavailable": "O coaching em grupo não está incluído no teu plano.",
+      "create_usage": "Uso: /group create nome-do-grupo — por exemplo /group create Corredores de domingo",
+      "created": "Grupo «{0}» criado com o coach {1}. Convida membros com /group invite.",
+      "invite_body": "Link de convite para {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 dias.",
+      "invite_forbidden": "Apenas administradores e proprietários podem gerar links de convite.",
+      "invite_label": "Convidar membros",
+      "invite_unavailable": "Convites de grupo não estão disponíveis.",
+      "join_already_member": "Já és membro de {0}.",
+      "join_full": "{0} está cheio.",
+      "join_invalid_code": "Esse código de convite não é válido ou expirou. Pede um novo link a um admin do grupo (/group invite).",
+      "joined": "Bem-vindo a {0}! A conversa do grupo já está na tua lista de conversas.",
+      "joined_as_coach": "És agora o coach humano de {0}.",
+      "leave_prompt": "Tens a certeza que queres sair de {0}?\nEscreve «YES» para confirmar.",
+      "list_empty": "Não és membro de nenhum grupo.\nCria ou junta-te a um grupo pela app web ou móvel.",
+      "list_header": "Os teus grupos ({0}):\n",
+      "list_item": "- {0} ({1} membros) [{2}]",
+      "members_header": "{0} — membros ({1}):\n",
+      "members_item": "- {0} [{1}]",
+      "members_unknown": "Desconhecido",
+      "not_a_member": "Não és membro de nenhum grupo",
+      "peer_sharing": {
+        "off": "desativada",
+        "on": "ativada"
+      },
+      "respond_all": "O treinador volta a responder a todas as mensagens do grupo.",
+      "respond_mentions": "O treinador agora só responde quando é chamado (mencione-o com @ ou responda a uma das suas mensagens). Continua a acompanhar a conversa para manter o contexto.",
+      "respond_status_mentions": "O treinador só responde quando é chamado. Para voltar a todas as mensagens: /group respond all",
+      "respond_usage": "Uso: /group respond mentions  ou  /group respond all",
+      "role": {
+        "admin": "admin",
+        "member": "membro",
+        "owner": "proprietário"
+      },
+      "status_summary": "{0} — estatísticas:\n- Membros: {1}\n- Ativos: {2}\n- Partilha entre pares: {3}"
+    },
+    "help": {
+      "domain": {
+        "account": "Conta",
+        "coach": "Coaching",
+        "data": "Dados de atividade",
+        "discover": "Catálogo de coaches",
+        "general": "Geral",
+        "group": "Coaching em grupo",
+        "provider": "Fornecedores",
+        "training": "Treino"
+      },
+      "footer": "\nOu escreve-me para conversar com o teu coach.",
+      "header": "Comandos disponíveis:\n"
+    },
+    "logout": {
+      "confirm_prompt": "Isto vai desvincular a tua conta {0} do Dravr.\nVais precisar de voltar a ligá-la para usar o messaging.\n\nEscreve «logout» para confirmar."
+    },
+    "pillars": {
+      "arg_dm_only": "Esses temas cobrem-se em privado. Escreve-me <code>/pillars</code> em mensagem direta e retomamo-los lá — aqui nada foi alterado.",
+      "opener": "Vamos construir o teu perfil juntos — vou fazer-te perguntas sobre alguns temas, um a um. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?",
+      "opener_room": "Vamos construir o teu perfil aqui, no grupo — as tuas respostas ficam visíveis para todos, e só tu respondes. Cobrimos a motivação, o treino, a alimentação, o sono e o teu círculo; o stress e os hábitos de recuperação ficam em privado — escreve-me <code>/pillars</code> em mensagem direta para esses dois. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?",
+      "start_failed": "Não consegui iniciar o perfil nesta conversa. Tenta outra vez dentro de um momento."
+    },
+    "plan": {
+      "block_line": "Bloco: {0}{1}",
+      "day_line": "{0}: {1}",
+      "empty": "Ainda não há plano guardado — pede ao teu coach para construir um até ao teu objetivo.",
+      "goal_line": "Objetivo: {0} — {1} ({2} dias)",
+      "no_coverage": "não coberto pelo plano",
+      "no_session": "nada planeado",
+      "rest": "descanso",
+      "resumes": "O plano recomeça a {0}.",
+      "shared_header": "📋 Plano de <b>{0}</b> — partilhado com a sala.",
+      "stale_goal": "\n\n⚠️ O teu objetivo mudou desde este plano — pede ao teu coach para o atualizar.",
+      "today": "Hoje",
+      "tomorrow": "Amanhã",
+      "week_header": "Semana de {0}{1}"
+    },
+    "privacy": {
+      "off_confirmation": "O consentimento de estatísticas anónimas está agora <b>desativado</b>. Não serão recolhidos dados de uso anónimos.\n\nUsa <code>/privacy on</code> para voltar a ativar a qualquer momento.",
+      "on_confirmation": "O consentimento de estatísticas anónimas está agora <b>ativado</b>. Obrigado por ajudares a melhorar o Dravr!\n\nUsa <code>/privacy off</code> para cancelar a qualquer momento.",
+      "status": {
+        "disabled": "desativado",
+        "enabled": "ativado"
+      },
+      "status_line": "O consentimento de estatísticas anónimas está atualmente <b>{0}</b>.\n\nUsa <code>/privacy on</code> para ativar ou <code>/privacy off</code> para desativar."
+    },
+    "reset": {
+      "confirm": "🔄 Nova conversa iniciada — recomeçando do zero. O teu histórico anterior fica arquivado.",
+      "walk_interrupted": "\n\nO teu perfil estava em curso — escreve <code>/pillars</code> para retomar."
+    },
+    "status": {
+      "channel_label": "\nCanal: {0}",
+      "groups_label": "\nGrupos: {0}",
+      "header": "O teu estado no Dravr:\n",
+      "providers_label": "\nFornecedores: {0}",
+      "providers_none": "\nFornecedores: nenhum ligado"
+    },
+    "timezone": {
+      "invalid": "Fuso horário inválido. Indica um nome IANA, por exemplo <code>/timezone America/Toronto</code>.",
+      "set": "Fuso horário definido para <b>{0}</b>. As horas de início das tuas atividades passam a aparecer neste fuso horário."
+    }
+  },
   "common": {
     "about": "Sobre",
     "active": "Ativo",
@@ -1504,6 +1662,132 @@
     "title": "Configuração do fornecedor de IA",
     "validationFailed": "A validação falhou"
   },
+  "messaging": {
+    "account": {
+      "no_provider": "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nLiga-te aqui:\n{0}",
+      "no_provider_with_email": "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nEntra com a tua conta {1} aqui:\n{0}",
+      "pending": "A tua conta está ligada a este canal, mas ainda aguarda aprovação de um administrador. Vais poder falar com o Dravr assim que for ativada — avisamos-te por aqui.",
+      "registration_approved": "🎉 A tua conta Dravr foi aprovada! Já podes falar com o teu coach aqui. Faz-me a tua primeira pergunta quando quiseres.",
+      "suspended": "A tua conta Dravr está suspensa. Contacta o suporte para restabelecer o acesso."
+    },
+    "backfill": {
+      "list_header": "✅ O teu histórico está pronto — {0} atividades:",
+      "list_more": "… e mais {0}",
+      "ready": "✅ O teu histórico está pronto — {0} atividades carregadas. Pergunta-me de novo o que procuravas."
+    },
+    "capability": {
+      "refusal": "Não consigo fazer isso com as ferramentas que tenho."
+    },
+    "coach_proposal": {
+      "footer": "\nResponde com um número para começar, ou pergunta-me o que quiseres.",
+      "welcome": "Bem-vindo! Com base no teu treino recente de {0}, aqui estão {1} treinadores para ti:\n\n",
+      "welcome_generic": "Bem-vindo! Aqui estão {0} treinadores para começar:\n\n"
+    },
+    "commitment": {
+      "activity_any": "sessões",
+      "met": "Disseste {1} × {2}. Feito: {0}/{1}. 👏",
+      "missed": "Disseste {0} × {1} e não ficou nada registado. O que atrapalhou?",
+      "partial": "Disseste {1} × {2}. Fizeste {0}. Retomamos o ritmo esta semana?",
+      "push_title": "O teu compromisso desta semana"
+    },
+    "connect": {
+      "button": "Ligar a minha conta",
+      "prompt": "Vamos ligar o teu serviço de fitness (Strava, Garmin ou Whoop) para que eu possa ajudar-te com os teus dados reais. Toca no botão abaixo para te ligares em segurança.",
+      "title": "Ligar um serviço de fitness"
+    },
+    "empty_reply": "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?",
+    "error": {
+      "generic": "O Dravr está temporariamente indisponível. A equipa foi notificada — tenta de novo em alguns minutos. (ref: {0})"
+    },
+    "guardian": {
+      "confirm_denied": "Entendido — a ação foi cancelada.",
+      "confirm_done": "Feito — a ação {0} foi executada.",
+      "confirm_expired": "Essa confirmação expirou. Reformula o teu pedido para relançar a ação.",
+      "confirm_failed": "A ação {0} foi confirmada mas a execução falhou. Reformula o teu pedido para tentar de novo.",
+      "confirm_not_found": "Nenhuma ação pendente corresponde a esse código. Talvez já tenha sido resolvida.",
+      "confirm_prompt": "Por segurança, a ação {0} precisa da tua confirmação antes de ser executada. Responde /confirm {1} para aprovar ou /deny {1} para cancelar (expira em 5 minutos).",
+      "denied": "Essa ação foi bloqueada por segurança. Reformula o teu pedido ou tenta de novo sem o contexto anterior."
+    },
+    "guardrail": {
+      "blocked_topic": "Prefiro não abordar esse tema aqui. Vamos manter o foco no teu treino e recuperação. Há algo específico em que possa ajudar?",
+      "too_long": "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?"
+    },
+    "intake": {
+      "complete_clear": "É tudo, nada a assinalar. Pergunta-me o que quiseres sobre o teu treino.",
+      "complete_flagged": "É tudo. Anotei {0} ponto(s) para o teu coach ter em conta — nada disto te impede de treinar, e vale a pena falar com o teu médico antes de forçares.",
+      "opener": "Já agora, algumas perguntas rápidas — um minuto, e todo o acompanhamento a partir daqui é mais preciso e mais seguro.",
+      "parq": {
+        "chest_pain": "Sentes dor no peito em repouso, nas atividades diárias ou durante o exercício?",
+        "chronic_condition": "Foste diagnosticado com outra doença crónica (que não seja doença cardíaca)?",
+        "dizziness": "Perdes o equilíbrio por tonturas, ou perdeste a consciência nos últimos 12 meses?",
+        "heart_condition": "Algum médico já te disse que tens um problema cardíaco?",
+        "intro": "Agora sete perguntas de saúde padrão (o PAR-Q+). Um «sim» não bloqueia nada — apenas indica ao teu coach onde ser prudente.",
+        "joint_problem": "Tens algum problema ósseo, articular ou dos tecidos moles que a atividade física possa agravar?",
+        "medication": "Tomas atualmente medicamentos prescritos para uma doença crónica?",
+        "supervised_only": "Um médico disse-te que só deverias fazer atividade física sob supervisão médica?"
+      },
+      "persona": "Primeiro: treinas para ti, ou treinas outras pessoas?\n\n<b>1</b> — Treino para mim\n<b>2</b> — Treino outras pessoas",
+      "retry": "Desculpa — preciso só do número, para registar corretamente.\n\n{0}",
+      "yesno_hint": "Responde <b>1</b> para sim, <b>2</b> para não."
+    },
+    "link": {
+      "cancelled": "Ligação cancelada. Envia uma mensagem a qualquer momento para começar de novo.",
+      "email_not_configured": "O envio de e-mails não está configurado. Contacta o teu administrador.",
+      "email_prompt": "Olá! Para ligares a tua conta Dravr, escreve o teu e-mail.\nEscreve «cancel» para parar.",
+      "email_send_failed": "Não foi possível enviar o e-mail de verificação. Tenta de novo mais tarde.",
+      "fallback_prompt": "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.",
+      "generic_error": "Algo correu mal. Tenta de novo mais tarde.",
+      "identity_collision": "Não foi possível ligar a tua conta. Esta identidade de canal pode já estar ligada a outra conta.",
+      "incorrect_code": "Código incorreto. Tens {0} tentativa(s) restantes. Tenta de novo ou escreve «cancel» para parar.",
+      "initial_prompt": "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.",
+      "invalid_email": "Isto não parece um endereço de e-mail. Escreve o e-mail da tua conta Dravr.",
+      "logout_complete": "Saíste da sessão do Dravr. Envia uma mensagem a qualquer momento para ligar novamente a tua conta.",
+      "no_tenant": "Esta conta não está associada a nenhuma organização. Contacta o suporte.",
+      "otp_prompt": "Escreve o código de 6 dígitos enviado por e-mail, ou escreve «cancel» para parar.",
+      "otp_sent": "Enviei um código de 6 dígitos para {0}. Escreve-o aqui nos próximos 10 minutos.\nEscreve «cancel» para parar.",
+      "session_expired": "A tua sessão de ligação expirou. Envia uma mensagem para começar de novo.",
+      "signup_created": "Conta criada. Vou enviar-te um codigo por e-mail para confirmar que o endereco e teu.",
+      "signup_failed": "Nao consegui criar a conta. Tenta novamente daqui a pouco, ou escreve «cancel» para parar.",
+      "signup_offer": "Nenhuma conta Dravr com {0}. Posso criar uma agora mesmo - responde «sim» para continuar, ou «cancel» para parar.",
+      "success": "A tua conta foi ligada com sucesso! Já podes falar com o Dravr através deste canal.\n\nEscreve «logout» a qualquer momento para desligar.",
+      "too_many_attempts": "Demasiadas tentativas incorretas. A sessão de ligação foi cancelada. Envia uma mensagem para começar de novo.",
+      "verification_error": "Algo correu mal a verificar a tua conta. Tenta de novo."
+    },
+    "provider": {
+      "reauth_required": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 24 horas):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.",
+      "reauth_required_no_link": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente o {0} nas definições e volta a perguntar-me.",
+      "reauth_served": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. Liga novamente o {0} aqui para eu ver tudo (link válido por 24 horas):\n\n{1}",
+      "reauth_served_no_link": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. Liga novamente o {0} nas definições para eu ver tudo.",
+      "reconnect_button": "Ligar novamente {0}"
+    },
+    "quota_exceeded": "Atingiste o limite de conversa do teu plano por agora. Ele repõe-se automaticamente — volta um pouco mais tarde.",
+    "quota_warning": "Nota: já usaste {0} de {1} do teu plano. O contador repõe-se a {2}.",
+    "rate_limited": "Estás a enviar mensagens um pouco mais depressa do que o teu plano permite. Aguarda um momento e tenta novamente — eu estarei aqui.",
+    "reply_withheld": "A minha resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Envia de novo a tua última mensagem e retomamos onde estávamos.",
+    "scope": {
+      "carve_out": {
+        "nutrition": "## Esclarecimento para o teu papel de coach de nutrição\n\nComo coach de nutrição, as perguntas sobre refeições, jantares, pequenos-almoços, lanches, escolhas alimentares e planeamento de refeições ligado ao treino estão plenamente no teu domínio. Responde diretamente, apoiando-te nos dados de treino do utilizador (intensidade, duração, gasto energético). A regra «procura de comida fora do âmbito» acima visa apenas procura de restaurantes, apps de entrega e menus online — não cobre conselhos nutricionais baseados em evidência nem planeamento de refeições fundado nos dados de treino. Nunca recuses «o que comer depois da corrida», «ideias para o jantar após treinar», «lanche pós-treino» ou equivalente.",
+        "recipes": "## Esclarecimento para o teu papel de coach de receitas e planeamento de refeições\n\nComo coach de receitas e planeamento de refeições, ideias de receitas, sugestões de pratos e escolhas alimentares ajustadas ao treino estão plenamente no teu domínio. A regra «procura de comida fora do âmbito» acima visa restaurantes e apps de entrega — não receitas caseiras nem planeamento de refeições baseado nos dados de treino do utilizador. Responde diretamente a estes pedidos."
+      },
+      "refusal": "Isso está fora do que posso ajudar — sou o teu assistente de fitness."
+    },
+    "status": {
+      "calling_tool": "a chamar {0}…",
+      "error": "erro: {0}",
+      "generating_response": "a gerar resposta…",
+      "reading_question": "a ler a tua pergunta…"
+    },
+    "thinking_placeholder": "a pensar…",
+    "turn": {
+      "language": "## Idioma da resposta\n\nEsta conversa decorre em português. Escreve toda a tua resposta em português: cada frase, cada título e cada item de lista, incluindo uma recusa, um pedido de desculpa ou um pedido de esclarecimento.\n\nO contexto, os resultados das ferramentas e os dados que recebes estão em inglês. Traduz-os: nunca copies uma frase em inglês tal como está. Os nomes próprios (Strava, WHOOP, Garmin) e as unidades não mudam.\n\nNão mudes de idioma a meio da resposta, nem mudes porque a última mensagem é curta ou contém palavras em inglês («Yes», «ok», «ride»). É esta instrução que fixa o idioma, não o comprimento da mensagem."
+    },
+    "turn_interrupted": "A minha resposta foi interrompida antes de te chegar — não tenho nada para te dar desta vez. Envia de novo a tua pergunta e retomo.",
+    "unknown_command": "Comando desconhecido. Escreve /help para ver os comandos disponíveis.",
+    "verification": {
+      "block_fallback": "Comecei a responder, mas algumas das afirmações que iria fazer não correspondiam às fontes em que confio. Deixa-me reformular — podes perguntar de novo com um pouco mais de contexto sobre o que queres entender?",
+      "warn_suffix": "⚠️ Algumas afirmações que não consegui sustentar formalmente — corrige-me se alguma estiver errada:"
+    }
+  },
   "msgChan": {
     "accessToken": "Token de acesso",
     "appSecretHmac": "Segredo da aplicação (HMAC)",
@@ -1582,6 +1866,13 @@
     "quietUntil": "Silêncio até",
     "title": "Notificações"
   },
+  "notifications": {
+    "channel_body": "🔔 {0}\n\n{1}",
+    "digest": {
+      "body": "{0} notificação(ões) guardadas esta semana segundo o teu perfil de coaching. Está tudo na app.",
+      "title": "O teu resumo semanal de notificações"
+    }
+  },
   "onboarding": {
     "aboutYouHint": "Três perguntas rápidas para que o teu coach te conheça desde o início. Salta as que quiseres — o resto vamos recolhendo pelo caminho.",
     "almostThere": "Estamos quase lá",
@@ -1645,6 +1936,38 @@
     "new": "Nova palavra-passe",
     "newPlaceholder": "Escreve a nova palavra-passe",
     "update": "Atualizar palavra-passe"
+  },
+  "persona": {
+    "enforcement": {
+      "advisory": "Indicativo",
+      "verified": "Verificado em cada resposta"
+    },
+    "isolation": {
+      "redacted": "Uma secção que citava um atleta fora do teu plantel foi removida desta resposta."
+    },
+    "rule": {
+      "acronyms_glossed": "Os acrónimos são explicados na primeira ocorrência.",
+      "athlete_attribution": "Cada bloco de dados nomeia o atleta a que pertence.",
+      "citations_required": "Citação do referencial em cada afirmação com números.",
+      "exact_numbers": "Números exatos, nunca arredondados.",
+      "line_by_line": "Blocos de atividade linha a linha.",
+      "max_words": "Respostas limitadas a {0} palavras.",
+      "no_citations": "Sem citações de referenciais nem acrónimos técnicos.",
+      "no_long_lists": "Sem listas de {0} ou mais itens.",
+      "no_narration": "Sem narração das consultas de dados.",
+      "no_softeners": "Sem fórmulas atenuantes.",
+      "p0_p3_ladder": "Escala de prontidão P0–P3 em cada veredicto.",
+      "prose_only": "Respostas em prosa, sem blocos estruturados.",
+      "roster_verified": "As menções a atletas são verificadas contra o teu plantel.",
+      "rounded_numbers": "Números arredondados para facilitar a leitura.",
+      "short_blocks": "Blocos estruturados limitados a {0} linhas."
+    },
+    "summary": {
+      "casual": "Amigável, encorajador, sem jargão.",
+      "coach": "O rigor Power-athlete, aplicado aos atletas que treinas.",
+      "enthusiast": "Prosa, mais os números que contam.",
+      "power_athlete": "Rigor linha a linha, com citações dos referenciais."
+    }
   },
   "plan": {
     "enterprise": "Enterprise",

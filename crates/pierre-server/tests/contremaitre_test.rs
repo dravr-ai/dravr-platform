@@ -17,16 +17,16 @@ use pierre_contremaitre::manifest::{
     ManifestPrompts, ManifestStrings, ManifestTools,
 };
 use pierre_contremaitre::messaging_strings::{
-    format_template, MessagingStringsRegistry, DEFAULT_LOCALE, EN_EMPTY_REPLY,
-    EN_VERIFICATION_BLOCK_FALLBACK, FR_EMPTY_REPLY, FR_VERIFICATION_BLOCK_FALLBACK,
-    KEY_EMPTY_REPLY, KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER,
-    KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
+    format_template, MessagingStringsRegistry, DEFAULT_LOCALE, KEY_EMPTY_REPLY,
+    KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GUARDIAN_DENIED,
+    KEY_HELP_FOOTER, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_contremaitre::sync::system_prompt_content_is_valid;
 use pierre_contremaitre::tool_descriptions::{
     parse_tool_yaml, ToolDescriptionOverlay, ToolDescriptionRegistry,
 };
+use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_mcp_server::routes::contremaitre_webhook::verify_github_signature;
 use ring::hmac;
 use std::fs;
@@ -844,16 +844,50 @@ fn test_messaging_registry_seeds_all_compiled_locales() {
         key_count * 5,
         "every registered key must ship FR/EN/ES/DE/PT (5 locales)"
     );
-    assert_eq!(reg.get(KEY_EMPTY_REPLY, "fr"), FR_EMPTY_REPLY);
-    assert_eq!(reg.get(KEY_EMPTY_REPLY, "en"), EN_EMPTY_REPLY);
-    assert_eq!(
-        reg.get(KEY_VERIFICATION_BLOCK_FALLBACK, "fr"),
-        FR_VERIFICATION_BLOCK_FALLBACK
+    assert!(reg.get(KEY_EMPTY_REPLY, "fr").contains("réponse"));
+    assert!(reg.get(KEY_EMPTY_REPLY, "en").contains("reply"));
+    let fallback_fr = reg.get(KEY_VERIFICATION_BLOCK_FALLBACK, "fr");
+    let fallback_en = reg.get(KEY_VERIFICATION_BLOCK_FALLBACK, "en");
+    assert!(!fallback_fr.is_empty() && !fallback_en.is_empty());
+    assert_ne!(fallback_fr, fallback_en, "en must not fall back to fr");
+}
+
+#[test]
+fn test_catalogue_ships_every_key_in_every_locale() {
+    // The registry seeds from the five embedded translation.json files —
+    // the whole catalogue, client chrome included — and every key must be
+    // present in every locale, or an athlete in that locale reads French for
+    // that one string. Tier 1b checks the files before a push; this is the
+    // same invariant proven on the compiled registry in CI.
+    let reg = MessagingStringsRegistry::new();
+    let mut locales_by_key: HashMap<String, Vec<String>> = HashMap::new();
+    for (key, locale, _) in reg.list() {
+        locales_by_key.entry(key).or_default().push(locale);
+    }
+    assert!(
+        locales_by_key.len() > 2_000,
+        "the client corpus is part of the catalogue; got {} keys",
+        locales_by_key.len()
     );
-    assert_eq!(
-        reg.get(KEY_VERIFICATION_BLOCK_FALLBACK, "en"),
-        EN_VERIFICATION_BLOCK_FALLBACK
-    );
+    for (key, locales) in &locales_by_key {
+        let mut locales = locales.clone();
+        locales.sort_unstable();
+        let mut expected: Vec<String> = SUPPORTED_LOCALES.iter().map(|l| (*l).to_owned()).collect();
+        expected.sort_unstable();
+        assert_eq!(locales, expected, "{key} is not in every locale");
+    }
+    for locale in SUPPORTED_LOCALES {
+        for key in [KEY_EMPTY_REPLY, KEY_HELP_FOOTER, KEY_GUARDIAN_DENIED] {
+            assert!(
+                !reg.get(key, locale).trim().is_empty(),
+                "{key} empty in {locale}"
+            );
+        }
+        assert!(
+            !reg.get("common.cancel", locale).trim().is_empty(),
+            "a client-rendered key is served too ({locale})"
+        );
+    }
 }
 
 #[test]
@@ -891,7 +925,7 @@ fn test_messaging_registry_locale_fallback_to_default_locale() {
     let reg = MessagingStringsRegistry::new();
     assert_eq!(
         reg.get(KEY_EMPTY_REPLY, "zz"),
-        FR_EMPTY_REPLY,
+        reg.get(KEY_EMPTY_REPLY, "fr"),
         "unknown locale should fall back to DEFAULT_LOCALE content"
     );
     assert_eq!(DEFAULT_LOCALE, "fr");
@@ -907,6 +941,7 @@ fn test_messaging_registry_unknown_key_falls_back_to_empty_string() {
 #[test]
 fn test_messaging_registry_update_replaces_compiled_in_entry() {
     let reg = MessagingStringsRegistry::new();
+    let english_before = reg.get(KEY_EMPTY_REPLY, "en");
     let new_content = "replaced".to_owned();
     let sha = compute_sha256(new_content.as_bytes());
     reg.update(KEY_EMPTY_REPLY, "fr", new_content.clone(), sha.clone());
@@ -916,7 +951,7 @@ fn test_messaging_registry_update_replaces_compiled_in_entry() {
         Some(sha.as_str())
     );
     // English entry for the same key must stay untouched.
-    assert_eq!(reg.get(KEY_EMPTY_REPLY, "en"), EN_EMPTY_REPLY);
+    assert_eq!(reg.get(KEY_EMPTY_REPLY, "en"), english_before);
 }
 
 #[test]

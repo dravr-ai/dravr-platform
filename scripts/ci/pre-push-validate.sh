@@ -44,6 +44,7 @@ HAS_MOBILE_CHANGES=false
 HAS_INFRA_CHANGES=false
 HAS_INFRA_MODULE_CHANGES=false
 HAS_MCP_TYPES_CHANGES=false
+HAS_I18N_CATALOGUE_CHANGES=false
 HAS_API_CLIENT_CHANGES=false
 HAS_SHARED_PACKAGE_CHANGES=false
 
@@ -68,6 +69,7 @@ while IFS= read -r file; do
             fi
             ;;
         frontend/*) HAS_FRONTEND_CHANGES=true ;;
+        packages/i18n/src/locales/*) HAS_I18N_CATALOGUE_CHANGES=true; HAS_SHARED_PACKAGE_CHANGES=true ;;
         packages/mcp-types/*) HAS_MCP_TYPES_CHANGES=true; HAS_SHARED_PACKAGE_CHANGES=true ;;
         packages/api-client/*) HAS_API_CLIENT_CHANGES=true; HAS_SHARED_PACKAGE_CHANGES=true ;;
         packages/*) HAS_SHARED_PACKAGE_CHANGES=true ;;
@@ -165,8 +167,10 @@ fi
 # coupling is tested for real by the contremaitre-sync CI job, but that costs a
 # Rust compile; this tier is the seconds-long grep that runs before the push.
 # Also fires on packages/mcp-types changes, since the tool check reads the
-# generated SDK types. See AGENTS.md.
-if { [[ "$HAS_RUST_CHANGES" == "true" ]] || [[ "$HAS_MCP_TYPES_CHANGES" == "true" ]]; } \
+# generated SDK types, and on the string catalogue itself: a JSON-only push
+# (a translator fixing one locale) is exactly the push that drops a key from
+# four of the five files. See AGENTS.md.
+if { [[ "$HAS_RUST_CHANGES" == "true" ]] || [[ "$HAS_MCP_TYPES_CHANGES" == "true" ]] || [[ "$HAS_I18N_CATALOGUE_CHANGES" == "true" ]]; } \
     && [[ -f "$PROJECT_ROOT/scripts/ci/check-contremaitre-sync.sh" ]]; then
     echo "Tier 1b: Contremaitre Coupling Sync"
     echo "------------------------------------"

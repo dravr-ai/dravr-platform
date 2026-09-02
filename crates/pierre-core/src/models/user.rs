@@ -507,6 +507,15 @@ pub struct User {
     pub theme: Option<String>,
 }
 
+/// Every locale the platform speaks, in the order the language menus list them.
+///
+/// The one list: the string catalogue ships every key in exactly these, the
+/// messaging-strings registry seeds them, `PUT /api/user/locale` accepts
+/// exactly these, `GET /api/i18n/{locale}` serves exactly these, and both
+/// clients offer exactly these (`SUPPORTED_LANGUAGES` in `@pierre/i18n`). A
+/// sixth locale is added here first. The first entry is the default.
+pub const SUPPORTED_LOCALES: [&str; 5] = ["fr", "en", "es", "de", "pt"];
+
 /// Default locale (`"fr"`) used when deserializing a pre-locale `User`.
 ///
 /// Backward-compat for in-memory JSON payloads (e.g. tests) that predate the
@@ -514,7 +523,7 @@ pub struct User {
 /// rows always carry a concrete value.
 #[must_use]
 pub fn default_locale() -> String {
-    "fr".to_owned()
+    SUPPORTED_LOCALES[0].to_owned()
 }
 
 impl User {
