@@ -51,6 +51,28 @@ The Pierre MCP Client automatically:
 
 No manual token management required!
 
+## Protocol
+
+The client is dual-era by design, because the two sides of the bridge speak different
+MCP revisions:
+
+- **Toward Dravr** it speaks MCP `2026-07-28`, the stateless Streamable HTTP model: no
+  `initialize` handshake and no session. Every request carries its protocol version and
+  the client's capabilities in `_meta`, plus the `MCP-Protocol-Version`, `Mcp-Method`
+  and `Mcp-Name` headers, and `server/discover` reads the server's identity and
+  capabilities. When the server advertises the Tasks extension
+  (`io.modelcontextprotocol/tasks`) the client declares it, so a long-running tool such
+  as a historical activity backfill answers with a task handle that the client polls to
+  completion instead of an "ask again later" reply. A host that offered a progress token
+  hears each poll.
+- **Toward the MCP host** (Claude Desktop, ChatGPT, an IDE) it serves stdio through the
+  official `@modelcontextprotocol/sdk` server, negotiating whatever revision the host
+  asks for, up to `2025-11-25`.
+
+A Dravr server that does not serve `2026-07-28` is reported at startup, naming the
+revisions it does support. `McpHttpClient` is exported for programmatic use without the
+stdio bridge around it.
+
 ## Available Tools
 
 Once connected, your AI assistant can access 100+ fitness tools including:
@@ -69,7 +91,7 @@ See [Tools Reference](../book/src/tools-reference.md) for complete documentation
 ## Requirements
 
 - **Node.js**: 24.0.0 or higher
-- **Pierre MCP Server**: Running on port 8081 (or custom port)
+- **Pierre MCP Server**: Running on port 8081 (or custom port), serving MCP `2026-07-28`
 
 ## Configuration Options
 

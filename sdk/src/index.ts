@@ -16,6 +16,44 @@
 export { PierreMcpClient, BridgeConfig } from './bridge';
 
 /**
+ * Export the stateless MCP client the bridge uses to reach the Dravr server over
+ * Streamable HTTP, protocol revision 2026-07-28, for programmatic use without the
+ * stdio bridge around it.
+ */
+export {
+  McpHttpClient,
+  McpHttpError,
+  McpRpcError,
+  McpProtocolError,
+  McpTaskCancelledError,
+  encodeHeaderValue,
+  MCP_PROTOCOL_VERSION,
+  TASKS_EXTENSION_ID,
+  RPC_METHOD_NOT_FOUND,
+  RPC_INVALID_PARAMS,
+  RPC_HEADER_MISMATCH,
+  RPC_MISSING_REQUIRED_CLIENT_CAPABILITY,
+  RPC_UNSUPPORTED_PROTOCOL_VERSION,
+  type McpHttpClientOptions,
+  type CallToolOptions,
+  type RequestOptions,
+  type DiscoverResult,
+  type ServerCapabilities,
+  type ClientCapabilities,
+  type Implementation,
+  type McpToolDefinition,
+  type McpListToolsResult,
+  type McpCallToolResult,
+  type McpContentBlock,
+  type McpTask,
+  type McpTaskState,
+  type TaskStatus,
+  type McpProgress,
+  type McpNotification,
+  type JsonRpcErrorShape,
+} from './mcp-http-client';
+
+/**
  * Export the OAuth client provider used by the bridge for programmatic embedding
  * and for testing the non-interactive (browser-disabled) authorization guard.
  */

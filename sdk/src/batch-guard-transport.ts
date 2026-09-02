@@ -5,7 +5,13 @@
 // ABOUTME: Intercepts JSON-RPC batch requests and handles them appropriately for MCP protocol
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { JSONRPCMessage, JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  JSONRPCMessage,
+  JSONRPCMessageSchema,
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
+import { version as packageVersion } from "../package.json";
 
 /**
  * Newline-delimited stdio framing that carries JSON-RPC batches through intact.
@@ -80,7 +86,7 @@ export function installBatchGuard(
  * Creates a message handler wrapper that intercepts batch requests.
  * 
  * This wrapper processes incoming MCP messages and:
- * - Rejects batch requests with appropriate JSON-RPC errors (per 2025-06-18 spec)
+ * - Rejects batch requests with appropriate JSON-RPC errors (batching left the protocol in 2025-06-18)
  * - Handles server/info requests
  * - Forwards other messages to the original handler
  * 
@@ -110,11 +116,13 @@ export function createBatchGuardMessageHandler(
       const response = {
         jsonrpc: "2.0" as const,
         id: message.id,
+        // The host-facing side speaks whatever the MCP SDK's Server negotiates, so the
+        // versions named here are the SDK's own, never a copy that can drift from it.
         result: {
           name: "pierre-mcp-client",
-          version: "1.0.0",
-          protocolVersion: "2025-06-18",
-          supportedVersions: ["2024-11-05", "2025-03-26", "2025-06-18"],
+          version: packageVersion,
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          supportedVersions: SUPPORTED_PROTOCOL_VERSIONS,
           capabilities: {
             tools: {},
             resources: {},

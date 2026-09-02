@@ -4,12 +4,9 @@
 // ABOUTME: MCP bridge connecting MCP host (stdio) to Dravr Server (HTTP)
 // ABOUTME: Manages MCP message translation, tool forwarding, and OAuth flow integration
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { z } from "zod";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -30,22 +27,18 @@ import { PierreOAuthClientProvider, OAuthSessionConfig } from "./oauth-session-m
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
-
-// Define custom notification schema for Dravr's OAuth completion notifications
-const OAuthCompletedNotificationSchema = z.object({
-  method: z.literal("notifications/oauth_completed"),
-  params: z
-    .object({
-      provider: z.string(),
-      success: z.boolean(),
-      message: z.string(),
-      user_id: z.string().optional(),
-    })
-    .optional(),
-});
-
-// Define the notification type explicitly to avoid deep type instantiation issues
-type OAuthCompletedNotification = z.infer<typeof OAuthCompletedNotificationSchema>;
+import {
+  McpHttpClient,
+  McpHttpError,
+  McpRpcError,
+  MCP_PROTOCOL_VERSION,
+  RPC_UNSUPPORTED_PROTOCOL_VERSION,
+  type McpCallToolResult,
+  type McpProgress,
+  type McpTask,
+  type McpTaskState,
+} from "./mcp-http-client.js";
+import { version as packageVersion } from "../package.json";
 
 /**
  * How long a tool call waits for a browser step only a human can finish - a Dravr
@@ -111,7 +104,7 @@ export type BridgeConfig = BridgeConfigJwt | BridgeConfigOAuth | BridgeConfigApi
 
 export class PierreMcpClient {
   private config: BridgeConfig;
-  private pierreClient: Client | null = null;
+  private pierreClient: McpHttpClient | null = null;
   private mcpServer: Server | null = null;
   private serverTransport: StdioServerTransport | null = null;
   private cachedTools: any = null;
@@ -244,13 +237,13 @@ export class PierreMcpClient {
     // This prevents wasting user time with invalid credentials
     await this.oauthProvider.validateAndCleanupCachedCredentials();
 
-    // Connect proactively to cache the toolset for the MCP host. The server allows
-    // tools/list without authentication - only tool calls require auth - so this warms
-    // a connection the first tool call would otherwise have to build synchronously, and
-    // gives tools/list a real answer instead of the connect-only fallback it returns
-    // when it cannot reach the server in time. It runs in the background (start() does
-    // not await it), so the budget below caps a background task rather than delaying
-    // startup. When authentication later swaps in the full toolset, the host is told via
+    // Discover proactively and cache the toolset for the MCP host. With a stored
+    // session this gives tools/list the real catalogue instead of the connect-only
+    // fallback it returns when the server cannot be reached in time; without one the
+    // server's answer is its authentication challenge, and the fallback stands until
+    // the user signs in. It runs in the background (start() does not await it), so the
+    // budget below caps a background task rather than delaying startup. When
+    // authentication later swaps in the full toolset, the host is told via
     // notifications/tools/list_changed.
     const connectionTimeoutMs =
       this.config.proactiveConnectionTimeoutMs || 15000;
@@ -275,8 +268,10 @@ export class PierreMcpClient {
         return;
       }
 
-      // Cache tools immediately so they're ready for tools/list
-      if (this.pierreClient) {
+      // Cache tools immediately so they're ready for tools/list. Without a session
+      // the server answers tools/list with its challenge, so the listing is not
+      // attempted and the connect tool stands in until the user signs in.
+      if (this.pierreClient && (await this.oauthProvider.tokens())) {
         const client = this.pierreClient;
         const toolsResult = await this.withTimeout(
           client.listTools(),
@@ -341,16 +336,14 @@ export class PierreMcpClient {
 
     this.log(`Target URL: ${this.mcpUrl}`);
 
-    // Always attempt connection to discover tools (initialize and tools/list don't require auth)
-    // If tokens exist, the connection will be fully authenticated
-    // If no tokens, we can still discover tools but tool calls will require authentication via connect_to_dravr
+    // Discovery runs with or without a session. Without one the server answers with
+    // its RFC 9728 challenge, which still says the server is there and speaks the
+    // modern revision; the toolset is then the connect tool until the user signs in.
     const existingTokens = await this.oauthProvider.tokens();
     if (existingTokens) {
-      this.log("Found existing tokens - connecting with authentication");
+      this.log("Found existing tokens - discovering with authentication");
     } else {
-      this.log(
-        "No tokens found - connecting without authentication to discover tools",
-      );
+      this.log("No tokens found - discovering without a session");
     }
 
     await this.attemptConnection();
@@ -360,124 +353,82 @@ export class PierreMcpClient {
     if (!this.oauthProvider) {
       throw new PierreError(PierreErrorCode.CONFIG_ERROR, "OAuth provider not initialized");
     }
+    const provider = this.oauthProvider;
+    const maxAttempts = 3;
 
-    let connected = false;
-    let retryCount = 0;
-    const maxRetries = 3;
+    for (let attempt = 1; ; attempt++) {
+      // Await tokens() so async token loading completes: a synchronous savedTokens
+      // check raced the load and read "no session" while one was being restored.
+      const hasTokens = !!(await provider.tokens());
+      this.log(
+        hasTokens
+          ? "Discovering Dravr MCP Server (authenticated)"
+          : "Discovering Dravr MCP Server (no session yet)",
+      );
 
-    while (!connected && retryCount < maxRetries) {
+      // There is no connection to open: revision 2026-07-28 is stateless, so the
+      // client is a URL and a way to fetch the current bearer. Discovery is the one
+      // request made up front, because it is how the client learns whether the server
+      // serves the Tasks extension - the difference between a long tool call finishing
+      // and it handing back "ask again later".
+      const client = new McpHttpClient({
+        url: this.mcpUrl,
+        clientInfo: { name: "pierre-mcp-client", version: packageVersion },
+        bearer: async () => (await provider.tokens())?.access_token,
+        log: (message) => this.log(message),
+      });
+
       try {
-        // Create fresh MCP client for each attempt
-        this.pierreClient = new Client(
-          {
-            name: "pierre-mcp-client",
-            version: "1.0.0",
-          },
-          {
-            capabilities: {},
-          },
+        const discovered = await client.discover();
+        this.pierreClient = client;
+        const server = discovered.serverInfo
+          ? `${discovered.serverInfo.name} ${discovered.serverInfo.version}`
+          : "Dravr MCP Server";
+        this.log(
+          `Connected to ${server} over MCP ${MCP_PROTOCOL_VERSION}` +
+            (client.serverSupportsTasks() ? " (Tasks extension served)" : "") +
+            (hasTokens ? "" : " - tool discovery only until you connect"),
         );
-
-        // Check if we have authentication tokens BEFORE creating transport
-        // This prevents the SDK from triggering interactive OAuth flow
-        // IMPORTANT: Must await tokens() to ensure async token loading completes
-        // Using synchronous savedTokens check causes race condition (tokens may not be loaded yet)
-        const existingTokens = await this.oauthProvider.tokens();
-        const hasTokens = !!existingTokens;
-
-        if (hasTokens) {
-          this.log("Creating authenticated MCP transport (tokens available)");
-        } else {
-          this.log(
-            "Creating unauthenticated MCP transport (no tokens) - tools/list will work per MCP spec",
+        return;
+      } catch (error: any) {
+        if (error instanceof McpHttpError && error.status === 401) {
+          if (!hasTokens) {
+            // The challenge is the server's whole answer to a request without a
+            // session: reachable, modern, and waiting on a sign-in. The client stays
+            // in place so the first tool call can start that sign-in.
+            this.pierreClient = client;
+            this.log(
+              'Dravr MCP Server reachable; a session is needed for tools - use "Connect to Dravr"',
+            );
+            return;
+          }
+          if (attempt < maxAttempts) {
+            this.log(
+              `Stored session rejected, retrying... (attempt ${attempt}/${maxAttempts})`,
+            );
+            await provider.invalidateCredentials("tokens");
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            continue;
+          }
+          throw new PierreError(
+            PierreErrorCode.AUTH_ERROR,
+            `Dravr rejected the stored session ${maxAttempts} times - use "Connect to Dravr" to sign in again`,
           );
         }
-
-        // Create fresh transport for each attempt
-        const baseUrl = new URL(this.mcpUrl);
-        const transport = new StreamableHTTPClientTransport(baseUrl, {
-          // CRITICAL: Only provide authProvider if we have tokens
-          // If we don't have tokens, connect without auth (tools/list works unauthenticated)
-          authProvider: hasTokens ? this.oauthProvider : undefined,
-        });
-
-        // Connect to Dravr MCP Server
-        await this.pierreClient.connect(transport);
-
-        // CRITICAL: Validate that the MCP handshake completed successfully
-        // The server MUST respond to initialize with proper JSON-RPC, not custom SSE events
-        // This catches servers that send "event:connected" or other non-MCP messages
-        try {
-          this.log("Validating MCP protocol handshake with ping...");
-          const pingTimeout = 5000; // 5 second timeout for validation
-          await Promise.race([
-            this.pierreClient.ping(),
-            new Promise((_, reject) =>
-              setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      "MCP ping timeout - server may not be responding to JSON-RPC requests",
-                    ),
-                  ),
-                pingTimeout,
-              ),
-            ),
-          ]);
-          this.log(
-            "MCP protocol validation successful - server is responding to JSON-RPC requests",
-          );
-        } catch (validationError: any) {
-          this.log(
-            `MCP protocol validation FAILED: ${validationError.message}`,
-          );
-          this.log(
-            'Server may be sending invalid SSE events (e.g., "event:connected") instead of JSON-RPC messages',
-          );
+        if (
+          error instanceof McpRpcError &&
+          error.code === RPC_UNSUPPORTED_PROTOCOL_VERSION
+        ) {
+          const supported = (error.data as { supported?: string[] } | undefined)
+            ?.supported;
           throw new PierreError(
             PierreErrorCode.VALIDATION_ERROR,
-            `MCP protocol validation failed: ${validationError.message}. Server must send only JSON-RPC messages over SSE, not custom events.`,
+            `Dravr MCP Server does not speak MCP ${MCP_PROTOCOL_VERSION}; it supports ${JSON.stringify(supported ?? [])}. Upgrade the server or use a client release matching it.`,
           );
         }
-
-        connected = true;
-
-        if (hasTokens) {
-          this.log("Connected to Dravr MCP Server (authenticated)");
-        } else {
-          this.log(
-            "Connected to Dravr MCP Server (unauthenticated - tool discovery only)",
-          );
-          this.log(
-            'Use "Connect to Dravr" tool to authenticate and access your fitness data',
-          );
-        }
-        this.log(`pierreClient is now set: ${!!this.pierreClient}`);
-      } catch (error: any) {
-        if (error.message === "Unauthorized" && retryCount < maxRetries - 1) {
-          retryCount++;
-          this.log(
-            `Token expired or invalid, retrying... (attempt ${retryCount}/${maxRetries})`,
-          );
-
-          // Clear invalid tokens
-          await this.oauthProvider.invalidateCredentials("tokens");
-
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        } else {
-          this.log(
-            `Failed to connect after ${retryCount + 1} attempts: ${error.message}`,
-          );
-          throw error;
-        }
+        this.log(`Failed to reach Dravr MCP Server: ${error?.message ?? error}`);
+        throw error;
       }
-    }
-
-    if (!connected) {
-      throw new PierreError(
-        PierreErrorCode.NETWORK_ERROR,
-        `Failed to connect to Dravr MCP Server after ${maxRetries} attempts - authentication may be required`,
-      );
     }
   }
 
@@ -749,6 +700,71 @@ export class PierreMcpClient {
     return () => clearInterval(progressTimer);
   }
 
+  /**
+   * Forwards a tool call to Dravr and returns the tool's result, whether the server
+   * answered inline or with a task handle the client then polled to completion.
+   *
+   * Progress reaches the host only when it offered a progressToken - that is the host's
+   * opt-in, and the token every report must carry. The relayed count rises by one per
+   * report, as the protocol requires, whatever the server's own progress values do. The
+   * host's cancel signal travels with the call: on HTTP, closing the request is the
+   * cancellation, and a task being polled is cancelled server-side as well.
+   */
+  private async callPierreTool(request: any, extra?: any): Promise<McpCallToolResult> {
+    const client = this.pierreClient;
+    if (!client) {
+      throw new PierreError(PierreErrorCode.CONFIG_ERROR, "Not connected to Dravr");
+    }
+    const name: string = request.params.name;
+    const hostToken =
+      typeof extra?.sendNotification === "function"
+        ? extra._meta?.progressToken
+        : undefined;
+    let reports = 0;
+    const relay =
+      hostToken === undefined
+        ? undefined
+        : (message: string) => {
+            reports += 1;
+            extra
+              .sendNotification({
+                method: "notifications/progress",
+                params: { progressToken: hostToken, progress: reports, message },
+              })
+              .catch((notifyError: any) =>
+                this.log(`Failed to relay progress: ${notifyError.message}`),
+              );
+          };
+
+    return client.callTool(
+      { name, arguments: request.params.arguments || {} },
+      {
+        signal: extra?.signal,
+        onProgress: relay
+          ? (progress: McpProgress) => relay(progress.message ?? `${name} in progress`)
+          : undefined,
+        onTask: (task: McpTask) => {
+          this.log(
+            `${name} answered with task ${task.taskId}; polling every ${task.pollIntervalMs ?? "default"} ms`,
+          );
+          relay?.(`${name} is running on the server (task ${task.taskId})`);
+        },
+        onTaskUpdate: (state: McpTaskState) => {
+          relay?.(state.statusMessage ?? `${name}: ${state.status}`);
+        },
+      },
+    );
+  }
+
+  /**
+   * The cached catalogue as the host receives it: the tools alone. The cache hints
+   * that come with a 2026-07-28 listing describe the server's freshness promise to
+   * this bridge, not to the host on the far side of it.
+   */
+  private hostToolsList(): { tools: any[] } {
+    return { tools: this.cachedTools.tools };
+  }
+
   getClientSideTokenStatus(): {
     pierre: boolean;
     providers: Record<string, boolean>;
@@ -833,7 +849,7 @@ export class PierreMcpClient {
             this.log(
               `Using cached tools from proactive connection (${this.cachedTools.tools.length} tools)`,
             );
-            return this.cachedTools;
+            return this.hostToolsList();
           }
 
           // Per MCP spec: tools/list MUST return ALL tools regardless of connection/auth status
@@ -873,7 +889,7 @@ export class PierreMcpClient {
             this.log(`Received ${result.tools.length} tools from Dravr`);
             // Cache the result for next time
             this.cachedTools = result;
-            return result;
+            return this.hostToolsList();
           }
 
           // Should not reach here, but safety fallback
@@ -989,12 +1005,7 @@ export class PierreMcpClient {
         this.log(
           `Forwarding tool call ${request.params.name} to Dravr server...`,
         );
-        // Use callTool() instead of request() - Client.request() is for raw JSON-RPC,
-        // but we want the higher-level callTool() method which handles the protocol correctly
-        const result = await this.pierreClient!.callTool({
-          name: request.params.name,
-          arguments: request.params.arguments || {},
-        });
+        const result = await this.callPierreTool(request, extra);
         this.log(
           `Tool call ${request.params.name} result:`,
           JSON.stringify(result).substring(0, 200),
@@ -1018,12 +1029,12 @@ export class PierreMcpClient {
         const hasAuthErrorCode =
           errorCode && (errorCode === -32603 || errorCode === -32602);
 
-        // Method 3: Check HTTP status (transport layer errors)
+        // Method 3: the transport's own verdict - a 401 carrying the RFC 9728 challenge
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         const errorLower = errorMessage.toLowerCase();
         const hasHttpAuthStatus =
-          errorLower.includes("http 401") || errorLower.includes("http 400"); // Fallback for misconfigured servers
+          error instanceof McpHttpError && error.status === 401;
 
         // Method 4: Check error message content
         const messageIndicatesAuth =
@@ -1059,10 +1070,7 @@ export class PierreMcpClient {
               // pair before returning, and the transport asks the OAuth provider for
               // tokens on every send, so this retry carries the fresh access token.
               try {
-                const retryResult = await this.pierreClient!.callTool({
-                  name: request.params.name,
-                  arguments: request.params.arguments || {},
-                });
+                const retryResult = await this.callPierreTool(request, extra);
                 this.log(`Request succeeded after automatic session renewal`);
 
                 // Validate response against Zod schema
@@ -1143,10 +1151,10 @@ export class PierreMcpClient {
           };
         }
 
-        return await this.pierreClient.request(
-          request,
-          ReadResourceRequestSchema,
-        );
+        return (await this.pierreClient.request(
+          "resources/read",
+          request.params,
+        )) as any;
       },
     );
 
@@ -1182,7 +1190,7 @@ export class PierreMcpClient {
           };
         }
 
-        return await this.pierreClient.request(request, GetPromptRequestSchema);
+        return (await this.pierreClient.request("prompts/get", request.params)) as any;
       },
     );
 
@@ -1212,7 +1220,10 @@ export class PierreMcpClient {
         };
       }
 
-      return await this.pierreClient.request(request, CompleteRequestSchema);
+      return (await this.pierreClient.request(
+        "completion/complete",
+        request.params,
+      )) as any;
     });
 
     this.log("Request handlers configured");
@@ -1338,7 +1349,7 @@ export class PierreMcpClient {
       // Cache tools immediately after successful connection
       if (this.pierreClient) {
         try {
-          const client = this.pierreClient as Client;
+          const client = this.pierreClient;
           const tools = await client.listTools();
           this.cachedTools = tools;
           this.log(
@@ -1647,68 +1658,9 @@ export class PierreMcpClient {
       this.log.bind(this),
     );
 
-    // Set up notification forwarding from Dravr to Claude
-    this.setupNotificationForwarding();
-
     this.log(
       "Bridge is running - MCP host can now access Dravr Fitness tools",
     );
-  }
-
-  private setupNotificationForwarding(): void {
-    if (!this.pierreClient || !this.mcpServer) {
-      return;
-    }
-
-    // Set up error handler for visibility
-    this.pierreClient.onerror = (error) => {
-      this.log("Dravr client error:", error);
-    };
-
-    // Set up OAuth completion notification handler
-    // Listen for OAuth completion notifications from Dravr server
-    // and forward them to MCP host so users see the success message
-    try {
-      // Use explicit handler function to avoid deep type instantiation
-      const oauthNotificationHandler = async (
-        notification: OAuthCompletedNotification,
-      ) => {
-        this.log(
-          "Received OAuth completion notification from Dravr:",
-          JSON.stringify(notification),
-        );
-
-        if (this.mcpServer) {
-          try {
-            // Forward the notification to MCP host
-            await this.mcpServer.notification({
-              method: "notifications/message",
-              params: {
-                level: "info",
-                message:
-                  notification.params?.message ||
-                  "OAuth authentication completed successfully!",
-              },
-            });
-            this.log("Forwarded OAuth notification to MCP host");
-          } catch (error: any) {
-            this.log(
-              "Failed to forward OAuth notification to MCP host:",
-              error.message,
-            );
-          }
-        }
-      };
-      this.pierreClient.setNotificationHandler(
-        OAuthCompletedNotificationSchema as any,
-        oauthNotificationHandler as any,
-      );
-      this.log("OAuth notification handler registered");
-    } catch (error: any) {
-      this.log("Failed to set up OAuth notification handler:", error.message);
-    }
-
-    this.log("Notification forwarding configured");
   }
 
   async stop(): Promise<void> {
@@ -1717,7 +1669,7 @@ export class PierreMcpClient {
     try {
       // Close Dravr client connection
       if (this.pierreClient) {
-        await this.pierreClient.close();
+        this.pierreClient.close();
         this.pierreClient = null;
       }
 

@@ -55,13 +55,14 @@
     "url": "https://github.com/dravr-ai/dravr-platform/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@napi-rs/keyring": "^1.1.9",
     "@pierre/mcp-types": "file:../packages/mcp-types",
     "@types/node-fetch": "^2.6.13",
     "ajv": "^8.17.1",
     "commander": "^11.0.0",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
