@@ -1,71 +1,85 @@
 #!/usr/bin/env bash
-# ABOUTME: Prepares a feature branch for merge by rebasing onto main
-# ABOUTME: Handles rebase, push, and provides CI monitoring instructions
+# ABOUTME: Prepares a feature branch for landing: rebases onto origin/main, runs the pre-push gate, pushes
+# ABOUTME: Records the branch and worktree for merge-and-cleanup.sh and prints how to watch CI
+#
+# Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+# Copyright (c) 2026 dravr.ai
 
 set -euo pipefail
 
-BRANCH_NAME=$(git branch --show-current)
+BRANCH_NAME="$(git branch --show-current)"
 MAIN_BRANCH="main"
 
+if [[ -z "$BRANCH_NAME" ]]; then
+    echo "Error: detached HEAD. Check out the feature branch first."
+    exit 1
+fi
+
 if [[ "$BRANCH_NAME" == "$MAIN_BRANCH" ]]; then
-    echo "Error: Already on $MAIN_BRANCH branch. Switch to your feature branch first."
+    echo "Error: already on $MAIN_BRANCH. Switch to the feature branch first."
+    exit 1
+fi
+
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+    echo "Error: uncommitted changes on $BRANCH_NAME. Commit them first; a rebase must not carry loose edits."
+    git status --short
     exit 1
 fi
 
 echo "Finishing branch: $BRANCH_NAME"
 echo ""
 
-# Fetch latest from origin
-echo "Fetching latest from origin..."
+echo "Fetching origin/$MAIN_BRANCH..."
 git fetch origin "$MAIN_BRANCH"
 
-# Check if rebase is needed
-LOCAL_MAIN=$(git rev-parse "origin/$MAIN_BRANCH")
-MERGE_BASE=$(git merge-base HEAD "origin/$MAIN_BRANCH")
-
-if [[ "$LOCAL_MAIN" != "$MERGE_BASE" ]]; then
+if [[ "$(git rev-parse "origin/$MAIN_BRANCH")" != "$(git merge-base HEAD "origin/$MAIN_BRANCH")" ]]; then
     echo "Rebasing onto origin/$MAIN_BRANCH..."
-    git rebase "origin/$MAIN_BRANCH"
+    if ! git rebase "origin/$MAIN_BRANCH"; then
+        echo ""
+        echo "Error: the rebase stopped on a conflict. Resolve it, 'git rebase --continue', then rerun."
+        exit 1
+    fi
     echo "Rebase complete."
 else
     echo "Branch is already up to date with $MAIN_BRANCH."
 fi
 
 echo ""
-echo "Running local validation before push..."
-echo ""
-
-# Run validation
-cargo fmt --check || { echo "Run 'cargo fmt' first"; exit 1; }
-./scripts/ci/architectural-validation.sh
-cargo clippy --all-targets
+# The only local gate: it runs the tiers whose files changed and writes the
+# per-commit marker the pre-push hook checks. The heavy gates run in CI.
+echo "Running the pre-push gate..."
+./scripts/ci/pre-push-validate.sh
 
 echo ""
-echo "Local validation passed!"
-echo ""
-
-# Push
-echo "Pushing branch to origin..."
+echo "Pushing $BRANCH_NAME to origin..."
 git push --force-with-lease origin "$BRANCH_NAME"
 
-# Save branch info for merge-and-cleanup.sh
+# Save the branch and worktree for merge-and-cleanup.sh, in the main worktree.
 WORKTREE_PATH="$(git rev-parse --show-toplevel)"
-MAIN_WORKTREE="$(cd "$WORKTREE_PATH" && git worktree list --porcelain | grep -A1 "^worktree" | head -1 | sed 's/worktree //')"
+MAIN_WORKTREE="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"
 echo "$BRANCH_NAME|$WORKTREE_PATH" > "$MAIN_WORKTREE/.claude/skills/.last-feature-branch"
 
-echo ""
-echo "Branch pushed successfully!"
-echo ""
-echo "=========================================="
-echo "NEXT STEPS:"
-echo "=========================================="
-echo ""
-echo "1. Monitor CI at:"
-echo "   https://github.com/dravr-ai/dravr-platform/actions"
-echo ""
-echo "2. Once CI is GREEN, run from main worktree:"
-echo "   cd <main-worktree>"
-echo "   ./.claude/skills/merge-and-cleanup.sh"
-echo ""
-echo "   (Branch info saved - no args needed)"
-echo ""
+cat <<STEPS
+
+Branch pushed.
+
+==========================================
+NEXT STEPS
+==========================================
+
+1. Watch CI for the branch until every lane is terminal (re-check on a
+   schedule; never 'gh run watch', no loop under 60s):
+     gh run list --branch $BRANCH_NAME
+     https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A$BRANCH_NAME
+
+   A feature/* ref runs the full PostgreSQL suite; a fix/* ref runs only the
+   8-file smoke, so green there is not a full verdict.
+
+2. Once every lane is green, land it from the main worktree:
+     cd $MAIN_WORKTREE
+     ./.claude/skills/finish-worktree/merge-and-cleanup.sh -m "<subject>
+
+<body>"
+
+   (Branch and worktree are saved - no other arguments needed.)
+STEPS
