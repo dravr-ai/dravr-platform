@@ -24,30 +24,26 @@ use pierre_llm::prompts::{
 /// regression (live alert 2026-08-11).
 #[test]
 fn every_substituted_placeholder_is_required_of_exactly_one_prompt() {
-    let persona = required_placeholders_for_system_prompt("pierre_system")
-        .expect("the persona block must declare its placeholder");
     let contract = required_placeholders_for_system_prompt("platform_contract")
         .expect("the platform contract must declare its placeholders");
 
-    assert_eq!(
-        persona,
-        &["{{COACHING_PERSONA_RULES}}"],
-        "the persona block renders the persona rules and nothing else — a coach \
-         replaces this block, so anything else declared here is lost on coach turns"
+    assert!(
+        required_placeholders_for_system_prompt("pierre_system").is_none(),
+        "pierre_system is a replaceable voice layer — a bound coach swaps it \
+         out wholesale, so any placeholder required of it is lost on coach \
+         turns (that is how coach-bound persona steering silently vanished \
+         until 2026-09-01)"
     );
     for placeholder in [
         "{{SCOPE_REFUSAL}}",
         "{{CAPABILITY_REFUSAL}}",
         "{{COACH_SCOPE_CARVE_OUT}}",
         "{{CURRENT_DATE}}",
+        "{{COACHING_PERSONA_RULES}}",
     ] {
         assert!(
             contract.contains(&placeholder),
             "{placeholder} belongs to the always-injected contract"
-        );
-        assert!(
-            !persona.contains(&placeholder),
-            "{placeholder} must not be required of the replaceable persona block"
         );
     }
 }
@@ -69,13 +65,14 @@ fn unknown_prompt_keys_have_no_required_placeholders() {
 }
 
 #[test]
-fn compiled_pierre_system_satisfies_its_own_schema() {
-    let required = required_placeholders_for_system_prompt("pierre_system").unwrap();
-    let missing = missing_placeholders(PIERRE_SYSTEM_PROMPT, required);
-    assert!(
-        missing.is_empty(),
-        "compiled-in PIERRE_SYSTEM_PROMPT is missing placeholders: {missing:?}"
-    );
+fn compiled_pierre_system_needs_no_required_placeholders() {
+    // The persona slot's canonical home is platform_contract (2026-09-01).
+    // pierre_system may transitionally still carry a copy — deployed
+    // binaries hot-sync contremaitre main, and the copy stays until every
+    // binary enforcing the old per-file requirement is gone — so this test
+    // pins only that nothing is REQUIRED of the replaceable layer.
+    assert!(required_placeholders_for_system_prompt("pierre_system").is_none());
+    let _ = PIERRE_SYSTEM_PROMPT;
 }
 
 #[test]

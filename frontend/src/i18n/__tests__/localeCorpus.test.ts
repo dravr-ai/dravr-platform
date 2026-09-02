@@ -70,7 +70,7 @@ describe('client locale corpus', () => {
     // dropped. Five keys, five locales, because a surface finally displays
     // something it had been sent all along.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(1982);
+    expect(reference).toHaveLength(1972);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

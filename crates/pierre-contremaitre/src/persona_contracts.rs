@@ -183,9 +183,16 @@ pub struct PersonaContract {
     #[serde(default)]
     pub require_tenant_isolation: bool,
 
-    /// Notification cadence policy.
-    /// LIMITATION(registre#7): carried through the registry but nothing consumes it —
-    /// canot's push tier metadata never receives it.
+    /// Notification cadence policy. `tier_floor` and `digest: weekly` are
+    /// consumed by the persona notification-policy gate in
+    /// `pierre-notifications` (shadow-mode dark launch, ledgered in
+    /// `feature-phases.yaml`; the push pipeline is commere-backed — the
+    /// earlier marker's "canot" attribution was wrong, neither external
+    /// crate carries tier metadata and the gate lives in the platform
+    /// facade).
+    /// LIMITATION(registre#7): the `per_session` and `per_athlete` digest
+    /// cadences are parsed but delivered as immediate pass-through — only
+    /// the weekly digest batches.
     #[serde(default)]
     pub notification: NotificationPolicy,
 

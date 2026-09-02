@@ -14,7 +14,7 @@
 //! silently no-op.
 
 use pierre_core::models::CoachingPersona;
-use pierre_llm::prompts::{get_coaching_persona_prompt, PIERRE_SYSTEM_PROMPT};
+use pierre_llm::prompts::{get_coaching_persona_prompt, PLATFORM_CONTRACT_PROMPT};
 
 /// Each persona variant must resolve to a non-empty block whose first
 /// line names the persona by convention (`**Active persona: <Name>.**`).
@@ -95,15 +95,19 @@ fn power_athlete_carries_endurance_anchors() {
     );
 }
 
-/// `pierre_system.md` must carry the `{{COACHING_PERSONA_RULES}}` placeholder.
-/// If a future prompt edit removes it, persona substitution silently no-ops
-/// and every user gets the un-personalized default — this test fails loudly.
+/// `platform_contract.md` must carry the `{{COACHING_PERSONA_RULES}}`
+/// placeholder — the contract leads every assembled prompt, coach-bound or
+/// not, which is what makes persona steering reach bound coaches. If a
+/// future prompt edit removes it, persona substitution silently no-ops and
+/// every user gets the un-personalized default — this test fails loudly.
+/// (`pierre_system` may transitionally carry a duplicate copy for deployed
+/// binaries that hot-sync contremaitre main with the old per-file gate;
+/// the no-duplicate guard arrives with the cleanup that removes it.)
 #[test]
-fn pierre_system_prompt_contains_persona_placeholder() {
-    let prompt = PIERRE_SYSTEM_PROMPT;
+fn platform_contract_contains_persona_placeholder() {
     assert!(
-        prompt.contains("{{COACHING_PERSONA_RULES}}"),
-        "pierre_system.md is missing the {{{{COACHING_PERSONA_RULES}}}} placeholder \
+        PLATFORM_CONTRACT_PROMPT.contains("{{COACHING_PERSONA_RULES}}"),
+        "platform_contract.md is missing the {{{{COACHING_PERSONA_RULES}}}} placeholder \
          — persona substitution will silently no-op"
     );
 }

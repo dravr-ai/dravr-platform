@@ -1114,23 +1114,20 @@ impl ProviderToolRouter {
 
         #[cfg(feature = "client-api-keys")]
         use crate::routes::api_keys::ApiKeyRoutes;
-        #[cfg(feature = "client-chat")]
-        use crate::routes::chat::ChatRoutes;
-        #[cfg(feature = "client-settings")]
-        use crate::routes::configuration::ConfigurationRoutes;
-        #[cfg(feature = "client-settings")]
-        use crate::routes::fitness::FitnessConfigurationRoutes;
-        #[cfg(feature = "client-settings")]
-        use crate::routes::health_data::HealthDataRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
-        use crate::routes::memory::MemoryRoutes;
         #[cfg(feature = "client-tenants")]
         use crate::routes::tenants::TenantRoutes;
-        #[cfg(feature = "client-chat")]
-        use crate::routes::usage::UsageRoutes;
         #[cfg(feature = "client-mcp-tokens")]
         use crate::routes::user_mcp_tokens::UserMcpTokenRoutes;
+        #[cfg(feature = "client-chat")]
+        use crate::routes::{chat::ChatRoutes, usage::UsageRoutes};
+        #[cfg(feature = "client-settings")]
+        use crate::routes::{
+            configuration::ConfigurationRoutes, fitness::FitnessConfigurationRoutes,
+            health_data::HealthDataRoutes,
+        };
+        use crate::routes::{memory::MemoryRoutes, personas::PersonasRoutes};
         #[cfg(feature = "protocol-a2a")]
         use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
         #[cfg(feature = "client-llm-settings")]
@@ -1367,8 +1364,11 @@ impl ProviderToolRouter {
             app.merge(SurfaceRoutes::routes())
         };
 
-        // Phase B Sprint C5 — user-facing harness memory facts (list / forget)
-        let app = app.merge(MemoryRoutes::routes(Arc::clone(resources)));
+        // User-facing harness memory facts (list / forget), and the persona
+        // cards served from the live contract registry (no copy drift).
+        let app = app
+            .merge(MemoryRoutes::routes(Arc::clone(resources)))
+            .merge(PersonasRoutes::routes(Arc::clone(resources)));
 
         // The slash commands this caller may actually run. Resolved per caller
         // through the same availability predicates `/help` asks, so the in-app

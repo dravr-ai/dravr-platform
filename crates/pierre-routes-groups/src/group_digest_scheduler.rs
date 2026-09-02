@@ -49,7 +49,8 @@ use uuid::Uuid;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    models::NotificationCategory, DispatchRequest, NotificationService, TenantId as CommTenantId,
+    models::NotificationCategory, DispatchRequest, NotificationService, PushTier,
+    TenantId as CommTenantId,
 };
 
 /// How often the digest tick fires. One week — the digest cadence.
@@ -273,7 +274,9 @@ async fn dispatch_digest(
         actions: None,
         bypass_frequency_cap: false,
     };
-    service.dispatch(&request).await
+    // P3: a weekly roll-up is ambient by construction — any persona floor
+    // below "everything" prefers it in the in-app list over a push.
+    service.dispatch_with_tier(&request, PushTier::P3).await
 }
 
 /// Long-running loop that ticks the digest sweep at the given interval.

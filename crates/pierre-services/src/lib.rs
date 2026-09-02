@@ -121,6 +121,9 @@ pub mod okf;
 /// PAR-Q+ pre-participation medical-safety gate (structured Y/N → medical flags)
 pub mod parq;
 
+/// « Style de coaching » persona cards rendered from the live persona-contract registry
+pub mod personas;
+
 /// The messaging intake walk — profile type, then the PAR-Q+.
 ///
 /// Asked by the platform rather than the coach, so a standardised instrument
@@ -224,6 +227,14 @@ pub mod provider_rate_limiter;
 /// beside persist and Expo push (`client-messaging` feature).
 #[cfg(feature = "client-messaging")]
 pub mod notification_channel_sink;
+
+/// The persona push-policy gate for dispatched notifications — resolves each
+/// recipient's tier floor, digest cadence, and arming flag.
+pub mod persona_notification_policy_gate;
+
+/// Weekly digest scheduler that rolls persona-gated notifications into one
+/// localized push per user.
+pub mod notification_digest_scheduler;
 
 /// The usage-cap policy shared by chat turns and direct `/mcp` tool
 /// calls — one ladder, one tier resolution, one bypass rule.

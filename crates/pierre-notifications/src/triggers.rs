@@ -26,13 +26,17 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::models::{NotificationAction, NotificationActionType, NotificationCategory, TenantId};
-use crate::{DispatchRequest, NotificationService};
+use crate::{DispatchRequest, NotificationService, PushTier};
 
-/// Spawns a fire-and-forget notification dispatch task.
-/// Failures are logged at WARN level but never propagated to the caller.
-fn spawn_dispatch(service: Arc<NotificationService>, request: DispatchRequest) {
+/// Spawns a fire-and-forget notification dispatch task at the event's tier.
+///
+/// Each trigger declares its own [`PushTier`] because the trigger knows its
+/// event's product semantics — the facade only compares the tier against the
+/// recipient's persona floor. Failures are logged at WARN level but never
+/// propagated to the caller.
+fn spawn_dispatch(service: Arc<NotificationService>, request: DispatchRequest, tier: PushTier) {
     tokio::spawn(async move {
-        if let Err(e) = service.dispatch(&request).await {
+        if let Err(e) = service.dispatch_with_tier(&request, tier).await {
             warn!(
                 user_id = %request.user_id,
                 notification_type = %request.notification_type,
@@ -69,7 +73,7 @@ pub fn trigger_activity_synced(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P3);
 }
 
 /// Trigger notification when acute training load exceeds threshold.
@@ -91,7 +95,7 @@ pub fn trigger_training_load_alert(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P2);
 }
 
 /// Trigger notification when recovery score drops below threshold.
@@ -113,7 +117,7 @@ pub fn trigger_low_recovery_score(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P2);
 }
 
 /// Trigger notification when TSS trend suggests overtraining risk.
@@ -134,7 +138,7 @@ pub fn trigger_overtraining_warning(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P2);
 }
 
 /// Trigger notification when a personal record is detected.
@@ -158,7 +162,7 @@ pub fn trigger_personal_record(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P3);
 }
 
 /// Trigger notification when a cumulative milestone is reached.
@@ -181,7 +185,7 @@ pub fn trigger_milestone_reached(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P3);
 }
 
 /// Trigger notification when a fitness metric improves (FTP, `VO2max`, etc.).
@@ -204,7 +208,7 @@ pub fn trigger_fitness_improvement(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P3);
 }
 
 // ============================================================================
@@ -235,7 +239,7 @@ pub fn trigger_coach_message(
         }]),
         bypass_frequency_cap: true,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P1);
 }
 
 /// Trigger notification when a coach updates an athlete's training plan.
@@ -257,7 +261,7 @@ pub fn trigger_plan_updated(
         actions: None,
         bypass_frequency_cap: true,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P1);
 }
 
 /// Trigger notification when a coach leaves feedback on an athlete's activity.
@@ -281,7 +285,7 @@ pub fn trigger_coach_feedback(
         actions: None,
         bypass_frequency_cap: true,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P1);
 }
 
 // ============================================================================
@@ -314,5 +318,5 @@ pub fn trigger_sync_failure(
         }]),
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), request);
+    spawn_dispatch(Arc::clone(service), request, PushTier::P1);
 }

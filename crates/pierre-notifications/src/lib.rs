@@ -34,16 +34,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
-use tracing::debug;
+use serde_json::json;
+use tracing::{debug, info};
 
 // Re-export all public modules from dravr-commere
 pub use dravr_commere::constants;
 pub use dravr_commere::expo_push;
 pub use dravr_commere::models;
 
+/// The persona push-tier ladder, per-user push policy, and the
+/// [`PersonaPolicyGate`] SPI the dispatch facade resolves policies through.
+pub mod policy;
+
 /// Event-shaped helpers that build a `DispatchRequest` and fire it through
-/// [`NotificationService::dispatch`], so every product event reaches the
-/// platform's sinks and not only the upstream two.
+/// [`NotificationService::dispatch_with_tier`], so every product event reaches
+/// the platform's sinks and not only the upstream two.
 pub mod triggers;
 
 // Re-export primary public types at crate root
@@ -51,6 +56,12 @@ pub use dravr_commere::{
     compute_next_fire_time, validate_cron_expression, CommereError, CommereResult, DispatchOutcome,
     DispatchRequest, SuppressionReason, TenantId,
 };
+pub use policy::{DigestCadence, PersonaPolicyGate, PushPolicy, PushTier};
+
+/// JSON key marking a persisted notification the persona policy withheld from
+/// push. The weekly digest scheduler collects rows carrying this marker; the
+/// in-app list shows them like any other notification.
+pub const PERSONA_GATED_DATA_KEY: &str = "persona_gated";
 
 /// A platform delivery sink for an accepted notification.
 ///
@@ -82,6 +93,10 @@ pub struct NotificationService {
     /// `None` when no channel sink is configured (messaging not compiled in,
     /// or no messaging channel configured for the deployment).
     channel_sink: Option<Arc<dyn NotificationChannelSink>>,
+    /// Resolves the per-user persona push policy. `None` when persona gating
+    /// is not wired (bare test services); every dispatch then behaves as if
+    /// no policy existed.
+    policy_gate: Option<Arc<dyn PersonaPolicyGate>>,
 }
 
 impl Deref for NotificationService {
@@ -101,6 +116,7 @@ impl NotificationService {
         Self {
             inner: dravr_commere::NotificationService::from_sqlite(pool),
             channel_sink: None,
+            policy_gate: None,
         }
     }
 
@@ -112,6 +128,7 @@ impl NotificationService {
         Self {
             inner: dravr_commere::NotificationService::from_postgres(pool),
             channel_sink: None,
+            policy_gate: None,
         }
     }
 
@@ -123,10 +140,46 @@ impl NotificationService {
         self
     }
 
-    /// Dispatch a notification through the full pipeline, then through every
-    /// platform sink that accepted notification is entitled to.
+    /// Attach the gate that resolves each recipient's persona push policy.
+    #[must_use]
+    pub fn with_policy_gate(mut self, gate: Arc<dyn PersonaPolicyGate>) -> Self {
+        self.policy_gate = Some(gate);
+        self
+    }
+
+    /// Dispatch a notification at the default [`PushTier::P1`].
     ///
-    /// The upstream pipeline runs first and its verdict is authoritative: a
+    /// P1 is the conservative default for a call site that has not declared a
+    /// tier: it delivers to every persona except the strictest floor (Casual's
+    /// P0), so an unmigrated caller behaves like the high-signal events rather
+    /// than sneaking past every floor as P0 would. Call sites that know their
+    /// product semantics use [`Self::dispatch_with_tier`] directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns the upstream [`CommereError`] when the pipeline itself fails.
+    pub async fn dispatch(&self, request: &DispatchRequest) -> CommereResult<DispatchOutcome> {
+        self.dispatch_with_tier(request, PushTier::P1).await
+    }
+
+    /// Dispatch a notification at an explicit [`PushTier`] through the persona
+    /// gate, the upstream pipeline, and every platform sink.
+    ///
+    /// The persona gate runs first. When the recipient's policy is **armed**
+    /// and the event's tier falls above their floor (floor `Pn` delivers tiers
+    /// ≤ `Pn` only), the notification is persisted directly — visible in-app
+    /// and collectible by the weekly digest, its `data` carrying
+    /// [`PERSONA_GATED_DATA_KEY`] — and neither Expo push nor the channel sink
+    /// runs. The returned [`DispatchOutcome::PersistedNoDevices`] is then
+    /// indistinguishable from an ungated dispatch to a device-less user: the
+    /// true verdict (gated vs no-devices) lives in this method's structured
+    /// logs, not in the outcome.
+    ///
+    /// When the policy is **not armed** (shadow mode), a structured
+    /// shadow-verdict log records what enforcement would have done and the
+    /// dispatch proceeds untouched.
+    ///
+    /// Past the gate, the upstream pipeline's verdict is authoritative: a
     /// [`DispatchOutcome::Suppressed`] means the user disabled the category, is
     /// inside quiet hours, or has hit the daily cap, and no sink runs. Anything
     /// else means the notification was persisted, so the sinks deliver it —
@@ -135,9 +188,87 @@ impl NotificationService {
     ///
     /// # Errors
     ///
-    /// Returns the upstream [`CommereError`] when the pipeline itself fails.
-    /// Sink failures are logged by the sink and never surface here.
-    pub async fn dispatch(&self, request: &DispatchRequest) -> CommereResult<DispatchOutcome> {
+    /// Returns the upstream [`CommereError`] when persistence or the pipeline
+    /// fails. Sink failures are logged by the sink and never surface here.
+    pub async fn dispatch_with_tier(
+        &self,
+        request: &DispatchRequest,
+        tier: PushTier,
+    ) -> CommereResult<DispatchOutcome> {
+        if let Some(gate) = &self.policy_gate {
+            if let Some(push_policy) = gate.policy_for(request.user_id, request.tenant_id).await {
+                let would_gate = push_policy.gates(tier);
+                if push_policy.armed && would_gate {
+                    return self.persist_gated(request, tier, &push_policy).await;
+                }
+                if !push_policy.armed {
+                    info!(
+                        user_id = %request.user_id,
+                        persona = %push_policy.persona,
+                        notification_type = %request.notification_type,
+                        event_tier = %tier,
+                        floor = ?push_policy.floor,
+                        would_gate,
+                        "persona notification policy shadow verdict"
+                    );
+                }
+            }
+        }
+        self.deliver(request).await
+    }
+
+    /// Persist a persona-gated notification without running the pipeline's
+    /// push path or the channel sink. The row is what the weekly digest and
+    /// the in-app list read; the `persona_gated` marker in `data` is how the
+    /// digest scheduler finds it.
+    async fn persist_gated(
+        &self,
+        request: &DispatchRequest,
+        tier: PushTier,
+        push_policy: &PushPolicy,
+    ) -> CommereResult<DispatchOutcome> {
+        // Every shipping call site passes an object or None; a non-object
+        // payload is preserved under "payload" so the marker never destroys
+        // caller data.
+        let data = request.data.clone().map_or_else(
+            || json!({ PERSONA_GATED_DATA_KEY: true }),
+            |mut value| {
+                if let Some(object) = value.as_object_mut() {
+                    object.insert(PERSONA_GATED_DATA_KEY.to_owned(), json!(true));
+                    value
+                } else {
+                    json!({ PERSONA_GATED_DATA_KEY: true, "payload": value })
+                }
+            },
+        );
+        let params = models::CreateNotificationParams {
+            user_id: request.user_id,
+            tenant_id: request.tenant_id,
+            category: request.category,
+            notification_type: request.notification_type.clone(),
+            title: request.title.clone(),
+            body: request.body.clone(),
+            data: Some(data),
+            image_url: request.image_url.clone(),
+            actions: request.actions.clone(),
+        };
+        let notification = self.inner.create_notification(&params).await?;
+        info!(
+            user_id = %request.user_id,
+            persona = %push_policy.persona,
+            notification_type = %request.notification_type,
+            event_tier = %tier,
+            floor = ?push_policy.floor,
+            notification_id = %notification.id,
+            "persona notification policy gated a push; persisted for the digest"
+        );
+        Ok(DispatchOutcome::PersistedNoDevices {
+            notification_id: notification.id,
+        })
+    }
+
+    /// Run the upstream pipeline, then the channel sink when it accepted.
+    async fn deliver(&self, request: &DispatchRequest) -> CommereResult<DispatchOutcome> {
         let outcome = self.inner.dispatch(request).await?;
 
         if matches!(outcome, DispatchOutcome::Suppressed(_)) {

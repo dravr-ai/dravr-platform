@@ -888,6 +888,27 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
+    // Start the persona notification digest scheduler (weekly cadence). Rolls
+    // the notifications the armed persona policy withheld from push into one
+    // localized digest per user; unarmed users produce nothing, so this is
+    // inert while the policy ships in shadow mode.
+    #[cfg(feature = "client-notifications")]
+    if let Some(notification_service) = resources.common.notification_service.clone() {
+        use pierre_notifications::PersonaPolicyGate;
+        use pierre_services::notification_digest_scheduler::start_persona_digest_scheduler;
+        use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
+        let gate: Arc<dyn PersonaPolicyGate> = Arc::new(PersonaNotificationPolicyGate::new(
+            Arc::clone(&resources.common.repos),
+            Arc::clone(&resources.fitness.persona_contract_registry),
+        ));
+        start_persona_digest_scheduler(
+            Arc::clone(&resources.common.repos),
+            gate,
+            notification_service,
+            Arc::clone(&resources.mcp.messaging_strings_registry),
+        );
+    }
+
     // Start Discord Gateway WebSocket client for real-time message delivery
     #[cfg(feature = "client-messaging")]
     {

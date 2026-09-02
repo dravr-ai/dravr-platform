@@ -46,7 +46,6 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bulletKeys: [
       'app.styleCasualBullet1',
       'app.styleCasualBullet2',
-      'app.styleCasualBullet3',
     ],
   },
   {
@@ -57,7 +56,6 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bulletKeys: [
       'app.styleEnthusiastBullet1',
       'app.styleEnthusiastBullet2',
-      'app.styleEnthusiastBullet3',
     ],
   },
   {
@@ -68,7 +66,6 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bulletKeys: [
       'app.stylePowerBullet1',
       'app.stylePowerBullet2',
-      'app.stylePowerBullet3',
     ],
   },
   {
@@ -76,11 +73,7 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     name: PERSONA_NAME.coach,
     taglineKey: 'app.styleCoachTag',
     descriptionKey: 'app.styleCoachBlurb',
-    bulletKeys: [
-      'app.styleCoachBullet1',
-      'app.styleCoachBullet2',
-      'app.styleCoachBullet3',
-    ],
+    bulletKeys: [],
   },
 ];
 

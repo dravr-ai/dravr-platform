@@ -47,7 +47,7 @@ use helpers::messaging_eval::{
     assert_no_framework_citations, assert_no_line_by_line_block, assert_word_count_under,
 };
 use pierre_core::models::CoachingPersona;
-use pierre_llm::prompts::{get_coaching_persona_prompt, PIERRE_SYSTEM_PROMPT};
+use pierre_llm::prompts::{get_coaching_persona_prompt, PLATFORM_CONTRACT_PROMPT};
 
 /// English endurance coach prompt fixture. The runtime source of truth lives
 /// in the dravr-contremaitre repo (manifest v5, keyed by `(slug, locale)`);
@@ -59,12 +59,28 @@ const ENDURANCE_COACH_EN: &str = include_str!("fixtures/endurance-coach/en.md");
 
 /// Build the full system prompt the LLM would see for `persona` when
 /// the user's active coach is endurance-coach. Mirrors the production
-/// substitution in `chat_pipeline::stages::prompt_assembly::interpolate_prompt_placeholders`
-/// without depending on a live `ServerContext`.
+/// coach-bound shape in `chat_pipeline::stages::prompt_assembly`:
+/// platform contract first (which carries `{{COACHING_PERSONA_RULES}}`),
+/// then the coach voice — a bound coach REPLACES the `pierre_system` persona
+/// layer, so assembling `pierre_system` + coach here would test a prompt
+/// shape production never produces (that masked the coach-bound persona
+/// drop until 2026-09-01).
 fn assemble_for_persona(persona: CoachingPersona) -> String {
     let persona_block = get_coaching_persona_prompt(persona);
-    let assembled = PIERRE_SYSTEM_PROMPT.replace("{{COACHING_PERSONA_RULES}}", persona_block);
-    format!("{assembled}\n\n--- Coach prompt ---\n{ENDURANCE_COACH_EN}")
+    let assembled = PLATFORM_CONTRACT_PROMPT.replace("{{COACHING_PERSONA_RULES}}", persona_block);
+    format!("{assembled}\n\n{ENDURANCE_COACH_EN}")
+}
+
+#[test]
+fn platform_contract_carries_the_persona_placeholder() {
+    // The whole coach-bound persona feature hangs on this: the placeholder
+    // must live in the contract layer that leads EVERY assembled prompt.
+    // If it drifts back into pierre_system.md only, bound coaches silently
+    // lose persona steering again.
+    assert!(
+        PLATFORM_CONTRACT_PROMPT.contains("{{COACHING_PERSONA_RULES}}"),
+        "platform_contract.md must carry {{{{COACHING_PERSONA_RULES}}}}"
+    );
 }
 
 #[test]

@@ -23,6 +23,7 @@ import type { AppearancePref } from '../../hooks/useAppearancePref';
 import { Input } from '../../components/ui';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { useTranslation } from '@pierre/i18n';
+import { PERSONA_NAME } from '@pierre/shared-constants';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi, oauthApi } from '../../services/api';
 import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
@@ -422,8 +423,8 @@ export function SettingsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.coachingStyle')}</Text>
-                <Text style={{ fontSize: 14, color: colors.text.tertiary, textTransform: 'capitalize' }}>
-                  {(user?.coaching_persona ?? 'casual').replace('_', '-')}
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
+                  {PERSONA_NAME[user?.coaching_persona ?? 'casual'] ?? (user?.coaching_persona ?? 'casual')}
                 </Text>
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />

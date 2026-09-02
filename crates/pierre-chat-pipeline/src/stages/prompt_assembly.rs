@@ -351,7 +351,16 @@ fn interpolate_prompt_placeholders(
             // `include_str!()` content at startup, so chat works before the
             // first sync completes; once contremaitre lands a newer version
             // via webhook → selective_sync, the same lookup here picks it up.
-            let persona_block = prompt_registry.coaching_persona_prompt(persona);
+            //
+            // Builder coaches that declare an `output_schema` are exempt: their
+            // replies are schema-validated JSON plans that bypass the prose
+            // conformance stages (see `apply_style_stages`), so persona
+            // format rules would fight the schema for zero enforceable gain.
+            let persona_block = if coach_ctx.is_some_and(|c| c.output_schema.is_some()) {
+                String::new()
+            } else {
+                prompt_registry.coaching_persona_prompt(persona, locale)
+            };
             let current_date = format_current_date(user_timezone);
             prompt
                 .replace("{{SCOPE_REFUSAL}}", &scope)

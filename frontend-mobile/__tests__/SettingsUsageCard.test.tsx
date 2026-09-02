@@ -48,8 +48,15 @@ jest.mock('../src/services/api', () => ({
 }));
 
 // Mock shared-constants
+// PERSONA_NAME mirrors the real map — the settings row renders from it.
 jest.mock('@pierre/shared-constants', () => ({
   QUERY_KEYS: { usage: { status: () => ['usage', 'status'] } },
+  PERSONA_NAME: {
+    casual: 'Casual',
+    enthusiast: 'Enthusiast',
+    power_athlete: 'Power-athlete',
+    coach: 'Coach',
+  },
 }));
 
 // Mock useUsageStatus with realistic quota data

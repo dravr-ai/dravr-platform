@@ -122,7 +122,7 @@ test.describe('coaching persona — real backend (no mocks)', () => {
     await page.getByTestId('persona-card-power_athlete').click();
     const status = page.getByTestId('persona-status');
     await expect(status).toBeVisible({ timeout: 10_000 });
-    await expect(status).toContainText(/power_athlete/i);
+    await expect(status).toContainText(/power-athlete/i);
 
     // 6. Confirm persistence directly against the backend, bypassing
     //    React Query's cache: real DB row, not just optimistic state.

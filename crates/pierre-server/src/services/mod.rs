@@ -25,6 +25,9 @@ pub mod photograveur_client;
 /// User-facing memory fact service: list and forget what the coach remembers (Sprint C5)
 pub mod memory_facts;
 
+/// User-facing persona cards handler: « Style de coaching » from the live contract registry
+pub mod personas;
+
 /// Discord Gateway WebSocket client — bridges real-time messages to the webhook pipeline
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;

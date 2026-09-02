@@ -238,9 +238,11 @@ pub const fn get_coaching_persona_prompt(persona: CoachingPersona) -> &'static s
 /// every future sync of a correctly-split prompt (live alert 2026-08-11,
 /// caught by this very gate keeping the prior content).
 pub const REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS: &[(&str, &[&str])] = &[
-    // Persona layer — voice only, and the persona-rules slot it renders into.
-    ("pierre_system", &["{{COACHING_PERSONA_RULES}}"]),
-    // Platform contract — injected on every turn, coach-bound or not.
+    // Platform contract — injected on every turn, coach-bound or not. The
+    // persona-rules slot lives HERE, not in pierre_system: a bound coach
+    // replaces the pierre_system voice layer wholesale, and while the slot
+    // lived there (until 2026-09-01) coach-bound turns silently lost persona
+    // steering. pierre_system carries no required placeholders anymore.
     (
         "platform_contract",
         &[
@@ -248,6 +250,7 @@ pub const REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS: &[(&str, &[&str])] = &[
             "{{CAPABILITY_REFUSAL}}",
             "{{COACH_SCOPE_CARVE_OUT}}",
             "{{CURRENT_DATE}}",
+            "{{COACHING_PERSONA_RULES}}",
         ],
     ),
 ];

@@ -74,6 +74,9 @@ pub mod usage;
 /// User-facing harness memory routes (list / forget user_facts)
 pub mod memory;
 
+/// User-facing persona cards route (« Style de coaching » from the live contract registry)
+pub mod personas;
+
 // ═══════════════════════════════════════════════════════════════
 // CLIENT-ADMIN FEATURES
 // ═══════════════════════════════════════════════════════════════

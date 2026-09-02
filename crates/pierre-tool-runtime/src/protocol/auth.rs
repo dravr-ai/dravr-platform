@@ -18,7 +18,7 @@ use pierre_core::models::{TenantId, UserOAuthToken};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::models::NotificationCategory;
 #[cfg(feature = "client-notifications")]
-use pierre_notifications::{DispatchRequest, TenantId as CommTenantId};
+use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
 use pierre_providers::backend_resolver;
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use serde_json::Value as JsonValue;
@@ -434,7 +434,9 @@ impl AuthService {
             actions: None,
             bypass_frequency_cap: false,
         };
-        if let Err(e) = service.dispatch(&request).await {
+        // P1: an expired connection blocks every downstream feature, so it
+        // outranks advisories — but it is recoverable, not break-glass P0.
+        if let Err(e) = service.dispatch_with_tier(&request, PushTier::P1).await {
             warn!("Failed to dispatch reauth push for user {user_id} provider {provider}: {e}");
         }
     }

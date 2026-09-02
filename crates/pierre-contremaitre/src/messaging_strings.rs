@@ -537,6 +537,64 @@ pub const KEY_PRIVACY_ON_CONFIRMATION: &str = "commands.privacy.on_confirmation"
 /// Key: `/privacy off` confirmation message.
 pub const KEY_PRIVACY_OFF_CONFIRMATION: &str = "commands.privacy.off_confirmation";
 
+// ── Persona conformance keys ──────────────────────────────────────────────
+
+/// Key: notice appended to a coach reply after the tenant-isolation stage
+/// redacted a section citing an athlete outside the coach's roster.
+pub const KEY_PERSONA_ISOLATION_REDACTED: &str = "persona.isolation.redacted";
+
+// ── Persona card keys (GET /api/personas) ─────────────────────────────────
+//
+// The « Style de coaching » settings cards are rendered server-side from the
+// live persona-contract registry (pierre-services::personas), so the client
+// copy cannot drift from the shipped contract. These strings are the
+// localized summaries, rule sentences, and enforcement labels those cards
+// carry; the display names stay untranslated brand names by design.
+
+/// Key: one-line summary of the Casual persona.
+pub const KEY_PERSONA_SUMMARY_CASUAL: &str = "persona.summary.casual";
+/// Key: one-line summary of the Enthusiast persona.
+pub const KEY_PERSONA_SUMMARY_ENTHUSIAST: &str = "persona.summary.enthusiast";
+/// Key: one-line summary of the Power-athlete persona.
+pub const KEY_PERSONA_SUMMARY_POWER_ATHLETE: &str = "persona.summary.power_athlete";
+/// Key: one-line summary of the Coach persona.
+pub const KEY_PERSONA_SUMMARY_COACH: &str = "persona.summary.coach";
+/// Key: contract rule — reply word cap. `{0}` = the cap.
+pub const KEY_PERSONA_RULE_MAX_WORDS: &str = "persona.rule.max_words";
+/// Key: contract rule — lists at or above a threshold collapse to prose.
+/// `{0}` = the threshold.
+pub const KEY_PERSONA_RULE_NO_LONG_LISTS: &str = "persona.rule.no_long_lists";
+/// Key: contract rule — no framework citations or technical acronyms.
+pub const KEY_PERSONA_RULE_NO_CITATIONS: &str = "persona.rule.no_citations";
+/// Key: contract rule — replies are prose, never structured label/value blocks.
+pub const KEY_PERSONA_RULE_PROSE_ONLY: &str = "persona.rule.prose_only";
+/// Key: contract rule — numbers are rounded for readability.
+pub const KEY_PERSONA_RULE_ROUNDED_NUMBERS: &str = "persona.rule.rounded_numbers";
+/// Key: contract rule — no tool-call narration in replies.
+pub const KEY_PERSONA_RULE_NO_NARRATION: &str = "persona.rule.no_narration";
+/// Key: contract rule — acronyms are glossed at first occurrence.
+pub const KEY_PERSONA_RULE_ACRONYMS_GLOSSED: &str = "persona.rule.acronyms_glossed";
+/// Key: contract rule — structured blocks stay short. `{0}` = the line cap.
+pub const KEY_PERSONA_RULE_SHORT_BLOCKS: &str = "persona.rule.short_blocks";
+/// Key: contract rule — framework citation on every quantified claim.
+pub const KEY_PERSONA_RULE_CITATIONS_REQUIRED: &str = "persona.rule.citations_required";
+/// Key: contract rule — line-by-line activity blocks.
+pub const KEY_PERSONA_RULE_LINE_BY_LINE: &str = "persona.rule.line_by_line";
+/// Key: contract rule — no conversational softeners.
+pub const KEY_PERSONA_RULE_NO_SOFTENERS: &str = "persona.rule.no_softeners";
+/// Key: contract rule — exact numbers, never rounded.
+pub const KEY_PERSONA_RULE_EXACT_NUMBERS: &str = "persona.rule.exact_numbers";
+/// Key: contract rule — P0–P3 readiness ladder on every verdict.
+pub const KEY_PERSONA_RULE_P0_P3_LADDER: &str = "persona.rule.p0_p3_ladder";
+/// Key: contract rule — every data block names the athlete it belongs to.
+pub const KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION: &str = "persona.rule.athlete_attribution";
+/// Key: contract rule — athlete citations are verified against the coach's roster.
+pub const KEY_PERSONA_RULE_ROSTER_VERIFIED: &str = "persona.rule.roster_verified";
+/// Key: enforcement badge when the effective contract runs `strict_mode`.
+pub const KEY_PERSONA_ENFORCEMENT_VERIFIED: &str = "persona.enforcement.verified";
+/// Key: enforcement badge when contract violations are advisory (log-only).
+pub const KEY_PERSONA_ENFORCEMENT_ADVISORY: &str = "persona.enforcement.advisory";
+
 // ── /timezone command keys ────────────────────────────────────────────────
 
 /// Key: `/timezone` confirmation once a valid IANA name is stored. `{0}` = the
@@ -796,6 +854,14 @@ pub const KEY_DISCOVER_ADD_LABEL: &str = "commands.discover.add_label";
 /// `{0}` = notification title, `{1}` = notification body.
 pub const KEY_NOTIFICATION_CHANNEL_BODY: &str = "notifications.channel_body";
 
+/// Key: title of the weekly persona-digest notification — the roll-up of
+/// pushes the persona notification policy held back.
+pub const KEY_NOTIFICATION_DIGEST_TITLE: &str = "notifications.digest.title";
+
+/// Key: body of the weekly persona-digest notification. `{0}` = how many
+/// notifications were held for the digest since the previous one.
+pub const KEY_NOTIFICATION_DIGEST_BODY: &str = "notifications.digest.body";
+
 // ── /coach command keys ───────────────────────────────────────────────────
 
 /// Key: `/coach` when the caller's list holds no coach.
@@ -1034,6 +1100,41 @@ pub(crate) const FR_PRIVACY_STATUS_ENABLED: &str = "activé";
 pub(crate) const FR_PRIVACY_STATUS_DISABLED: &str = "désactivé";
 pub(crate) const FR_PRIVACY_ON_CONFIRMATION: &str = "Le consentement aux statistiques anonymes est maintenant <b>activé</b>. Merci de nous aider à améliorer Dravr !\n\nUtilise <code>/privacy off</code> pour te retirer à tout moment.";
 pub(crate) const FR_PRIVACY_OFF_CONFIRMATION: &str = "Le consentement aux statistiques anonymes est maintenant <b>désactivé</b>. Aucune donnée d'usage anonyme ne sera collectée.\n\nUtilise <code>/privacy on</code> pour te réinscrire à tout moment.";
+pub(crate) const FR_PERSONA_ISOLATION_REDACTED: &str =
+    "Une section citant un athlète hors de ton effectif a été retirée de cette réponse.";
+
+pub(crate) const FR_PERSONA_SUMMARY_CASUAL: &str = "Amical, encourageant, sans jargon.";
+pub(crate) const FR_PERSONA_SUMMARY_ENTHUSIAST: &str =
+    "De la prose, plus les chiffres qui comptent.";
+pub(crate) const FR_PERSONA_SUMMARY_POWER_ATHLETE: &str =
+    "Rigueur ligne par ligne, avec citations des cadres.";
+pub(crate) const FR_PERSONA_SUMMARY_COACH: &str =
+    "La rigueur Power-athlete, appliquée aux athlètes que tu entraînes.";
+pub(crate) const FR_PERSONA_RULE_MAX_WORDS: &str = "Réponses limitées à {0} mots.";
+pub(crate) const FR_PERSONA_RULE_NO_LONG_LISTS: &str = "Pas de listes de {0} éléments ou plus.";
+pub(crate) const FR_PERSONA_RULE_NO_CITATIONS: &str =
+    "Aucune citation de référentiel ni acronyme technique.";
+pub(crate) const FR_PERSONA_RULE_PROSE_ONLY: &str = "Réponses en prose, sans blocs structurés.";
+pub(crate) const FR_PERSONA_RULE_ROUNDED_NUMBERS: &str = "Chiffres arrondis, pour rester lisible.";
+pub(crate) const FR_PERSONA_RULE_NO_NARRATION: &str =
+    "Pas de narration des consultations de données.";
+pub(crate) const FR_PERSONA_RULE_ACRONYMS_GLOSSED: &str =
+    "Les acronymes sont expliqués à la première occurrence.";
+pub(crate) const FR_PERSONA_RULE_SHORT_BLOCKS: &str = "Blocs structurés limités à {0} lignes.";
+pub(crate) const FR_PERSONA_RULE_CITATIONS_REQUIRED: &str =
+    "Citation du référentiel sur chaque affirmation chiffrée.";
+pub(crate) const FR_PERSONA_RULE_LINE_BY_LINE: &str = "Blocs d'activité ligne par ligne.";
+pub(crate) const FR_PERSONA_RULE_NO_SOFTENERS: &str = "Pas de formules d'atténuation.";
+pub(crate) const FR_PERSONA_RULE_EXACT_NUMBERS: &str = "Chiffres exacts, jamais arrondis.";
+pub(crate) const FR_PERSONA_RULE_P0_P3_LADDER: &str =
+    "Échelle de préparation P0–P3 sur chaque verdict.";
+pub(crate) const FR_PERSONA_RULE_ATHLETE_ATTRIBUTION: &str =
+    "Chaque bloc de données nomme l'athlète concerné.";
+pub(crate) const FR_PERSONA_RULE_ROSTER_VERIFIED: &str =
+    "Les citations d'athlètes sont vérifiées contre ton effectif.";
+pub(crate) const FR_PERSONA_ENFORCEMENT_VERIFIED: &str = "Vérifié à chaque réponse";
+pub(crate) const FR_PERSONA_ENFORCEMENT_ADVISORY: &str = "Indicatif";
+
 pub(crate) const FR_TIMEZONE_SET: &str = "Fuseau horaire réglé sur <b>{0}</b>. Les heures de départ de tes activités s'afficheront désormais dans ce fuseau.";
 pub(crate) const FR_TIMEZONE_INVALID: &str = "Fuseau horaire invalide. Donne un nom IANA, par exemple : <code>/timezone America/Toronto</code>.";
 
@@ -1128,6 +1229,9 @@ pub(crate) const FR_GROUP_RESPOND_ALL: &str =
     "Le coach répond de nouveau à tous les messages du groupe.";
 pub(crate) const FR_GROUP_COACH_DETACHED: &str = "{0} n'a plus de coach humain attitré.";
 pub(crate) const FR_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
+pub(crate) const FR_NOTIFICATION_DIGEST_TITLE: &str = "Ton récap hebdo de notifications";
+pub(crate) const FR_NOTIFICATION_DIGEST_BODY: &str =
+    "{0} notification(s) mises de côté cette semaine selon ton profil de coaching. Tout est dans l'app.";
 pub(crate) const FR_GROUP_RESPOND_STATUS_MENTIONS: &str = "Le coach ne répond que lorsqu'on l'interpelle. Pour revenir à tous les messages : /group respond all";
 pub(crate) const FR_GROUP_CONSENT_UPDATED: &str =
     "Le partage de tes données avec les autres membres de {1} est maintenant {0}.";
@@ -1370,6 +1474,38 @@ pub(crate) const EN_PRIVACY_STATUS_ENABLED: &str = "enabled";
 pub(crate) const EN_PRIVACY_STATUS_DISABLED: &str = "disabled";
 pub(crate) const EN_PRIVACY_ON_CONFIRMATION: &str = "Analytics consent has been <b>enabled</b>. Thank you for helping us improve Dravr!\n\nUse <code>/privacy off</code> to opt out at any time.";
 pub(crate) const EN_PRIVACY_OFF_CONFIRMATION: &str = "Analytics consent has been <b>disabled</b>. No anonymous usage data will be collected.\n\nUse <code>/privacy on</code> to opt back in at any time.";
+pub(crate) const EN_PERSONA_ISOLATION_REDACTED: &str =
+    "A section citing an athlete outside your roster was removed from this reply.";
+
+pub(crate) const EN_PERSONA_SUMMARY_CASUAL: &str = "Friendly, encouraging, no jargon.";
+pub(crate) const EN_PERSONA_SUMMARY_ENTHUSIAST: &str = "Prose, plus the numbers that matter.";
+pub(crate) const EN_PERSONA_SUMMARY_POWER_ATHLETE: &str =
+    "Line-by-line rigor, with framework citations.";
+pub(crate) const EN_PERSONA_SUMMARY_COACH: &str =
+    "Power-athlete rigor, applied to the athletes you coach.";
+pub(crate) const EN_PERSONA_RULE_MAX_WORDS: &str = "Replies capped at {0} words.";
+pub(crate) const EN_PERSONA_RULE_NO_LONG_LISTS: &str = "No lists of {0} or more items.";
+pub(crate) const EN_PERSONA_RULE_NO_CITATIONS: &str =
+    "No framework citations or technical acronyms.";
+pub(crate) const EN_PERSONA_RULE_PROSE_ONLY: &str = "Prose replies, no structured blocks.";
+pub(crate) const EN_PERSONA_RULE_ROUNDED_NUMBERS: &str = "Numbers rounded for readability.";
+pub(crate) const EN_PERSONA_RULE_NO_NARRATION: &str = "No data-lookup narration.";
+pub(crate) const EN_PERSONA_RULE_ACRONYMS_GLOSSED: &str =
+    "Acronyms are explained at first occurrence.";
+pub(crate) const EN_PERSONA_RULE_SHORT_BLOCKS: &str = "Structured blocks capped at {0} lines.";
+pub(crate) const EN_PERSONA_RULE_CITATIONS_REQUIRED: &str =
+    "Framework citation on every quantified claim.";
+pub(crate) const EN_PERSONA_RULE_LINE_BY_LINE: &str = "Line-by-line activity blocks.";
+pub(crate) const EN_PERSONA_RULE_NO_SOFTENERS: &str = "No conversational softeners.";
+pub(crate) const EN_PERSONA_RULE_EXACT_NUMBERS: &str = "Exact numbers, never rounded.";
+pub(crate) const EN_PERSONA_RULE_P0_P3_LADDER: &str = "P0–P3 readiness scale on every verdict.";
+pub(crate) const EN_PERSONA_RULE_ATHLETE_ATTRIBUTION: &str =
+    "Every data block names the athlete it belongs to.";
+pub(crate) const EN_PERSONA_RULE_ROSTER_VERIFIED: &str =
+    "Athlete citations are verified against your roster.";
+pub(crate) const EN_PERSONA_ENFORCEMENT_VERIFIED: &str = "Verified on every reply";
+pub(crate) const EN_PERSONA_ENFORCEMENT_ADVISORY: &str = "Advisory";
+
 pub(crate) const EN_TIMEZONE_SET: &str =
     "Timezone set to <b>{0}</b>. Your activity start times will now display in this timezone.";
 pub(crate) const EN_TIMEZONE_INVALID: &str =
@@ -1469,6 +1605,9 @@ pub(crate) const EN_GROUP_RESPOND_ALL: &str =
     "The coach now replies to every message in the group again.";
 pub(crate) const EN_GROUP_COACH_DETACHED: &str = "{0} no longer has an attached human coach.";
 pub(crate) const EN_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
+pub(crate) const EN_NOTIFICATION_DIGEST_TITLE: &str = "Your weekly notification digest";
+pub(crate) const EN_NOTIFICATION_DIGEST_BODY: &str =
+    "{0} notification(s) held for you this week per your coaching profile. Everything is in the app.";
 pub(crate) const EN_GROUP_RESPOND_STATUS_MENTIONS: &str =
     "The coach replies only when addressed. To go back to every message: /group respond all";
 pub(crate) const EN_GROUP_CONSENT_UPDATED: &str =
@@ -1686,6 +1825,42 @@ pub(crate) const ES_PRIVACY_STATUS_ENABLED: &str = "activado";
 pub(crate) const ES_PRIVACY_STATUS_DISABLED: &str = "desactivado";
 pub(crate) const ES_PRIVACY_ON_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>activado</b>. ¡Gracias por ayudarnos a mejorar Dravr!\n\nUsa <code>/privacy off</code> para darte de baja en cualquier momento.";
 pub(crate) const ES_PRIVACY_OFF_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>desactivado</b>. No se recogerán datos de uso anónimos.\n\nUsa <code>/privacy on</code> para volver a activarlo cuando quieras.";
+pub(crate) const ES_PERSONA_ISOLATION_REDACTED: &str =
+    "Se ha eliminado de esta respuesta una sección que citaba a un atleta fuera de tu plantilla.";
+
+pub(crate) const ES_PERSONA_SUMMARY_CASUAL: &str = "Amigable, motivador, sin jerga.";
+pub(crate) const ES_PERSONA_SUMMARY_ENTHUSIAST: &str = "Prosa, más los números que importan.";
+pub(crate) const ES_PERSONA_SUMMARY_POWER_ATHLETE: &str =
+    "Rigor línea por línea, con citas de los marcos de referencia.";
+pub(crate) const ES_PERSONA_SUMMARY_COACH: &str =
+    "El rigor de Power-athlete, aplicado a los atletas que entrenas.";
+pub(crate) const ES_PERSONA_RULE_MAX_WORDS: &str = "Respuestas limitadas a {0} palabras.";
+pub(crate) const ES_PERSONA_RULE_NO_LONG_LISTS: &str = "Sin listas de {0} o más elementos.";
+pub(crate) const ES_PERSONA_RULE_NO_CITATIONS: &str =
+    "Sin citas de marcos de referencia ni acrónimos técnicos.";
+pub(crate) const ES_PERSONA_RULE_PROSE_ONLY: &str =
+    "Respuestas en prosa, sin bloques estructurados.";
+pub(crate) const ES_PERSONA_RULE_ROUNDED_NUMBERS: &str =
+    "Cifras redondeadas para facilitar la lectura.";
+pub(crate) const ES_PERSONA_RULE_NO_NARRATION: &str = "Sin narración de las consultas de datos.";
+pub(crate) const ES_PERSONA_RULE_ACRONYMS_GLOSSED: &str =
+    "Los acrónimos se explican en su primera aparición.";
+pub(crate) const ES_PERSONA_RULE_SHORT_BLOCKS: &str =
+    "Bloques estructurados limitados a {0} líneas.";
+pub(crate) const ES_PERSONA_RULE_CITATIONS_REQUIRED: &str =
+    "Cita del marco de referencia en cada afirmación con cifras.";
+pub(crate) const ES_PERSONA_RULE_LINE_BY_LINE: &str = "Bloques de actividad línea por línea.";
+pub(crate) const ES_PERSONA_RULE_NO_SOFTENERS: &str = "Sin fórmulas atenuantes.";
+pub(crate) const ES_PERSONA_RULE_EXACT_NUMBERS: &str = "Cifras exactas, nunca redondeadas.";
+pub(crate) const ES_PERSONA_RULE_P0_P3_LADDER: &str =
+    "Escala de preparación P0–P3 en cada veredicto.";
+pub(crate) const ES_PERSONA_RULE_ATHLETE_ATTRIBUTION: &str =
+    "Cada bloque de datos nombra al atleta al que pertenece.";
+pub(crate) const ES_PERSONA_RULE_ROSTER_VERIFIED: &str =
+    "Las menciones de atletas se verifican contra tu plantilla.";
+pub(crate) const ES_PERSONA_ENFORCEMENT_VERIFIED: &str = "Verificado en cada respuesta";
+pub(crate) const ES_PERSONA_ENFORCEMENT_ADVISORY: &str = "Orientativo";
+
 pub(crate) const ES_TIMEZONE_SET: &str = "Zona horaria establecida en <b>{0}</b>. Las horas de inicio de tus actividades se mostrarán ahora en esta zona horaria.";
 pub(crate) const ES_TIMEZONE_INVALID: &str = "Zona horaria no válida. Indica un nombre IANA, por ejemplo <code>/timezone America/Toronto</code>.";
 
@@ -1784,6 +1959,9 @@ pub(crate) const ES_GROUP_RESPOND_ALL: &str =
     "El entrenador vuelve a responder a todos los mensajes del grupo.";
 pub(crate) const ES_GROUP_COACH_DETACHED: &str = "{0} ya no tiene un entrenador humano asignado.";
 pub(crate) const ES_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
+pub(crate) const ES_NOTIFICATION_DIGEST_TITLE: &str = "Tu resumen semanal de notificaciones";
+pub(crate) const ES_NOTIFICATION_DIGEST_BODY: &str =
+    "{0} notificación(es) guardadas esta semana según tu perfil de coaching. Todo está en la app.";
 pub(crate) const ES_GROUP_RESPOND_STATUS_MENTIONS: &str = "El entrenador solo responde cuando se le menciona. Para volver a todos los mensajes: /group respond all";
 pub(crate) const ES_GROUP_CONSENT_UPDATED: &str =
     "Compartir tus datos con los demás miembros de {1} está ahora {0}.";
@@ -1998,6 +2176,40 @@ pub(crate) const DE_PRIVACY_STATUS_ENABLED: &str = "aktiviert";
 pub(crate) const DE_PRIVACY_STATUS_DISABLED: &str = "deaktiviert";
 pub(crate) const DE_PRIVACY_ON_CONFIRMATION: &str = "Die Einwilligung zu anonymen Statistiken ist jetzt <b>aktiviert</b>. Danke, dass du hilfst, Dravr zu verbessern!\n\nNutze <code>/privacy off</code>, um dich jederzeit abzumelden.";
 pub(crate) const DE_PRIVACY_OFF_CONFIRMATION: &str = "Die Einwilligung zu anonymen Statistiken ist jetzt <b>deaktiviert</b>. Es werden keine anonymen Nutzungsdaten erhoben.\n\nNutze <code>/privacy on</code>, um dich jederzeit wieder anzumelden.";
+pub(crate) const DE_PERSONA_ISOLATION_REDACTED: &str = "Ein Abschnitt, der einen Athleten außerhalb deines Teams zitierte, wurde aus dieser Antwort entfernt.";
+
+pub(crate) const DE_PERSONA_SUMMARY_CASUAL: &str = "Freundlich, ermutigend, ohne Fachjargon.";
+pub(crate) const DE_PERSONA_SUMMARY_ENTHUSIAST: &str = "Fließtext, plus die Zahlen, die zählen.";
+pub(crate) const DE_PERSONA_SUMMARY_POWER_ATHLETE: &str =
+    "Zeile für Zeile präzise, mit Verweisen auf die Referenzmodelle.";
+pub(crate) const DE_PERSONA_SUMMARY_COACH: &str =
+    "Die Power-athlete-Strenge, angewandt auf die Athleten, die du trainierst.";
+pub(crate) const DE_PERSONA_RULE_MAX_WORDS: &str = "Antworten auf {0} Wörter begrenzt.";
+pub(crate) const DE_PERSONA_RULE_NO_LONG_LISTS: &str = "Keine Listen mit {0} oder mehr Punkten.";
+pub(crate) const DE_PERSONA_RULE_NO_CITATIONS: &str =
+    "Keine Verweise auf Referenzmodelle und keine Fachabkürzungen.";
+pub(crate) const DE_PERSONA_RULE_PROSE_ONLY: &str =
+    "Antworten in Fließtext, ohne strukturierte Blöcke.";
+pub(crate) const DE_PERSONA_RULE_ROUNDED_NUMBERS: &str = "Zahlen gerundet für bessere Lesbarkeit.";
+pub(crate) const DE_PERSONA_RULE_NO_NARRATION: &str =
+    "Keine Kommentare zu laufenden Datenabfragen.";
+pub(crate) const DE_PERSONA_RULE_ACRONYMS_GLOSSED: &str =
+    "Abkürzungen werden beim ersten Auftreten erklärt.";
+pub(crate) const DE_PERSONA_RULE_SHORT_BLOCKS: &str =
+    "Strukturierte Blöcke auf {0} Zeilen begrenzt.";
+pub(crate) const DE_PERSONA_RULE_CITATIONS_REQUIRED: &str =
+    "Quellenverweis auf das Referenzmodell bei jeder bezifferten Aussage.";
+pub(crate) const DE_PERSONA_RULE_LINE_BY_LINE: &str = "Aktivitätsblöcke Zeile für Zeile.";
+pub(crate) const DE_PERSONA_RULE_NO_SOFTENERS: &str = "Keine abschwächenden Floskeln.";
+pub(crate) const DE_PERSONA_RULE_EXACT_NUMBERS: &str = "Exakte Zahlen, nie gerundet.";
+pub(crate) const DE_PERSONA_RULE_P0_P3_LADDER: &str = "P0–P3-Bereitschaftsskala bei jedem Urteil.";
+pub(crate) const DE_PERSONA_RULE_ATHLETE_ATTRIBUTION: &str =
+    "Jeder Datenblock nennt den Athleten, zu dem er gehört.";
+pub(crate) const DE_PERSONA_RULE_ROSTER_VERIFIED: &str =
+    "Athleten-Nennungen werden gegen dein Team geprüft.";
+pub(crate) const DE_PERSONA_ENFORCEMENT_VERIFIED: &str = "Bei jeder Antwort geprüft";
+pub(crate) const DE_PERSONA_ENFORCEMENT_ADVISORY: &str = "Unverbindlich";
+
 pub(crate) const DE_TIMEZONE_SET: &str = "Zeitzone auf <b>{0}</b> gesetzt. Die Startzeiten deiner Aktivitäten werden jetzt in dieser Zeitzone angezeigt.";
 pub(crate) const DE_TIMEZONE_INVALID: &str =
     "Ungültige Zeitzone. Gib einen IANA-Namen an, z. B. <code>/timezone America/Toronto</code>.";
@@ -2094,6 +2306,10 @@ pub(crate) const DE_GROUP_RESPOND_ALL: &str =
     "Der Coach antwortet wieder auf jede Nachricht in der Gruppe.";
 pub(crate) const DE_GROUP_COACH_DETACHED: &str = "{0} hat jetzt keinen menschlichen Coach mehr.";
 pub(crate) const DE_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
+pub(crate) const DE_NOTIFICATION_DIGEST_TITLE: &str =
+    "Deine wöchentliche Benachrichtigungsübersicht";
+pub(crate) const DE_NOTIFICATION_DIGEST_BODY: &str =
+    "{0} Benachrichtigung(en) diese Woche gemäß deinem Coaching-Profil zurückgehalten. Alles findest du in der App.";
 pub(crate) const DE_GROUP_RESPOND_STATUS_MENTIONS: &str = "Der Coach antwortet nur, wenn er angesprochen wird. Zurück zu jeder Nachricht: /group respond all";
 pub(crate) const DE_GROUP_CONSENT_UPDATED: &str =
     "Das Teilen deiner Daten mit den anderen Mitgliedern von {1} ist jetzt {0}.";
@@ -2313,6 +2529,40 @@ pub(crate) const PT_PRIVACY_STATUS_ENABLED: &str = "ativado";
 pub(crate) const PT_PRIVACY_STATUS_DISABLED: &str = "desativado";
 pub(crate) const PT_PRIVACY_ON_CONFIRMATION: &str = "O consentimento de estatísticas anónimas está agora <b>ativado</b>. Obrigado por ajudares a melhorar o Dravr!\n\nUsa <code>/privacy off</code> para cancelar a qualquer momento.";
 pub(crate) const PT_PRIVACY_OFF_CONFIRMATION: &str = "O consentimento de estatísticas anónimas está agora <b>desativado</b>. Não serão recolhidos dados de uso anónimos.\n\nUsa <code>/privacy on</code> para voltar a ativar a qualquer momento.";
+pub(crate) const PT_PERSONA_ISOLATION_REDACTED: &str =
+    "Uma secção que citava um atleta fora do teu plantel foi removida desta resposta.";
+
+pub(crate) const PT_PERSONA_SUMMARY_CASUAL: &str = "Amigável, encorajador, sem jargão.";
+pub(crate) const PT_PERSONA_SUMMARY_ENTHUSIAST: &str = "Prosa, mais os números que contam.";
+pub(crate) const PT_PERSONA_SUMMARY_POWER_ATHLETE: &str =
+    "Rigor linha a linha, com citações dos referenciais.";
+pub(crate) const PT_PERSONA_SUMMARY_COACH: &str =
+    "O rigor Power-athlete, aplicado aos atletas que treinas.";
+pub(crate) const PT_PERSONA_RULE_MAX_WORDS: &str = "Respostas limitadas a {0} palavras.";
+pub(crate) const PT_PERSONA_RULE_NO_LONG_LISTS: &str = "Sem listas de {0} ou mais itens.";
+pub(crate) const PT_PERSONA_RULE_NO_CITATIONS: &str =
+    "Sem citações de referenciais nem acrónimos técnicos.";
+pub(crate) const PT_PERSONA_RULE_PROSE_ONLY: &str = "Respostas em prosa, sem blocos estruturados.";
+pub(crate) const PT_PERSONA_RULE_ROUNDED_NUMBERS: &str =
+    "Números arredondados para facilitar a leitura.";
+pub(crate) const PT_PERSONA_RULE_NO_NARRATION: &str = "Sem narração das consultas de dados.";
+pub(crate) const PT_PERSONA_RULE_ACRONYMS_GLOSSED: &str =
+    "Os acrónimos são explicados na primeira ocorrência.";
+pub(crate) const PT_PERSONA_RULE_SHORT_BLOCKS: &str = "Blocos estruturados limitados a {0} linhas.";
+pub(crate) const PT_PERSONA_RULE_CITATIONS_REQUIRED: &str =
+    "Citação do referencial em cada afirmação com números.";
+pub(crate) const PT_PERSONA_RULE_LINE_BY_LINE: &str = "Blocos de atividade linha a linha.";
+pub(crate) const PT_PERSONA_RULE_NO_SOFTENERS: &str = "Sem fórmulas atenuantes.";
+pub(crate) const PT_PERSONA_RULE_EXACT_NUMBERS: &str = "Números exatos, nunca arredondados.";
+pub(crate) const PT_PERSONA_RULE_P0_P3_LADDER: &str =
+    "Escala de prontidão P0–P3 em cada veredicto.";
+pub(crate) const PT_PERSONA_RULE_ATHLETE_ATTRIBUTION: &str =
+    "Cada bloco de dados nomeia o atleta a que pertence.";
+pub(crate) const PT_PERSONA_RULE_ROSTER_VERIFIED: &str =
+    "As menções a atletas são verificadas contra o teu plantel.";
+pub(crate) const PT_PERSONA_ENFORCEMENT_VERIFIED: &str = "Verificado em cada resposta";
+pub(crate) const PT_PERSONA_ENFORCEMENT_ADVISORY: &str = "Indicativo";
+
 pub(crate) const PT_TIMEZONE_SET: &str = "Fuso horário definido para <b>{0}</b>. As horas de início das tuas atividades passam a aparecer neste fuso horário.";
 pub(crate) const PT_TIMEZONE_INVALID: &str = "Fuso horário inválido. Indica um nome IANA, por exemplo <code>/timezone America/Toronto</code>.";
 
@@ -2409,6 +2659,9 @@ pub(crate) const PT_GROUP_RESPOND_ALL: &str =
     "O treinador volta a responder a todas as mensagens do grupo.";
 pub(crate) const PT_GROUP_COACH_DETACHED: &str = "{0} já não tem um treinador humano associado.";
 pub(crate) const PT_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
+pub(crate) const PT_NOTIFICATION_DIGEST_TITLE: &str = "O teu resumo semanal de notificações";
+pub(crate) const PT_NOTIFICATION_DIGEST_BODY: &str =
+    "{0} notificação(ões) guardadas esta semana segundo o teu perfil de coaching. Está tudo na app.";
 pub(crate) const PT_GROUP_RESPOND_STATUS_MENTIONS: &str = "O treinador só responde quando é chamado. Para voltar a todas as mensagens: /group respond all";
 pub(crate) const PT_GROUP_CONSENT_UPDATED: &str =
     "Partilhar os teus dados com os outros membros de {1} está agora {0}.";
@@ -2617,6 +2870,28 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "fr", FR_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "fr", FR_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "fr", FR_PRIVACY_OFF_CONFIRMATION),
+    (KEY_PERSONA_ISOLATION_REDACTED, "fr", FR_PERSONA_ISOLATION_REDACTED),
+    (KEY_PERSONA_SUMMARY_CASUAL, "fr", FR_PERSONA_SUMMARY_CASUAL),
+    (KEY_PERSONA_SUMMARY_ENTHUSIAST, "fr", FR_PERSONA_SUMMARY_ENTHUSIAST),
+    (KEY_PERSONA_SUMMARY_POWER_ATHLETE, "fr", FR_PERSONA_SUMMARY_POWER_ATHLETE),
+    (KEY_PERSONA_SUMMARY_COACH, "fr", FR_PERSONA_SUMMARY_COACH),
+    (KEY_PERSONA_RULE_MAX_WORDS, "fr", FR_PERSONA_RULE_MAX_WORDS),
+    (KEY_PERSONA_RULE_NO_LONG_LISTS, "fr", FR_PERSONA_RULE_NO_LONG_LISTS),
+    (KEY_PERSONA_RULE_NO_CITATIONS, "fr", FR_PERSONA_RULE_NO_CITATIONS),
+    (KEY_PERSONA_RULE_PROSE_ONLY, "fr", FR_PERSONA_RULE_PROSE_ONLY),
+    (KEY_PERSONA_RULE_ROUNDED_NUMBERS, "fr", FR_PERSONA_RULE_ROUNDED_NUMBERS),
+    (KEY_PERSONA_RULE_NO_NARRATION, "fr", FR_PERSONA_RULE_NO_NARRATION),
+    (KEY_PERSONA_RULE_ACRONYMS_GLOSSED, "fr", FR_PERSONA_RULE_ACRONYMS_GLOSSED),
+    (KEY_PERSONA_RULE_SHORT_BLOCKS, "fr", FR_PERSONA_RULE_SHORT_BLOCKS),
+    (KEY_PERSONA_RULE_CITATIONS_REQUIRED, "fr", FR_PERSONA_RULE_CITATIONS_REQUIRED),
+    (KEY_PERSONA_RULE_LINE_BY_LINE, "fr", FR_PERSONA_RULE_LINE_BY_LINE),
+    (KEY_PERSONA_RULE_NO_SOFTENERS, "fr", FR_PERSONA_RULE_NO_SOFTENERS),
+    (KEY_PERSONA_RULE_EXACT_NUMBERS, "fr", FR_PERSONA_RULE_EXACT_NUMBERS),
+    (KEY_PERSONA_RULE_P0_P3_LADDER, "fr", FR_PERSONA_RULE_P0_P3_LADDER),
+    (KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION, "fr", FR_PERSONA_RULE_ATHLETE_ATTRIBUTION),
+    (KEY_PERSONA_RULE_ROSTER_VERIFIED, "fr", FR_PERSONA_RULE_ROSTER_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_VERIFIED, "fr", FR_PERSONA_ENFORCEMENT_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_ADVISORY, "fr", FR_PERSONA_ENFORCEMENT_ADVISORY),
     (KEY_TIMEZONE_SET, "fr", FR_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "fr", FR_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "fr", FR_PILLARS_OPENER),
@@ -2686,6 +2961,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "fr", FR_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_COACH_DETACHED, "fr", FR_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "fr", FR_NOTIFICATION_CHANNEL_BODY),
+    (KEY_NOTIFICATION_DIGEST_TITLE, "fr", FR_NOTIFICATION_DIGEST_TITLE),
+    (KEY_NOTIFICATION_DIGEST_BODY, "fr", FR_NOTIFICATION_DIGEST_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "fr", FR_GROUP_CONSENT_UPDATED),
     (KEY_GROUP_CREATE_USAGE, "fr", FR_GROUP_CREATE_USAGE),
     (KEY_GROUP_CREATE_NO_COACH, "fr", FR_GROUP_CREATE_NO_COACH),
@@ -2860,6 +3137,28 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "en", EN_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "en", EN_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "en", EN_PRIVACY_OFF_CONFIRMATION),
+    (KEY_PERSONA_ISOLATION_REDACTED, "en", EN_PERSONA_ISOLATION_REDACTED),
+    (KEY_PERSONA_SUMMARY_CASUAL, "en", EN_PERSONA_SUMMARY_CASUAL),
+    (KEY_PERSONA_SUMMARY_ENTHUSIAST, "en", EN_PERSONA_SUMMARY_ENTHUSIAST),
+    (KEY_PERSONA_SUMMARY_POWER_ATHLETE, "en", EN_PERSONA_SUMMARY_POWER_ATHLETE),
+    (KEY_PERSONA_SUMMARY_COACH, "en", EN_PERSONA_SUMMARY_COACH),
+    (KEY_PERSONA_RULE_MAX_WORDS, "en", EN_PERSONA_RULE_MAX_WORDS),
+    (KEY_PERSONA_RULE_NO_LONG_LISTS, "en", EN_PERSONA_RULE_NO_LONG_LISTS),
+    (KEY_PERSONA_RULE_NO_CITATIONS, "en", EN_PERSONA_RULE_NO_CITATIONS),
+    (KEY_PERSONA_RULE_PROSE_ONLY, "en", EN_PERSONA_RULE_PROSE_ONLY),
+    (KEY_PERSONA_RULE_ROUNDED_NUMBERS, "en", EN_PERSONA_RULE_ROUNDED_NUMBERS),
+    (KEY_PERSONA_RULE_NO_NARRATION, "en", EN_PERSONA_RULE_NO_NARRATION),
+    (KEY_PERSONA_RULE_ACRONYMS_GLOSSED, "en", EN_PERSONA_RULE_ACRONYMS_GLOSSED),
+    (KEY_PERSONA_RULE_SHORT_BLOCKS, "en", EN_PERSONA_RULE_SHORT_BLOCKS),
+    (KEY_PERSONA_RULE_CITATIONS_REQUIRED, "en", EN_PERSONA_RULE_CITATIONS_REQUIRED),
+    (KEY_PERSONA_RULE_LINE_BY_LINE, "en", EN_PERSONA_RULE_LINE_BY_LINE),
+    (KEY_PERSONA_RULE_NO_SOFTENERS, "en", EN_PERSONA_RULE_NO_SOFTENERS),
+    (KEY_PERSONA_RULE_EXACT_NUMBERS, "en", EN_PERSONA_RULE_EXACT_NUMBERS),
+    (KEY_PERSONA_RULE_P0_P3_LADDER, "en", EN_PERSONA_RULE_P0_P3_LADDER),
+    (KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION, "en", EN_PERSONA_RULE_ATHLETE_ATTRIBUTION),
+    (KEY_PERSONA_RULE_ROSTER_VERIFIED, "en", EN_PERSONA_RULE_ROSTER_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_VERIFIED, "en", EN_PERSONA_ENFORCEMENT_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_ADVISORY, "en", EN_PERSONA_ENFORCEMENT_ADVISORY),
     (KEY_TIMEZONE_SET, "en", EN_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "en", EN_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "en", EN_PILLARS_OPENER),
@@ -2929,6 +3228,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "en", EN_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_COACH_DETACHED, "en", EN_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "en", EN_NOTIFICATION_CHANNEL_BODY),
+    (KEY_NOTIFICATION_DIGEST_TITLE, "en", EN_NOTIFICATION_DIGEST_TITLE),
+    (KEY_NOTIFICATION_DIGEST_BODY, "en", EN_NOTIFICATION_DIGEST_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "en", EN_GROUP_CONSENT_UPDATED),
     (KEY_GROUP_CREATE_USAGE, "en", EN_GROUP_CREATE_USAGE),
     (KEY_GROUP_CREATE_NO_COACH, "en", EN_GROUP_CREATE_NO_COACH),
@@ -3102,6 +3403,28 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "es", ES_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "es", ES_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "es", ES_PRIVACY_OFF_CONFIRMATION),
+    (KEY_PERSONA_ISOLATION_REDACTED, "es", ES_PERSONA_ISOLATION_REDACTED),
+    (KEY_PERSONA_SUMMARY_CASUAL, "es", ES_PERSONA_SUMMARY_CASUAL),
+    (KEY_PERSONA_SUMMARY_ENTHUSIAST, "es", ES_PERSONA_SUMMARY_ENTHUSIAST),
+    (KEY_PERSONA_SUMMARY_POWER_ATHLETE, "es", ES_PERSONA_SUMMARY_POWER_ATHLETE),
+    (KEY_PERSONA_SUMMARY_COACH, "es", ES_PERSONA_SUMMARY_COACH),
+    (KEY_PERSONA_RULE_MAX_WORDS, "es", ES_PERSONA_RULE_MAX_WORDS),
+    (KEY_PERSONA_RULE_NO_LONG_LISTS, "es", ES_PERSONA_RULE_NO_LONG_LISTS),
+    (KEY_PERSONA_RULE_NO_CITATIONS, "es", ES_PERSONA_RULE_NO_CITATIONS),
+    (KEY_PERSONA_RULE_PROSE_ONLY, "es", ES_PERSONA_RULE_PROSE_ONLY),
+    (KEY_PERSONA_RULE_ROUNDED_NUMBERS, "es", ES_PERSONA_RULE_ROUNDED_NUMBERS),
+    (KEY_PERSONA_RULE_NO_NARRATION, "es", ES_PERSONA_RULE_NO_NARRATION),
+    (KEY_PERSONA_RULE_ACRONYMS_GLOSSED, "es", ES_PERSONA_RULE_ACRONYMS_GLOSSED),
+    (KEY_PERSONA_RULE_SHORT_BLOCKS, "es", ES_PERSONA_RULE_SHORT_BLOCKS),
+    (KEY_PERSONA_RULE_CITATIONS_REQUIRED, "es", ES_PERSONA_RULE_CITATIONS_REQUIRED),
+    (KEY_PERSONA_RULE_LINE_BY_LINE, "es", ES_PERSONA_RULE_LINE_BY_LINE),
+    (KEY_PERSONA_RULE_NO_SOFTENERS, "es", ES_PERSONA_RULE_NO_SOFTENERS),
+    (KEY_PERSONA_RULE_EXACT_NUMBERS, "es", ES_PERSONA_RULE_EXACT_NUMBERS),
+    (KEY_PERSONA_RULE_P0_P3_LADDER, "es", ES_PERSONA_RULE_P0_P3_LADDER),
+    (KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION, "es", ES_PERSONA_RULE_ATHLETE_ATTRIBUTION),
+    (KEY_PERSONA_RULE_ROSTER_VERIFIED, "es", ES_PERSONA_RULE_ROSTER_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_VERIFIED, "es", ES_PERSONA_ENFORCEMENT_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_ADVISORY, "es", ES_PERSONA_ENFORCEMENT_ADVISORY),
     (KEY_TIMEZONE_SET, "es", ES_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "es", ES_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "es", ES_PILLARS_OPENER),
@@ -3171,6 +3494,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "es", ES_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_COACH_DETACHED, "es", ES_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "es", ES_NOTIFICATION_CHANNEL_BODY),
+    (KEY_NOTIFICATION_DIGEST_TITLE, "es", ES_NOTIFICATION_DIGEST_TITLE),
+    (KEY_NOTIFICATION_DIGEST_BODY, "es", ES_NOTIFICATION_DIGEST_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "es", ES_GROUP_CONSENT_UPDATED),
     (KEY_GROUP_CREATE_USAGE, "es", ES_GROUP_CREATE_USAGE),
     (KEY_GROUP_CREATE_NO_COACH, "es", ES_GROUP_CREATE_NO_COACH),
@@ -3345,6 +3670,28 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "de", DE_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "de", DE_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "de", DE_PRIVACY_OFF_CONFIRMATION),
+    (KEY_PERSONA_ISOLATION_REDACTED, "de", DE_PERSONA_ISOLATION_REDACTED),
+    (KEY_PERSONA_SUMMARY_CASUAL, "de", DE_PERSONA_SUMMARY_CASUAL),
+    (KEY_PERSONA_SUMMARY_ENTHUSIAST, "de", DE_PERSONA_SUMMARY_ENTHUSIAST),
+    (KEY_PERSONA_SUMMARY_POWER_ATHLETE, "de", DE_PERSONA_SUMMARY_POWER_ATHLETE),
+    (KEY_PERSONA_SUMMARY_COACH, "de", DE_PERSONA_SUMMARY_COACH),
+    (KEY_PERSONA_RULE_MAX_WORDS, "de", DE_PERSONA_RULE_MAX_WORDS),
+    (KEY_PERSONA_RULE_NO_LONG_LISTS, "de", DE_PERSONA_RULE_NO_LONG_LISTS),
+    (KEY_PERSONA_RULE_NO_CITATIONS, "de", DE_PERSONA_RULE_NO_CITATIONS),
+    (KEY_PERSONA_RULE_PROSE_ONLY, "de", DE_PERSONA_RULE_PROSE_ONLY),
+    (KEY_PERSONA_RULE_ROUNDED_NUMBERS, "de", DE_PERSONA_RULE_ROUNDED_NUMBERS),
+    (KEY_PERSONA_RULE_NO_NARRATION, "de", DE_PERSONA_RULE_NO_NARRATION),
+    (KEY_PERSONA_RULE_ACRONYMS_GLOSSED, "de", DE_PERSONA_RULE_ACRONYMS_GLOSSED),
+    (KEY_PERSONA_RULE_SHORT_BLOCKS, "de", DE_PERSONA_RULE_SHORT_BLOCKS),
+    (KEY_PERSONA_RULE_CITATIONS_REQUIRED, "de", DE_PERSONA_RULE_CITATIONS_REQUIRED),
+    (KEY_PERSONA_RULE_LINE_BY_LINE, "de", DE_PERSONA_RULE_LINE_BY_LINE),
+    (KEY_PERSONA_RULE_NO_SOFTENERS, "de", DE_PERSONA_RULE_NO_SOFTENERS),
+    (KEY_PERSONA_RULE_EXACT_NUMBERS, "de", DE_PERSONA_RULE_EXACT_NUMBERS),
+    (KEY_PERSONA_RULE_P0_P3_LADDER, "de", DE_PERSONA_RULE_P0_P3_LADDER),
+    (KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION, "de", DE_PERSONA_RULE_ATHLETE_ATTRIBUTION),
+    (KEY_PERSONA_RULE_ROSTER_VERIFIED, "de", DE_PERSONA_RULE_ROSTER_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_VERIFIED, "de", DE_PERSONA_ENFORCEMENT_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_ADVISORY, "de", DE_PERSONA_ENFORCEMENT_ADVISORY),
     (KEY_TIMEZONE_SET, "de", DE_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "de", DE_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "de", DE_PILLARS_OPENER),
@@ -3414,6 +3761,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "de", DE_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_COACH_DETACHED, "de", DE_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "de", DE_NOTIFICATION_CHANNEL_BODY),
+    (KEY_NOTIFICATION_DIGEST_TITLE, "de", DE_NOTIFICATION_DIGEST_TITLE),
+    (KEY_NOTIFICATION_DIGEST_BODY, "de", DE_NOTIFICATION_DIGEST_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "de", DE_GROUP_CONSENT_UPDATED),
     (KEY_GROUP_CREATE_USAGE, "de", DE_GROUP_CREATE_USAGE),
     (KEY_GROUP_CREATE_NO_COACH, "de", DE_GROUP_CREATE_NO_COACH),
@@ -3588,6 +3937,28 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "pt", PT_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "pt", PT_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "pt", PT_PRIVACY_OFF_CONFIRMATION),
+    (KEY_PERSONA_ISOLATION_REDACTED, "pt", PT_PERSONA_ISOLATION_REDACTED),
+    (KEY_PERSONA_SUMMARY_CASUAL, "pt", PT_PERSONA_SUMMARY_CASUAL),
+    (KEY_PERSONA_SUMMARY_ENTHUSIAST, "pt", PT_PERSONA_SUMMARY_ENTHUSIAST),
+    (KEY_PERSONA_SUMMARY_POWER_ATHLETE, "pt", PT_PERSONA_SUMMARY_POWER_ATHLETE),
+    (KEY_PERSONA_SUMMARY_COACH, "pt", PT_PERSONA_SUMMARY_COACH),
+    (KEY_PERSONA_RULE_MAX_WORDS, "pt", PT_PERSONA_RULE_MAX_WORDS),
+    (KEY_PERSONA_RULE_NO_LONG_LISTS, "pt", PT_PERSONA_RULE_NO_LONG_LISTS),
+    (KEY_PERSONA_RULE_NO_CITATIONS, "pt", PT_PERSONA_RULE_NO_CITATIONS),
+    (KEY_PERSONA_RULE_PROSE_ONLY, "pt", PT_PERSONA_RULE_PROSE_ONLY),
+    (KEY_PERSONA_RULE_ROUNDED_NUMBERS, "pt", PT_PERSONA_RULE_ROUNDED_NUMBERS),
+    (KEY_PERSONA_RULE_NO_NARRATION, "pt", PT_PERSONA_RULE_NO_NARRATION),
+    (KEY_PERSONA_RULE_ACRONYMS_GLOSSED, "pt", PT_PERSONA_RULE_ACRONYMS_GLOSSED),
+    (KEY_PERSONA_RULE_SHORT_BLOCKS, "pt", PT_PERSONA_RULE_SHORT_BLOCKS),
+    (KEY_PERSONA_RULE_CITATIONS_REQUIRED, "pt", PT_PERSONA_RULE_CITATIONS_REQUIRED),
+    (KEY_PERSONA_RULE_LINE_BY_LINE, "pt", PT_PERSONA_RULE_LINE_BY_LINE),
+    (KEY_PERSONA_RULE_NO_SOFTENERS, "pt", PT_PERSONA_RULE_NO_SOFTENERS),
+    (KEY_PERSONA_RULE_EXACT_NUMBERS, "pt", PT_PERSONA_RULE_EXACT_NUMBERS),
+    (KEY_PERSONA_RULE_P0_P3_LADDER, "pt", PT_PERSONA_RULE_P0_P3_LADDER),
+    (KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION, "pt", PT_PERSONA_RULE_ATHLETE_ATTRIBUTION),
+    (KEY_PERSONA_RULE_ROSTER_VERIFIED, "pt", PT_PERSONA_RULE_ROSTER_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_VERIFIED, "pt", PT_PERSONA_ENFORCEMENT_VERIFIED),
+    (KEY_PERSONA_ENFORCEMENT_ADVISORY, "pt", PT_PERSONA_ENFORCEMENT_ADVISORY),
     (KEY_TIMEZONE_SET, "pt", PT_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "pt", PT_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "pt", PT_PILLARS_OPENER),
@@ -3657,6 +4028,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "pt", PT_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_COACH_DETACHED, "pt", PT_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "pt", PT_NOTIFICATION_CHANNEL_BODY),
+    (KEY_NOTIFICATION_DIGEST_TITLE, "pt", PT_NOTIFICATION_DIGEST_TITLE),
+    (KEY_NOTIFICATION_DIGEST_BODY, "pt", PT_NOTIFICATION_DIGEST_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "pt", PT_GROUP_CONSENT_UPDATED),
     (KEY_GROUP_CREATE_USAGE, "pt", PT_GROUP_CREATE_USAGE),
     (KEY_GROUP_CREATE_NO_COACH, "pt", PT_GROUP_CREATE_NO_COACH),

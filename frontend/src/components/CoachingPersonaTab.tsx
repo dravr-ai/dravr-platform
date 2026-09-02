@@ -32,7 +32,6 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bulletKeys: [
       'app.styleCasualBullet1',
       'app.styleCasualBullet2',
-      'app.styleCasualBullet3Web',
     ],
   },
   {
@@ -43,7 +42,6 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bulletKeys: [
       'app.styleEnthusiastBullet1',
       'app.styleEnthusiastBullet2',
-      'app.styleEnthusiastBullet3Web',
     ],
   },
   {
@@ -54,7 +52,6 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bulletKeys: [
       'app.stylePowerBullet1',
       'app.stylePowerBullet2Web',
-      'app.stylePowerBullet3Web',
     ],
   },
   {
@@ -62,11 +59,7 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     name: PERSONA_NAME.coach,
     taglineKey: 'app.styleCoachTagWeb',
     descriptionKey: 'app.styleCoachBlurbWeb',
-    bulletKeys: [
-      'app.styleCoachBullet1',
-      'app.styleCoachBullet2',
-      'app.styleCoachBullet3Web',
-    ],
+    bulletKeys: [],
   },
 ];
 
@@ -86,7 +79,10 @@ export default function CoachingPersonaTab() {
   const mutation = useMutation({
     mutationFn: (persona: CoachingPersona) => userApi.setCoachingPersona(persona),
     onSuccess: (data) => {
-      setMessage({ type: 'success', text: t('app.coachingStyleUpdated', { style: data.persona }) });
+      setMessage({
+        type: 'success',
+        text: t('app.coachingStyleUpdated', { style: PERSONA_NAME[data.persona] ?? data.persona }),
+      });
       void queryClient.invalidateQueries({ queryKey: ['user'] });
       setTimeout(() => setMessage(null), 3000);
     },
@@ -97,7 +93,7 @@ export default function CoachingPersonaTab() {
       }
       setMessage({
         type: 'error',
-        text: t('app.coachingStyleUpdateFailed', { style: attempted }),
+        text: t('app.coachingStyleUpdateFailed', { style: PERSONA_NAME[attempted] ?? attempted }),
       });
       setTimeout(() => setMessage(null), 3000);
     },

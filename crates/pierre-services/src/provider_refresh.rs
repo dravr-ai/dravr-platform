@@ -1050,7 +1050,7 @@ async fn dispatch_sync_push_notification(
     records_created: u32,
 ) {
     use pierre_notifications::models::NotificationCategory as CommNotifCategory;
-    use pierre_notifications::{DispatchRequest, TenantId as CommTenantId};
+    use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
 
     let Some(svc) = service else {
         return;
@@ -1069,7 +1069,8 @@ async fn dispatch_sync_push_notification(
         bypass_frequency_cap: false,
     };
 
-    match svc.dispatch(&request).await {
+    // P3: "your data synced" is a confirmation, the canonical digest item.
+    match svc.dispatch_with_tier(&request, PushTier::P3).await {
         Ok(outcome) => {
             tracing::debug!(
                 user_id = %user_id,

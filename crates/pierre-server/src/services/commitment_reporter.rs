@@ -71,7 +71,7 @@ use pierre_services::messaging_broadcast::proactive_text;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
     models::NotificationCategory as CommNotifCategory, DispatchOutcome, DispatchRequest,
-    NotificationService, TenantId as CommTenantId,
+    NotificationService, PushTier, TenantId as CommTenantId,
 };
 
 /// Meta's re-engagement window for `WhatsApp` and Messenger. Outside it a plain
@@ -361,7 +361,9 @@ impl ServerCommitmentReporter {
             bypass_frequency_cap: true,
         };
 
-        match service.dispatch(&request).await {
+        // P2: the verdict is alert-shaped accountability the athlete opted
+        // into, not break-glass — a Casual floor holds it for the digest.
+        match service.dispatch_with_tier(&request, PushTier::P2).await {
             // No device tokens still lands the notification row, so it is
             // waiting in the app — that is a delivery, not a drop.
             Ok(DispatchOutcome::Delivered { .. } | DispatchOutcome::PersistedNoDevices { .. }) => {

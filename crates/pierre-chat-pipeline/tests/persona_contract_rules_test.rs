@@ -343,12 +343,29 @@ fn citing_an_athlete_outside_the_roster_violates() {
 }
 
 #[test]
-fn tenant_isolation_fails_open_without_a_roster() {
+fn tenant_isolation_fails_closed_without_a_roster() {
+    // A citation the roster cannot vouch for is treated as foreign: the
+    // 2026-09-01 audit flipped this from fail-open (skip the check) to
+    // fail-closed, because a skipped check let an unlucky lookup ship a
+    // cross-athlete leak unexamined. The violation routes to deterministic
+    // redaction, never to the fact-preserving style rewrite.
     let reply = "Mallory · dead\nDistance: 42 km\nTime: 3h30";
     let found = rules(COACH, CoachingPersona::Coach, reply, None);
     assert!(
+        found.contains(&"require_tenant_isolation".to_owned()),
+        "an unresolved roster must flag unverifiable citations, got {found:?}"
+    );
+}
+
+#[test]
+fn tenant_isolation_needs_a_citation_to_fire_without_a_roster() {
+    // Fail-closed applies to citations only — a reply with no athlete
+    // citation has nothing to verify and must pass even roster-less.
+    let reply = "Solid week overall.\nDistance: 42 km";
+    let found = rules(COACH, CoachingPersona::Coach, reply, None);
+    assert!(
         !found.contains(&"require_tenant_isolation".to_owned()),
-        "an unresolved roster must not flag every citation, got {found:?}"
+        "no citation, nothing to verify, got {found:?}"
     );
 }
 

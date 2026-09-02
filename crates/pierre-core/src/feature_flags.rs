@@ -40,11 +40,20 @@ pub enum FeatureKey {
     /// Disabled by default until paid plans go live; admins flip on once a
     /// tenant is wired to a billing provider.
     BillingHeader,
+    /// Arm persona notification-policy enforcement: a push whose tier falls
+    /// above the user's persona floor is persisted for the weekly digest
+    /// instead of delivered. Disabled by default — the gate runs in shadow
+    /// mode (verdict logs only) until an operator arms it per tenant or user.
+    PersonaNotificationPolicy,
 }
 
 impl FeatureKey {
     /// All known flags, in stable order for admin UI rendering.
-    pub const ALL: &'static [Self] = &[Self::ApiTokens, Self::BillingHeader];
+    pub const ALL: &'static [Self] = &[
+        Self::ApiTokens,
+        Self::BillingHeader,
+        Self::PersonaNotificationPolicy,
+    ];
 
     /// Storage key (matches the `feature_key` column and the JSON field
     /// returned to the frontend).
@@ -53,6 +62,7 @@ impl FeatureKey {
         match self {
             Self::ApiTokens => "api_tokens",
             Self::BillingHeader => "billing_header",
+            Self::PersonaNotificationPolicy => "persona_notification_policy",
         }
     }
 
@@ -61,7 +71,7 @@ impl FeatureKey {
     #[must_use]
     pub const fn default_enabled(self) -> bool {
         match self {
-            Self::ApiTokens | Self::BillingHeader => false,
+            Self::ApiTokens | Self::BillingHeader | Self::PersonaNotificationPolicy => false,
         }
     }
 
@@ -74,6 +84,9 @@ impl FeatureKey {
             }
             Self::BillingHeader => {
                 "Show the Current Plan / upgrade card on the Usage screen."
+            }
+            Self::PersonaNotificationPolicy => {
+                "Enforce the persona push-tier floor (gated pushes are persisted and rolled into the weekly digest instead of delivered)."
             }
         }
     }
@@ -105,6 +118,7 @@ impl FromStr for FeatureKey {
         match s {
             "api_tokens" => Ok(Self::ApiTokens),
             "billing_header" => Ok(Self::BillingHeader),
+            "persona_notification_policy" => Ok(Self::PersonaNotificationPolicy),
             other => Err(UnknownFeatureKey(other.to_owned())),
         }
     }
@@ -128,7 +142,11 @@ mod tests {
         // If a new variant is added without updating ALL, this test catches it.
         let mut from_all: Vec<&str> = FeatureKey::ALL.iter().map(|k| k.as_str()).collect();
         from_all.sort_unstable();
-        let mut expected = vec!["api_tokens", "billing_header"];
+        let mut expected = vec![
+            "api_tokens",
+            "billing_header",
+            "persona_notification_policy",
+        ];
         expected.sort_unstable();
         assert_eq!(from_all, expected);
     }
@@ -153,6 +171,10 @@ mod tests {
     fn display_matches_as_str() {
         assert_eq!(FeatureKey::ApiTokens.to_string(), "api_tokens");
         assert_eq!(FeatureKey::BillingHeader.to_string(), "billing_header");
+        assert_eq!(
+            FeatureKey::PersonaNotificationPolicy.to_string(),
+            "persona_notification_policy"
+        );
     }
 
     #[test]

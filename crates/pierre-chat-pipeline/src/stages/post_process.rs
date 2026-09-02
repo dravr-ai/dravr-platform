@@ -22,7 +22,9 @@ use pierre_core::narration::{scrub_internal_narration, IdentityLeakMatch};
 
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
-use super::persona_conformance::{check_reply_conformance, enforce_conformance, RosterScope};
+use super::persona_conformance::{
+    apply_isolation_redaction, check_reply_conformance, enforce_conformance, RosterScope,
+};
 use super::prompt_assembly::resolve_user_persona;
 use super::structured_output;
 #[cfg(feature = "tools-verification")]
@@ -104,7 +106,8 @@ pub(crate) struct PostProcessInputs<'a> {
 ///
 /// Queried only when the persona's contract sets `require_tenant_isolation` —
 /// every other persona would pay a roster lookup that no rule reads. A failed
-/// or empty lookup yields `None`, and the check fails open on it.
+/// or empty lookup yields `None`, and the check fails CLOSED on it: citations
+/// that cannot be verified are treated as foreign and redacted.
 async fn resolve_roster_scope(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -179,6 +182,16 @@ async fn apply_style_stages(
         persona = persona.as_str(),
         violations = conformance_violations.len(),
         "persona conformance scan complete"
+    );
+    // Leak repair before style repair: an isolation violation is cut
+    // deterministically; only style violations may reach the LLM rewrite.
+    let content = apply_isolation_redaction(
+        &ctx.messaging_strings_registry,
+        persona,
+        content,
+        &conformance_violations,
+        roster.as_ref(),
+        locale,
     );
     enforce_conformance(
         ctx.chat_provider.as_ref(),

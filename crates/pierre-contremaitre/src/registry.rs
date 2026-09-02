@@ -282,10 +282,21 @@ impl PromptRegistry {
     /// contremaitre) when present, otherwise the compiled-in
     /// `include_str!()` content via [`get_coaching_persona_prompt`]. The
     /// chat-pipeline `interpolate_prompt_placeholders` stage substitutes
-    /// the result into `{{COACHING_PERSONA_RULES}}` of `pierre_system.md`,
-    /// so the persona contract is part of every assembled system prompt.
-    pub fn coaching_persona_prompt(&self, persona: CoachingPersona) -> String {
+    /// the result into `{{COACHING_PERSONA_RULES}}`, so the persona
+    /// contract is part of every assembled system prompt.
+    ///
+    /// Lookup is locale-aware: a contremaitre manifest may publish
+    /// per-locale persona blocks under composite keys (`<slug>.<locale>`,
+    /// e.g. `power_athlete.fr`) alongside the bare-slug English block.
+    /// Resolution order: `<slug>.<locale>` → `<slug>` → compiled-in
+    /// English fallback — so a locale without a translated block reads
+    /// the English rules rather than nothing.
+    pub fn coaching_persona_prompt(&self, persona: CoachingPersona, locale: &str) -> String {
         let guard = self.read_personas();
+        let localized_key = format!("{}.{locale}", persona.as_str());
+        if let Some(entry) = guard.get(&localized_key) {
+            return entry.content.clone();
+        }
         guard.get(persona.as_str()).map_or_else(
             || get_coaching_persona_prompt(persona).to_owned(),
             |entry| entry.content.clone(),

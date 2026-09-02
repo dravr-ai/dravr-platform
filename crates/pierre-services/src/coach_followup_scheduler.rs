@@ -46,7 +46,7 @@ use tracing::{debug, error, info};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
     models::NotificationCategory as CommNotifCategory, DispatchRequest, NotificationService,
-    TenantId as CommTenantId,
+    PushTier, TenantId as CommTenantId,
 };
 
 use pierre_core::errors::AppResult;
@@ -249,7 +249,9 @@ async fn dispatch_notification(
         actions: None,
         bypass_frequency_cap: false,
     };
-    service.dispatch(&request).await
+    // P2: a due followup is advisory — coach-authored but not a live message
+    // the coach is waiting on, so it sits one rung below coach_message's P1.
+    service.dispatch_with_tier(&request, PushTier::P2).await
 }
 
 /// Long-running loop that ticks the scheduler at [`DEFAULT_TICK_INTERVAL`].

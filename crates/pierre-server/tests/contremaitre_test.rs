@@ -1006,11 +1006,14 @@ fn test_validator_accepts_pierre_system_with_all_placeholders() {
 }
 
 #[test]
-fn test_validator_rejects_pierre_system_missing_persona_placeholder() {
-    // Exact reproduction of the 2026-04-30 contremaitre drift.
+fn test_validator_accepts_pierre_system_without_persona_placeholder() {
+    // The persona slot moved to platform_contract (2026-09-01): a bound
+    // coach replaces the pierre_system voice layer wholesale, so requiring
+    // the slot here is what silently dropped persona steering on coach
+    // turns. pierre_system carries no required placeholders anymore.
     let content = "preamble {{SCOPE_REFUSAL}} body {{CAPABILITY_REFUSAL}} \
                    carve {{COACH_SCOPE_CARVE_OUT}} no-persona-section end";
-    assert!(!system_prompt_content_is_valid(
+    assert!(system_prompt_content_is_valid(
         "pierre_system",
         "prompts/system/pierre_system.md",
         content
@@ -1018,11 +1021,15 @@ fn test_validator_rejects_pierre_system_missing_persona_placeholder() {
 }
 
 #[test]
-fn test_validator_rejects_pierre_system_missing_multiple_placeholders() {
-    let content = "only {{SCOPE_REFUSAL}} present, three others missing";
+fn test_validator_rejects_platform_contract_missing_persona_placeholder() {
+    // The guard the pierre_system requirement used to provide lives on the
+    // contract now — a synced platform_contract that drops the persona slot
+    // must be refused or persona substitution silently no-ops everywhere.
+    let content = "contract {{SCOPE_REFUSAL}} {{CAPABILITY_REFUSAL}} \
+                   {{COACH_SCOPE_CARVE_OUT}} {{CURRENT_DATE}} no-persona-slot";
     assert!(!system_prompt_content_is_valid(
-        "pierre_system",
-        "prompts/system/pierre_system.md",
+        "platform_contract",
+        "prompts/system/platform_contract.md",
         content
     ));
 }
@@ -1045,11 +1052,14 @@ fn test_validator_accepts_unknown_keys_without_requirements() {
 }
 
 #[test]
-fn test_validator_rejects_pierre_system_when_content_is_empty() {
-    // Edge case: empty content trivially fails every required-placeholder check.
+fn test_validator_rejects_platform_contract_when_content_is_empty() {
+    // Edge case: empty content trivially fails every required-placeholder
+    // check. Pinned on platform_contract — pierre_system has no required
+    // placeholders since the persona slot moved to the contract, so an
+    // empty voice layer passes this particular gate.
     assert!(!system_prompt_content_is_valid(
-        "pierre_system",
-        "prompts/system/pierre_system.md",
+        "platform_contract",
+        "prompts/system/platform_contract.md",
         ""
     ));
 }

@@ -94,6 +94,8 @@ use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::messenger_persistent_menu::publish_messenger_menu;
 #[cfg(all(feature = "client-notifications", feature = "client-messaging"))]
 use pierre_services::notification_channel_sink::MessagingChannelSink;
+#[cfg(feature = "client-notifications")]
+use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
 use pierre_services::pricing_loader;
 #[cfg(feature = "client-messaging")]
 use pierre_services::telegram_bot_commands::{
@@ -378,6 +380,7 @@ impl ServerContext {
             &database_arc,
             &repos,
             &contremaitre_messaging_strings_registry,
+            &persona_contract_registry,
         ));
 
         // Start the background notification scheduler if service is available
@@ -677,18 +680,24 @@ impl ServerContext {
     }
 
     /// Create the notification service, dispatching to the appropriate backend
-    /// and attaching the messaging delivery sink.
+    /// and attaching the messaging delivery sink and the persona policy gate.
     ///
     /// Without the sink the dispatcher has exactly two outlets — the persisted
     /// notification row and Expo push — so an athlete who only ever talks to
     /// Dravr on Telegram, Slack or `WhatsApp` receives nothing, for any category.
     /// The sink hangs off `dispatch` rather than off any one caller, so every
     /// category that raises a notification reaches messaging.
+    ///
+    /// The persona policy gate hangs off dispatch for the same reason: every
+    /// tiered dispatch consults the recipient's persona push policy (shadow
+    /// verdicts until `FeatureKey::PersonaNotificationPolicy` arms it), so no
+    /// call site can route around the contract's notification promise.
     #[cfg(feature = "client-notifications")]
     fn create_notification_service(
         database: &Arc<Database>,
         repos: &Arc<RepositoryRegistry>,
         messaging_strings: &Arc<MessagingStringsRegistry>,
+        persona_contracts: &Arc<PersonaContractRegistry>,
     ) -> Arc<NotificationService> {
         let service = match database.as_ref() {
             Database::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
@@ -699,6 +708,10 @@ impl ServerContext {
         let service = service.with_channel_sink(Arc::new(MessagingChannelSink::new(
             Arc::clone(repos),
             Arc::clone(messaging_strings),
+        )));
+        let service = service.with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
+            Arc::clone(repos),
+            Arc::clone(persona_contracts),
         )));
         info!("Notification service initialized");
         Arc::new(service)

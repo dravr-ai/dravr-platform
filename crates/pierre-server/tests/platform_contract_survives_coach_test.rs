@@ -60,10 +60,13 @@ fn the_contract_carries_every_invariant_the_incident_lost() {
 #[test]
 fn the_persona_block_carries_voice_and_no_invariants() {
     // The persona is what a coach replaces. If an invariant lives here it is
-    // one a coach silently deletes — the whole defect this split fixes.
+    // one a coach silently deletes — the whole defect this split fixes. The
+    // persona-rules slot itself fell to that exact defect while it lived in
+    // pierre_system (coach-bound turns silently lost persona steering), so
+    // since 2026-09-01 the slot is a contract invariant.
     assert!(
-        PIERRE_SYSTEM_PROMPT.contains("{{COACHING_PERSONA_RULES}}"),
-        "the default persona keeps the persona-rules placeholder"
+        PLATFORM_CONTRACT_PROMPT.contains("{{COACHING_PERSONA_RULES}}"),
+        "the contract carries the persona-rules placeholder"
     );
     for (label, fragment) in CONTRACT_INVARIANTS {
         assert!(

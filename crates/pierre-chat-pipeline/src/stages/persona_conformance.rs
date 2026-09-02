@@ -27,16 +27,21 @@
 //! ## Soft vs strict
 //!
 //! Per-persona `strict_mode` defaults to `false` — violations log and the
-//! reply ships unchanged. Once a rule has stabilised in shadow mode for a
-//! persona we can flip `strict_mode: true` in contremaitre.
+//! reply ships unchanged. `power_athlete` has been strict since 2026-08-12,
+//! and `coach` inherits strict through the `child || parent` contract overlay;
+//! `casual` and `enthusiast` remain shadow-mode.
 //!
-//! `strict_mode: true` is fully armed on the platform side: it raises the log
-//! to `error!` **and** runs the re-prompt recovery in [`enforce_conformance`],
-//! which asks the model to rewrite the reply against the violated rules while
-//! preserving every fact, and fails open on any error. What keeps the stage
-//! advisory today is data, not code — no shipped persona sets `strict_mode` in
-//! contremaitre's `persona_contracts.yaml`, and the shadow logs that would
-//! justify flipping one have not been reviewed.
+//! `strict_mode: true` raises the log to `error!` **and** runs the re-prompt
+//! recovery in [`enforce_conformance`], which asks the model to rewrite the
+//! reply against the violated *style* rules while preserving every fact, and
+//! fails open on any error.
+//!
+//! Tenant isolation is the exception to both regimes: a
+//! `require_tenant_isolation` violation is repaired by deterministic
+//! **redaction** (the foreign citation and its data block are removed),
+//! never by the style rewrite — an editor told to preserve every fact would
+//! preserve the leak — and it applies whenever the contract enables the
+//! rule, independent of `strict_mode`.
 //!
 //! ## Rule coverage
 //!
@@ -55,6 +60,9 @@ use pierre_core::models::CoachingPersona;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use tracing::{error, info, warn};
 
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, KEY_PERSONA_ISOLATION_REDACTED,
+};
 use pierre_contremaitre::persona_contracts::{
     PersonaContract, PersonaContractRegistry, TOOL_NARRATION_PHRASES,
 };
@@ -164,18 +172,30 @@ fn athlete_suffix(id: &str) -> Option<String> {
     (cleaned.len() >= 4).then(|| cleaned[cleaned.len() - 4..].to_lowercase())
 }
 
-/// Enforce a persona's output-format contract when it is in `strict_mode`.
+/// Enforce a persona's output-format contract.
 ///
-/// When the reply violated the contract and the persona's contract has
-/// `strict_mode: true`, re-prompt the LLM to rewrite the reply in compliance —
-/// preserving every fact, number, recommendation, and citation, changing only
-/// wording, structure, and length. Returns the rewritten reply.
+/// Two repair regimes, chosen by the violated rule:
 ///
-/// Fails OPEN: with no violations, no strict contract, no chat provider, or a
-/// failed/empty rewrite, the original reply is returned unchanged — a style
-/// miss must never drop or blank the user's answer. `strict_mode` is `false`
-/// for every shipped persona today, so this is inert until a contract enables
-/// it in contremaitre.
+/// - `require_tenant_isolation` violations are repaired by **deterministic
+///   redaction** — the foreign citation and its attached data block are cut
+///   and a localized notice line is appended. This runs whenever the rule
+///   fired, independent of `strict_mode`: it is a leak repair, and handing
+///   the reply to a style editor instructed to preserve every fact would
+///   preserve the leak.
+/// - Every other (style) violation is repaired only under `strict_mode:
+///   true`: re-prompt the LLM to rewrite the reply in compliance —
+///   preserving every fact, number, recommendation, and citation, changing
+///   only wording, structure, and length.
+///
+/// The style path fails OPEN (no strict contract, no chat provider, or a
+/// failed/empty rewrite returns the reply unchanged — a style miss must never
+/// drop or blank the user's answer). `power_athlete` ships strict (armed
+/// 2026-08-12) and `coach` inherits strict through the contract overlay;
+/// `casual` and `enthusiast` remain shadow-mode.
+///
+/// Callers run [`apply_isolation_redaction`] first; this function excludes
+/// isolation violations from the style path regardless, so a leak can never
+/// reach the fact-preserving rewrite even through a direct call.
 #[must_use]
 pub async fn enforce_conformance(
     chat_provider: Option<&Arc<ChatProvider>>,
@@ -185,7 +205,12 @@ pub async fn enforce_conformance(
     violations: &[ContractViolation],
     active_model: &str,
 ) -> String {
-    if violations.is_empty() {
+    let style_violations: Vec<ContractViolation> = violations
+        .iter()
+        .filter(|v| v.rule != "require_tenant_isolation")
+        .cloned()
+        .collect();
+    if style_violations.is_empty() {
         return content;
     }
     let strict = registry
@@ -198,13 +223,90 @@ pub async fn enforce_conformance(
     let Some(provider) = chat_provider else {
         warn!(
             persona = persona.as_str(),
-            violations = violations.len(),
+            violations = style_violations.len(),
             "strict persona conformance active but no chat provider to re-prompt; keeping original reply"
         );
         return content;
     };
 
-    rewrite_to_satisfy_contract(provider, persona, content, violations, active_model).await
+    rewrite_to_satisfy_contract(provider, persona, content, &style_violations, active_model).await
+}
+
+/// The leak-repair half of enforcement: when a `require_tenant_isolation`
+/// violation fired, deterministically cut the offending content.
+///
+/// Runs whenever the rule fired, independent of `strict_mode`. Returns the
+/// reply unchanged when no isolation violation is present.
+#[must_use]
+pub fn apply_isolation_redaction(
+    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
+    persona: CoachingPersona,
+    content: String,
+    violations: &[ContractViolation],
+    roster: Option<&RosterScope>,
+    locale: &str,
+) -> String {
+    let isolation_fired = violations
+        .iter()
+        .any(|v| v.rule == "require_tenant_isolation");
+    if !isolation_fired {
+        return content;
+    }
+    let notice = messaging_strings_registry.get(KEY_PERSONA_ISOLATION_REDACTED, locale);
+    redact_foreign_athlete_blocks(&content, roster, &notice, persona)
+}
+
+/// Cut every athlete-cited block the roster does not vouch for.
+///
+/// Line-based and deterministic: a line carrying a citation (`· <last4>`)
+/// outside the roster — or any citation at all when the roster is
+/// unresolved or empty, matching the fail-closed check — is dropped together
+/// with the lines that follow it up to the next blank line (the attached
+/// data block). One localized notice line is appended when anything was cut.
+fn redact_foreign_athlete_blocks(
+    reply: &str,
+    roster: Option<&RosterScope>,
+    notice: &str,
+    persona: CoachingPersona,
+) -> String {
+    let scope = roster.filter(|s| !s.is_empty());
+    let mut kept: Vec<&str> = Vec::new();
+    let mut redacted = 0usize;
+    let mut skipping = false;
+    for line in reply.lines() {
+        if skipping {
+            if line.trim().is_empty() {
+                skipping = false;
+            }
+            continue;
+        }
+        let foreign = athlete_citations(line)
+            .into_iter()
+            .any(|c| scope.is_none_or(|s| !s.allows(&c)));
+        if foreign {
+            skipping = true;
+            redacted += 1;
+            continue;
+        }
+        kept.push(line);
+    }
+    if redacted == 0 {
+        return reply.to_owned();
+    }
+    info!(
+        persona = persona.as_str(),
+        redacted, "tenant-isolation redaction removed athlete block(s) from coach reply"
+    );
+    let mut out = kept.join("\n");
+    while out.ends_with('\n') || out.ends_with(' ') {
+        out.pop();
+    }
+    if out.is_empty() {
+        return notice.to_owned();
+    }
+    out.push_str("\n\n");
+    out.push_str(notice);
+    out
 }
 
 /// Re-prompt the LLM to rewrite `content` so it satisfies the persona contract,
@@ -644,10 +746,21 @@ fn check_tenant_isolation(
         return;
     }
     let Some(scope) = roster.filter(|s| !s.is_empty()) else {
+        // Fail CLOSED: citations we cannot verify are treated as foreign, so
+        // an unresolved roster redacts rather than skips. The alternative —
+        // skipping the check — let an unlucky lookup ship a cross-athlete
+        // leak unexamined.
         warn!(
             citations = citations.len(),
-            "tenant-isolation conformance skipped: coach roster unavailable"
+            "tenant-isolation conformance: coach roster unavailable — treating all athlete citations as unverifiable"
         );
+        out.push(ContractViolation {
+            rule: "require_tenant_isolation",
+            detail: format!(
+                "{} athlete citation(s) cannot be verified: coach roster unavailable",
+                citations.len()
+            ),
+        });
         return;
     };
     if let Some(foreign) = citations.iter().find(|c| !scope.allows(c)) {
@@ -662,7 +775,38 @@ fn check_tenant_isolation(
 /// [`PersonaContract::require_exact_numbers`]. Compiled in for the same reason
 /// as [`FRAMEWORK_LABELS`]: moving them to YAML would let a contract edit
 /// quietly weaken the rule.
-const VAGUE_MODIFIERS: &[&str] = &["~", "≈", "approximately", "around", "roughly", "about"];
+///
+/// One multilingual superset rather than per-locale tables: the check only
+/// fires within [`VAGUE_MODIFIER_WINDOW`] chars of a digit, so a hedge from
+/// another locale never false-positives on ordinary prose, and a single list
+/// keeps every locale covered by the same rule (the check was EN-only until
+/// 2026-09-01 — strict enforcement silently missed fr/es/de/pt hedges).
+const VAGUE_MODIFIERS: &[&str] = &[
+    "~",
+    "≈",
+    // en
+    "approximately",
+    "around",
+    "roughly",
+    "about",
+    // fr
+    "environ",
+    "à peu près",
+    "grosso modo",
+    "autour de",
+    // es
+    "aproximadamente",
+    "alrededor de",
+    "más o menos",
+    // de
+    "ungefähr",
+    "etwa",
+    "circa",
+    // pt
+    "cerca de",
+    "por volta de",
+    "mais ou menos",
+];
 
 /// Characters of slack allowed between a hedge and the digit it qualifies.
 const VAGUE_MODIFIER_WINDOW: usize = 10;
