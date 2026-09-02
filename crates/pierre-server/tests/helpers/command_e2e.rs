@@ -424,15 +424,14 @@ impl CommandE2e {
             .and_then(|s| s["id"].as_str().map(str::to_owned))
     }
 
-    /// The guided-flow state on the conversation the member's session under
-    /// `tenant`/`chat_id` points at. `None` when no session, no conversation,
-    /// or no active walk.
-    pub async fn onboarding_state(
+    /// The conversation id the member's session under `tenant`/`chat_id`
+    /// points at, when that session exists.
+    pub async fn conversation_id(
         &self,
         m: &Member,
         tenant: TenantId,
         chat_id: &str,
-    ) -> Option<OnboardingState> {
+    ) -> Option<String> {
         let session = self
             .resources
             .common
@@ -442,13 +441,27 @@ impl CommandE2e {
             .await
             .ok()
             .flatten()?;
-        let conversation_id = session["pierre_conversation_id"].as_str()?;
+        session["pierre_conversation_id"]
+            .as_str()
+            .map(str::to_owned)
+    }
+
+    /// The guided-flow state on the conversation the member's session under
+    /// `tenant`/`chat_id` points at. `None` when no session, no conversation,
+    /// or no active walk.
+    pub async fn onboarding_state(
+        &self,
+        m: &Member,
+        tenant: TenantId,
+        chat_id: &str,
+    ) -> Option<OnboardingState> {
+        let conversation_id = self.conversation_id(m, tenant, chat_id).await?;
         let conv = self
             .resources
             .common
             .repos
             .chat
-            .get_conversation(conversation_id, &m.user_id.to_string(), tenant)
+            .get_conversation(&conversation_id, &m.user_id.to_string(), tenant)
             .await
             .ok()
             .flatten()?;
@@ -524,6 +537,28 @@ impl CommandE2e {
             Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .fetch_one(db.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
+    /// Non-empty outbound ledger bodies for `session_id`, oldest first — the
+    /// record of what the athlete was told, read back verbatim.
+    pub async fn outbound_bodies_for_session(&self, session_id: &str) -> Vec<String> {
+        const SQL: &str = "SELECT content_body FROM messaging_messages \
+             WHERE direction = 'outbound' AND session_id = $1 \
+               AND content_body IS NOT NULL AND content_body != '' \
+             ORDER BY created_at ASC";
+        match self.resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_scalar(SQL)
+                .bind(session_id)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                .bind(session_id)
+                .fetch_all(db.pool())
                 .await
                 .unwrap(),
         }
@@ -730,24 +765,9 @@ impl RoomE2e {
 
     /// The member's own room conversation id, when their session exists.
     pub async fn conversation_id(&self, m: &Member) -> Option<String> {
-        let session = self
-            .base
-            .resources
-            .common
-            .repos
-            .messaging
-            .get_session_by_channel_identity(
-                self.base.bot_tenant,
-                "telegram",
-                &m.channel_user_id,
-                Some(&self.chat_id.to_string()),
-            )
+        self.base
+            .conversation_id(m, self.base.bot_tenant, &self.chat_id.to_string())
             .await
-            .ok()
-            .flatten()?;
-        session["pierre_conversation_id"]
-            .as_str()
-            .map(str::to_owned)
     }
 
     /// `chat_messages` rows in `conversation_id` whose content carries

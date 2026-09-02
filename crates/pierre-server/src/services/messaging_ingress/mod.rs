@@ -77,7 +77,7 @@ pub use otp::start_otp_flow;
 use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
-use session::{handle_reset, resolve_linked_session, ChannelChatRef};
+use session::{handle_reset, resolve_linked_session, ChannelChatRef, ResetParams};
 #[cfg(feature = "client-messaging")]
 pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};
 #[cfg(feature = "client-messaging")]
@@ -625,6 +625,19 @@ async fn persist_single_message(
         tenant_id
     };
 
+    // The athlete's stored locale for this channel, resolved once and shared by
+    // every reply this turn can produce — the reset confirmation, an intake or
+    // coach-choice answer, and every downstream stage of a dispatched turn
+    // (guardrails, verification, empty-reply). Channel-link override first,
+    // then the user profile, then the registry default.
+    let locale = match Uuid::parse_str(&session.user_id) {
+        Ok(uuid) => {
+            resolve_messaging_locale(resources, user_tenant_id, uuid, channel, &message.sender_id)
+                .await
+        }
+        Err(_) => DEFAULT_LOCALE.to_owned(),
+    };
+
     // Reset command: rotate onto a fresh conversation so a user can abandon a
     // long or degraded thread. Handled here rather than via the generic slash
     // dispatcher because it mutates the messaging session binding the dispatcher
@@ -634,12 +647,15 @@ async fn persist_single_message(
         emit_messaging_intent(&session.user_id, tenant_id, channel, "reset");
         let mut reset_response = handle_reset(
             resources,
-            session_tenant_id,
-            channel_type,
-            channel,
-            &message.sender_id,
-            &session,
-            message.is_direct_message,
+            ResetParams {
+                session_tenant_id,
+                channel_type,
+                channel,
+                sender_id: &message.sender_id,
+                session: &session,
+                is_direct_message: message.is_direct_message,
+                locale: &locale,
+            },
         )
         .await;
         reset_response.thread_id = thread_id;
@@ -666,17 +682,6 @@ async fn persist_single_message(
         return Ok(PersistOutcome::HandledNotStored);
     }
 
-    // Locale for this reply. Resolved here rather than reusing the one computed
-    // further down, because that happens after the LLM-dispatch branch this
-    // block short-circuits.
-    let choice_locale = match Uuid::parse_str(&session.user_id) {
-        Ok(uuid) => {
-            resolve_messaging_locale(resources, user_tenant_id, uuid, channel, &message.sender_id)
-                .await
-        }
-        Err(_) => DEFAULT_LOCALE.to_owned(),
-    };
-
     // An answer to a question the platform asked: profile type, or one of the
     // seven PAR-Q+ questions. Sits ahead of the coach-proposal reply because an
     // intake is outstanding before a proposal ever goes out, so a bare "1" here
@@ -694,7 +699,7 @@ async fn persist_single_message(
         channel_type,
         sender_id: &message.sender_id,
         user_id: auth_result.user_id,
-        locale: &choice_locale,
+        locale: &locale,
         text: content_body_text(&message.content)
             .unwrap_or_default()
             .as_str(),
@@ -725,7 +730,7 @@ async fn persist_single_message(
             channel_type,
             sender_id: &message.sender_id,
             user_id: auth_result.user_id,
-            locale: &choice_locale,
+            locale: &locale,
             text: content_body_text(&message.content)
                 .unwrap_or_default()
                 .as_str(),
@@ -771,18 +776,6 @@ async fn persist_single_message(
         content_type_label(&message.content),
     );
     emit_messaging_intent(&session.user_id, tenant_id, channel, "normal_chat");
-
-    // Resolve the user's preferred locale once per dispatch so every
-    // downstream stage (guardrails, verification, empty-reply) speaks the
-    // same language. Uses the channel-link override first, then the user
-    // profile, then the registry default.
-    let locale = match Uuid::parse_str(&session.user_id) {
-        Ok(uuid) => {
-            resolve_messaging_locale(resources, user_tenant_id, uuid, channel, &message.sender_id)
-                .await
-        }
-        Err(_) => DEFAULT_LOCALE.to_owned(),
-    };
 
     // Extract text content for LLM dispatch, then run the Phase C input
     // sanitization scanner. Verbatim user text is preserved in the stored

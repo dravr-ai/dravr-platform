@@ -203,6 +203,33 @@ pub(super) async fn sender_room_walk_is_active(
         .is_some()
 }
 
+/// Everything [`handle_reset`] needs to rotate one session.
+///
+/// A struct rather than positional parameters, for the reason
+/// [`super::intake::IntakeParams`] gives: the `&str` fields are trivially
+/// swappable at a call site, and this one forges the conversation every later
+/// turn dispatches under.
+pub(super) struct ResetParams<'a> {
+    /// The session's tenant (user's own for DMs) — the fresh conversation must
+    /// be forged here so the live dispatch, which reads under the same tenant,
+    /// finds it. Forging under the bot tenant would make every post-reset turn
+    /// self-heal.
+    pub session_tenant_id: TenantId,
+    /// Channel the confirmation goes back out on.
+    pub channel_type: ChannelType,
+    /// Channel name as the ledger and conversation title record it.
+    pub channel: &'a str,
+    /// Channel-side sender id, the confirmation's recipient.
+    pub sender_id: &'a str,
+    /// The session being rotated, with the conversation it currently points at.
+    pub session: &'a ResolvedSession,
+    /// Whether this arrived in a 1:1 conversation.
+    pub is_direct_message: bool,
+    /// The athlete's stored locale for the channel — every body is rendered in
+    /// it, resolved by the caller the way every other command reply's is.
+    pub locale: &'a str,
+}
+
 /// Handle the `/reset` (`/nouveau`, `/new`) command: rotate the messaging
 /// session onto a fresh conversation so a user can abandon a long or degraded
 /// thread without operator help. The previous conversation row is left intact
@@ -211,16 +238,17 @@ pub(super) async fn sender_room_walk_is_active(
 /// Addressed to `sender_id`; the caller applies thread/room recipient routing.
 pub(super) async fn handle_reset(
     resources: &ServerContext,
-    // The session's tenant (user's own for DMs) — the fresh conversation must be
-    // forged here so the live dispatch, which reads under the same tenant, finds
-    // it. Forging under the bot tenant would make every post-reset turn self-heal.
-    session_tenant_id: TenantId,
-    channel_type: ChannelType,
-    channel: &str,
-    sender_id: &str,
-    session: &ResolvedSession,
-    is_direct_message: bool,
+    params: ResetParams<'_>,
 ) -> OutgoingMessage {
+    let ResetParams {
+        session_tenant_id,
+        channel_type,
+        channel,
+        sender_id,
+        session,
+        is_direct_message,
+        locale,
+    } = params;
     let registry = &resources.mcp.messaging_strings_registry;
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let interrupted_walk = walk_was_active(resources, session, session_tenant_id).await;
@@ -244,11 +272,11 @@ pub(super) async fn handle_reset(
                 interrupted_walk,
                 "Reset command: rotated messaging session onto a fresh conversation"
             );
-            let confirm = registry.get(KEY_RESET_CONFIRM, DEFAULT_LOCALE);
+            let confirm = registry.get(KEY_RESET_CONFIRM, locale);
             if interrupted_walk {
                 format!(
                     "{confirm}{}",
-                    registry.get(KEY_RESET_WALK_INTERRUPTED, DEFAULT_LOCALE)
+                    registry.get(KEY_RESET_WALK_INTERRUPTED, locale)
                 )
             } else {
                 confirm
@@ -260,7 +288,7 @@ pub(super) async fn handle_reset(
                 session_id = %session.session_id,
                 "Reset command failed to forge a fresh conversation"
             );
-            format_template(&registry.get(KEY_ERROR_GENERIC, DEFAULT_LOCALE), &["reset"])
+            format_template(&registry.get(KEY_ERROR_GENERIC, locale), &["reset"])
         }
     };
     // Rich, because the interrupted-walk branch above appends
