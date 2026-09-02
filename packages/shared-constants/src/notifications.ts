@@ -61,7 +61,7 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
  * which both notification centres rendered verbatim under French chrome, and
  * the first fix reached for `Intl.RelativeTimeFormat` — which the phone's
  * JavaScript engine does not ship, so the notification list crashed with
- * "Cannot read property 'prototype' of undefined" (carnet#216). The catalogue
+ * "Cannot read property 'prototype' of undefined" (carnet#227). The catalogue
  * carries the wording instead: it exists on every runtime, and the four
  * phrasings are short enough that no locale needs a plural rule.
  */

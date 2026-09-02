@@ -117,7 +117,7 @@ describe('client locale corpus', () => {
     // phone's JavaScript engine and crashed the notification centre. Four
     // `notifications.*` keys carry the relative times instead: the catalogue
     // is on every runtime, and these four phrasings need no plural rule
-    // (carnet#216).
+    // (carnet#227).
     const reference = leafKeys(bundleFor('en')).sort();
     expect(reference).toHaveLength(2415);
 
