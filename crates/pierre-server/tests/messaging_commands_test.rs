@@ -482,7 +482,7 @@ mod command_tests {
     #[tokio::test]
     async fn test_privacy_on_handler_enables_consent() {
         use pierre_commands::privacy::PrivacyOnHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -511,6 +511,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -533,7 +534,7 @@ mod command_tests {
     #[tokio::test]
     async fn test_privacy_off_handler_disables_consent() {
         use pierre_commands::privacy::PrivacyOffHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -569,6 +570,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -637,7 +639,7 @@ mod command_tests {
     #[tokio::test]
     async fn coach_add_in_dm_sets_users_default_coach() {
         use pierre_commands::coach::CoachAddHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -673,6 +675,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -710,7 +713,7 @@ mod command_tests {
     #[tokio::test]
     async fn coach_add_in_dm_twice_swaps_the_selected_coach() {
         use pierre_commands::coach::CoachAddHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -730,6 +733,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -760,7 +764,7 @@ mod command_tests {
     #[tokio::test]
     async fn coach_list_renders_without_markdown_asterisks() {
         use pierre_commands::coach::CoachListHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -788,6 +792,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -817,7 +822,7 @@ mod command_tests {
     async fn test_group_consent_uses_conversation_group_id() {
         use chrono::Utc;
         use pierre_commands::group::GroupConsentHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::coaches::{
             CoachCategory, CoachVisibility, CreateSystemCoachRequest,
         };
@@ -958,6 +963,7 @@ mod command_tests {
             conversation_id: Some(conversation.id.clone()),
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -1015,7 +1021,7 @@ mod command_tests {
     #[tokio::test]
     async fn group_consent_binds_to_chat_group_across_tenants() {
         use pierre_commands::group::GroupConsentHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let fixture = cross_tenant_group_fixture(&resources).await;
@@ -1036,6 +1042,7 @@ mod command_tests {
             ambient_group_fallback: true,
             conversation_id: Some(fixture.conversation.clone()),
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -1063,7 +1070,7 @@ mod command_tests {
     #[tokio::test]
     async fn group_consent_refuses_unresolvable_conversation() {
         use pierre_commands::group::GroupConsentHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -1083,6 +1090,7 @@ mod command_tests {
             // No such conversation anywhere.
             conversation_id: Some(Uuid::new_v4().to_string()),
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -1287,7 +1295,7 @@ mod command_tests {
     #[tokio::test]
     async fn group_coach_command_sets_group_ai_coach() {
         use pierre_commands::group::GroupCoachHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::coaches::{
             CoachCategory, CoachVisibility, CreateSystemCoachRequest,
         };
@@ -1382,6 +1390,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
         let response = GroupCoachHandler.execute(&ctx).await.unwrap();
@@ -1439,7 +1448,7 @@ mod command_tests {
     #[tokio::test]
     async fn group_coach_detach_clears_the_human_coach() {
         use pierre_commands::group::GroupCoachHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::coaches::{
             CoachCategory, CoachVisibility, CreateSystemCoachRequest,
         };
@@ -1534,6 +1543,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
         let response = GroupCoachHandler.execute(&ctx).await.unwrap();
@@ -1564,7 +1574,7 @@ mod command_tests {
     #[tokio::test]
     async fn test_privacy_status_handler_reads_current_state() {
         use pierre_commands::privacy::PrivacyStatusHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -1582,6 +1592,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -1604,7 +1615,7 @@ mod command_tests {
     #[tokio::test]
     async fn test_timezone_handler_persists_valid_iana() {
         use pierre_commands::timezone::TimezoneHandler;
-        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -1637,6 +1648,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
@@ -1695,7 +1707,7 @@ mod command_tests {
         GroupConsentHandler, GroupInviteHandler, GroupListHandler, GroupMembersHandler,
         GroupStatusHandler,
     };
-    use pierre_commands::{CommandHandler, PlatformCommandContext};
+    use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_messaging::commands::CommandRegistry;
 
@@ -1811,6 +1823,7 @@ mod command_tests {
             conversation_id,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(resources),
         }
     }
@@ -2738,6 +2751,7 @@ mod command_tests {
         let DispatchOutcome::Executed {
             command_name,
             response,
+            ..
         } = outcome
         else {
             panic!("/coaches invite must execute a registered command");
@@ -3025,6 +3039,7 @@ mod command_tests {
         let DispatchOutcome::Executed {
             command_name,
             response,
+            ..
         } = outcome
         else {
             panic!("/coaches add @recovery-coach must execute a registered command");

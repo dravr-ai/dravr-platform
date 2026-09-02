@@ -30,7 +30,7 @@ use std::sync::Arc;
 use common::{create_test_server_resources, create_test_user_with_plan};
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_commands::coach::CoachAddHandler;
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::coaches::CreateCoachRequest;
 use pierre_core::models::groups::CreateGroupRequest;
@@ -513,6 +513,7 @@ async fn slash_coach_add_emits_coach_selected() {
         conversation_id: None,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(&res),
     };
 

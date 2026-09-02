@@ -25,7 +25,7 @@ use common::create_test_server_resources;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_commands::plan::PlanShowHandler;
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
 use pierre_core::models::groups::{
     CoachingGroup, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
@@ -367,6 +367,7 @@ async fn athlete_plan_command(fx: &Fixture) -> String {
         conversation_id: Some(conversation.id),
         conversation_tenant_id: fx.athlete_tenant,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(&fx.resources),
     };
     PlanShowHandler.execute(&ctx).await.unwrap().text

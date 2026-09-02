@@ -17,7 +17,7 @@
 use anyhow::Result;
 use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, SlashRequest};
 use pierre_commands::plan::{PlanShareHandler, PlanShowHandler};
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::chunking::chunk_reply;
 use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
 use pierre_core::models::groups::{
@@ -231,6 +231,7 @@ fn ctx_on(
         conversation_id: Some(conversation_id.to_owned()),
         conversation_tenant_id: surface.conversation_tenant,
         sender_id: surface.sender_id.map(ToOwned::to_owned),
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(resources),
     }
 }

@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use pierre_chat_pipeline::detect_turn_locale;
 use pierre_commands::status::StatusHandler;
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
     KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_GROUP_LIST_EMPTY,
@@ -260,6 +260,7 @@ async fn status_handler_renders_french_by_default() {
         conversation_id: None,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(&resources),
     };
 
@@ -292,6 +293,7 @@ async fn status_handler_switches_to_english_when_locale_set() {
         conversation_id: None,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(&resources),
     };
 

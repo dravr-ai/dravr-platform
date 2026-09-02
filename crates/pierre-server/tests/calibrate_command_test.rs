@@ -22,7 +22,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_commands::calibration::CalibrateHandler;
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -96,6 +96,7 @@ fn ctx(
         conversation_id,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(resources),
     }
 }

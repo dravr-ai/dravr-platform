@@ -21,7 +21,9 @@
 use anyhow::Result;
 use pierre_commands::help::{HelpHandler, PERSONAL_MARKER};
 use pierre_commands::plan::PlanShareHandler;
-use pierre_commands::{load_command_catalog, CommandHandler, PlatformCommandContext};
+use pierre_commands::{
+    load_command_catalog, CommandHandler, ConversationRotation, PlatformCommandContext,
+};
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_messaging::commands::{CommandRegistry, CommandResponse};
@@ -102,6 +104,7 @@ fn ctx(
         conversation_id: None,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(resources),
     }
 }

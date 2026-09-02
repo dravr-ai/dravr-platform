@@ -22,7 +22,7 @@ use std::sync::Arc;
 use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user};
 use pierre_commands::guardian_confirm::{ConfirmHandler, DenyHandler};
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_GUARDIAN_CONFIRM_DENIED, KEY_GUARDIAN_CONFIRM_DONE,
     KEY_GUARDIAN_CONFIRM_EXPIRED, KEY_GUARDIAN_CONFIRM_FAILED, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
@@ -101,6 +101,7 @@ fn command_ctx(
         conversation_id: None,
         conversation_tenant_id: tenant,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(resources) as Arc<dyn ToolRuntime>,
     }
 }

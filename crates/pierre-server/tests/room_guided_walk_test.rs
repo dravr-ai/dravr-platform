@@ -28,7 +28,7 @@
 
 use anyhow::Result;
 use pierre_commands::calibration::CalibrateHandler;
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, WalkAudience};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::CoachesCtx;
@@ -125,6 +125,7 @@ fn room_ctx(fix: &RoomFixture) -> PlatformCommandContext {
         conversation_id: Some(fix.conversation_id.clone()),
         conversation_tenant_id: fix.channel_tenant,
         sender_id: Some("tg-walker".to_owned()),
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(&fix.resources),
     }
 }

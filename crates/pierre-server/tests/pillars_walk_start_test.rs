@@ -23,7 +23,7 @@
 
 use anyhow::Result;
 use pierre_commands::onboarding::PillarsHandler;
-use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{
     CoverageTarget, OnboardingState, Pillar, TenantId, TopicSlug as OnboardingTopicSlug,
 };
@@ -86,6 +86,7 @@ fn ctx(
         conversation_id,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        rotation: ConversationRotation::default(),
         tool_runtime: Arc::<ServerContext>::clone(resources),
     }
 }
