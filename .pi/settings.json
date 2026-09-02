@@ -1,0 +1,15 @@
+{
+  "defaultProvider": "openrouter",
+  "defaultModel": "deepseek/deepseek-v4-flash-0731",
+  "enableSkillCommands": true,
+  "skills": [
+    "../.claude/skills",
+    "~/.claude/skills",
+    "~/.claude/plugins/marketplaces/obsidian-skills/skills"
+  ],
+  "packages": [
+    "npm:pi-mcp-adapter",
+    "npm:@tintinweb/pi-subagents",
+    "npm:pi-web-access"
+  ]
+}

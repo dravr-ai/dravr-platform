@@ -136,3 +136,7 @@ ONBOARDING.md
 
 # Judge bake-off generated reports (harness --out default)
 judge-bakeoff-results.json
+
+# Pi coding agent (pi.dev) — package install dirs, not config
+.pi/npm/
+.pi/git/
