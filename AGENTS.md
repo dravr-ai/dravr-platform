@@ -89,6 +89,29 @@ Find a test's file: `rg "test_name" tests/ --files-with-matches`. NEVER `cargo t
 Verify tests actually ran — exit code 0 is NOT sufficient (`cargo test` exits 0 when 0 tests run). Confirm `running N tests` with N > 0 AND `N passed` in the summary. Red flags to STOP on: `running 0 tests`, `0 passed; 0 failed`, `filtered out` with 0 passed (usually a wrong `--test` target or a typo'd test name). Never claim "tests pass" if 0 ran.
 </important>
 
+<important if="you were given a carnet/registre issue number, or you are about to start, file, or finish work an issue tracks">
+
+Two humans run many Claude Code sessions at once (nine were live when this rule was written, six in dravr-platform worktrees) against one register, and an issue that does not say who holds it gets built twice — the nightly capture refresh was, ~35 minutes apart; carnet#197 was found and written up independently by two sessions.
+
+**`.claude/skills/carnet/carnet.sh` is the ONLY path into the tracker — never `gh issue create/edit/close` against dravr-carnet by hand.** It keeps the three claim carriers consistent: assignee (the accountable human), label `in-progress` (a live session holds it), and a marker comment naming the session (id, name, user, host, pid, repo, branch).
+
+| Step | Command |
+|---|---|
+| Before the first edit — not after the commit | `.claude/skills/carnet/carnet.sh claim <n>` |
+| Reading who holds it | `… status <n>` (add nothing for every in-progress issue), `… mine` |
+| Handing off or abandoning | `… release <n> --reason "…"` |
+| It landed | `… close <n> --why "…" --commit <sha>` |
+| Filing anything | `… create --title "…" --body-file f [--label bug\|limitation] [--claim]` |
+
+- **Exit code 2 means a peer session holds it.** Name the holder and the session to the user and STOP. `--steal` is ChefFamille's decision, never yours — it warns the displaced session on the issue.
+- `[session ended — stale]` in `status` means the holder is gone; a plain `claim` takes it over and says so on the issue.
+- **`--why` on close is mandatory** and is what the next reader sees first. `carnet#n` in a commit message is plain text to GitHub and closes NOTHING across repos — that is why `--commit <sha>` posts the commit URL.
+- **Read the comments before you implement** — `gh issue view <n> -R dravr-ai/dravr-carnet --comments`. "Directive from JF" comments carry requirements the body does not.
+- Titles are `[<project>] <Thing>`, one shape; `create` applies it. `limitation` only when a `LIMITATION(registre#n)` marker will point at the issue — the `register-limitation` skill files through this same script.
+
+Two hooks back the rule up: `UserPromptSubmit` prints the claim status of every issue a prompt names, and `SessionEnd` releases what this session still holds. Neither replaces claiming before you edit.
+</important>
+
 <important if="you are committing, branching, merging, or cleaning up git branches">
 
 - **NEVER use `--no-verify`.** **NEVER create or suggest a Pull Request** (`gh pr create`) for platform self-merges — merges happen locally via squash merge. (Carve-outs: cross-repo dependency-notification PRs on sibling repos, and the explicit one-off the user authorizes.)

@@ -48,6 +48,29 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 20,
+            "command": "[ -f .build/skills/carnet/hooks/prompt-status.sh ] && bash .build/skills/carnet/hooks/prompt-status.sh || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "[ -f .build/skills/carnet/hooks/session-end-release.sh ] && bash .build/skills/carnet/hooks/session-end-release.sh || true"
+          }
+        ]
+      }
     ]
   },
   "permissions": {
