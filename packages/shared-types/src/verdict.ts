@@ -128,6 +128,18 @@ export const VERDICT_STATUS_TONE: Record<ClaimVerdictStatus, VerdictTone> = {
 };
 
 /**
+ * Whether a tone is one the chip should draw its alert glyph for.
+ *
+ * Only a claim the verifier contradicted or could not support is a warning;
+ * a supported, rhetorical or unverifiable one is shown with the plain shield
+ * so the icon and the word never disagree about how worried the athlete
+ * should be. Both clients read this so their icons cannot drift apart.
+ */
+export function verdictToneAlerts(tone: VerdictTone): boolean {
+  return tone === 'error' || tone === 'warning';
+}
+
+/**
  * Decode a reply-block chip into a severity.
  *
  * The block's single `contradicted` flag is the server's own two-state
@@ -137,29 +149,6 @@ export const VERDICT_STATUS_TONE: Record<ClaimVerdictStatus, VerdictTone> = {
  */
 export function verdictChipSeverity(chip: ReplyVerdictChip): VerdictSeverity {
   return { status: chip.contradicted ? 'contradicted' : 'unsupported' };
-}
-
-/**
- * Combine the verdict rows a surface read with the chips its turn carried.
- *
- * The two describe the same claims: the rows come from the conversation's
- * verdict read and carry an evidence strength, the chips ride the turn's own
- * `verdicts` block and carry a status alone. A claim present in both is
- * counted once, from the row, because the row says more about it.
- */
-export function mergeVerdictSeverities(
-  rows: readonly ClaimVerdict[],
-  chips: readonly ReplyVerdictChip[],
-): VerdictSeverity[] {
-  const claimed = new Set(rows.map((row) => row.claim_text));
-  const merged: VerdictSeverity[] = rows.map((row) => ({
-    status: row.status,
-    evidence_strength: row.evidence_strength,
-  }));
-  for (const chip of chips) {
-    if (!claimed.has(chip.claim)) merged.push(verdictChipSeverity(chip));
-  }
-  return merged;
 }
 
 /**

@@ -34,22 +34,19 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
 /**
  * The verdict chip's label: how many verdicts, and the worst thing about them.
  *
- * The qualifier is the weakest evidence where a surface read the rows, and
- * the worst status where it only has the turn's chips — so a chip never has
- * to invent a strength nobody sent it. Both words come from the corpus, so
- * the chip reads in the athlete's language on web and mobile alike.
+ * The qualifier is the worst status word — « contredite », « non appuyée » —
+ * whether the surface read the rows or only has the turn's chips, so the
+ * word sits on the same axis as the chip's tone. The evidence strength behind
+ * a verdict is a per-claim detail and stays in the drawer and the sheet, where
+ * `chat.evidenceLabel` prints it beside each card. Both words come from the
+ * corpus, so the chip reads in the athlete's language on web and mobile alike.
  */
 export function verdictChipLabel(
   t: Translate,
-  summary: Pick<VerdictSummary, 'count' | 'worstStatus' | 'worstStrength'>,
+  summary: Pick<VerdictSummary, 'count' | 'worstStatus'>,
 ): string {
-  const qualifier = t(
-    summary.worstStrength === null
-      ? VERDICT_STATUS_LABEL_KEY[summary.worstStatus]
-      : EVIDENCE_STRENGTH_LABEL_KEY[summary.worstStrength],
-  );
   return t(summary.count === 1 ? VERDICT_CHIP_ONE_KEY : VERDICT_CHIP_N_KEY, {
     count: summary.count,
-    qualifier,
+    qualifier: t(VERDICT_STATUS_LABEL_KEY[summary.worstStatus]),
   });
 }

@@ -4,7 +4,7 @@
 import React from 'react';
 import { render, act, fireEvent, waitFor } from '@testing-library/react-native';
 import Svg, { Path, Line, Text as SvgText } from 'react-native-svg';
-import type { Message, ReplyBlock } from '@pierre/shared-types';
+import type { ClaimVerdict, Message, ReplyBlock } from '@pierre/shared-types';
 
 import { renderHook } from './helpers/queryHook';
 import { installHttpStub, type HttpStub } from './helpers/httpStub';
@@ -26,7 +26,11 @@ const MESSAGES_URL = `/api/chat/conversations/${CONVERSATION_ID}/messages`;
 const VERDICTS_URL = `/api/chat/conversations/${CONVERSATION_ID}/verdicts`;
 
 /** Renders the production list with the state the production hook produced. */
-function renderList(messages: Message[], messageBlocks: Record<string, ReplyBlock[]> = {}) {
+function renderList(
+  messages: Message[],
+  messageBlocks: Record<string, ReplyBlock[]> = {},
+  verdicts: ClaimVerdict[] = [],
+) {
   return render(
     <MessageList
       bottomInset={0}
@@ -36,6 +40,7 @@ function renderList(messages: Message[], messageBlocks: Record<string, ReplyBloc
       messageFeedback={{}}
       messageFeedbackComment={{}}
       messageBlocks={messageBlocks}
+      verdicts={verdicts}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
       onThumbsUp={jest.fn()}
@@ -324,8 +329,73 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
       />
     );
 
-    // The rows carry an evidence strength, so the chip qualifies with it
-    // rather than with the status the block-only path shows.
-    expect(view.getByText('1 verdict · none')).toBeTruthy();
+    // The chip qualifies with the row's status word; its evidence strength
+    // is a per-claim detail the sheet prints.
+    expect(view.getByText('1 verdict · contradicted')).toBeTruthy();
+  });
+
+  it('counts the rows alone once the read lands, even when the live chips spelled the claim differently', async () => {
+    // carnet #190: the live turn's chips stay keyed on the assistant id after
+    // the conversation is re-read, and the rows and chips used to be merged by
+    // claim text. The verifier writes the claim in its own words, so nothing
+    // matched and the chip counted every claim twice — three here, for one row.
+    stub = installHttpStub({
+      [`POST ${MESSAGES_URL}`]: {
+        data: assistantTurn({
+          content: 'Ton VO2max est de 82.',
+          blocks: [
+            { type: 'prose', text: 'Ton VO2max est de 82.' },
+            {
+              type: 'verdicts',
+              chips: [
+                { claim: 'Ton VO2max est de 82.', contradicted: true },
+                { claim: 'Six heures de sommeil suffisent.', contradicted: false },
+              ],
+            },
+          ],
+        }),
+      },
+      [`GET ${MESSAGES_URL}`]: { data: listedMessages() },
+      [`GET ${VERDICTS_URL}`]: {
+        data: {
+          verdicts: [
+            {
+              id: 'verdict-1',
+              conversation_id: CONVERSATION_ID,
+              message_id: 'msg-assistant-1',
+              coach_id: 'coach-tempo',
+              claim_text: 'Your VO2max is 82.',
+              category: 'physiological',
+              status: 'contradicted',
+              evidence_strength: 'none',
+              confidence: 0.91,
+              layer_fired: 'deterministic',
+              explanation: null,
+              evidence_refs: null,
+              created_at: '2026-08-22T10:00:05Z',
+            },
+          ],
+          total: 1,
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useMessages());
+    await act(async () => {
+      await result.current.sendTurn(CONVERSATION_ID, 'Quel est mon VO2max ?');
+    });
+    await act(async () => {
+      await result.current.loadMessages(CONVERSATION_ID);
+    });
+    await waitFor(() => expect(result.current.verdicts).toHaveLength(1));
+
+    // Both halves are present at once: the live turn's two chips and the one
+    // row the read returned for the same reply.
+    const chips = result.current.messageBlocks['msg-assistant-1'].find((block) => block.type === 'verdicts');
+    expect(chips?.type === 'verdicts' ? chips.chips : []).toHaveLength(2);
+
+    const view = renderList(result.current.messages, result.current.messageBlocks, result.current.verdicts);
+    expect(view.getByText('1 verdict · contradicted')).toBeTruthy();
+    expect(view.queryByText(/3 verdicts/)).toBeNull();
   });
 });

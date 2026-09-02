@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReplyBlock, TurnEnvelope } from '@pierre/shared-types';
+import type { ClaimVerdict, ReplyBlock, TurnEnvelope } from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChatTab from '../ChatTab';
 import { ToastProvider } from '../ui';
@@ -315,6 +315,82 @@ describe('ChatTab url reply actions', () => {
       limit: 50,
       resets_at: '2026-08-26T00:00:00Z',
     });
+  });
+});
+
+describe('ChatTab verdict drawer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
+    listParticipants.mockResolvedValue([]);
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Claims', coach_id: null }],
+      total: 1,
+    });
+    listCoaches.mockResolvedValue({ coaches: [] });
+    getConversationMessages.mockResolvedValue({ messages: [] });
+  });
+
+  it('re-reads the verdicts when a chip is clicked before its rows landed, then draws the card', async () => {
+    // The verdict rows are written right after the reply row, so the chip on
+    // a live turn can be clicked while the conversation's read still says
+    // "none". The drawer must open on a refetch and its loading line — never
+    // on an empty list read as "no verdicts".
+    const row: ClaimVerdict = {
+      id: 'verdict-1',
+      conversation_id: CONVERSATION_ID,
+      message_id: 'm4',
+      coach_id: null,
+      claim_text: 'Your VO2max is 82.',
+      category: 'physiological',
+      status: 'contradicted',
+      evidence_strength: 'none',
+      confidence: 0.91,
+      layer_fired: 'deterministic',
+      explanation: null,
+      evidence_refs: null,
+      created_at: '2026-08-23T10:01:03Z',
+    };
+    let deliverRows: (value: { verdicts: ClaimVerdict[] }) => void = () => undefined;
+    getConversationVerdicts
+      .mockResolvedValueOnce({ verdicts: [] })
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ verdicts: ClaimVerdict[] }>((resolve) => {
+            deliverRows = resolve;
+          }),
+      );
+    answerWith([
+      { type: 'prose', text: 'Your VO2max is 82.' },
+      {
+        type: 'verdicts',
+        chips: [
+          { claim: 'Ton VO2max est de 82.', contradicted: true },
+          { claim: 'Six heures de sommeil suffisent.', contradicted: false },
+        ],
+      },
+    ]);
+
+    renderChatTab();
+    const user = await send('What is my VO2max?');
+
+    // The chip previews the turn's two chips while the read has no row for them.
+    const chip = await screen.findByTestId('verdict-chip');
+    expect(chip).toHaveTextContent('2 verdicts · contradicted');
+    await user.click(chip);
+
+    expect(await screen.findByTestId('verdict-drawer')).toBeInTheDocument();
+    expect(screen.getAllByText('Loading verdicts…').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('verdict-card')).toBeNull();
+    expect(getConversationVerdicts).toHaveBeenCalledTimes(2);
+
+    deliverRows({ verdicts: [row] });
+
+    const card = await screen.findByTestId('verdict-card');
+    expect(card).toHaveTextContent('Your VO2max is 82.');
+    expect(screen.queryByText('Loading verdicts…')).toBeNull();
+    // And the chip now counts the one row, not the two chips beside it.
+    expect(screen.getByTestId('verdict-chip')).toHaveTextContent('1 verdict · contradicted');
   });
 });
 

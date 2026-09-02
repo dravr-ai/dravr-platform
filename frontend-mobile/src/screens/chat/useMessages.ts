@@ -37,6 +37,13 @@ export interface MessagesState {
    */
   verdicts: ClaimVerdict[];
   /**
+   * The verdict read is in flight.
+   *
+   * A chip pressed before its rows landed opens the sheet on this flag rather
+   * than on an empty list, so the athlete reads "loading" and not "nothing".
+   */
+  verdictsLoading: boolean;
+  /**
    * The quota notice the turn's own pre-turn check reported, or `null`.
    *
    * Carries the counter, its cap and its reset instant, so the banner states
@@ -56,6 +63,13 @@ export interface MessagesState {
 
 export interface MessagesActions {
   loadMessages: (conversationId: string) => Promise<void>;
+  /**
+   * Re-read the conversation's claim verdicts.
+   *
+   * The rows are written right after the reply row, so a chip that landed on
+   * the live turn may have no row yet; the sheet asks for them on open.
+   */
+  refreshVerdicts: (conversationId: string) => Promise<void>;
   sendTurn: (
     conversationId: string,
     messageText: string,
@@ -86,6 +100,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const [messageFeedbackComment, setMessageFeedbackComment] = useState<Record<string, string>>({});
   const [messageBlocks, setMessageBlocks] = useState<Record<string, ReplyBlock[]>>({});
   const [verdicts, setVerdicts] = useState<ClaimVerdict[]>([]);
+  const [verdictsLoading, setVerdictsLoading] = useState(false);
   const [quotaNotice, setQuotaNotice] = useState<ReplyNotice | null>(null);
   const [progressText, setProgressText] = useState<string | null>(null);
   const flatListRef = useRef<FlashListRef<Message>>(null);
@@ -124,6 +139,22 @@ export function useMessages(): MessagesState & MessagesActions {
     void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
   }, [queryClient]);
 
+  // The verdict read is a separate endpoint, and a conversation that has
+  // none answers with an empty list. A failure here costs the chips and
+  // nothing else, so it must not take the transcript down with it.
+  const refreshVerdicts = useCallback(async (conversationId: string) => {
+    setVerdictsLoading(true);
+    try {
+      const verdictResponse = await chatApi.getConversationVerdicts(conversationId);
+      setVerdicts(verdictResponse.verdicts ?? []);
+    } catch (verdictErr) {
+      setVerdicts([]);
+      console.error('Failed to load claim verdicts:', verdictErr);
+    } finally {
+      setVerdictsLoading(false);
+    }
+  }, []);
+
   const loadMessages = useCallback(async (conversationId: string) => {
     try {
       setError(null);
@@ -147,16 +178,7 @@ export function useMessages(): MessagesState & MessagesActions {
       setMessageFeedback(ratings);
       setMessageFeedbackComment(comments);
 
-      // The verdict read is a separate endpoint, and a conversation that has
-      // none answers with an empty list. A failure here costs the chips and
-      // nothing else, so it must not take the transcript down with it.
-      try {
-        const verdictResponse = await chatApi.getConversationVerdicts(conversationId);
-        setVerdicts(verdictResponse.verdicts ?? []);
-      } catch (verdictErr) {
-        setVerdicts([]);
-        console.error('Failed to load claim verdicts:', verdictErr);
-      }
+      await refreshVerdicts(conversationId);
 
       deferredScrollToBottom(100);
     } catch (err) {
@@ -164,7 +186,7 @@ export function useMessages(): MessagesState & MessagesActions {
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
-  }, [deferredScrollToBottom]);
+  }, [deferredScrollToBottom, refreshVerdicts]);
 
   const sendTurn = useCallback(async (
     conversationId: string,
@@ -402,8 +424,11 @@ export function useMessages(): MessagesState & MessagesActions {
     []
   );
 
+  // The block lists are keyed by message id, so a thread's live turns would
+  // otherwise keep drawing over whatever conversation is opened next.
   const clearMessages = useCallback(() => {
     setMessages([]);
+    setMessageBlocks({});
     setVerdicts([]);
     setError(null);
   }, []);
@@ -416,9 +441,11 @@ export function useMessages(): MessagesState & MessagesActions {
     messageFeedbackComment,
     messageBlocks,
     verdicts,
+    verdictsLoading,
     quotaNotice,
     progressText,
     loadMessages,
+    refreshVerdicts,
     sendTurn,
     retryMessage,
     handleThumbsUp,

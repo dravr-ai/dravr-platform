@@ -7,12 +7,13 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, Shield, ShieldAlert } from 'lucide-react';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import {
-  mergeVerdictSeverities,
   parseWorkoutPlan,
   summarizeVerdicts,
+  verdictChipSeverity,
+  verdictToneAlerts,
   type VerdictTone,
 } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
@@ -23,7 +24,7 @@ import {
   splitVizMarkers,
   transcriptBlocks,
 } from '@pierre/chat-utils';
-import { verdictChipLabel } from '@pierre/shared-constants';
+import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
 import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
@@ -275,7 +276,7 @@ const MessageItem = memo(function MessageItem({
         const severities =
           messageVerdicts.length > 0
             ? messageVerdicts.map((row) => ({ status: row.status, evidence_strength: row.evidence_strength }))
-            : mergeVerdictSeverities([], block.chips);
+            : block.chips.map(verdictChipSeverity);
         const summary = summarizeVerdicts(severities);
         if (!summary || isUser) return null;
         const single = messageVerdicts.length === 1 ? messageVerdicts[0] : null;
@@ -286,9 +287,21 @@ const MessageItem = memo(function MessageItem({
               data-testid="verdict-chip"
               onClick={onShowVerdict ? () => onShowVerdict(messageVerdicts, message.id) : undefined}
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors focus-ring ${chipClassForTone(summary.tone)}`}
-              title={t('app.claimVerdictSummary', { count: summary.count, status: summary.worstStatus, strength: summary.worstStrength ?? summary.worstStatus })}
+              title={t('app.claimVerdictSummary', {
+                count: summary.count,
+                status: t(VERDICT_STATUS_LABEL_KEY[summary.worstStatus]),
+                strength: t(
+                  summary.worstStrength === null
+                    ? VERDICT_STATUS_LABEL_KEY[summary.worstStatus]
+                    : EVIDENCE_STRENGTH_LABEL_KEY[summary.worstStrength],
+                ),
+              })}
             >
-              <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+              {verdictToneAlerts(summary.tone) ? (
+                <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <Shield className="h-3 w-3" aria-hidden="true" />
+              )}
               <span>{verdictChipLabel(t, summary)}</span>
             </button>
             {summary.count > 1 ? <span className="text-xs text-outline">{t('chat.clickForDetails')}</span> : null}

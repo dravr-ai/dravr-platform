@@ -104,7 +104,7 @@ export type {
 export {
   VERDICT_STATUS_TONE,
   verdictChipSeverity,
-  mergeVerdictSeverities,
+  verdictToneAlerts,
   summarizeVerdicts,
 } from './verdict.js';
 

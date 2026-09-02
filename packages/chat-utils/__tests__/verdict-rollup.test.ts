@@ -2,31 +2,7 @@
 // ABOUTME: Red if the two clients ever disagree about which flagged claim is the worst one
 
 import { describe, it, expect } from 'vitest';
-import type { ClaimVerdict } from '@pierre/shared-types';
-import {
-  mergeVerdictSeverities,
-  summarizeVerdicts,
-  verdictChipSeverity,
-} from '@pierre/shared-types';
-
-function row(overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
-  return {
-    id: 'v1',
-    conversation_id: 'conv-1',
-    message_id: 'msg-1',
-    coach_id: 'coach-1',
-    claim_text: 'Creatine at 5g per day improves high-intensity performance.',
-    category: 'supplement',
-    status: 'supported',
-    evidence_strength: 'strong',
-    confidence: 0.8,
-    layer_fired: 'evidence',
-    explanation: null,
-    evidence_refs: null,
-    created_at: '2026-08-24T10:00:00Z',
-    ...overrides,
-  };
-}
+import { summarizeVerdicts, verdictChipSeverity, verdictToneAlerts } from '@pierre/shared-types';
 
 describe('summarizeVerdicts', () => {
   it('draws no chip for an empty set', () => {
@@ -66,25 +42,12 @@ describe('verdictChipSeverity', () => {
   });
 });
 
-describe('mergeVerdictSeverities', () => {
-  it('counts a claim carried by both the rows and the chips exactly once', () => {
-    const merged = mergeVerdictSeverities(
-      [row({ claim_text: 'Your VO2max is 82.', status: 'contradicted', evidence_strength: 'none' })],
-      [{ claim: 'Your VO2max is 82.', contradicted: true }],
-    );
-
-    expect(merged).toEqual([{ status: 'contradicted', evidence_strength: 'none' }]);
-  });
-
-  it('keeps a chip whose claim no row covers', () => {
-    const merged = mergeVerdictSeverities(
-      [row({ claim_text: 'A', status: 'supported', evidence_strength: 'strong' })],
-      [{ claim: 'B', contradicted: false }],
-    );
-
-    expect(merged).toEqual([
-      { status: 'supported', evidence_strength: 'strong' },
-      { status: 'unsupported' },
-    ]);
+describe('verdictToneAlerts', () => {
+  it('alerts for a contradicted or unsupported claim and for nothing milder', () => {
+    expect(verdictToneAlerts('error')).toBe(true);
+    expect(verdictToneAlerts('warning')).toBe(true);
+    expect(verdictToneAlerts('info')).toBe(false);
+    expect(verdictToneAlerts('secondary')).toBe(false);
+    expect(verdictToneAlerts('success')).toBe(false);
   });
 });

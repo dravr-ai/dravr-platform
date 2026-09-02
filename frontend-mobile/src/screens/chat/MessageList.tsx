@@ -18,14 +18,15 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
 import { countActivities, isToolPlumbingMessage, transcriptBlocks } from '@pierre/chat-utils';
-import { SLASH_HINT_KEY, verdictChipLabel } from '@pierre/shared-constants';
+import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
 import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, aiGlow, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
 import {
-  mergeVerdictSeverities,
   parseWorkoutPlan,
   summarizeVerdicts,
+  verdictChipSeverity,
+  verdictToneAlerts,
 } from '@pierre/shared-types';
 import type { RenderBlock } from '@pierre/scene-types';
 import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
@@ -34,7 +35,7 @@ import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 import { useTranslation } from '@pierre/i18n';
 
-type ThemeColors = ReturnType<typeof useThemeColors>;
+export type ThemeColors = ReturnType<typeof useThemeColors>;
 
 /**
  * Optional "what went wrong?" reason captured after a thumbs-down. The down
@@ -244,8 +245,8 @@ function CollapsibleActivities({ activityText }: { activityText: string }) {
   );
 }
 
-/** Feedback tint for the tone the shared rollup assigned the worst verdict. */
-function verdictChipColor(tone: VerdictTone, colors: ThemeColors): string {
+/** Feedback tint for the tone the shared rollup assigns a verdict — the chip's, and each card's in the sheet. */
+export function verdictChipColor(tone: VerdictTone, colors: ThemeColors): string {
   switch (tone) {
     case 'success':
       return colors.success;
@@ -289,6 +290,12 @@ interface MessageListProps {
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;
   /**
+   * Open the verdict sheet for a message. Receives the rows the surface has
+   * for it — possibly none yet, when only the turn's chips have landed, in
+   * which case the host fetches them.
+   */
+  onShowVerdict?: (rows: ClaimVerdict[], messageId: string) => void;
+  /**
    * Space to keep clear at the bottom: whichever is taller, the resting
    * composer or the open keyboard. Was a hardcoded 140, which was only ever
    * right with the keyboard closed on a home-indicator phone.
@@ -318,6 +325,7 @@ export function MessageList({
   onRetryMessage,
   onOpenUrl,
   onActionClick,
+  onShowVerdict,
   bottomInset,
 }: MessageListProps) {
   const { t } = useTranslation();
@@ -370,7 +378,7 @@ export function MessageList({
   const renderBlock = (
     block: ReplyBlock,
     key: number,
-    context: { isUser: boolean; scenes: RenderBlock[]; rows: ClaimVerdict[] },
+    context: { isUser: boolean; messageId: string; scenes: RenderBlock[]; rows: ClaimVerdict[] },
   ): React.ReactNode => {
     switch (block.type) {
       case 'prose':
@@ -408,22 +416,37 @@ export function MessageList({
         );
 
       case 'verdicts': {
-        const summary = summarizeVerdicts(mergeVerdictSeverities(context.rows, block.chips));
+        // The turn's chips preview the verdicts until the rows land; once the
+        // rows exist they are the count, so the chip cannot grow when a chip
+        // and its row spell the claim differently.
+        const severities =
+          context.rows.length > 0
+            ? context.rows.map((row) => ({ status: row.status, evidence_strength: row.evidence_strength }))
+            : block.chips.map(verdictChipSeverity);
+        const summary = summarizeVerdicts(severities);
         if (!summary) return null;
         const tint = verdictChipColor(summary.tone, colors);
         return (
-          <View
+          <TouchableOpacity
             key={key}
             testID="verdict-chip"
-            accessibilityLabel={t('app.claimVerdictsStatus', { status: summary.worstStatus })}
+            accessibilityRole="button"
+            accessibilityLabel={t('app.claimVerdictsStatus', {
+              status: t(VERDICT_STATUS_LABEL_KEY[summary.worstStatus]),
+            })}
             className="flex-row items-center self-start mt-2 px-2 py-1 rounded-full"
             style={{ backgroundColor: `${tint}26` }}
+            onPress={() => onShowVerdict?.(context.rows, context.messageId)}
           >
-            <Ionicons name="shield-half-outline" size={12} color={tint} />
+            <Ionicons
+              name={verdictToneAlerts(summary.tone) ? 'shield-half-outline' : 'shield-outline'}
+              size={12}
+              color={tint}
+            />
             <Text className="text-xs ml-1" style={{ color: tint }}>
               {verdictChipLabel(t, summary)}
             </Text>
-          </View>
+          </TouchableOpacity>
         );
       }
 
@@ -482,7 +505,7 @@ export function MessageList({
     const blocks = messageBlocks?.[item.id] ?? transcriptBlocks(item, rows);
     const sceneBlock = blocks.find((block) => block.type === 'scene');
     const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
-    const context = { isUser, scenes, rows };
+    const context = { isUser, messageId: item.id, scenes, rows };
 
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>

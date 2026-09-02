@@ -4,7 +4,7 @@
 // ABOUTME: Main chat screen orchestrator importing decomposed hooks and components
 // ABOUTME: Coordinates conversation, message, provider and voice state, and the thread's info sheet
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
@@ -14,7 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog } from '../../components/ui';
 import { trackMobile } from '../../services/analytics';
 import { trustedActionUrl } from '@pierre/chat-utils';
-import type { ChatMessageAction } from '@pierre/shared-types';
+import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 
 import { ChatHeader } from './ChatHeader';
 import { ChatPlusSheet } from './ChatPlusSheet';
@@ -38,6 +38,7 @@ import { useProviderStatus } from './useProviderStatus';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import { useUsageStatus } from './useUsageStatus';
 import { UsageWarningBanner } from './UsageWarningBanner';
+import { VerdictSheet } from './VerdictSheet';
 import { useTranslation } from '@pierre/i18n';
 
 export function ChatScreen() {
@@ -64,6 +65,8 @@ export function ChatScreen() {
   const [plusVisible, setPlusVisible] = useState(false);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
   const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
+  // The message whose verdicts the sheet shows, or `null` while it is closed.
+  const [verdictMessageId, setVerdictMessageId] = useState<string | null>(null);
 
   // Custom hooks
   const conversations = useConversations();
@@ -327,6 +330,24 @@ export function ChatScreen() {
     void messagesHook.submitFeedbackReason(messageId, conversations.currentConversation.id, comment);
   }, [messagesHook, conversations.currentConversation?.id]);
 
+  // The rows are written right after the reply row, so a chip that landed
+  // before the read did opens the sheet on a re-read rather than on nothing.
+  const { refreshVerdicts, verdicts, verdictsLoading } = messagesHook;
+  const sheetVerdicts = useMemo(
+    () => (verdictMessageId ? verdicts.filter((v) => v.message_id === verdictMessageId) : []),
+    [verdicts, verdictMessageId],
+  );
+  const handleShowVerdict = useCallback((rows: ClaimVerdict[], messageId: string) => {
+    setVerdictMessageId(messageId);
+    const conversationId = conversations.currentConversation?.id;
+    if (rows.length === 0 && conversationId) void refreshVerdicts(conversationId);
+  }, [refreshVerdicts, conversations.currentConversation?.id]);
+
+  const handleAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
+    setInputText(t('app.backUpClaim', { claim: verdict.claim_text }));
+    setVerdictMessageId(null);
+  }, [t]);
+
   // Provider connection handling
   const handleConnectProvider = useCallback(async (provider: string) => {
     await providerStatus.handleConnectProvider(provider);
@@ -431,6 +452,14 @@ export function ChatScreen() {
           onLeaveThread={goBackToList}
         />
 
+        <VerdictSheet
+          visible={verdictMessageId !== null}
+          verdicts={sheetVerdicts}
+          loading={verdictsLoading && sheetVerdicts.length === 0}
+          onClose={() => setVerdictMessageId(null)}
+          onAskAboutClaim={handleAskAboutClaim}
+        />
+
         <MessageList
           messages={messagesHook.messages}
           isLoading={conversations.isLoading}
@@ -447,6 +476,7 @@ export function ChatScreen() {
           onRetryMessage={handleRetryMessage}
           onOpenUrl={handleOpenUrl}
           onActionClick={handleActionClick}
+          onShowVerdict={handleShowVerdict}
           bottomInset={Math.max(composerResting, keyboard.height)}
         />
 
