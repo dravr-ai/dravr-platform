@@ -1344,10 +1344,26 @@ mod live_incident_eval {
                 if assistant_row_count(resources, fixture.athlete_tenant).await
                     <= assistant_baseline
                 {
-                    return Err(format!(
-                        "dispatch failed; the platform delivered a canned failure reply and no \
-                         assistant row was persisted: {body:?}"
-                    ));
+                    // An outbound with no assistant row is NOT necessarily a
+                    // failed dispatch. A background push — the backfill-ready
+                    // notice is the one that does this — is a proactive turn with
+                    // its own fresh correlation id (backfill_notifier.rs:268), it
+                    // lands whenever its job finishes, and it persists no
+                    // assistant row in this conversation. Reading the first
+                    // outbound as "the reply" therefore reports a dispatch
+                    // failure for a turn that is merely still running, and the
+                    // corpus then grades the push's text as the coach's answer.
+                    //
+                    // Observed on runs 33563564035 and 33611420214: both graded
+                    // «✅ Ton historique est prêt — N activités» as a canned
+                    // failure on group_chart_ask turn 0, which is the
+                    // backfill-ready push verbatim, not a failure at all.
+                    //
+                    // So keep waiting. A genuinely failed dispatch still fails —
+                    // via the timeout below, which reports what was delivered —
+                    // and the fabricated INFRA verdict goes away.
+                    sleep(POLL_INTERVAL).await;
+                    continue;
                 }
                 // It completed. Whether a *model* wrote the words is the
                 // question the row's stamp answers.
@@ -1365,6 +1381,21 @@ mod live_incident_eval {
                 return Ok(Answered::Model(Delivered { body, blocks }));
             }
             sleep(POLL_INTERVAL).await;
+        }
+        // Distinguish the two ways the wait can end, or a real dispatch failure
+        // reports as "nothing delivered" while the log plainly shows something
+        // was. The first case is the one that used to be reported instantly as
+        // a canned-failure INFRA error; it is still an infra error, it just has
+        // to earn it by outlasting the whole window.
+        if outbound_count(resources, fixture.athlete_tenant).await > baseline {
+            let body = latest_outbound(resources, fixture.athlete_tenant)
+                .await
+                .unwrap_or_default();
+            return Err(format!(
+                "outbound delivered but no assistant row after {}s — the turn never \
+                 completed (the delivered text may be a background push, not the reply): {body:?}",
+                TURN_TIMEOUT.as_secs()
+            ));
         }
         Err(format!(
             "no outbound message delivered within {}s",
