@@ -97,7 +97,7 @@ Two humans run many Claude Code sessions at once (nine were live when this rule 
 
 | Step | Command |
 |---|---|
-| Before the first edit — not after the commit | `.claude/skills/carnet/carnet.sh claim <n>` |
+| Before the first edit — automatic, see below | `.claude/skills/carnet/carnet.sh claim <n>` |
 | Reading who holds it | `… status <n>` (add nothing for every in-progress issue), `… mine` |
 | Handing off or abandoning | `… release <n> --reason "…"` |
 | It landed | `… close <n> --why "…" --commit <sha>` |
@@ -109,7 +109,9 @@ Two humans run many Claude Code sessions at once (nine were live when this rule 
 - **Read the comments before you implement** — `gh issue view <n> -R dravr-ai/dravr-carnet --comments`. "Directive from JF" comments carry requirements the body does not.
 - Titles are `[<project>] <Thing>`, one shape; `create` applies it. `limitation` only when a `LIMITATION(registre#n)` marker will point at the issue — the `register-limitation` skill files through this same script.
 
-Two hooks back the rule up: `UserPromptSubmit` prints the claim status of every issue a prompt names, and `SessionEnd` releases what this session still holds. Neither replaces claiming before you edit.
+**Claiming is mechanical, not advisory — three hooks do it.** `UserPromptSubmit` prints the claim status of every issue a prompt names and records those numbers; `PreToolUse` claims them on your first write-shaped tool call, so an issue you were told about is held before your first edit lands; `SessionEnd` releases what this session still holds. You still run `claim <n>` yourself when the number never came from a prompt — you found the issue by searching, or you are picking work up mid-session.
+
+A prompt that only asks about an issue claims nothing: a question never reaches a write tool. When a live peer holds the issue the hook blocks that one tool call and names them — once, not forever. After it has told you, the duplicate work is yours, not the hook's.
 </important>
 
 <important if="you are committing, branching, merging, or cleaning up git branches">
