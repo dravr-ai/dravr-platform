@@ -82,6 +82,7 @@
     "account": "Conta",
     "accountActivatesOnConfirm": "A tua conta ativa-se assim que for confirmada",
     "active": "Ativo",
+    "activity": "Atividade",
     "activityCount": "Número de atividades",
     "add": "Adicionar",
     "addATag": "Adicionar uma etiqueta",
@@ -2571,15 +2572,23 @@
     "weeklyMessages": "as tuas mensagens semanais"
   },
   "validation": {
+    "confirmPassword": "Confirma a tua palavra-passe",
+    "displayNameRequired": "O nome visível é obrigatório",
     "email": "Escreve um endereço de e-mail válido",
+    "emailRequired": "O e-mail é obrigatório",
     "integer": "Escreve um número inteiro",
     "max": "O valor tem de ser no máximo {{max}}",
     "maxLength": "São permitidos no máximo {{max}} caracteres",
     "min": "O valor tem de ser pelo menos {{min}}",
     "minLength": "São precisos pelo menos {{min}} caracteres",
+    "newPasswordRequired": "A nova palavra-passe é obrigatória",
     "number": "Escreve um número válido",
+    "passwordRequired": "A palavra-passe é obrigatória",
     "positive": "O valor tem de ser positivo",
     "required": "Este campo é obrigatório",
+    "resetCodeRequired": "O código de reposição é obrigatório",
+    "systemPromptRequired": "O prompt do sistema é obrigatório",
+    "titleRequired": "O título é obrigatório",
     "url": "Escreve um URL válido"
   },
   "voice": {

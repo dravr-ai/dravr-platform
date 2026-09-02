@@ -92,7 +92,9 @@ describe('ForgotPasswordScreen', () => {
       fireEvent.changeText(getByTestId('forgot-email-input'), 'not-an-email');
       fireEvent.press(getByTestId('send-code-button'));
 
-      expect(getByText('Please enter a valid email')).toBeTruthy();
+      // The catalogue's wording, not a copy of it: the screen now renders
+      // `validation.email`, which the test harness pins to English.
+      expect(getByText('Enter a valid email address')).toBeTruthy();
       expect(mockForgotPassword).not.toHaveBeenCalled();
     });
   });

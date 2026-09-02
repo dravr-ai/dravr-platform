@@ -117,7 +117,7 @@ export function CoachEditorScreen() {
     const newErrors: Record<string, string> = {};
 
     if (!title.trim()) {
-      newErrors.title = 'Title is required';
+      newErrors.title = t('validation.titleRequired');
     } else if (title.length > MAX_TITLE_LENGTH) {
       newErrors.title = t('app.maxLengthTitle', { max: MAX_TITLE_LENGTH });
     }
@@ -127,7 +127,7 @@ export function CoachEditorScreen() {
     }
 
     if (!systemPrompt.trim()) {
-      newErrors.systemPrompt = 'System prompt is required';
+      newErrors.systemPrompt = t('validation.systemPromptRequired');
     } else if (systemPrompt.length > MAX_SYSTEM_PROMPT_LENGTH) {
       newErrors.systemPrompt = t('app.maxLengthSystemPrompt', { max: MAX_SYSTEM_PROMPT_LENGTH });
     }

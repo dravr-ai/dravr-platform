@@ -82,6 +82,7 @@
     "account": "Konto",
     "accountActivatesOnConfirm": "Dein Konto wird aktiv, sobald es bestätigt ist",
     "active": "Aktiv",
+    "activity": "Aktivität",
     "activityCount": "Anzahl der Aktivitäten",
     "add": "Hinzufügen",
     "addATag": "Tag hinzufügen",
@@ -2571,15 +2572,23 @@
     "weeklyMessages": "deine wöchentlichen Nachrichten"
   },
   "validation": {
+    "confirmPassword": "Bestätige dein Passwort",
+    "displayNameRequired": "Anzeigename ist erforderlich",
     "email": "Gib eine gültige E-Mail-Adresse ein",
+    "emailRequired": "E-Mail-Adresse ist erforderlich",
     "integer": "Gib eine ganze Zahl ein",
     "max": "Der Wert darf höchstens {{max}} betragen",
     "maxLength": "Höchstens {{max}} Zeichen erlaubt",
     "min": "Der Wert muss mindestens {{min}} betragen",
     "minLength": "Mindestens {{min}} Zeichen erforderlich",
+    "newPasswordRequired": "Neues Passwort ist erforderlich",
     "number": "Gib eine gültige Zahl ein",
+    "passwordRequired": "Passwort ist erforderlich",
     "positive": "Der Wert muss positiv sein",
     "required": "Dieses Feld ist erforderlich",
+    "resetCodeRequired": "Zurücksetzungscode ist erforderlich",
+    "systemPromptRequired": "System-Prompt ist erforderlich",
+    "titleRequired": "Titel ist erforderlich",
     "url": "Gib eine gültige URL ein"
   },
   "voice": {

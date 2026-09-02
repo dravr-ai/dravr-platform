@@ -30,9 +30,9 @@ export function ForgotPasswordScreen() {
     const newErrors: { email?: string } = {};
 
     if (!email.trim()) {
-      newErrors.email = 'Email is required';
+      newErrors.email = t('validation.emailRequired');
     } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Please enter a valid email';
+      newErrors.email = t('validation.email');
     }
 
     setErrors(newErrors);

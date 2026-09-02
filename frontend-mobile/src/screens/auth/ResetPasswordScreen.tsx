@@ -38,19 +38,19 @@ export function ResetPasswordScreen() {
     const newErrors: typeof errors = {};
 
     if (!code.trim()) {
-      newErrors.code = 'Reset code is required';
+      newErrors.code = t('validation.resetCodeRequired');
     } else if (!/^[A-Za-z0-9]+\.[A-Za-z0-9]+$/.test(code.trim())) {
       newErrors.code = t('app.enterResetCodeFromEmail');
     }
 
     if (!newPassword) {
-      newErrors.newPassword = 'New password is required';
+      newErrors.newPassword = t('validation.newPasswordRequired');
     } else if (newPassword.length < 8) {
       newErrors.newPassword = t('app.passwordTooShort');
     }
 
     if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
+      newErrors.confirmPassword = t('validation.confirmPassword');
     } else if (newPassword !== confirmPassword) {
       newErrors.confirmPassword = t('app.passwordsDoNotMatch');
     }

@@ -67,13 +67,13 @@ export function LoginScreen() {
     const newErrors: { email?: string; password?: string } = {};
 
     if (!email.trim()) {
-      newErrors.email = 'Email is required';
+      newErrors.email = t('validation.emailRequired');
     } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Please enter a valid email';
+      newErrors.email = t('validation.email');
     }
 
     if (!password) {
-      newErrors.password = 'Password is required';
+      newErrors.password = t('validation.passwordRequired');
     }
 
     setErrors(newErrors);
@@ -203,7 +203,7 @@ export function LoginScreen() {
             </View>
             <Text style={kickerStyle}>{t('app.heroPersona')}</Text>
             <Text style={[heroHeadlineStyle, { marginTop: spacing.sm, marginBottom: spacing.sm }]}>
-              {t('app.heroLead')}{'\n'}rendered in ink.
+              {t('app.heroLead')}{'\n'}{t('auth.taglineTail')}
             </Text>
             <Text style={heroLeadStyle}>
               {t('app.heroBlurb')}
@@ -357,7 +357,7 @@ export function LoginScreen() {
             className="flex-row items-center justify-center"
             style={{ gap: spacing.md, marginTop: spacing.xl, opacity: 0.7 }}
           >
-            {['Activity', t('app.nutrition'), t('app.recovery'), t('app.mobility')].map((pillar, i) => (
+            {[t('app.activity'), t('app.nutrition'), t('app.recovery'), t('app.mobility')].map((pillar, i) => (
               <React.Fragment key={pillar}>
                 {i > 0 && (
                   <Text style={{ color: '#a3d0be', opacity: 0.5 }} aria-hidden>

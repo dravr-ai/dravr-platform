@@ -39,23 +39,23 @@ export function RegisterScreen() {
     const newErrors: typeof errors = {};
 
     if (!displayName.trim()) {
-      newErrors.displayName = 'Display name is required';
+      newErrors.displayName = t('validation.displayNameRequired');
     }
 
     if (!email.trim()) {
-      newErrors.email = 'Email is required';
+      newErrors.email = t('validation.emailRequired');
     } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Please enter a valid email';
+      newErrors.email = t('validation.email');
     }
 
     if (!password) {
-      newErrors.password = 'Password is required';
+      newErrors.password = t('validation.passwordRequired');
     } else if (password.length < 8) {
       newErrors.password = t('app.passwordTooShort');
     }
 
     if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
+      newErrors.confirmPassword = t('validation.confirmPassword');
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword = t('app.passwordsDoNotMatch');
     }

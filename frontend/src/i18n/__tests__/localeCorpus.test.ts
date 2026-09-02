@@ -104,8 +104,16 @@ describe('client locale corpus', () => {
     // failures and the Google sign-in refusals — the hooks return keys now,
     // and the ratchet's athlete ceiling is 0 again with the whole `.ts` half
     // of both apps inside it.
+    //
+    // 2402 until the phone was driven in French: the hero's second line and
+    // one of the four pillar words were hardcoded English beside three
+    // translated ones, and every auth validation message was English. Nine
+    // keys — `app.activity` and eight `validation.*` — and two existing keys
+    // wired up. Every one of those shapes is invisible to the scanner (text
+    // after an expression, a bare string in an array, an assignment to an
+    // object property), which is why the phone needs a render sweep.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2402);
+    expect(reference).toHaveLength(2411);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);
