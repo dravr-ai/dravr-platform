@@ -21,6 +21,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_config::mcp::McpConfig;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
@@ -39,6 +40,13 @@ struct McpTestSetup {
 
 impl McpTestSetup {
     async fn new() -> anyhow::Result<Self> {
+        Self::with_allowed_origins(Vec::new()).await
+    }
+
+    /// Build a setup whose MCP origin allowlist is exactly `allowed_origins`.
+    /// An empty list is permit-any (the engine's own semantics), so a test that
+    /// wants the gate to actually reject something must pass a non-empty list.
+    async fn with_allowed_origins(allowed_origins: Vec<String>) -> anyhow::Result<Self> {
         common::init_server_config();
         let database = common::create_test_database().await?;
         let auth_manager = common::create_test_auth_manager();
@@ -68,6 +76,10 @@ impl McpTestSetup {
                 headers: SecurityHeadersConfig {
                     environment: Environment::Testing,
                 },
+                ..Default::default()
+            },
+            mcp: McpConfig {
+                allowed_origins,
                 ..Default::default()
             },
             ..Default::default()
@@ -1029,4 +1041,55 @@ async fn test_global_admin_user_is_allowed_admin_tool() {
             "global admin must not hit the admin-privileges denial, got: {text}"
         );
     }
+}
+
+/// DNS-rebinding protection must cover BOTH MCP routes, not just the JSON-RPC
+/// one. `GET /mcp/tools` returns the same catalog `tools/list` returns and is
+/// proxied publicly, but it was mounted outside the engine's router, so the
+/// engine's origin gate never ran for it — a browser on any origin with a valid
+/// bearer could enumerate the caller's whole tool surface.
+#[tokio::test]
+async fn test_mcp_tools_rejects_disallowed_origin() {
+    let setup = McpTestSetup::with_allowed_origins(vec!["https://app.dravr.ai".to_owned()])
+        .await
+        .expect("Setup failed");
+
+    // A browser origin that is not on the list is refused before authentication,
+    // so the catalog never renders even with a good bearer.
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "https://evil.example.com")
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "a disallowed origin must be refused, not served the tool catalog"
+    );
+
+    // The listed origin still works, so the gate is a filter and not a blanket
+    // denial that would break the web client.
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "https://app.dravr.ai")
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["tools"].is_array(),
+        "an allowed origin must still receive the catalog"
+    );
+
+    // A non-browser client sends no Origin at all and must keep working — this
+    // is the CLI/stdio case the engine deliberately permits.
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an absent Origin is a non-browser client and must not be blocked"
+    );
 }

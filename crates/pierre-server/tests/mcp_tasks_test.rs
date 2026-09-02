@@ -356,3 +356,110 @@ async fn test_declared_tools_call_handle_resolves_then_fast_path_answers_inline(
     assert!(!content.is_empty());
     Ok(())
 }
+
+/// `active_tasks` is what makes `subscriptions/listen` able to emit at all: the
+/// trait defaults it to an empty list, so a store that forgets to override it
+/// opens a subscription that stays silent forever — a success no `is_ok()`
+/// assertion can catch. This asserts the contract the watcher relies on:
+/// non-terminal tasks are listed, terminal ones are not, another owner's work
+/// never appears, and an expired task drops out.
+#[tokio::test]
+async fn test_active_tasks_lists_only_this_owners_live_work() -> Result<()> {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await?;
+    let store: Arc<dyn TaskStore> = Arc::new(PierreTaskStore::new(
+        resources.common.repos.mcp_tasks.clone(),
+    ));
+
+    let owner = TaskOwner {
+        user_id: Some("55555555-5555-4555-8555-555555555555".to_owned()),
+        tenant_id: Some("66666666-6666-4666-8666-666666666666".to_owned()),
+    };
+    let stranger = TaskOwner {
+        user_id: Some("77777777-7777-4777-8777-777777777777".to_owned()),
+        tenant_id: Some("88888888-8888-4888-8888-888888888888".to_owned()),
+    };
+
+    // Two live tasks for the owner, one for a stranger.
+    for id in ["live-a", "live-b"] {
+        store
+            .create(
+                &owner,
+                DetailedTask::new(
+                    Task::new(TaskId::new(id), Some(600_000), Some(1_000)),
+                    TaskPayload::Working,
+                ),
+            )
+            .await?;
+    }
+    store
+        .create(
+            &stranger,
+            DetailedTask::new(
+                Task::new(TaskId::new("someone-elses"), Some(600_000), Some(1_000)),
+                TaskPayload::Working,
+            ),
+        )
+        .await?;
+
+    let active = store.active_tasks(&owner).await?;
+    let ids: Vec<&str> = active.iter().map(|t| t.task.task_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["live-a", "live-b"],
+        "both live tasks must be listed, ordered stably, and the stranger's must not appear"
+    );
+
+    // A completed task leaves the active set — this is how the watcher learns a
+    // task settled, so listing it would stall the transition it exists to emit.
+    let manager = TaskManager::new(store.clone());
+    let mut result = serde_json::Map::new();
+    result.insert(
+        "content".to_owned(),
+        json!([{ "type": "text", "text": "ok" }]),
+    );
+    manager
+        .complete(&owner, &TaskId::new("live-a"), result)
+        .await?;
+    let after = store.active_tasks(&owner).await?;
+    let ids: Vec<&str> = after.iter().map(|t| t.task.task_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["live-b"],
+        "a completed task must drop out of the active set"
+    );
+
+    // An expired task drops out too, even though it never reached a terminal
+    // status — otherwise a dead handle would be watched forever.
+    store
+        .create(
+            &owner,
+            DetailedTask::new(
+                Task::new(TaskId::new("expiring-live"), Some(1), Some(1_000)),
+                TaskPayload::Working,
+            ),
+        )
+        .await?;
+    sleep(Duration::from_millis(50)).await;
+    let ids: Vec<String> = store
+        .active_tasks(&owner)
+        .await?
+        .iter()
+        .map(|t| t.task.task_id.as_str().to_owned())
+        .collect();
+    assert!(
+        !ids.iter().any(|id| id == "expiring-live"),
+        "an expired task must not be watched; got {ids:?}"
+    );
+
+    // An unauthenticated owner owns nothing and so watches nothing.
+    let anonymous = TaskOwner {
+        user_id: None,
+        tenant_id: None,
+    };
+    assert!(
+        store.active_tasks(&anonymous).await?.is_empty(),
+        "an unauthenticated owner must see no tasks"
+    );
+    Ok(())
+}

@@ -261,6 +261,7 @@ pub mod provider_refresh;
 pub mod recipes;
 
 /// Short-link table hygiene: periodic sweep of expired reconnect/connect links
+pub mod mcp_task_sweeper;
 pub mod short_link_sweeper;
 
 /// Tenant administration: slug validation, tenant creation, user provisioning

@@ -33,6 +33,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::task::yield_now;
+use tracing::debug;
 
 use crate::mcp::{
     host_seams::{build_mcp_server, PierreAuthHook, PierreToolDispatcher},
@@ -43,6 +44,21 @@ use crate::mcp::{
 #[derive(Clone)]
 pub struct McpRoutesState {
     resources: Arc<ServerContext>,
+    /// The same allowlist `POST /mcp` gates on, taken from the built server so
+    /// the two routes cannot drift apart.
+    allowed_origins: Arc<[String]>,
+}
+
+/// Whether the given `Origin` is permitted.
+///
+/// Mirrors the engine's own predicate, which is private to
+/// `dravr_tronc::mcp::transport::http`: an absent origin (non-browser client)
+/// is allowed, an empty allowlist or one containing `"*"` allows any origin,
+/// otherwise the origin must be listed exactly. The allowlist itself is shared
+/// rather than re-read, so only this three-line rule is restated.
+fn is_origin_allowed(origin: Option<&str>, allowed: &[String]) -> bool {
+    origin
+        .is_none_or(|origin| allowed.is_empty() || allowed.iter().any(|a| a == "*" || a == origin))
 }
 
 /// Extract the bearer token from an `Authorization` header.
@@ -68,7 +84,11 @@ impl McpRoutes {
     /// tronc-backed `POST /mcp` JSON-RPC engine.
     pub fn routes(resources: Arc<ServerContext>) -> Router {
         let server = build_mcp_server(resources.clone());
-        let state = McpRoutesState { resources };
+        let allowed_origins: Arc<[String]> = server.allowed_origins().into();
+        let state = McpRoutesState {
+            resources,
+            allowed_origins,
+        };
 
         Router::new()
             .route("/mcp/tools", get(Self::handle_tools))
@@ -87,6 +107,16 @@ impl McpRoutes {
     async fn handle_tools(State(state): State<McpRoutesState>, headers: HeaderMap) -> Response {
         // Yield to scheduler for cooperative multitasking
         yield_now().await;
+
+        // DNS-rebinding protection, before authentication — the same first step
+        // `POST /mcp` takes. This route is the REST twin of `tools/list` and
+        // returns the same catalog, so it needs the same gate; without it the
+        // allowlist covered only one of the two MCP routes.
+        let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
+        if !is_origin_allowed(origin, &state.allowed_origins) {
+            debug!(?origin, "Rejected MCP tools discovery: origin not allowed");
+            return (StatusCode::FORBIDDEN, "Origin not allowed").into_response();
+        }
 
         let mut request = JsonRpcRequest::new("tools/list", None);
         request.auth_token = bearer_token(&headers);

@@ -230,4 +230,37 @@ impl TaskStore for PierreTaskStore {
             .map_err(|e| TaskError::Store(e.to_string()))?;
         Ok(usize::try_from(removed).unwrap_or(usize::MAX))
     }
+
+    /// Every non-terminal task this owner can see.
+    ///
+    /// Without this override the trait's default returns an empty list and
+    /// `subscriptions/listen` opens successfully but never emits — a silent
+    /// success no `is_ok()` assertion can catch. Terminality is read from
+    /// [`TaskStatus::is_terminal`] rather than a status list written into SQL,
+    /// so a new variant in the engine cannot leave a stale predicate behind:
+    /// the watcher chases ids that leave this set to their terminal state
+    /// through `get`, which is how a completion reaches a subscriber at all.
+    async fn active_tasks(&self, owner: &TaskOwner) -> Result<Vec<DetailedTask>, TaskError> {
+        // An unauthenticated owner owns nothing, so it watches nothing.
+        let Ok((tenant_id, user_id)) = owner_ids(owner) else {
+            return Ok(Vec::new());
+        };
+        let rows = self
+            .repo
+            .active_tasks(tenant_id, user_id, Utc::now().timestamp_millis())
+            .await
+            .map_err(|e| TaskError::Store(e.to_string()))?;
+
+        // Decode first and filter second: filtering on `is_ok_and` would drop
+        // an undecodable row as if it were terminal, turning stored corruption
+        // into a silently shorter list.
+        let tasks = rows
+            .iter()
+            .map(row_to_task)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(tasks
+            .into_iter()
+            .filter(|task| !task.task.status.is_terminal())
+            .collect())
+    }
 }

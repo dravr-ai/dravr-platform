@@ -113,6 +113,33 @@ impl McpTaskRepository for PostgresDatabase {
         Ok(row.as_ref().map(row_to_task))
     }
 
+    async fn active_tasks(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        now_ms: i64,
+    ) -> AppResult<Vec<McpTaskRow>> {
+        let rows = sqlx::query(
+            r"
+            SELECT task_id, tenant_id, user_id, status, status_message,
+                   created_at, last_updated_at, ttl_ms, poll_interval_ms,
+                   expires_at_ms, input_requests, result, error
+            FROM mcp_tasks
+            WHERE tenant_id = $1 AND user_id = $2
+              AND (expires_at_ms IS NULL OR expires_at_ms >= $3)
+            ORDER BY task_id
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(now_ms)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list MCP tasks: {e}")))?;
+
+        Ok(rows.iter().map(row_to_task).collect())
+    }
+
     async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<u64> {
         let outcome = sqlx::query(
             "DELETE FROM mcp_tasks WHERE expires_at_ms IS NOT NULL AND expires_at_ms < $1",

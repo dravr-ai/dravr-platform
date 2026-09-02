@@ -866,6 +866,16 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_short_link_sweeper(Arc::clone(&resources.common.repos.short_links));
     }
 
+    // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
+    // tasks extension stamps every handle with `expires_at_ms` and advertises
+    // the same budget to the client as `ttlMs`; reads filter on it, but until
+    // this ran nothing deleted the row, so the table grew unbounded and the
+    // advertised TTL was a promise no code kept.
+    {
+        use pierre_mcp_server::start_mcp_task_sweeper;
+        start_mcp_task_sweeper(Arc::clone(&resources.common.repos.mcp_tasks));
+    }
+
     // Coaching background workers: the outcome evaluator, archetype aggregation
     // and the commitment sweep. Skipped for in-memory test servers.
     {

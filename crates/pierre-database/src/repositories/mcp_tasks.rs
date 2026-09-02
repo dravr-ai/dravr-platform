@@ -67,6 +67,19 @@ pub trait McpTaskRepository: Send + Sync {
         now_ms: i64,
     ) -> AppResult<Option<McpTaskRow>>;
 
+    /// List an owner's unexpired tasks at `now_ms` (unix milliseconds).
+    ///
+    /// Scoped by `(tenant_id, user_id)` like [`Self::get_task`], so it can
+    /// never surface another owner's work. Ordered by `task_id` so a caller
+    /// diffing successive snapshots sees a stable sequence rather than
+    /// whatever order the backend happens to return.
+    async fn active_tasks(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        now_ms: i64,
+    ) -> AppResult<Vec<McpTaskRow>>;
+
     /// Delete tasks whose expiry has passed at `now_ms` (unix milliseconds),
     /// returning how many rows were removed.
     async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<u64>;
