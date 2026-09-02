@@ -4,9 +4,10 @@
 // Copyright (c) 2026 dravr.ai
 
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, ScrollView } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 
 const mockListMemoryFacts = jest.fn();
 const mockForgetMemoryFact = jest.fn();
@@ -135,6 +136,66 @@ describe('MemoryScreen', () => {
     });
     expect(queryByText(/training_for/)).toBeNull();
     expect(queryByText(/You are/)).toBeNull();
+  });
+
+  // The query is filtered server-side, so an empty result under a chip is "none
+  // of this type". The unfiltered card told an athlete who has memory that they
+  // have none, which is the same lie the web panel told.
+  it('says nothing of this type — not nothing at all — when a chip is selected', async () => {
+    mockListMemoryFacts.mockResolvedValue({ facts: [], total: 0 });
+    const { getByTestId, queryByTestId, getByText } = renderScreen();
+    await waitFor(() => expect(getByTestId('memory-empty')).toBeTruthy());
+    const neverHadAny = i18n.t('shell.memoryEmpty');
+    expect(getByText(neverHadAny)).toBeTruthy();
+
+    fireEvent.press(getByText(i18n.t('shell.memoryKindInjury')));
+
+    await waitFor(() => expect(getByTestId('memory-empty-filtered')).toBeTruthy());
+    expect(queryByTestId('memory-empty')).toBeNull();
+    const filtered = i18n.t('shell.memoryEmptyFiltered');
+    expect(filtered).not.toEqual(neverHadAny);
+    expect(getByText(filtered)).toBeTruthy();
+  });
+
+  it('offers the way back to all types from the filtered empty state', async () => {
+    mockListMemoryFacts.mockResolvedValue({ facts: [], total: 0 });
+    const { getByTestId, getByText } = renderScreen();
+    await waitFor(() => expect(getByTestId('memory-empty')).toBeTruthy());
+
+    fireEvent.press(getByText(i18n.t('shell.memoryKindInjury')));
+    await waitFor(() => expect(getByTestId('memory-show-all-kinds')).toBeTruthy());
+
+    fireEvent.press(getByTestId('memory-show-all-kinds'));
+
+    await waitFor(() => expect(getByTestId('memory-empty')).toBeTruthy());
+    expect(mockListMemoryFacts).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: undefined }),
+    );
+  });
+
+  // The chip row scrolls and clips "Physiologie" mid-word at the right edge. A
+  // cut with nothing over it reads as a rendering fault rather than as more to
+  // reach, so the fade appears exactly while there is more.
+  it('fades the chip row while chips remain off the right edge, and not after', async () => {
+    mockListMemoryFacts.mockResolvedValue({ facts: [], total: 0 });
+    const { getByTestId, queryByTestId, UNSAFE_getAllByType } = renderScreen();
+    await waitFor(() => expect(getByTestId('memory-empty')).toBeTruthy());
+
+    // Nothing measured yet, so nothing is known to be off-screen.
+    expect(queryByTestId('memory-kind-scroll-fade')).toBeNull();
+
+    const chipRow = UNSAFE_getAllByType(ScrollView).find(
+      (node) => node.props.horizontal === true,
+    );
+    expect(chipRow).toBeTruthy();
+
+    fireEvent(chipRow!, 'layout', { nativeEvent: { layout: { width: 320, height: 40 } } });
+    fireEvent(chipRow!, 'contentSizeChange', 900, 40);
+    await waitFor(() => expect(getByTestId('memory-kind-scroll-fade')).toBeTruthy());
+
+    // Scrolled to the far end: the last chip is fully in view, so the fade goes.
+    fireEvent.scroll(chipRow!, { nativeEvent: { contentOffset: { x: 580, y: 0 } } });
+    await waitFor(() => expect(queryByTestId('memory-kind-scroll-fade')).toBeNull());
   });
 
   it('fires forget mutation when Alert confirm is tapped', async () => {

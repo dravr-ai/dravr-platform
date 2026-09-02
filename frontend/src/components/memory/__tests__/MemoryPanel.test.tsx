@@ -5,8 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MEMORY_FACT_KINDS } from '@pierre/shared-constants';
 import MemoryPanel from '../MemoryPanel';
 import type { MemoryFactRow } from '@pierre/api-client';
 
@@ -183,12 +184,61 @@ describe('MemoryPanel', () => {
     await waitFor(() => {
       expect(userApi.listMemoryFacts).toHaveBeenCalled();
     });
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'injury' } });
+    fireEvent.click(screen.getByTestId('memory-kind-chip-injury'));
     await waitFor(() => {
       expect(userApi.listMemoryFacts).toHaveBeenLastCalledWith(
         expect.objectContaining({ kind: 'injury' }),
       );
     });
+  });
+
+  // The filter was a browser `select` with its own focus ring beside cards that
+  // follow the design system, answering the same question the phone answers
+  // with chips. One control, both clients.
+  it('filters with chips, not a native select', async () => {
+    vi.mocked(userApi.listMemoryFacts).mockResolvedValue({ facts: [], total: 0 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId('memory-kind-filter')).toBeInTheDocument());
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    // One chip per kind the server can send, plus "All kinds".
+    const chips = within(screen.getByTestId('memory-kind-filter')).getAllByRole('button');
+    expect(chips).toHaveLength(MEMORY_FACT_KINDS.length + 1);
+    // The selected chip says so to a screen reader, which a styled div cannot.
+    expect(screen.getByTestId('memory-kind-chip-all')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('memory-kind-chip-injury')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // `facts` is the FILTERED list, so the unfiltered empty card told an athlete
+  // who has memory that they have none, and invited them to go earn some.
+  it('says nothing of this type — not nothing at all — when a filter is applied', async () => {
+    vi.mocked(userApi.listMemoryFacts).mockResolvedValue({ facts: [], total: 0 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId('memory-empty')).toBeInTheDocument());
+    const neverHadAny = screen.getByTestId('memory-empty').textContent ?? '';
+
+    fireEvent.click(screen.getByTestId('memory-kind-chip-injury'));
+
+    await waitFor(() => expect(screen.getByTestId('memory-empty-filtered')).toBeInTheDocument());
+    expect(screen.queryByTestId('memory-empty')).not.toBeInTheDocument();
+    const filtered = screen.getByTestId('memory-empty-filtered').textContent ?? '';
+    expect(filtered).not.toEqual(neverHadAny);
+    expect(filtered).not.toContain('No facts stored yet');
+  });
+
+  it('offers the way back to all types from the filtered empty state', async () => {
+    vi.mocked(userApi.listMemoryFacts).mockResolvedValue({ facts: [], total: 0 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId('memory-empty')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('memory-kind-chip-injury'));
+    await waitFor(() => expect(screen.getByTestId('memory-show-all-kinds')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('memory-show-all-kinds'));
+
+    await waitFor(() => expect(screen.getByTestId('memory-empty')).toBeInTheDocument());
+    expect(userApi.listMemoryFacts).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: undefined }),
+    );
   });
 });

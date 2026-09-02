@@ -9,12 +9,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
 import { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
 import { userApi } from '../../services/api';
-import { Card, Button, Badge, ConfirmDialog, Select } from '../ui';
+import { Card, Button, Badge, ConfirmDialog } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
-// The dropdown and the group badge read the same shared table, so a kind the
+// The chips and the group badge read the same shared table, so a kind the
 // server sends is never a translated word in one place and a raw enum in the other.
 function kindOptions(t: (key: string) => string): { value: MemoryFactRow['kind'] | ''; label: string }[] {
   return [
@@ -107,21 +107,43 @@ export default function MemoryPanel() {
           </Button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <div className="w-56">
-            <Select
-              label={t('shell.memoryFilterByKind')}
-              size="sm"
-              value={kindFilter}
-              onChange={(e) =>
-                setKindFilter((e.target.value || '') as MemoryFactRow['kind'] | '')
-              }
-              options={kindOptions(t).map((opt) => ({ value: opt.value, label: opt.label }))}
-            />
+        {/* Chips, the control the phone already uses for this filter. A native
+            select sitting between design-system cards paints its own focus
+            ring and its own type, and the two clients then answer the same
+            question with two different widgets. */}
+        <div className="mt-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-outline">
+            {t('shell.memoryFilterByKind')}
+          </p>
+          <div
+            role="group"
+            aria-label={t('shell.memoryFilterByKind')}
+            data-testid="memory-kind-filter"
+            className="mt-2 flex flex-wrap items-center gap-2"
+          >
+            {kindOptions(t).map((opt) => {
+              const active = kindFilter === opt.value;
+              return (
+                <button
+                  key={opt.value === '' ? 'all' : opt.value}
+                  type="button"
+                  aria-pressed={active}
+                  data-testid={`memory-kind-chip-${opt.value === '' ? 'all' : opt.value}`}
+                  onClick={() => setKindFilter(opt.value)}
+                  className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                    active
+                      ? 'border-primary bg-primary/15 text-on-surface'
+                      : 'ghost-border bg-surface-container-low text-on-surface-variant hover:text-on-surface'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+            <span data-testid="memory-fact-count" className="ml-1 text-xs text-outline">
+              {factCount(t, facts.length)}
+            </span>
           </div>
-          <span data-testid="memory-fact-count" className="pb-2 text-xs text-outline">
-            {factCount(t, facts.length)}
-          </span>
         </div>
       </Card>
 
@@ -139,13 +161,30 @@ export default function MemoryPanel() {
           </p>
         </Card>
       ) : facts.length === 0 ? (
+        // Two different absences. `facts` is the FILTERED list, so a type with
+        // no matches told an athlete who has memory that they have none and
+        // invited them to go earn some. The filtered case says what it means
+        // and hands back the way out.
         <Card className="p-12 text-center">
-          <p className="text-on-surface-variant">
-            {t('shell.memoryEmpty')}
-          </p>
-          <p className="mt-2 text-xs text-outline">
-            {t('shell.memoryEmptyHint')}
-          </p>
+          <div data-testid={kindFilter === '' ? 'memory-empty' : 'memory-empty-filtered'}>
+            <p className="text-on-surface-variant">
+              {kindFilter === '' ? t('shell.memoryEmpty') : t('shell.memoryEmptyFiltered')}
+            </p>
+            <p className="mt-2 text-xs text-outline">
+              {kindFilter === '' ? t('shell.memoryEmptyHint') : t('shell.memoryEmptyFilteredHint')}
+            </p>
+            {kindFilter === '' ? null : (
+              <div className="mt-4">
+                <Button
+                  variant="secondary"
+                  onClick={() => setKindFilter('')}
+                  data-testid="memory-show-all-kinds"
+                >
+                  {t('shell.memoryShowAllKinds')}
+                </Button>
+              </div>
+            )}
+          </div>
         </Card>
       ) : (
         <div className="space-y-4">

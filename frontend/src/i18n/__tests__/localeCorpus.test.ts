@@ -119,12 +119,16 @@ describe('client locale corpus', () => {
     // is on every runtime, and these four phrasings need no plural rule
     // (carnet#227).
     //
-    // 2415 until the chat header's "+" left with the button it labelled. The
-    // phone showed two of them at once — one in the header, one in the tab
-    // bar — offering the same sheet, so the header's went and
-    // `app.headerPlusAria` had nothing left to describe (carnet#213).
+    // 2414 until the memory screen stopped carrying two vocabularies. Its
+    // title, blurb and both empty-state lines existed twice — once under
+    // `shell.*` for the browser, once under `app.*` for the phone — and the
+    // copies had already drifted apart by a possessive and a rewrite. The four
+    // `app.*` duplicates are gone and both clients read the survivors, which is
+    // -4; the filtered-empty state the web panel was missing, the connected-app
+    // screen-reader label and the two states a messaging list can be in that
+    // are not "everything is linked" are +6.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2388);
+    expect(reference).toHaveLength(2390);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

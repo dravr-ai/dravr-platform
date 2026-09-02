@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Linking,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -65,6 +66,35 @@ export function MessagingChannelsScreen() {
   );
 
   const linkedChannels = new Set(links.map((l) => l.channel));
+  const unlinked = available.filter((channel) => !linkedChannels.has(channel.channel));
+
+  /**
+   * Start the link and hand the athlete to the chat app.
+   *
+   * `initLink` returns the provider's own URL carrying the pairing code — a
+   * `t.me` or `wa.me` address — so opening it lands in the installed app with
+   * the code already in the message box. That is the path the onboarding
+   * screen's Open button takes; settings takes it too rather than only
+   * listing what somebody linked elsewhere. The link lands server-side, and
+   * the focus effect reloads the list when the athlete comes back.
+   */
+  const handleLink = (channel: AvailableChannel) => {
+    void (async () => {
+      setBusyChannel(channel.channel);
+      try {
+        const link = await messagingApi.initLink(channel.channel);
+        await Linking.openURL(link.linking_url);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('app.failedLoadChannels');
+        Alert.alert(
+          t('app.couldNotStartConnection', { channel: channel.display_name }),
+          message,
+        );
+      } finally {
+        setBusyChannel(null);
+      }
+    })();
+  };
 
   const handleUnlink = (link: ChannelLink) => {
     const name = available.find((c) => c.channel === link.channel)?.display_name ?? link.channel;
@@ -138,7 +168,13 @@ export function MessagingChannelsScreen() {
               {links.length === 0 ? (
                 <View style={{ padding: spacing.md }} testID="messaging-no-links">
                   <Text style={{ color: colors.text.tertiary }}>
-                    {t('app.noChatAppsLinked')}
+                    {/* "Link one below" points at nothing when the tenant has
+                        no channel configured, so that case says what is
+                        actually true instead of giving an instruction the
+                        athlete cannot follow. */}
+                    {available.length === 0
+                      ? t('app.noChatAppsAvailableYet')
+                      : t('app.noChatAppsLinked')}
                   </Text>
                 </View>
               ) : (
@@ -181,34 +217,40 @@ export function MessagingChannelsScreen() {
           <View>
             <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.available')}</Text>
             <View style={cardStyle}>
-              {available
-                .filter((channel) => !linkedChannels.has(channel.channel))
-                .map((channel, index, shown) => (
-                  <TouchableOpacity
-                    key={channel.channel}
-                    style={[
-                      rowStyle,
-                      index < shown.length - 1
-                        ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
-                        : {},
-                    ]}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/(onboarding)/messaging-configure',
-                        params: { channel: channel.channel },
-                      })
-                    }
-                    testID={`messaging-link-add-${channel.channel}`}
-                  >
-                    <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{channel.display_name}</Text>
+              {unlinked.map((channel, index) => (
+                <TouchableOpacity
+                  key={channel.channel}
+                  style={[
+                    rowStyle,
+                    index < unlinked.length - 1
+                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+                      : {},
+                  ]}
+                  onPress={() => handleLink(channel)}
+                  disabled={busyChannel === channel.channel}
+                  testID={`messaging-link-add-${channel.channel}`}
+                >
+                  <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{channel.display_name}</Text>
+                  {busyChannel === channel.channel ? (
+                    <ActivityIndicator color={colors.text.tertiary} />
+                  ) : (
                     <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-                  </TouchableOpacity>
-                ))}
-              {available.filter((c) => !linkedChannels.has(c.channel)).length === 0 && (
+                  )}
+                </TouchableOpacity>
+              ))}
+              {/* An empty list has two causes and they are not the same news.
+                  Nothing configured for the tenant is not "you already linked
+                  everything", and saying the second when the first is true is
+                  how this screen came to contradict itself. */}
+              {available.length === 0 ? (
+                <View style={{ padding: spacing.md }} testID="messaging-none-configured">
+                  <Text style={{ color: colors.text.tertiary }}>{t('app.noChatAppsConfigured')}</Text>
+                </View>
+              ) : unlinked.length === 0 ? (
                 <View style={{ padding: spacing.md }} testID="messaging-all-linked">
                   <Text style={{ color: colors.text.tertiary }}>{t('app.everyChatAppLinked')}</Text>
                 </View>
-              )}
+              ) : null}
             </View>
           </View>
         </ScrollView>

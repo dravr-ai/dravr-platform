@@ -49,6 +49,8 @@ export {
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
+  defaultNotificationPreference,
+  mergeNotificationPreferences,
   notificationPreferenceUpdate,
   formatNotificationTime,
   formatCollapsedCount,

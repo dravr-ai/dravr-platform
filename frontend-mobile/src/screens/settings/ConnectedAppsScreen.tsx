@@ -59,7 +59,9 @@ export function ConnectedAppsScreen(): React.JSX.Element {
   const handleRevoke = (grant: OAuthGrant): void => {
     Alert.alert(
       t('app.revokeAccessQ'),
-      `"${grant.client_id}" will lose access to your data and must ask for your approval again the next time it connects. This cannot be undone.`,
+      // The same sentence the web card's confirmation uses, from the same key:
+      // revoking is the same act on both, so it cannot promise two things.
+      t('app.confirmRevokeAppAccess', { app: grant.client_id }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -94,7 +96,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
         </View>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`Revoke ${item.client_id}`}
+          accessibilityLabel={t('app.revokeAppLabel', { app: item.client_id })}
           onPress={() => handleRevoke(item)}
           disabled={revoking}
           className="flex-row items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2"
@@ -164,9 +166,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
           }
           ListHeaderComponent={
             <Text className="text-text-secondary text-sm leading-relaxed mb-4">
-              Apps you approved to access your Dravr data through the OAuth
-              consent screen (for example Claude Desktop). Revoke any one to cut
-              off its access — it will have to ask for your approval again.
+              {t('tokens.connectedAppsHint')}
             </Text>
           }
           ListEmptyComponent={

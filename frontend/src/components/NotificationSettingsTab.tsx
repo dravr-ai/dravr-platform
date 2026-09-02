@@ -6,12 +6,12 @@
 
 import { useMemo, useState } from 'react';
 import {
-  NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
+  mergeNotificationPreferences,
   notificationPreferenceUpdate,
 } from '@pierre/shared-constants';
-import type { NotificationCategory, NotificationPreferenceItem } from '@pierre/shared-types';
+import type { NotificationCategory } from '@pierre/shared-types';
 import { Card, Select } from './ui';
 import { useNotificationPreferences } from '../hooks/useNotifications';
 import { useTranslation } from '@pierre/i18n';
@@ -78,9 +78,10 @@ function capLabel(choice: number | null, t: (key: string, opts?: Record<string, 
 /**
  * Manage which notification categories reach this athlete.
  *
- * Every row is a category the server returned. A category the server does not
- * know about is not rendered, and a category it returns that this build has no
- * blurb for still renders with its shared label — the server's list is the list.
+ * Every category gets a row: the stored override where there is one, the
+ * default the dispatcher already applies where there is not. A category the
+ * server returns that this build has no blurb for still renders with its
+ * shared label.
  */
 export default function NotificationSettingsTab() {
   const { t } = useTranslation();
@@ -88,21 +89,11 @@ export default function NotificationSettingsTab() {
     useNotificationPreferences();
   const [expanded, setExpanded] = useState<NotificationCategory | null>(null);
 
-  // Order by the shared display order so web and mobile list the categories the
-  // same way, with anything the server added but the constant has not appended
-  // rather than dropped.
-  const rows = useMemo(() => {
-    const byCategory = new Map<string, NotificationPreferenceItem>(
-      preferences.map((p) => [p.category, p]),
-    );
-    const known = NOTIFICATION_CATEGORIES.map((c) => byCategory.get(c)).filter(
-      (p): p is NotificationPreferenceItem => p !== undefined,
-    );
-    const extra = preferences.filter(
-      (p) => !NOTIFICATION_CATEGORIES.includes(p.category),
-    );
-    return [...known, ...extra];
-  }, [preferences]);
+  // The shared merge: every category in the shared display order, each one
+  // showing its stored override or the default it runs on until the athlete
+  // changes it. Web and mobile call the same function so neither can invent a
+  // different answer for an account with nothing stored.
+  const rows = useMemo(() => mergeNotificationPreferences(preferences), [preferences]);
 
   if (isLoading) {
     return (

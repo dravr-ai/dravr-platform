@@ -55,6 +55,56 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
 ] as const;
 
 /**
+ * What a category means before the athlete has ever touched it.
+ *
+ * The dispatcher decides this, not the screen: `check_suppression` looks the
+ * category up among the stored rows and, finding none, delivers the
+ * notification. Absent therefore means enabled, with no quiet hours, no zone
+ * and no per-day cap of the athlete's own.
+ */
+export function defaultNotificationPreference(
+  category: NotificationCategory,
+): NotificationPreferenceItem {
+  return {
+    category,
+    enabled: true,
+    sub_preferences: null,
+    quiet_hours_start: null,
+    quiet_hours_end: null,
+    timezone: null,
+    max_per_day: null,
+  };
+}
+
+/**
+ * Every category's current setting, defaults filled in.
+ *
+ * `GET /api/notifications/preferences` returns OVERRIDES: the table holds a row
+ * only once something has been changed, so an account that has never opened the
+ * screen gets `{"preferences": []}`. Both surfaces looked each known category
+ * up in that response and kept only what came back, which for that account is
+ * nothing — no rows, no quiet hours, no daily cap, on a screen whose entire
+ * content is that list.
+ *
+ * One function, because both clients ask the same question and a second copy is
+ * a second answer. Anything the server returns that this build does not know is
+ * appended rather than dropped, so a category added server-side still reaches
+ * the athlete.
+ */
+export function mergeNotificationPreferences(
+  stored: readonly NotificationPreferenceItem[],
+): NotificationPreferenceItem[] {
+  const byCategory = new Map<string, NotificationPreferenceItem>(
+    stored.map((p) => [p.category, p]),
+  );
+  const known = NOTIFICATION_CATEGORIES.map(
+    (category) => byCategory.get(category) ?? defaultNotificationPreference(category),
+  );
+  const extra = stored.filter((p) => !NOTIFICATION_CATEGORIES.includes(p.category));
+  return [...known, ...extra];
+}
+
+/**
  * Format a timestamp as a relative time string, in the athlete's language.
  *
  * Shared between web and mobile. It built `Just now` and `5m ago` by hand,

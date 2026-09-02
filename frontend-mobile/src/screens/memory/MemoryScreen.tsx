@@ -14,6 +14,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import type { MemoryFactRow } from '@pierre/api-client';
@@ -39,6 +40,13 @@ export function MemoryScreen(): React.JSX.Element {
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
+  // Whether the chip row still has chips off the right edge. Measured rather
+  // than assumed: nine kinds fit on a tablet and overflow a phone, so a fade
+  // painted unconditionally would sit over nothing on the wider one.
+  const [chipsViewportWidth, setChipsViewportWidth] = useState(0);
+  const [chipsContentWidth, setChipsContentWidth] = useState(0);
+  const [chipsScrollX, setChipsScrollX] = useState(0);
+  const chipsHaveMoreRight = chipsContentWidth - chipsViewportWidth - chipsScrollX > 1;
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: [...MEMORY_FACTS_QUERY_KEY, kindFilter],
@@ -123,53 +131,78 @@ export function MemoryScreen(): React.JSX.Element {
               marginBottom: spacing.xs,
             }}
           >
-            {t('app.whatCoachRemembers')}
+            {t('shell.memoryTitle')}
           </Text>
           <Text style={{ fontSize: fontSize.sm, color: colors.text.secondary }}>
-            {t('app.memoryBlurb')}
+            {t('app.memoryPanelBlurb')}
           </Text>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ marginBottom: spacing.md }}
-          contentContainerStyle={{ gap: spacing.sm }}
-        >
-          {kindOptions.map((opt) => {
-            const active = kindFilter === opt.value;
-            return (
-              <TouchableOpacity
-                key={opt.value || 'all'}
-                onPress={() => setKindFilter(opt.value)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                style={{
-                  paddingHorizontal: spacing.md,
-                  paddingVertical: spacing.sm,
-                  borderRadius: borderRadius.full,
-                  backgroundColor: active
-                    ? colors.pierre.violet
-                    : 'rgba(255,255,255,0.08)',
-                  borderWidth: 1,
-                  borderColor: active
-                    ? colors.pierre.violet
-                    : 'rgba(255,255,255,0.15)',
-                }}
-              >
-                <Text
+        {/* The row scrolls, and the chip at the right edge is cut mid-word when
+            it does. A cut with nothing over it reads as a rendering fault, so
+            the fade sits on that edge for exactly as long as there is more to
+            reach — it disappears once the last chip is in view. */}
+        <View style={{ marginBottom: spacing.md }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onLayout={(e) => setChipsViewportWidth(e.nativeEvent.layout.width)}
+            onContentSizeChange={(width) => setChipsContentWidth(width)}
+            onScroll={(e) => setChipsScrollX(e.nativeEvent.contentOffset.x)}
+            contentContainerStyle={{ gap: spacing.sm, paddingRight: spacing.lg }}
+          >
+            {kindOptions.map((opt) => {
+              const active = kindFilter === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value || 'all'}
+                  onPress={() => setKindFilter(opt.value)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
                   style={{
-                    color: active ? '#ffffff' : colors.text.secondary,
-                    fontSize: fontSize.sm,
-                    fontWeight: fontWeight.medium,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.sm,
+                    borderRadius: borderRadius.full,
+                    backgroundColor: active
+                      ? colors.pierre.violet
+                      : 'rgba(255,255,255,0.08)',
+                    borderWidth: 1,
+                    borderColor: active
+                      ? colors.pierre.violet
+                      : 'rgba(255,255,255,0.15)',
                   }}
                 >
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+                  <Text
+                    style={{
+                      color: active ? '#ffffff' : colors.text.secondary,
+                      fontSize: fontSize.sm,
+                      fontWeight: fontWeight.medium,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          {chipsHaveMoreRight ? (
+            <LinearGradient
+              testID="memory-kind-scroll-fade"
+              pointerEvents="none"
+              colors={[`${colors.background.primary}00`, colors.background.primary]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: spacing.xl,
+              }}
+            />
+          ) : null}
+        </View>
 
         {isLoading ? (
           <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
@@ -184,7 +217,12 @@ export function MemoryScreen(): React.JSX.Element {
             </Text>
           </View>
         ) : facts.length === 0 ? (
+          // The query is filtered server-side, so an empty result under a chip
+          // is "none of this type", not "none at all". Telling an athlete who
+          // has memory that they have none, and inviting them to go earn some,
+          // is a different sentence — and it needs the way back to all types.
           <View
+            testID={kindFilter === '' ? 'memory-empty' : 'memory-empty-filtered'}
             style={{
               paddingVertical: spacing.xl,
               alignItems: 'center',
@@ -198,7 +236,7 @@ export function MemoryScreen(): React.JSX.Element {
                 textAlign: 'center',
               }}
             >
-              {t('app.noFactsYet')}
+              {kindFilter === '' ? t('shell.memoryEmpty') : t('shell.memoryEmptyFiltered')}
             </Text>
             <Text
               style={{
@@ -208,8 +246,27 @@ export function MemoryScreen(): React.JSX.Element {
                 fontSize: fontSize.xs,
               }}
             >
-              {t('app.memoryEmptyBlurb')}
+              {kindFilter === '' ? t('shell.memoryEmptyHint') : t('shell.memoryEmptyFilteredHint')}
             </Text>
+            {kindFilter === '' ? null : (
+              <TouchableOpacity
+                accessibilityRole="button"
+                testID="memory-show-all-kinds"
+                onPress={() => setKindFilter('')}
+                style={{
+                  marginTop: spacing.md,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.sm,
+                  borderRadius: borderRadius.full,
+                  borderWidth: 1,
+                  borderColor: colors.pierre.violet,
+                }}
+              >
+                <Text style={{ color: colors.pierre.violet, fontSize: fontSize.sm }}>
+                  {t('shell.memoryShowAllKinds')}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           groupedByKind.map(([kind, items]) => (

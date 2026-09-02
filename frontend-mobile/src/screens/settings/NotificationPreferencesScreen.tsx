@@ -14,11 +14,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import type { NotificationCategory, NotificationPreferenceItem } from '@pierre/shared-types';
+import type { NotificationCategory } from '@pierre/shared-types';
 import {
-  NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
+  mergeNotificationPreferences,
   notificationPreferenceUpdate,
 } from '../../../../packages/shared-constants/src/notifications';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -73,8 +73,10 @@ function capLabel(choice: number | null, t: (key: string, opts?: Record<string, 
 /**
  * Manage which notification categories reach this athlete.
  *
- * Rows come from `GET /api/notifications/preferences` and every change goes
- * back through `notificationPreferenceUpdate`, which restates the whole row —
+ * Rows come from `GET /api/notifications/preferences` merged over the shared
+ * defaults — the endpoint returns overrides, not one row per category — and
+ * every change goes back through `notificationPreferenceUpdate`, which
+ * restates the whole row —
  * the endpoint is an upsert, so a partial request would erase the fields it
  * left out.
  */
@@ -86,18 +88,11 @@ export function NotificationPreferencesScreen() {
     useNotificationPreferences();
   const [expanded, setExpanded] = useState<NotificationCategory | null>(null);
 
-  // Shared display order, with anything the server added but the constant has
-  // not appended rather than dropped.
-  const rows = useMemo(() => {
-    const byCategory = new Map<string, NotificationPreferenceItem>(
-      preferences.map((p) => [p.category, p]),
-    );
-    const known = NOTIFICATION_CATEGORIES.map((c) => byCategory.get(c)).filter(
-      (p): p is NotificationPreferenceItem => p !== undefined,
-    );
-    const extra = preferences.filter((p) => !NOTIFICATION_CATEGORIES.includes(p.category));
-    return [...known, ...extra];
-  }, [preferences]);
+  // The shared merge: every category in the shared display order, each one
+  // showing its stored override or the default it runs on until the athlete
+  // changes it. Web calls the same function, so an account with nothing stored
+  // sees the same seven rows on both.
+  const rows = useMemo(() => mergeNotificationPreferences(preferences), [preferences]);
 
   const cardStyle: ViewStyle = {
     backgroundColor: colors.background.tertiary,

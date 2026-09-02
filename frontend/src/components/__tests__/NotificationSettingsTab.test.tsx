@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { NOTIFICATION_CATEGORIES } from '@pierre/shared-constants';
 import type { NotificationPreferenceItem } from '@pierre/shared-types';
 import NotificationSettingsTab from '../NotificationSettingsTab';
 
@@ -51,6 +52,24 @@ describe('NotificationSettingsTab', () => {
     getPreferences.mockReset();
     updatePreference.mockReset();
     updatePreference.mockResolvedValue(pref());
+  });
+
+  // Turns red if an account with no stored override renders nothing. The
+  // endpoint returns overrides, so every athlete starts with `preferences: []`
+  // and the tab kept only the categories that came back — which was none of
+  // them, and the pane painted its heading over an empty page.
+  it('renders every category at its default when the server stored no override', async () => {
+    getPreferences.mockResolvedValue({ user_id: 'u1', tenant_id: 't1', preferences: [] });
+
+    renderTab();
+
+    await waitFor(() => expect(screen.getByTestId('notification-pref-training')).toBeTruthy());
+    for (const category of NOTIFICATION_CATEGORIES) {
+      expect(screen.getByTestId(`notification-pref-${category}`)).toBeTruthy();
+      expect(
+        screen.getByTestId(`notification-pref-switch-${category}`).getAttribute('aria-checked'),
+      ).toBe('true');
+    }
   });
 
   // Turns red if the tab stops rendering the server's rows — the exact

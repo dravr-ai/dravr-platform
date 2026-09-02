@@ -3,7 +3,8 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
+import { i18n } from '@pierre/i18n';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -14,11 +15,13 @@ jest.mock('expo-router', () => ({
 const mockListLinks = jest.fn();
 const mockGetAvailableChannels = jest.fn();
 const mockDeleteLink = jest.fn();
+const mockInitLink = jest.fn();
 jest.mock('../src/services/api', () => ({
   messagingApi: {
     listLinks: () => mockListLinks(),
     getAvailableChannels: () => mockGetAvailableChannels(),
     deleteLink: (channel: string) => mockDeleteLink(channel),
+    initLink: (channel: string) => mockInitLink(channel),
   },
 }));
 
@@ -37,6 +40,14 @@ describe('MessagingChannelsScreen', () => {
       { channel: 'telegram', channel_user_id: 'tg-1', display_name: '@athlete', linked_at: 'now' },
     ]);
     mockDeleteLink.mockResolvedValue(undefined);
+    mockInitLink.mockResolvedValue({
+      channel: 'slack',
+      method: 'oauth',
+      code: null,
+      linking_url: 'https://slack.com/oauth/v2/authorize?state=pair-42',
+      expires_at: '2026-09-02T12:00:00Z',
+      qr_svg: null,
+    });
   });
 
   it('lists a linked channel with its handle', async () => {
@@ -85,7 +96,92 @@ describe('MessagingChannelsScreen', () => {
       { channel: 'telegram', channel_user_id: 'tg-1', display_name: null, linked_at: 'now' },
       { channel: 'slack', channel_user_id: 'sl-1', display_name: null, linked_at: 'now' },
     ]);
-    const { getByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId, queryByTestId } = render(<MessagingChannelsScreen />);
     await waitFor(() => expect(getByTestId('messaging-all-linked')).toBeTruthy());
+    expect(queryByTestId('messaging-none-configured')).toBeNull();
+  });
+
+  // Empty-because-all-linked and empty-because-none-configured are different
+  // states. The screen showed the first whenever the available list was empty,
+  // so a tenant with no channel configured read "nothing is linked" and "every
+  // available app is linked" on the same page, over a list with nothing in it.
+  it('separates nothing-configured from everything-linked, and from unlinked-and-waiting', async () => {
+    mockGetAvailableChannels.mockResolvedValue([]);
+    mockListLinks.mockResolvedValue([]);
+    const nothing = render(<MessagingChannelsScreen />);
+    await waitFor(() => expect(nothing.getByTestId('messaging-none-configured')).toBeTruthy());
+    expect(nothing.queryByTestId('messaging-all-linked')).toBeNull();
+    // "Link one below" points at nothing here, so the linked panel says
+    // something else too.
+    expect(nothing.getByText(i18n.t('app.noChatAppsAvailableYet'))).toBeTruthy();
+    expect(nothing.queryByText(i18n.t('app.noChatAppsLinked'))).toBeNull();
+    nothing.unmount();
+
+    mockGetAvailableChannels.mockResolvedValue(CHANNELS);
+    mockListLinks.mockResolvedValue([]);
+    const some = render(<MessagingChannelsScreen />);
+    await waitFor(() => expect(some.getByTestId('messaging-link-add-telegram')).toBeTruthy());
+    expect(some.queryByTestId('messaging-none-configured')).toBeNull();
+    expect(some.queryByTestId('messaging-all-linked')).toBeNull();
+    expect(some.getByText(i18n.t('app.noChatAppsLinked'))).toBeTruthy();
+    some.unmount();
+
+    mockListLinks.mockResolvedValue([
+      { channel: 'telegram', channel_user_id: 'tg-1', display_name: null, linked_at: 'now' },
+      { channel: 'slack', channel_user_id: 'sl-1', display_name: null, linked_at: 'now' },
+    ]);
+    const all = render(<MessagingChannelsScreen />);
+    await waitFor(() => expect(all.getByTestId('messaging-all-linked')).toBeTruthy());
+    expect(all.queryByTestId('messaging-none-configured')).toBeNull();
+
+    // Three states, three sentences.
+    const texts = [
+      i18n.t('app.noChatAppsConfigured'),
+      i18n.t('app.everyChatAppLinked'),
+      i18n.t('app.noChatAppsLinked'),
+    ];
+    expect(new Set(texts).size).toBe(3);
+  });
+
+  // Onboarding hands the athlete to the chat app by opening the provider's own
+  // linking URL. Settings only listed what somebody had already linked; it now
+  // takes the same path rather than a second one.
+  it('opens the provider deep link when an available channel is tapped', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    mockListLinks.mockResolvedValue([]);
+    const { getByTestId } = render(<MessagingChannelsScreen />);
+
+    await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
+    fireEvent.press(getByTestId('messaging-link-add-slack'));
+
+    await waitFor(() => expect(mockInitLink).toHaveBeenCalledWith('slack'));
+    await waitFor(() =>
+      expect(openURL).toHaveBeenCalledWith('https://slack.com/oauth/v2/authorize?state=pair-42'),
+    );
+    // Nowhere near the onboarding stack: the settings screen stays put and the
+    // focus effect picks the link up when the athlete comes back.
+    expect(mockPush).not.toHaveBeenCalled();
+    openURL.mockRestore();
+  });
+
+  it('names the channel when the link cannot be started, instead of failing silently', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockListLinks.mockResolvedValue([]);
+    mockInitLink.mockRejectedValue(new Error('channel not configured'));
+
+    const { getByTestId } = render(<MessagingChannelsScreen />);
+    await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
+    fireEvent.press(getByTestId('messaging-link-add-slack'));
+
+    await waitFor(() =>
+      expect(alertSpy).toHaveBeenCalledWith(
+        i18n.t('app.couldNotStartConnection', { channel: 'Slack' }),
+        'channel not configured',
+      ),
+    );
+    expect(openURL).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+    openURL.mockRestore();
   });
 });

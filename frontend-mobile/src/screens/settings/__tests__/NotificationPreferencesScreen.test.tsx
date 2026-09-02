@@ -7,6 +7,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { NOTIFICATION_CATEGORIES } from '@pierre/shared-constants';
 import type { NotificationPreferenceItem } from '@pierre/shared-types';
 import { NotificationPreferencesScreen } from '../NotificationPreferencesScreen';
 import { notificationsApi } from '../../../services/api';
@@ -54,6 +55,22 @@ describe('NotificationPreferencesScreen', () => {
     getPreferences.mockReset();
     updatePreference.mockReset();
     updatePreference.mockResolvedValue(pref());
+  });
+
+  // Turns red if an account with no stored override renders nothing. The
+  // endpoint returns overrides, so every athlete starts with `preferences: []`
+  // and the screen kept only the categories that came back — which was none of
+  // them, and the pane painted its heading over an empty page.
+  it('renders every category at its default when the server stored no override', async () => {
+    getPreferences.mockResolvedValue({ user_id: 'u1', tenant_id: 't1', preferences: [] });
+
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId('notification-pref-training')).toBeTruthy());
+    for (const category of NOTIFICATION_CATEGORIES) {
+      expect(screen.getByTestId(`notification-pref-${category}`)).toBeTruthy();
+      expect(screen.getByTestId(`notification-pref-switch-${category}`).props.value).toBe(true);
+    }
   });
 
   // Turns red if the screen stops rendering the server's rows — the exact
