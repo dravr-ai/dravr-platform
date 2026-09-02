@@ -567,10 +567,10 @@ async fn test_get_nutrient_timing_missing_weight() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_get_nutrient_timing_missing_intensity_and_provider() -> Result<()> {
+async fn test_get_nutrient_timing_missing_intensity() -> Result<()> {
     let executor = create_nutrition_test_executor().await?;
 
-    // Missing both workout_intensity and activity_provider
+    // Missing the required workout_intensity
     let request = create_test_request(
         "get_nutrient_timing",
         json!({
@@ -581,7 +581,7 @@ async fn test_get_nutrient_timing_missing_intensity_and_provider() -> Result<()>
 
     let result = executor.execute_tool(request).await;
 
-    assert!(result.is_err(), "Should fail without intensity or provider");
+    assert!(result.is_err(), "Should fail without workout_intensity");
 
     Ok(())
 }

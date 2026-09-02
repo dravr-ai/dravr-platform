@@ -34,7 +34,7 @@ use crate::implementations::data_helpers::{parse_output_format, read_only_annota
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
@@ -46,14 +46,29 @@ use pierre_tools_core::ToolResult;
 /// Default lookback window when no explicit date range is supplied.
 const DEFAULT_LOOKBACK_DAYS: i64 = 30;
 
+/// Widest span one stored-data read serves. Population is one row per night
+/// per user, so a year bounds the result set; the underlying queries carry no
+/// SQL LIMIT, which made an unclamped caller range the only thing standing
+/// between a read and the whole table.
+const MAX_RANGE_DAYS: i64 = 366;
+
 /// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
-fn parse_date_range(args: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
+///
+/// An inverted range is refused; a span wider than [`MAX_RANGE_DAYS`] is
+/// clipped to the most recent year (the payload echoes the effective
+/// `start`/`end`, so the clip is visible to the caller). `pub` so the clamp
+/// decisions are exercisable by the integration test suite.
+///
+/// # Errors
+///
+/// Returns `invalid_input` when `start` is after `end`.
+pub fn parse_date_range(args: &Value) -> AppResult<(DateTime<Utc>, DateTime<Utc>)> {
     let end = args
         .get("end")
         .and_then(Value::as_str)
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
-    let start = args
+    let mut start = args
         .get("start")
         .and_then(Value::as_str)
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
@@ -61,7 +76,15 @@ fn parse_date_range(args: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
             || Utc::now() - Duration::days(DEFAULT_LOOKBACK_DAYS),
             |dt| dt.with_timezone(&Utc),
         );
-    (start, end)
+    if start > end {
+        return Err(AppError::invalid_input(format!(
+            "start ({start}) is after end ({end})"
+        )));
+    }
+    if end - start > Duration::days(MAX_RANGE_DAYS) {
+        start = end - Duration::days(MAX_RANGE_DAYS);
+    }
+    Ok((start, end))
 }
 
 /// Apply TOON formatting to a stored-data result payload, mirroring
@@ -162,7 +185,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
         let result: AppResult<ToolResult> = async move {
             let format = parse_output_format(&args);
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let (start, end) = parse_date_range(&args);
+            let (start, end) = parse_date_range(&args)?;
 
             match context
                 .resources
@@ -231,7 +254,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
         let result: AppResult<ToolResult> = async move {
             let format = parse_output_format(&args);
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let (start, end) = parse_date_range(&args);
+            let (start, end) = parse_date_range(&args)?;
 
             match context
                 .resources
@@ -300,7 +323,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
         let result: AppResult<ToolResult> = async move {
             let format = parse_output_format(&args);
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let (start, end) = parse_date_range(&args);
+            let (start, end) = parse_date_range(&args)?;
 
             match context
                 .resources

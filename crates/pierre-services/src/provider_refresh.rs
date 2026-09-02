@@ -394,8 +394,39 @@ impl RefreshService {
         #[cfg(feature = "health-sync")]
         {
             if wait {
-                self.sync_provider_blocking(user_id, tenant_id, provider)
-                    .await
+                // Same budget as the provider=="all" path above — this branch
+                // ran unbounded, so a wedged single-provider sync could hold a
+                // chat turn open indefinitely while the "all" form of the same
+                // ask was capped.
+                let budget = RefreshConfig::default().wait_for_refresh_timeout();
+                match timeout(
+                    budget,
+                    self.sync_provider_blocking(user_id, tenant_id, provider),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_elapsed) => {
+                        warn!(
+                            provider,
+                            timeout_secs = budget.as_secs(),
+                            "Blocking single-provider refresh exceeded budget"
+                        );
+                        // Mirrors the provider=="all" branch: report the
+                        // budget honestly and do NOT respawn — the awaited
+                        // orchestrator work may survive the timeout, and a
+                        // second spawn here would double-sync.
+                        RefreshResult {
+                            provider: provider.to_owned(),
+                            success: false,
+                            message: format!(
+                                "Sync did not complete within {}s; ask again shortly                                  or retry the refresh",
+                                budget.as_secs()
+                            ),
+                            records_synced: 0,
+                        }
+                    }
+                }
             } else {
                 self.spawn_provider_sync(user_id, tenant_id, provider.to_owned());
                 RefreshResult {

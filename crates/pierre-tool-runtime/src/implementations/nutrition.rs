@@ -19,9 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use serde_json::{json, Value};
-use tracing::{debug, warn};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -29,13 +27,11 @@ use crate::conversions::{
     capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
 };
 use crate::implementations::usda_shared::{shared_usda_client, MAX_USDA_INGREDIENTS};
-use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::Activity;
 use pierre_external::UsdaClient;
 use pierre_intelligence::{
     calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
@@ -153,42 +149,6 @@ fn parse_nutrition_params(args: &Value) -> AppResult<DailyNutritionParams> {
         activity_level,
         training_goal,
     })
-}
-
-/// Infer workout intensity from recent activities.
-///
-/// - High: average > 2 h/day or avg HR > 150 bpm
-/// - Moderate: average 1–2 h/day or avg HR 130–150 bpm
-/// - Low: otherwise
-fn infer_workout_intensity(activities: &[Activity], days_back: u32) -> &'static str {
-    if activities.is_empty() || days_back == 0 {
-        return "moderate";
-    }
-
-    let total_seconds: u64 = activities.iter().map(Activity::duration_seconds).sum();
-    #[allow(clippy::cast_precision_loss)]
-    let total_hours = total_seconds as f64 / 3600.0;
-    let avg_hours_per_day = total_hours / f64::from(days_back);
-
-    let hr_activities: Vec<u32> = activities
-        .iter()
-        .filter_map(Activity::average_heart_rate)
-        .collect();
-    let avg_hr = if hr_activities.is_empty() {
-        None
-    } else {
-        #[allow(clippy::cast_possible_truncation)]
-        let count = hr_activities.len() as u32;
-        Some(hr_activities.iter().sum::<u32>() / count)
-    };
-
-    if avg_hours_per_day > 2.0 || avg_hr.is_some_and(|hr| hr > 150) {
-        "high"
-    } else if avg_hours_per_day >= 1.0 || avg_hr.is_some_and(|hr| hr >= 130) {
-        "moderate"
-    } else {
-        "low"
-    }
 }
 
 /// Resolve the process-wide `UsdaClient`, returning an error `ToolResult` if
@@ -402,133 +362,71 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-        let weight_kg = args
-            .get("weight_kg")
-            .and_then(Value::as_f64)
-            .ok_or_else(|| {
-                AppError::invalid_input("Missing or invalid required parameter: weight_kg")
-            })?;
+            let weight_kg = args
+                .get("weight_kg")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| {
+                    AppError::invalid_input("Missing or invalid required parameter: weight_kg")
+                })?;
 
-        let daily_protein_g = args
-            .get("daily_protein_g")
-            .and_then(Value::as_f64)
-            .ok_or_else(|| {
-                AppError::invalid_input("Missing or invalid required parameter: daily_protein_g")
-            })?;
+            let daily_protein_g = args
+                .get("daily_protein_g")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| {
+                    AppError::invalid_input(
+                        "Missing or invalid required parameter: daily_protein_g",
+                    )
+                })?;
 
-        let activity_provider = args.get("activity_provider").and_then(Value::as_str);
-
-        #[allow(clippy::cast_possible_truncation)]
-        let days_back = args
-            .get("days_back")
-            .and_then(Value::as_u64)
-            .map_or(7, |v| v.min(30) as u32);
-
-        let (workout_intensity, intensity_source) = if let Some(provider_name) = activity_provider {
-            let auth_service = AuthService::new(context.resources.clone());
-            let tenant_id = context.tenant_id.map(|id| id.to_string());
-
-            let provider_result = auth_service
-                .create_authenticated_provider(provider_name, context.user_id, tenant_id.as_deref())
-                .await;
-
-            match provider_result {
-                Ok(provider) => match provider.get_activities(Some(50), None).await {
-                    Ok(activities) => {
-                        let cutoff = Utc::now() - Duration::days(i64::from(days_back));
-                        let recent: Vec<_> = activities
-                            .into_iter()
-                            .filter(|a| a.start_date() >= cutoff)
-                            .collect();
-                        let inferred = infer_workout_intensity(&recent, days_back);
-                        debug!(
-                            provider = provider_name,
-                            days_back,
-                            activity_count = recent.len(),
-                            inferred_intensity = inferred,
-                            "Inferred workout intensity from activity data"
-                        );
-                        (parse_workout_intensity(inferred)?, "inferred")
-                    }
-                    Err(e) => {
-                        if let Some(intensity_str) =
-                            args.get("workout_intensity").and_then(Value::as_str)
-                        {
-                            warn!(
-                                provider = provider_name,
-                                error = %e,
-                                "Activity fetch failed, falling back to explicit intensity"
-                            );
-                            (parse_workout_intensity(intensity_str)?, "explicit")
-                        } else {
-                            return Ok(ToolResult::error(json!({
-                                "error": format!("Failed to fetch activities from {provider_name}: {e}")
-                            })));
-                        }
-                    }
-                },
-                Err(response) => {
-                    if let Some(intensity_str) =
-                        args.get("workout_intensity").and_then(Value::as_str)
-                    {
-                        warn!(
-                            provider = provider_name,
-                            error = ?response.error,
-                            "Provider auth failed, falling back to explicit intensity"
-                        );
-                        (parse_workout_intensity(intensity_str)?, "explicit")
-                    } else {
-                        return Ok(ToolResult::error(json!({
-                            "error": format!("Authentication failed for provider {provider_name}")
-                        })));
-                    }
-                }
-            }
-        } else {
+            // `workout_intensity` is the schema's only intensity input. An earlier
+            // branch inferred intensity from a 50-activity provider fetch behind
+            // two args (`activity_provider`, `days_back`) the schema never
+            // declared, so no conforming client could reach it — deleted per the
+            // consume-what-you-declare rule. A declared, provider-resolved
+            // variant is the way to bring inference back.
             let intensity_str = args
                 .get("workout_intensity")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input(
-                        "Missing workout_intensity. Provide either workout_intensity or \
-                         activity_provider.",
+                        "Missing or invalid required parameter: workout_intensity",
                     )
                 })?;
-            (parse_workout_intensity(intensity_str)?, "explicit")
-        };
+            let (workout_intensity, intensity_source) =
+                (parse_workout_intensity(intensity_str)?, "explicit");
 
-        let cageux_config = context.cageux_config();
-        let config = &cageux_config.nutrition;
+            let cageux_config = context.cageux_config();
+            let config = &cageux_config.nutrition;
 
-        match calculate_nutrient_timing(
-            weight_kg,
-            daily_protein_g,
-            workout_intensity,
-            &config.nutrient_timing,
-        ) {
-            Ok(timing) => Ok(ToolResult::ok(json!({
-                "pre_workout": {
-                    "timing_hours_before": timing.pre_workout.timing_hours_before,
-                    "carbs_g": timing.pre_workout.carbs_g,
-                    "recommendations": timing.pre_workout.recommendations,
-                },
-                "post_workout": {
-                    "timing_hours_after": timing.post_workout.timing_hours_after,
-                    "protein_g": timing.post_workout.protein_g,
-                    "carbs_g": timing.post_workout.carbs_g,
-                    "recommendations": timing.post_workout.recommendations,
-                },
-                "daily_protein_distribution": {
-                    "meals_per_day": timing.daily_protein_distribution.meals_per_day,
-                    "protein_per_meal_g": timing.daily_protein_distribution.protein_per_meal_g,
-                    "strategy": timing.daily_protein_distribution.strategy,
-                },
-                "intensity_source": intensity_source,
-            }))),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Calculation error: {e}")
-            }))),
-        }
+            match calculate_nutrient_timing(
+                weight_kg,
+                daily_protein_g,
+                workout_intensity,
+                &config.nutrient_timing,
+            ) {
+                Ok(timing) => Ok(ToolResult::ok(json!({
+                    "pre_workout": {
+                        "timing_hours_before": timing.pre_workout.timing_hours_before,
+                        "carbs_g": timing.pre_workout.carbs_g,
+                        "recommendations": timing.pre_workout.recommendations,
+                    },
+                    "post_workout": {
+                        "timing_hours_after": timing.post_workout.timing_hours_after,
+                        "protein_g": timing.post_workout.protein_g,
+                        "carbs_g": timing.post_workout.carbs_g,
+                        "recommendations": timing.post_workout.recommendations,
+                    },
+                    "daily_protein_distribution": {
+                        "meals_per_day": timing.daily_protein_distribution.meals_per_day,
+                        "protein_per_meal_g": timing.daily_protein_distribution.protein_per_meal_g,
+                        "strategy": timing.daily_protein_distribution.strategy,
+                    },
+                    "intensity_source": intensity_source,
+                }))),
+                Err(e) => Ok(ToolResult::error(json!({
+                    "error": format!("Calculation error: {e}")
+                }))),
+            }
         }
         .await;
         tool_result_to_response(result)

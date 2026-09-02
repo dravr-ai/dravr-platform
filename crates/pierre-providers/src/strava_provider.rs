@@ -776,9 +776,10 @@ impl FitnessProvider for StravaProvider {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        let endpoint = format!("activities/{id}");
-        let strava_activity: StravaActivityResponse = self.api_request(&endpoint).await?;
-        Self::convert_strava_activity(strava_activity)
+        // The /activities/{id} endpoint always answers with the DETAIL shape;
+        // parsing it as the summary silently discarded the laps and splits
+        // Strava had already returned in the same response, at no extra cost.
+        self.get_activity_details(id).await
     }
 
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {

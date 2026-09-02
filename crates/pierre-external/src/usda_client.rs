@@ -315,6 +315,10 @@ impl UsdaClient {
                 ("pageNumber", &page_num.to_string()),
                 ("api_key", &self.config.api_key),
             ])
+            // Per-request override: the shared client carries its own default
+            // ceiling, so without this the configured value was dead and the
+            // real timeout silently disagreed with the config.
+            .timeout(Duration::from_secs(self.config.request_timeout_secs))
             .send()
             .await
             .map_err(|e| {
@@ -393,6 +397,7 @@ impl UsdaClient {
             .http_client
             .get(&url)
             .query(&[("api_key", &self.config.api_key)])
+            .timeout(Duration::from_secs(self.config.request_timeout_secs))
             .send()
             .await
             .map_err(|e| {

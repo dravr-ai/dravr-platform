@@ -676,6 +676,13 @@ impl FitnessProvider for TenantProvider {
         self.inner.get_activity(id).await
     }
 
+    // Without this forward the wrapper fell back to the trait default
+    // (get_activity), silently degrading a provider with a real detail
+    // endpoint (Strava, Garmin) to its summary shape — laps and splits gone.
+    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
+        self.inner.get_activity_detailed(id).await
+    }
+
     async fn get_stats(&self) -> AppResult<Stats> {
         self.inner.get_stats().await
     }

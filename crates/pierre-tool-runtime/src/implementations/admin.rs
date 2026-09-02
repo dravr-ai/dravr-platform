@@ -211,14 +211,32 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             require_admin_access(&ctx).await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
+            // The schema has always advertised limit/offset; execute ignored
+            // both, so a client paging through coaches silently re-read the
+            // full set every call. Clamped per the pagination rule.
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(50)
+                .clamp(1, 100);
+            let offset = args
+                .get("offset")
+                .and_then(Value::as_u64)
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(0);
+
             let manager = ctx.resources.coaches_manager();
             let coaches = manager
                 .list_system_coaches(tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to list system coaches: {e}")))?;
 
+            let total = coaches.len();
             let coach_summaries: Vec<Value> = coaches
                 .iter()
+                .skip(offset)
+                .take(limit)
                 .map(|c| {
                     json!({
                         "id": c.id.to_string(),
@@ -238,6 +256,8 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             let payload = json!({
                 "coaches": coach_summaries,
                 "count": count,
+                "total": total,
+                "offset": offset,
             });
 
             Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
@@ -953,6 +973,10 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
 // AdminListCoachAssignmentsTool
 // ============================================================================
 
+/// Cap on assignment rows one listing returns; `total`/`truncated` in the
+/// payload say when the coach has more.
+const MAX_ASSIGNMENT_ROWS: usize = 200;
+
 /// Tool for listing coach assignments (admin only).
 pub struct AdminListCoachAssignmentsTool;
 
@@ -1020,8 +1044,13 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to list assignments: {e}")))?;
 
+            // Bounded output: a popular system coach in a large tenant can
+            // carry an assignment per athlete, and this listing had no cap.
+            // The truncation is stated in the payload rather than hidden.
+            let total = assignments.len();
             let assignment_list: Vec<Value> = assignments
                 .iter()
+                .take(MAX_ASSIGNMENT_ROWS)
                 .map(|a| {
                     json!({
                         "user_id": a.user_id,
@@ -1036,6 +1065,8 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
                 "coach_id": coach_id,
                 "assignments": assignment_list,
                 "count": assignment_list.len(),
+                "total": total,
+                "truncated": total > MAX_ASSIGNMENT_ROWS,
             })))
         }
         .await;
