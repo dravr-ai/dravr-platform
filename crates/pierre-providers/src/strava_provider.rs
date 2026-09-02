@@ -20,11 +20,12 @@ use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
     resolve_sport_type, Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+    TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::strava_types::{
     DetailedActivityResponse, StravaActivityResponse, StravaAthleteResponse, StravaErrorResponse,
-    StravaLap, StravaSplit, StravaStatsResponse,
+    StravaLap, StravaSplit, StravaStatsResponse, StravaStream, StravaStreamSet,
 };
 use crate::utils;
 use async_trait::async_trait;
@@ -338,19 +339,83 @@ impl StravaProvider {
     /// Returns error if activity date parsing fails or API data is malformed
     pub fn convert_detailed_strava_activity(
         detailed: DetailedActivityResponse,
+        streams: Option<TimeSeriesData>,
     ) -> AppResult<Activity> {
         let splits = Self::convert_strava_splits(detailed.splits_metric.as_deref());
         let laps = Self::convert_strava_laps(detailed.laps.as_deref());
 
-        // LIMITATION(registre#6): time-series data requires a separate call to
-        // `/activities/{id}/streams` that no code path performs. Kudos, comment,
-        // athlete, photo, and achievement counts are surfaced only to the
-        // Strava UI — not to coach reasoning — so we drop them rather than
-        // growing cageux's [`Activity`] for purely social data.
+        // Kudos, comment, athlete, photo, and achievement counts are surfaced
+        // only to the Strava UI — not to coach reasoning — so we drop them
+        // rather than growing cageux's [`Activity`] for purely social data.
         Ok(Self::strava_activity_builder(detailed.summary)?
             .splits_opt(splits)
             .laps_opt(laps)
+            .time_series_data_opt(streams)
             .build())
+    }
+
+    /// Fold Strava's keyed stream set into cageux's [`TimeSeriesData`].
+    ///
+    /// Returns `None` for an empty set. Sample `null`s (sensor dropouts) map
+    /// to `0` for the numeric channels — "no reading", matching how the
+    /// devices themselves render gaps — and are dropped from the GPS track,
+    /// where a zero would be a coordinate off the coast of Africa rather
+    /// than an absence. Timestamps prefer Strava's own `time` stream and
+    /// fall back to sample indices when it is missing.
+    fn streams_to_time_series(set: StravaStreamSet) -> Option<TimeSeriesData> {
+        fn samples<T: Default>(stream: StravaStream<T>) -> Vec<T> {
+            stream
+                .data
+                .into_iter()
+                .map(Option::unwrap_or_default)
+                .collect()
+        }
+
+        let gps: Option<Vec<(f64, f64)>> = set.latlng.map(|s| {
+            s.data
+                .into_iter()
+                .flatten()
+                .map(|pair| (pair[0], pair[1]))
+                .collect()
+        });
+        let heart_rate = set.heartrate.map(samples);
+        let power = set.watts.map(samples);
+        let cadence = set.cadence.map(samples);
+        let speed = set.velocity_smooth.map(samples);
+        let altitude = set.altitude.map(samples);
+        let temperature = set.temp.map(samples);
+
+        let sample_count = [
+            heart_rate.as_ref().map(Vec::len),
+            power.as_ref().map(Vec::len),
+            cadence.as_ref().map(Vec::len),
+            speed.as_ref().map(Vec::len),
+            altitude.as_ref().map(Vec::len),
+            temperature.as_ref().map(Vec::len),
+            gps.as_ref().map(Vec::len),
+        ]
+        .into_iter()
+        .flatten()
+        .max()
+        .unwrap_or(0);
+        let timestamps = set.time.map_or_else(
+            || (0..u32::try_from(sample_count).unwrap_or(u32::MAX)).collect(),
+            samples,
+        );
+        if timestamps.is_empty() && sample_count == 0 {
+            return None;
+        }
+
+        Some(TimeSeriesData {
+            timestamps,
+            heart_rate,
+            power,
+            cadence,
+            speed,
+            altitude,
+            temperature,
+            gps_coordinates: gps,
+        })
     }
 
     /// Map Strava's `splits_metric` array into cageux's [`Split`] shape.
@@ -427,7 +492,30 @@ impl StravaProvider {
     pub async fn get_activity_details(&self, id: &str) -> AppResult<Activity> {
         let endpoint = format!("activities/{id}");
         let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
-        Self::convert_detailed_strava_activity(detailed_activity)
+        Self::convert_detailed_strava_activity(detailed_activity, None)
+    }
+
+    /// Fetch the detail payload AND the per-second streams for one activity.
+    ///
+    /// Two round trips by design — see
+    /// [`FitnessProvider::get_activity_with_streams`] for why the detail
+    /// tier never pays the second one. Best-effort on the streams half: a
+    /// streams failure (activity recorded without samples, a 404 on manual
+    /// entries) degrades to the plain detail activity.
+    async fn get_activity_details_with_streams(&self, id: &str) -> AppResult<Activity> {
+        let endpoint = format!("activities/{id}");
+        let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
+        let streams_endpoint = format!(
+            "activities/{id}/streams?keys=time,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng&key_by_type=true"
+        );
+        let streams = match self.api_request::<StravaStreamSet>(&streams_endpoint).await {
+            Ok(set) => Self::streams_to_time_series(set),
+            Err(e) => {
+                warn!(activity_id = %id, error = %e, "Strava streams fetch failed; serving the activity without them");
+                None
+            }
+        };
+        Self::convert_detailed_strava_activity(detailed_activity, streams)
     }
 
     /// Fetch activities with optional detailed data enrichment
@@ -791,6 +879,10 @@ impl FitnessProvider for StravaProvider {
         // moment cageux grows the corresponding accessors (no server-side
         // plumbing change needed).
         self.get_activity_details(id).await
+    }
+
+    async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
+        self.get_activity_details_with_streams(id).await
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {

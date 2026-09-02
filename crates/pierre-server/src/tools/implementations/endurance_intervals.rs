@@ -58,7 +58,7 @@ fn activity_id_arg(args: &Value) -> AppResult<String> {
 
 /// Fetch ONE activity by id through the shared single-activity helper.
 ///
-/// A single `get_activity_detailed` round trip replaces the previous
+/// A single `get_activity_with_streams` round trip replaces the previous
 /// 200-activity list scan: 200× cheaper, reaches activities older than the
 /// recent window, and on providers with a real detail endpoint (Strava,
 /// Garmin) it carries laps/splits the list rows never had.
@@ -213,10 +213,10 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-            // LIMITATION(registre#6): export_routes always takes this branch —
-            // no production fetch path populates time_series_data on any
-            // provider, so the tool can only report the stream as absent
-            // until a per-activity streams fetch exists.
+            // LIMITATION(registre#6): real streams arrive from Strava and
+            // Intervals.icu via get_activity_with_streams; on every other
+            // provider integration (Garmin, Fitbit, COROS, WHOOP, Terra,
+            // sciotte) this branch still always fires — no sample source yet.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;
@@ -335,10 +335,10 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-            // LIMITATION(registre#6): extract_activity_streams always takes
-            // this branch — no production fetch path populates
-            // time_series_data on any provider, so the tool can only report
-            // the stream as absent until a per-activity streams fetch exists.
+            // LIMITATION(registre#6): real streams arrive from Strava and
+            // Intervals.icu via get_activity_with_streams; on every other
+            // provider integration this branch still always fires — no
+            // sample source yet.
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;

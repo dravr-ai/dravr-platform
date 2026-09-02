@@ -244,3 +244,38 @@ impl StravaStatsResponse {
         }
     }
 }
+
+/// One stream from `GET /activities/{id}/streams?key_by_type=true`.
+///
+/// Numeric samples arrive as JSON numbers with occasional `null`s (a sensor
+/// dropout, a paused power meter); `latlng` arrives as `[lat, lng]` pairs,
+/// also nullable during GPS dropouts.
+#[derive(Debug, Deserialize)]
+pub struct StravaStream<T> {
+    /// The per-sample values, index-aligned with the `time` stream.
+    pub data: Vec<Option<T>>,
+}
+
+/// The keyed stream set for one activity (`key_by_type=true`).
+///
+/// Every stream is optional: Strava omits the key entirely when the activity
+/// recorded no such channel.
+#[derive(Debug, Default, Deserialize)]
+pub struct StravaStreamSet {
+    /// Seconds from activity start, per sample.
+    pub time: Option<StravaStream<u32>>,
+    /// Heart rate, bpm.
+    pub heartrate: Option<StravaStream<u32>>,
+    /// Power, watts.
+    pub watts: Option<StravaStream<u32>>,
+    /// Cadence, rpm.
+    pub cadence: Option<StravaStream<u32>>,
+    /// Smoothed speed, m/s.
+    pub velocity_smooth: Option<StravaStream<f32>>,
+    /// Altitude, metres.
+    pub altitude: Option<StravaStream<f32>>,
+    /// Temperature, Celsius.
+    pub temp: Option<StravaStream<f32>>,
+    /// GPS positions as `[lat, lng]`.
+    pub latlng: Option<StravaStream<[f64; 2]>>,
+}

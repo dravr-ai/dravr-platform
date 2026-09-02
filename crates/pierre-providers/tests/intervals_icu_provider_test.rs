@@ -620,3 +620,75 @@ async fn a_deep_request_pages_past_the_single_response_cap() {
          newest={resume}, got {second}"
     );
 }
+
+/// `get_activity_with_streams` folds the streams endpoint's response —
+/// including the flat interleaved `latlng` list — into the activity's
+/// time-series data. Two sequential requests: the activity, then its streams.
+#[tokio::test]
+async fn get_activity_with_streams_folds_the_streams_response() {
+    let activity_body = serde_json::json!({
+        "id": "i777",
+        "name": "Stream ride",
+        "type": "Ride",
+        "start_date_local": "2026-08-30T10:00:00",
+        "elapsed_time": 4,
+        "distance": 100.0
+    })
+    .to_string();
+    let streams_body = serde_json::json!([
+        { "type": "heartrate", "data": [130.0, 131.0, 132.0, 133.0] },
+        { "type": "watts", "data": [210.0, 212.0, 214.0, 216.0] },
+        { "type": "latlng", "data": [45.5, -73.6, 45.501, -73.601, 45.502, -73.602, 45.503, -73.603] }
+    ])
+    .to_string();
+
+    let (base_url, stub) = stub_pages(vec![activity_body, streams_body]).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("credentials");
+
+    let activity = provider
+        .get_activity_with_streams("i777")
+        .await
+        .expect("activity with streams");
+
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+    assert_eq!(heads.len(), 2, "activity then streams");
+    assert!(
+        heads[1].contains("/api/v1/activity/i777/streams.json"),
+        "second request is the streams endpoint; got: {}",
+        heads[1]
+    );
+
+    let stream = activity
+        .time_series_data()
+        .expect("streams must be attached");
+    assert_eq!(
+        stream.heart_rate.as_deref(),
+        Some(&[130, 131, 132, 133][..])
+    );
+    assert_eq!(stream.power.as_deref(), Some(&[210, 212, 214, 216][..]));
+    let gps = stream.gps_coordinates.as_ref().expect("gps");
+    assert_eq!(
+        gps.as_slice(),
+        &[
+            (45.5, -73.6),
+            (45.501, -73.601),
+            (45.502, -73.602),
+            (45.503, -73.603)
+        ],
+        "the flat interleaved latlng list folds into pairs"
+    );
+    assert_eq!(
+        stream.timestamps.len(),
+        4,
+        "timestamps synthesised per sample"
+    );
+}

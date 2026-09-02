@@ -369,7 +369,10 @@ impl IntervalsIcuProvider {
         let raw: Vec<IntervalsIcuActivity> = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("list_activities decode: {e}"))
         })?;
-        Ok(raw.into_iter().filter_map(map_activity).collect())
+        Ok(raw
+            .into_iter()
+            .filter_map(|a| map_activity(a, None))
+            .collect())
     }
 
     /// Walk the activity feed backwards through the window until `limit`
@@ -650,7 +653,15 @@ fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
     let mut latlng_pending: Option<f64> = None;
     let mut max_len = 0_usize;
     for stream in streams {
-        max_len = max_len.max(stream.data.len());
+        // latlng is a FLAT interleaved list: its sample count is half its
+        // raw length. Counting it raw synthesised a timestamp axis twice as
+        // long as the real recording whenever GPS was present.
+        let sample_len = if stream.stream_type == "latlng" {
+            stream.data.len() / 2
+        } else {
+            stream.data.len()
+        };
+        max_len = max_len.max(sample_len);
         match stream.stream_type.as_str() {
             "heartrate" => {
                 hr = Some(stream.data.iter().map(|v| *v as u32).collect());
@@ -699,7 +710,7 @@ fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
     }
 }
 
-fn map_activity(raw: IntervalsIcuActivity) -> Option<Activity> {
+fn map_activity(raw: IntervalsIcuActivity, streams: Option<TimeSeriesData>) -> Option<Activity> {
     let start_date = parse_local_dt(&raw.start_date_local)?;
     let sport = sport_for(raw.activity_type.as_deref());
     let name = raw
@@ -749,6 +760,7 @@ fn map_activity(raw: IntervalsIcuActivity) -> Option<Activity> {
     if let Some(ftp) = raw.icu_ftp {
         builder = builder.ftp(ftp as u32);
     }
+    builder = builder.time_series_data_opt(streams);
     Some(builder.build())
 }
 
@@ -905,7 +917,41 @@ impl FitnessProvider for IntervalsIcuProvider {
         let raw: IntervalsIcuActivity = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_activity decode: {e}"))
         })?;
-        map_activity(raw)
+        map_activity(raw, None)
+            .ok_or_else(|| AppError::external_service("intervals_icu", "could not map activity"))
+    }
+
+    // The streams endpoint is a second round trip, so only this tier pays
+    // it. Best-effort: a streams failure degrades to the plain activity —
+    // stale-less summary beats a dead export.
+    async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
+        let (_, api_key) = self.require_credentials().await?;
+        let url = self.activity_url(id, "");
+        let req = self
+            .http
+            .get(&url)
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+            .header("Accept", "application/json");
+        let response = send_traced(req, "get_activity", &url).await.map_err(|e| {
+            AppError::external_service("intervals_icu", format!("get_activity: {e}"))
+        })?;
+        if !response.status().is_success() {
+            return Err(AppError::external_service(
+                "intervals_icu",
+                format!("get_activity returned {}", response.status()),
+            ));
+        }
+        let raw: IntervalsIcuActivity = response.json().await.map_err(|e| {
+            AppError::external_service("intervals_icu", format!("get_activity decode: {e}"))
+        })?;
+        let streams = match self.get_streams(id).await {
+            Ok(streams) => streams,
+            Err(e) => {
+                warn!(activity_id = %id, error = %e, "intervals_icu streams fetch failed; serving the activity without them");
+                None
+            }
+        };
+        map_activity(raw, streams)
             .ok_or_else(|| AppError::external_service("intervals_icu", "could not map activity"))
     }
 

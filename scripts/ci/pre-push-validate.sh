@@ -234,6 +234,24 @@ if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_FRONTEND_CHANGES" == "t
 fi
 
 # ============================================================================
+# TIER 1e-move: stranded importers of a moved pub symbol (compile-free)
+# ============================================================================
+# The complement of Tier 1e below (carnet#197): a push that moves a pub item
+# out of a library module touches NO server test file, so the changed-test
+# clippy compiles nothing while every test importing the old path fails in
+# CI's full-workspace job. Diff-driven and compile-free, like Tiers 1c/1d.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
+    echo "Tier 1e-move: moved-symbol importer check"
+    echo "------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-moved-symbols.sh" "$BASE_REF"; then
+        echo ""
+        echo "FAIL: moved-symbol check failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1e: Changed server-test clippy (compiles ONLY what this push touched)
 # ============================================================================
 # A new or edited file under crates/pierre-server/tests compiles into no local

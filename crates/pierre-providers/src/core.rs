@@ -424,6 +424,24 @@ pub trait FitnessProvider: Send + Sync {
         self.get_activity(id).await
     }
 
+    /// Get one activity with its per-second time-series streams attached,
+    /// where the provider integration has a sample source.
+    ///
+    /// A third tier above [`get_activity_detailed`](Self::get_activity_detailed),
+    /// split out because streams cost an extra provider round trip per
+    /// activity: the N+1 detail-promotion path must never pay it, while the
+    /// per-activity export tools (`export_routes`,
+    /// `extract_activity_streams`, `export_intervals`) need it. The default
+    /// delegates to the detail fetch — an activity whose
+    /// [`Activity::time_series_data`] is `None`, which is the honest result
+    /// for a provider with no stream source (registre#6 tracks the roster).
+    /// [`crate::models::TimeSeriesData`] cannot be attached to a built
+    /// [`Activity`], so overrides populate it on the builder inside their
+    /// own fetch.
+    async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
+        self.get_activity_detailed(id).await
+    }
+
     /// Get user's aggregate statistics
     ///
     /// # Example
@@ -681,6 +699,12 @@ impl FitnessProvider for TenantProvider {
     // endpoint (Strava, Garmin) to its summary shape — laps and splits gone.
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
         self.inner.get_activity_detailed(id).await
+    }
+
+    // Same rule as the detail forward above: without it, every tenant-scoped
+    // call would silently take the streams-less default.
+    async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
+        self.inner.get_activity_with_streams(id).await
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {

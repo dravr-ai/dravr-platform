@@ -650,8 +650,8 @@ pub async fn fetch_activities_from_provider(
 /// Fetch ONE activity by id from the user's connected provider.
 ///
 /// The single-activity sibling of [`fetch_activities_from_provider`]: the
-/// same token + tenant-credential resolution, but one `get_activity_detailed`
-/// round trip instead of a paged list scan — 200× cheaper for the callers
+/// same token + tenant-credential resolution, but one
+/// `get_activity_with_streams` round trip instead of a paged list scan — 200× cheaper for the callers
 /// that previously pulled a whole window to find one id, able to reach
 /// activities older than any recent window, and on providers with a real
 /// detail endpoint (Strava, Garmin) the returned activity carries the
@@ -673,7 +673,7 @@ pub async fn fetch_activity_from_provider(
     let provider = configured_provider(resources, user_id, provider_name, tenant_id).await?;
 
     provider
-        .get_activity_detailed(activity_id)
+        .get_activity_with_streams(activity_id)
         .await
         .map_err(|e| {
             if e.code == ErrorCode::ProviderAuthRequired {
