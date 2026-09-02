@@ -14,7 +14,10 @@
 # This check is diff-driven and compile-free, in the shape of Tiers 1c/1d:
 #   1. For each changed/deleted crates/*/src file, collect the pub item names
 #      the diff REMOVES (fn/struct/enum/trait/const/static/type, and pub use
-#      re-exports) that it does not re-add in the same file.
+#      re-exports) that it does not re-add in the same file. Only column-0
+#      declarations count: an indented `pub fn` is a method or an associated
+#      item, reached through its type rather than the module path, so deleting
+#      one strands no importer of the module.
 #   2. Derive the file's module path suffix (src/a/b.rs → "a::b",
 #      src/a/mod.rs → "a", src/lib.rs → the crate name).
 #   3. A file anywhere under crates/ that still references BOTH the old module
@@ -56,20 +59,21 @@ module_suffix() {
 # One declaration keyword class, shared by the removal and re-add patterns.
 DECL='(fn|struct|enum|trait|const|static|type)'
 PUBVIS='pub([[:space:]]*\([^)]*\))?'
-MODS='((async|unsafe|async[[:space:]]+unsafe)[[:space:]]+)?'
+MODS='((const|async|unsafe)[[:space:]]+)*'
 
-# Pub item names a diff removes: declarations and re-exports. Brace re-exports
+# Pub item names a diff removes: declarations and re-exports. The declaration
+# match is anchored at column 0 and taken whole, so the item name is always
+# the last field (`pub const fn new` yields `new`, not `fn`). Brace re-exports
 # (`pub use a::{b, c};`) yield every braced name.
 removed_pub_names() {
     local diff="$1"
     {
         echo "$diff" \
-            | grep -E "^-[[:space:]]*${PUBVIS}[[:space:]]+${MODS}${DECL}[[:space:]]+[A-Za-z_]" \
-            | grep -oE "${DECL}[[:space:]]+[A-Za-z_][A-Za-z0-9_]*" \
-            | awk '{print $2}' || true
+            | grep -oE "^-${PUBVIS}[[:space:]]+${MODS}${DECL}[[:space:]]+[A-Za-z_][A-Za-z0-9_]*" \
+            | awk '{print $NF}' || true
         echo "$diff" \
-            | grep -E '^-[[:space:]]*pub[[:space:]]+use[[:space:]]' \
-            | sed -E 's/^-[[:space:]]*pub[[:space:]]+use[[:space:]]+//; s/;.*$//' \
+            | grep -E "^-${PUBVIS}[[:space:]]+use[[:space:]]" \
+            | sed -E "s/^-${PUBVIS}[[:space:]]+use[[:space:]]+//; s/;.*$//" \
             | sed -E 's/.*::([^:]*)$/\1/; s/[{}]//g; s/,/ /g' \
             | tr ' ' '\n' | grep -E '^[A-Za-z_][A-Za-z0-9_]*$' || true
     } | sort -u
@@ -88,10 +92,10 @@ for f in "${changed_src[@]}"; do
     while IFS= read -r name; do
         [[ -z "$name" ]] && continue
         # Re-added in the same file (an in-place refactor, not a move)?
-        if echo "$diff_text" | grep -Eq "^\+[[:space:]]*${PUBVIS}[[:space:]]+${MODS}${DECL}[[:space:]]+${name}([^A-Za-z0-9_]|$)"; then
+        if echo "$diff_text" | grep -Eq "^\+${PUBVIS}[[:space:]]+${MODS}${DECL}[[:space:]]+${name}([^A-Za-z0-9_]|$)"; then
             continue
         fi
-        if echo "$diff_text" | grep -Eq "^\+[[:space:]]*pub[[:space:]]+use[[:space:]].*[^A-Za-z0-9_]${name}([^A-Za-z0-9_]|$)"; then
+        if echo "$diff_text" | grep -Eq "^\+${PUBVIS}[[:space:]]+use[[:space:]].*[^A-Za-z0-9_]${name}([^A-Za-z0-9_]|$)"; then
             continue
         fi
         checked=$((checked + 1))
