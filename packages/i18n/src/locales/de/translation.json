@@ -986,6 +986,13 @@
     "conversationTitle": "Titel der Unterhaltung",
     "conversations": "Unterhaltungen",
     "conversationsLoading": "Wird geladen…",
+    "copy": {
+      "chartCaption": "[Diagramm]",
+      "chartCaptionTitled": "[Diagramm: {{title}}]",
+      "planCaption": "[Trainingsplan]",
+      "tableCaption": "[Tabelle]",
+      "tableCaptionTitled": "[Tabelle: {{title}}]"
+    },
     "copyMessage": "Nachricht kopieren",
     "createCoach": "Coach anlegen",
     "createCoachFailed": "Der Coach konnte nicht angelegt werden. Versuch es erneut.",

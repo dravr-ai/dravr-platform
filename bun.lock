@@ -74,6 +74,7 @@
         "@expo-google-fonts/space-grotesk": "^0.4.1",
         "@pierre/api-client": "file:../packages/api-client",
         "@pierre/chat-utils": "file:../packages/chat-utils",
+        "@pierre/domain-utils": "file:../packages/domain-utils",
         "@pierre/i18n": "file:../packages/i18n",
         "@pierre/shared-constants": "file:../packages/shared-constants",
         "@pierre/shared-types": "file:../packages/shared-types",

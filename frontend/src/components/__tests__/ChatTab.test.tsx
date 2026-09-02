@@ -553,3 +553,84 @@ describe('ChatTab header info drawer', () => {
     expect(screen.queryByLabelText('Coach title')).toBeNull();
   });
 });
+
+describe('ChatTab copy and share', () => {
+  const BEFORE = 'Voici ton vélo d’août — surtout du VTT à Prévost 🚴';
+  const AFTER = 'Neuf sorties, environ 128 km au total.';
+  const REPLY = `${BEFORE}\n\n⟦viz:0⟧\n\n${AFTER}`;
+  const READABLE = `${BEFORE}\n\n[Chart: Volume hebdomadaire]\n\n${AFTER}`;
+  const SCENE_BLOCKS = JSON.stringify([
+    {
+      kind: 'chart',
+      view_box: { x: 0, y: 0, width: 320, height: 180 },
+      nodes: [],
+      legend: [],
+      title: 'Volume hebdomadaire',
+      source_tool: 'get_activities',
+    },
+  ]);
+
+  const writeText = vi.fn();
+
+  /**
+   * `userEvent.setup()` installs a clipboard stub of its own, so the spy the
+   * assertions read has to land after it.
+   */
+  function setupWithClipboard() {
+    const user = userEvent.setup();
+    Object.defineProperty(window.navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    return user;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [] });
+    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
+    listCoaches.mockResolvedValue({ coaches: [] });
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Août à vélo', coach_id: null }],
+      total: 1,
+    });
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        {
+          id: 'm1',
+          role: 'assistant',
+          content: REPLY,
+          scene_blocks: SCENE_BLOCKS,
+          created_at: '2026-09-02T10:00:00Z',
+        },
+      ],
+    });
+  });
+
+  it('puts the chart’s caption on the clipboard, never the ⟦viz:0⟧ marker', async () => {
+    const user = setupWithClipboard();
+    renderChatTab();
+
+    await user.click(await screen.findByTitle('Copy message'));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copied = writeText.mock.calls[0][0] as string;
+    // Paste this into a message to a training partner and they read a caption,
+    // not a token that means nothing outside the app.
+    expect(copied).not.toContain('⟦');
+    expect(copied).not.toContain('⟧');
+    expect(copied).toBe(READABLE);
+  });
+
+  it('shares the same readable text when the browser has no share sheet', async () => {
+    const user = setupWithClipboard();
+    renderChatTab();
+
+    await user.click(await screen.findByTitle('Share'));
+
+    // No navigator.share in jsdom, so the share path falls to the clipboard —
+    // and it carries the same text the copy button does.
+    expect(writeText).toHaveBeenCalledWith(READABLE);
+  });
+});

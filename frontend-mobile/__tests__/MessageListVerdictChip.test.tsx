@@ -82,6 +82,7 @@ function renderList(props: {
       onSubmitFeedbackReason={jest.fn()}
       onRetryMessage={jest.fn()}
       onOpenUrl={jest.fn()}
+      onReconnectProvider={jest.fn()}
       onShowVerdict={props.onShowVerdict}
     />,
   );

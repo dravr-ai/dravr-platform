@@ -355,7 +355,14 @@ export function ChatScreen() {
     setVerdictMessageId(null);
   }, [t]);
 
-  // Provider connection handling
+  /**
+   * Authorize a provider, from the picker or from a reply that asks for it.
+   *
+   * One path for both: `WebBrowser.openAuthSessionAsync`, a sheet presented
+   * over the app that hands the callback back to it. Opening the reply's URL
+   * with the generic opener instead sends the athlete to Safari, where the
+   * callback has nowhere to return to.
+   */
   const handleConnectProvider = useCallback(async (provider: string) => {
     await providerStatus.handleConnectProvider(provider);
   }, [providerStatus]);
@@ -476,6 +483,7 @@ export function ChatScreen() {
           onSubmitFeedbackReason={handleSubmitFeedbackReason}
           onRetryMessage={handleRetryMessage}
           onOpenUrl={handleOpenUrl}
+          onReconnectProvider={handleConnectProvider}
           onActionClick={handleActionClick}
           onShowVerdict={handleShowVerdict}
           bottomInset={Math.max(composerResting, keyboard.height)}

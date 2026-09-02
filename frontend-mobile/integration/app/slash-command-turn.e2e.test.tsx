@@ -85,6 +85,7 @@ function renderList(
       onSubmitFeedbackReason={jest.fn()}
       onRetryMessage={jest.fn()}
       onOpenUrl={jest.fn()}
+      onReconnectProvider={jest.fn()}
       onActionClick={onActionClick}
     />
   );

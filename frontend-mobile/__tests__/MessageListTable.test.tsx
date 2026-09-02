@@ -50,6 +50,7 @@ function renderList(messages: Message[]) {
       onSubmitFeedbackReason={jest.fn()}
       onRetryMessage={jest.fn()}
       onOpenUrl={jest.fn()}
+      onReconnectProvider={jest.fn()}
     />
   );
 }

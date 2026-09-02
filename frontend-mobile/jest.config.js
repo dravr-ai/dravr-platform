@@ -46,6 +46,7 @@ module.exports = {
     // working perfectly on device.
     '^@pierre/api-client$': '<rootDir>/../packages/api-client/src/index-mobile.ts',
     '^@pierre/chat-utils$': '<rootDir>/../packages/chat-utils/src/index.ts',
+    '^@pierre/domain-utils$': '<rootDir>/../packages/domain-utils/src/index.ts',
     '^@pierre/shared-types$': '<rootDir>/../packages/shared-types/src/index.ts',
     '^@pierre/i18n$': '<rootDir>/../packages/i18n/src/index.ts',
     '^@pierre/i18n/native$': '<rootDir>/../packages/i18n/src/native.ts',

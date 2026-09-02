@@ -1,8 +1,9 @@
 // ABOUTME: Chat message list — one switch over the turn's reply blocks, and the empty thread's one line
 // ABOUTME: The server decided what this surface draws; nothing here re-derives it from the reply prose
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
+  Animated,
   View,
   Text,
   TextInput,
@@ -17,9 +18,10 @@ import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
-import { countActivities, isToolPlumbingMessage, transcriptBlocks } from '@pierre/chat-utils';
+import { copyableText, countActivities, isToolPlumbingMessage, transcriptBlocks } from '@pierre/chat-utils';
+import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
-import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, aiGlow, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
 import {
@@ -211,7 +213,14 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
 });
 
 // Collapsible section for the activity list — closed by default
-function CollapsibleActivities({ activityText }: { activityText: string }) {
+function CollapsibleActivities({
+  activityText,
+  onLinkPress,
+}: {
+  activityText: string;
+  /** Opens a link the activity list carries — an activity's page on the provider. */
+  onLinkPress: (url: string) => void;
+}) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
@@ -238,7 +247,13 @@ function CollapsibleActivities({ activityText }: { activityText: string }) {
       </TouchableOpacity>
       {expanded && (
         <View className="ml-4">
-          <Markdown style={markdownStyles} rules={MARKDOWN_RULES}>{activityText}</Markdown>
+          <Markdown
+            style={markdownStyles}
+            rules={MARKDOWN_RULES}
+            onLinkPress={(url) => { onLinkPress(url); return false; }}
+          >
+            {activityText}
+          </Markdown>
         </View>
       )}
     </View>
@@ -260,6 +275,63 @@ export function verdictChipColor(tone: VerdictTone, colors: ThemeColors): string
     default:
       return colors.text.secondary;
   }
+}
+
+/** How many dots say "typing". */
+const TYPING_DOT_COUNT = 3;
+/** The dot's dimmest point — visible, so three dots always read as three. */
+const TYPING_DOT_MIN_OPACITY = 0.25;
+/** One fade, up or down. */
+const TYPING_DOT_FADE_MS = 380;
+/** How far each dot trails the one before it, so the row reads as a wave. */
+const TYPING_DOT_STAGGER_MS = 180;
+
+/**
+ * The endless fade one dot runs.
+ *
+ * The delay is split before and after the fade so every dot's cycle lasts the
+ * same time whatever its position: staggering only the head of the loop would
+ * give each dot its own period and the wave would drift apart within seconds.
+ */
+export function typingDotAnimation(
+  opacity: Animated.Value,
+  index: number,
+): Animated.CompositeAnimation {
+  return Animated.loop(
+    Animated.sequence([
+      Animated.delay(index * TYPING_DOT_STAGGER_MS),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: TYPING_DOT_FADE_MS,
+        useNativeDriver: false,
+      }),
+      Animated.timing(opacity, {
+        toValue: TYPING_DOT_MIN_OPACITY,
+        duration: TYPING_DOT_FADE_MS,
+        useNativeDriver: false,
+      }),
+      Animated.delay((TYPING_DOT_COUNT - 1 - index) * TYPING_DOT_STAGGER_MS),
+    ]),
+  );
+}
+
+/** One breathing dot of the typing indicator. */
+function TypingDot({ index }: { index: number }) {
+  const opacity = useRef(new Animated.Value(TYPING_DOT_MIN_OPACITY)).current;
+
+  useEffect(() => {
+    const animation = typingDotAnimation(opacity, index);
+    animation.start();
+    return () => animation.stop();
+  }, [opacity, index]);
+
+  // The fade rides on the Animated wrapper and the dot's look stays on a plain
+  // View, which is the component NativeWind resolves `className` on.
+  return (
+    <Animated.View testID={`typing-dot-${index}`} style={{ opacity }}>
+      <View className="w-2 h-2 rounded-full bg-primary" />
+    </Animated.View>
+  );
 }
 
 interface MessageListProps {
@@ -287,6 +359,15 @@ interface MessageListProps {
   onSubmitFeedbackReason: (messageId: string, comment: string) => void;
   onRetryMessage: (messageId: string) => void;
   onOpenUrl: (url: string) => void;
+  /**
+   * Re-authorize a provider the reply says has fallen off.
+   *
+   * Named by provider rather than handed the reply's URL: that URL was minted
+   * for a browser callback, while the phone re-authorizes inside the app's own
+   * authentication session and needs its own return URL. `onOpenUrl` would
+   * hand the athlete to Safari and never bring them back.
+   */
+  onReconnectProvider: (provider: string) => void;
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;
   /**
@@ -324,6 +405,7 @@ export function MessageList({
   onSubmitFeedbackReason,
   onRetryMessage,
   onOpenUrl,
+  onReconnectProvider,
   onActionClick,
   onShowVerdict,
   bottomInset,
@@ -348,10 +430,16 @@ export function MessageList({
     }
   };
 
-  /** The reply's own markdown, with its charts drawn where its markers sit. */
+  /**
+   * The reply's own markdown, with its charts drawn where its markers sit.
+   *
+   * `linkifyUrls` first, because markdown does not autolink a bare URL: the
+   * coach writes the reconnect address as running text and it would render as
+   * running text, with nothing to tap.
+   */
   const renderProse = (text: string, scenes: RenderBlock[], key: number) => (
     <View key={key}>
-      {splitVizMarkers(text).map((segment, i) =>
+      {splitVizMarkers(linkifyUrls(text)).map((segment, i) =>
         segment.kind === 'prose' ? (
           <Markdown
             key={i}
@@ -391,7 +479,9 @@ export function MessageList({
         );
 
       case 'activity_list':
-        return <CollapsibleActivities key={key} activityText={block.text} />;
+        return (
+          <CollapsibleActivities key={key} activityText={block.text} onLinkPress={onOpenUrl} />
+        );
 
       case 'workout_plan': {
         const plan = parseWorkoutPlan(JSON.stringify(block.plan));
@@ -475,7 +565,7 @@ export function MessageList({
           <TouchableOpacity
             key={key}
             className="mt-3 self-start px-4 py-2 rounded-lg bg-primary"
-            onPress={() => onOpenUrl(block.url)}
+            onPress={() => onReconnectProvider(block.provider)}
           >
             <Text className="text-sm font-medium text-on-primary">
               {t('app.reconnect')} {block.display_name}
@@ -506,6 +596,10 @@ export function MessageList({
     const sceneBlock = blocks.find((block) => block.type === 'scene');
     const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
     const context = { isUser, messageId: item.id, scenes, rows };
+    // What copy and share hand out. The reply's own text carries the ⟦viz:N⟧
+    // markers this surface turns into charts; pasted anywhere else they are a
+    // token that means nothing, so each becomes a line naming its chart.
+    const readableCopy = copyableText(item.content, scenes, t);
 
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>
@@ -544,10 +638,10 @@ export function MessageList({
               </TouchableOpacity>
             ) : (
               <>
-                <TouchableOpacity className="p-0.5" onPress={() => handleCopyMessage(item.content)}>
+                <TouchableOpacity className="p-0.5" onPress={() => handleCopyMessage(readableCopy)}>
                   <Ionicons name="copy-outline" size={14} color={colors.text.tertiary} />
                 </TouchableOpacity>
-                <TouchableOpacity className="p-0.5" onPress={() => handleShareMessage(item.content)}>
+                <TouchableOpacity className="p-0.5" onPress={() => handleShareMessage(readableCopy)}>
                   <Ionicons name="arrow-redo-outline" size={14} color={colors.text.tertiary} />
                 </TouchableOpacity>
                 <TouchableOpacity className="p-0.5" onPress={() => onThumbsUp(item.id)}>
@@ -589,29 +683,32 @@ export function MessageList({
     );
   };
 
+  /**
+   * The coach is composing.
+   *
+   * The mark and three breathing dots, hugging their own content: `alignSelf`
+   * is what sizes this row, since a plain parent stretches its child across
+   * the full width and a message-shaped slab holding 70pt of content reads as
+   * a broken bubble rather than as "typing". No bubble chrome for the same
+   * reason — there is no message here yet to put in one.
+   */
   const renderThinkingIndicator = () => (
-    <View className="mb-4" testID="thinking-indicator">
-      <View
-        className="flex-row max-w-[85%] rounded-2xl rounded-bl-[4px] p-4"
-        style={{
-          backgroundColor: colors.background.elevated,
-          borderWidth: 1,
-          borderColor: colors.border.strong,
-          ...aiGlow.thinking,
-        }}
-      >
-        <View className="w-8 h-8 rounded-full mr-3 overflow-hidden">
-          <Image
-            source={require('../../../assets/dravr-logo.png')}
-            className="w-8 h-8"
-            resizeMode="cover"
-          />
-        </View>
-        <View className="flex-row items-center gap-1">
-          <View className="w-2 h-2 rounded-full bg-primary opacity-60" />
-          <View className="w-2 h-2 rounded-full bg-primary opacity-80" />
-          <View className="w-2 h-2 rounded-full bg-primary" />
-        </View>
+    <View
+      className="mb-4 flex-row items-center"
+      style={{ alignSelf: 'flex-start' }}
+      testID="thinking-indicator"
+    >
+      <View className="w-8 h-8 rounded-full mr-3 overflow-hidden">
+        <Image
+          source={require('../../../assets/dravr-logo.png')}
+          className="w-8 h-8"
+          resizeMode="cover"
+        />
+      </View>
+      <View className="flex-row items-center gap-1">
+        {Array.from({ length: TYPING_DOT_COUNT }, (_, index) => (
+          <TypingDot key={index} index={index} />
+        ))}
       </View>
     </View>
   );

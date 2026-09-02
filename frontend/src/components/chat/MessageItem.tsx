@@ -19,6 +19,7 @@ import {
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import {
   COMMAND_FINISH_REASON,
+  copyableText,
   countActivities,
   parseSceneBlocks,
   splitVizMarkers,
@@ -55,8 +56,16 @@ interface MessageItemProps {
   timestamp?: string;
   /** First row of a run by the same author — gets the avatar and the author line. */
   groupStart?: boolean;
-  onCopy?: () => void;
-  onShare?: () => void;
+  /**
+   * Put this reply on the clipboard.
+   *
+   * Receives the reply as text a reader outside the app can use — its charts
+   * named in a line each, rather than the ⟦viz:N⟧ markers this surface draws
+   * them from.
+   */
+  onCopy?: (text: string) => void;
+  /** Share this reply, as the same reader-facing text `onCopy` receives. */
+  onShare?: (text: string) => void;
   onThumbsUp?: () => void;
   onThumbsDown?: () => void;
   /** Saved thumbs-down reason for this message, hydrated on reload. */
@@ -195,6 +204,14 @@ const MessageItem = memo(function MessageItem({
     const scene = replyBlocks.find((block) => block.type === 'scene');
     return scene?.type === 'scene' ? parseSceneBlocks(scene.scene_blocks) : [];
   }, [replyBlocks]);
+
+  // What the copy and share buttons hand out. The reply's own text carries the
+  // ⟦viz:N⟧ markers this surface turns into charts; pasted anywhere else they
+  // are a token that means nothing, so each becomes a line naming its chart.
+  const readableCopy = useMemo(
+    () => copyableText(message.content, scenes, t),
+    [message.content, scenes, t],
+  );
 
   /**
    * Draw one reply block.
@@ -386,12 +403,20 @@ const MessageItem = memo(function MessageItem({
   ) : (
     <div role="group" aria-label={t('chat.messageActions')} className="flex items-center gap-3">
       {onCopy && (
-        <button onClick={onCopy} className={ACTION_BUTTON} title={t('chat.copyMessage')}>
+        <button
+          onClick={() => onCopy(readableCopy)}
+          className={ACTION_BUTTON}
+          title={t('chat.copyMessage')}
+        >
           <Copy className="h-3.5 w-3.5" />
         </button>
       )}
       {onShare && !isCommand && (
-        <button onClick={onShare} className={ACTION_BUTTON} title={t('chat.share')}>
+        <button
+          onClick={() => onShare(readableCopy)}
+          className={ACTION_BUTTON}
+          title={t('chat.share')}
+        >
           <Share2 className="h-3.5 w-3.5" />
         </button>
       )}

@@ -60,6 +60,10 @@ export type { TranslatableText, Translate } from './text';
 export { splitVizMarkers, parseSceneBlocks, blockAt } from './viz';
 export type { VizSegment } from './viz';
 
+// What a reply becomes on the clipboard or in a share sheet: the same prose,
+// with every marker replaced by a line naming the chart that stood there.
+export { copyableText } from './copy-text';
+
 // The bubble clock, the day pill and the grouping window of the messenger thread
 export {
   MESSAGE_GROUP_WINDOW_MS,

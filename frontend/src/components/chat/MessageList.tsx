@@ -154,8 +154,11 @@ export default function MessageList({
           assistantLabel={assistantLabel}
           timestamp={formatMessageTime(msg.created_at, language)}
           groupStart={groupStart}
-          onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
-          onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
+          // The bubble hands back the reply as a reader outside the app can
+          // use it — its charts named rather than left as ⟦viz:N⟧ markers —
+          // because only the bubble has the resolved scenes to name them from.
+          onCopy={msg.role === 'assistant' ? onCopyMessage : undefined}
+          onShare={msg.role === 'assistant' ? onShareMessage : undefined}
           onThumbsUp={msg.role === 'assistant' ? () => onThumbsUp(msg.id) : undefined}
           onThumbsDown={msg.role === 'assistant' ? () => onThumbsDown(msg.id) : undefined}
           onSubmitReason={

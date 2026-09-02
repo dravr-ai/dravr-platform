@@ -48,6 +48,7 @@ function renderList(
       onSubmitFeedbackReason={jest.fn()}
       onRetryMessage={jest.fn()}
       onOpenUrl={jest.fn()}
+      onReconnectProvider={jest.fn()}
     />
   );
 }
@@ -223,6 +224,7 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
     // no button and the athlete has nothing to tap.
     const reconnectUrl = 'https://app.dravr.ai/providers/sciotte/login?token=one-time-abc';
     const onOpenUrl = jest.fn();
+    const onReconnectProvider = jest.fn();
     stub = installHttpStub({
       [`POST ${MESSAGES_URL}`]: {
         data: assistantTurn({
@@ -262,11 +264,16 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
         onSubmitFeedbackReason={jest.fn()}
         onRetryMessage={jest.fn()}
         onOpenUrl={onOpenUrl}
+        onReconnectProvider={onReconnectProvider}
       />
     );
 
     fireEvent.press(view.getByText('Reconnect WHOOP'));
-    expect(onOpenUrl).toHaveBeenCalledWith(reconnectUrl);
+    // The provider, not the block's URL: that URL was minted for a browser
+    // callback, while the phone re-authorizes inside its own auth session and
+    // needs a return URL of its own.
+    expect(onReconnectProvider).toHaveBeenCalledWith('whoop');
+    expect(onOpenUrl).not.toHaveBeenCalled();
     // And the one-time token URL is never printed beside the control.
     expect(view.queryByText(reconnectUrl)).toBeNull();
   });
@@ -326,6 +333,7 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
         onSubmitFeedbackReason={jest.fn()}
         onRetryMessage={jest.fn()}
         onOpenUrl={jest.fn()}
+        onReconnectProvider={jest.fn()}
       />
     );
 
