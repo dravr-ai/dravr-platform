@@ -30,6 +30,7 @@ pub fn coach_to_definition(coach: &Coach) -> CoachDefinition {
             prerequisites: CoachPrerequisites::default(),
             visibility: coach.visibility,
             startup: CoachStartup::default(),
+            replaces: vec![],
         },
         sections: CoachSections {
             purpose: coach.description.clone().unwrap_or_default(),

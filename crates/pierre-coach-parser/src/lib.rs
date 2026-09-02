@@ -179,6 +179,16 @@ pub struct CoachFrontmatter {
     /// Startup configuration for coach conversations
     #[serde(default)]
     pub startup: CoachStartup,
+
+    /// Slugs of retired coaches this coach absorbed.
+    ///
+    /// When the seeder prunes a coach whose directory is gone, every
+    /// conversation, group and coach pointer still bound to that slug is
+    /// re-pointed at the coach that names it here before the row is deleted,
+    /// so an athlete mid-conversation with a merged coach continues with its
+    /// successor instead of dropping to the default prompt.
+    #[serde(default)]
+    pub replaces: Vec<String>,
 }
 
 /// Markdown sections parsed from coach file

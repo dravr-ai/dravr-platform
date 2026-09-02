@@ -239,4 +239,41 @@ pub trait SeederRepository: Send + Sync {
         &self,
         tenant_id: &str,
     ) -> AppResult<Vec<(String, String)>>;
+
+    /// Hand every live reference to a retired coach to its successor.
+    ///
+    /// Rewrites each statement in [`COACH_POINTER_REWRITES`] from
+    /// `retired_coach_id` to `successor_coach_id`, so an athlete bound to a
+    /// merged coach continues with the coach that absorbed it. Rows the coach
+    /// owns outright (versions, relations, translations, listing, notes,
+    /// follow-ups, sessions, preferences) are not moved; they cascade with
+    /// the delete. Returns the number of rows rewritten.
+    async fn seed_repoint_coach_references(
+        &self,
+        retired_coach_id: &str,
+        successor_coach_id: &str,
+    ) -> AppResult<u64>;
+
+    /// Detach conversations from a retired coach that has no successor.
+    ///
+    /// `chat_conversations.coach_id` carries no `ON DELETE` rule, so a
+    /// conversation still bound to the coach would block the delete; nulling
+    /// it drops that conversation to the default prompt. Groups are left
+    /// alone — a group needs a coach, so a group bound to a coach with no
+    /// successor keeps blocking the delete until an operator picks one.
+    /// Returns the number of conversations detached.
+    async fn seed_detach_coach_conversations(&self, retired_coach_id: &str) -> AppResult<u64>;
 }
+
+/// One `UPDATE` per athlete-side pointer onto `coaches.id`.
+///
+/// Identical on both engines: `$1` is the successor, `$2` the retired coach.
+/// The tables a coach owns outright are deliberately absent — they cascade
+/// with the row.
+pub const COACH_POINTER_REWRITES: [&str; 5] = [
+    "UPDATE chat_conversations SET coach_id = $1 WHERE coach_id = $2",
+    "UPDATE coaching_groups SET coach_id = $1 WHERE coach_id = $2",
+    "UPDATE tenant_users SET selected_coach_id = $1 WHERE selected_coach_id = $2",
+    "UPDATE user_facts SET coach_id = $1 WHERE coach_id = $2",
+    "UPDATE claim_verdicts SET coach_id = $1 WHERE coach_id = $2",
+];

@@ -94,8 +94,8 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         args.dry_run
     );
 
-    let coaches = discover_coaches(&args.coaches_dir)?;
-    if coaches.is_empty() {
+    let discovery = discover_coaches(&args.coaches_dir)?;
+    if discovery.coaches.is_empty() {
         warn!("No coach files found in {:?}", args.coaches_dir);
         return Ok(());
     }
@@ -103,12 +103,12 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     let admin = find_admin_user(repos).await?;
     info!(
         "Found {} coach files, using admin {} (tenant: {})",
-        coaches.len(),
+        discovery.coaches.len(),
         admin.email,
         admin.tenant_id
     );
 
-    let stats = run_coach_passes(repos, &coaches, &admin, args.dry_run).await;
+    let stats = run_coach_passes(repos, &discovery, &admin, args.dry_run).await;
     print_summary(&stats, args.dry_run);
     finalize_stats(&stats)
 }
@@ -117,16 +117,17 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
 /// store publishing, retired-coach pruning) and return the accumulated stats.
 async fn run_coach_passes(
     repos: &RepositoryRegistry,
-    coaches: &[CoachWithTranslations],
+    discovery: &Discovery,
     admin: &AdminUser,
     dry_run: bool,
 ) -> SeedStats {
+    let coaches = &discovery.coaches;
     let canon: Vec<&CoachDefinition> = coaches.iter().map(|c| &c.canonical).collect();
     let (mut stats, slug_to_id) = sync_coaches(repos, &canon, admin, dry_run).await;
     sync_translations(repos, coaches, &slug_to_id, &mut stats, dry_run).await;
     sync_relations(repos, &canon, &slug_to_id, &mut stats, dry_run).await;
     publish_to_store(repos, &slug_to_id, admin, &mut stats, dry_run).await;
-    prune_retired(repos, coaches, admin, &mut stats, dry_run).await;
+    prune_retired(repos, discovery, &slug_to_id, admin, &mut stats, dry_run).await;
     stats
 }
 
@@ -479,12 +480,23 @@ fn log_publish_result(slug: &str, result: AppResult<bool>, stats: &mut SeedStats
 /// repository method the admin console uses. The store listing, relations,
 /// translations and assignments follow by cascade; an athlete's installed
 /// copy keeps working because its `forked_from` pointer is set to NULL rather
-/// than deleted. A row a conversation or a group still references refuses to
-/// go: the database reports the constraint, the error is counted, and the seed
-/// job exits non-zero so the operator hears about it.
+/// than deleted.
+///
+/// Live references go first. A discovered coach that names the retired slug
+/// in its `replaces` frontmatter is the successor: the retired coach's
+/// conversations, groups and coach pointers are handed to it, so an athlete
+/// mid-conversation with a merged coach continues with the coach that
+/// absorbed it. Without a successor the conversations are detached and drop
+/// to the default prompt; a group still bound to such a coach blocks the
+/// delete, the error is counted, and the seed job exits non-zero so an
+/// operator picks a coach for it.
+///
+/// The pass is skipped when any coach file failed to parse: a coach that is
+/// still in the checkout would otherwise read as retired.
 async fn prune_retired(
     repos: &RepositoryRegistry,
-    discovered: &[CoachWithTranslations],
+    discovery: &Discovery,
+    slug_to_id: &HashMap<String, String>,
     admin: &AdminUser,
     stats: &mut SeedStats,
     dry_run: bool,
@@ -492,15 +504,24 @@ async fn prune_retired(
     info!("");
     info!("=== Pass 5: Pruning Retired Coaches ===");
 
+    if discovery.parse_failures > 0 {
+        warn!(
+            "  Skipping the prune pass: {} coach file(s) failed to parse, so a coach still in the checkout could read as retired",
+            discovery.parse_failures
+        );
+        return;
+    }
     let Some(rows) = list_catalogue_rows(repos, admin, stats).await else {
         return;
     };
-    let keep = discovered_slugs(discovered);
+    let keep = discovered_slugs(&discovery.coaches);
+    let successors = successor_ids(&discovery.coaches, slug_to_id);
     for (coach_id, slug) in rows
         .iter()
         .filter(|(_, slug)| !keep.contains(slug.as_str()))
     {
-        delete_retired(repos, coach_id, slug, admin.tenant_id, stats, dry_run).await;
+        let successor = successors.get(slug.as_str()).map(|id| id.as_str());
+        retire_coach(repos, coach_id, slug, successor, admin, stats, dry_run).await;
     }
     log_pruned(stats.pruned);
 }
@@ -511,6 +532,26 @@ fn discovered_slugs(discovered: &[CoachWithTranslations]) -> HashSet<&str> {
         .iter()
         .map(|c| c.canonical.frontmatter.name.as_str())
         .collect()
+}
+
+/// Map each retired slug to the id of the discovered coach whose `replaces` names it.
+///
+/// A successor that failed its own upsert has no id and is left out, so the
+/// coaches it would have absorbed fall back to detaching.
+fn successor_ids<'a>(
+    discovered: &'a [CoachWithTranslations],
+    slug_to_id: &'a HashMap<String, String>,
+) -> HashMap<&'a str, &'a String> {
+    let mut out = HashMap::new();
+    for coach in discovered {
+        let Some(id) = slug_to_id.get(&coach.canonical.frontmatter.name) else {
+            continue;
+        };
+        for retired in &coach.canonical.frontmatter.replaces {
+            out.insert(retired.as_str(), id);
+        }
+    }
+    out
 }
 
 /// Catalogue-owned `(id, slug)` rows in the admin tenant, or `None` once the
@@ -535,12 +576,14 @@ async fn list_catalogue_rows(
     }
 }
 
-/// Delete one retired coach, or log what dry-run would delete.
-async fn delete_retired(
+/// Hand a retired coach's live references over, then delete it — or log what
+/// dry-run would delete.
+async fn retire_coach(
     repos: &RepositoryRegistry,
     coach_id: &str,
     slug: &str,
-    tenant_id: TenantId,
+    successor_id: Option<&str>,
+    admin: &AdminUser,
     stats: &mut SeedStats,
     dry_run: bool,
 ) {
@@ -550,8 +593,43 @@ async fn delete_retired(
         return;
     }
 
-    let result = repos.coaches.delete_system_coach(coach_id, tenant_id).await;
+    if let Err(e) = hand_over_references(repos, coach_id, successor_id).await {
+        warn!("  ✗ {slug} - Hand-over error: {e}");
+        stats.errors.push(format!("{slug}: hand-over failed: {e}"));
+        return;
+    }
+    let result = repos
+        .coaches
+        .delete_system_coach(coach_id, admin.tenant_id)
+        .await;
     log_delete_result(slug, result, stats);
+}
+
+/// Re-point the retired coach's conversations, groups and coach pointers at
+/// the successor, or detach its conversations when there is none.
+async fn hand_over_references(
+    repos: &RepositoryRegistry,
+    coach_id: &str,
+    successor_id: Option<&str>,
+) -> AppResult<()> {
+    if let Some(successor) = successor_id {
+        let moved = repos
+            .seeder
+            .seed_repoint_coach_references(coach_id, successor)
+            .await?;
+        if moved > 0 {
+            info!("    → {moved} reference(s) handed to the successor");
+        }
+    } else {
+        let detached = repos
+            .seeder
+            .seed_detach_coach_conversations(coach_id)
+            .await?;
+        if detached > 0 {
+            info!("    → {detached} conversation(s) detached, no successor declared");
+        }
+    }
+    Ok(())
 }
 
 /// Log and record the result of one retired-coach deletion
@@ -609,16 +687,31 @@ async fn publish_single_coach(
 ///
 /// Directories without `en.md` are skipped with a warning — the seeder never
 /// stores a coach whose canonical English content is missing.
-fn discover_coaches(coaches_dir: &Path) -> AppResult<Vec<CoachWithTranslations>> {
-    let (canonical, translations) = scan_coach_files(coaches_dir)?;
-    Ok(pivot_and_sort(canonical, translations))
+fn discover_coaches(coaches_dir: &Path) -> AppResult<Discovery> {
+    let (canonical, translations, parse_failures) = scan_coach_files(coaches_dir)?;
+    Ok(Discovery {
+        coaches: pivot_and_sort(canonical, translations),
+        parse_failures,
+    })
 }
 
-/// Two-map snapshot of the filesystem scan: canonical coaches keyed by slug,
-/// plus a list of translation files keyed by the same slug.
+/// What the checkout scan found: the coaches, plus how many files the parser refused.
+///
+/// The prune pass reads the count — a refused file is a coach it cannot see,
+/// not a coach that left the catalogue.
+pub(crate) struct Discovery {
+    /// Every coach with a parseable `en.md`, sorted by category then slug.
+    pub coaches: Vec<CoachWithTranslations>,
+    /// Locale files that failed to parse and were skipped with a warning.
+    pub parse_failures: usize,
+}
+
+/// Snapshot of the filesystem scan: canonical coaches keyed by slug, the
+/// translation files keyed by the same slug, and how many files failed to parse.
 type ScannedCoaches = (
     HashMap<String, CoachDefinition>,
     HashMap<String, Vec<CoachTranslationFile>>,
+    usize,
 );
 
 /// Walk `coaches_dir/<category>/<slug>/*.md` and bucket by slug into two maps.
@@ -632,25 +725,29 @@ fn scan_coach_files(coaches_dir: &Path) -> AppResult<ScannedCoaches> {
 
     let mut canonical: HashMap<String, CoachDefinition> = HashMap::new();
     let mut translations: HashMap<String, Vec<CoachTranslationFile>> = HashMap::new();
+    let mut parse_failures = 0usize;
 
     for entry in
         glob(&pattern_str).map_err(|e| AppError::internal(format!("Glob pattern error: {e}")))?
     {
         let path = entry.map_err(|e| AppError::internal(format!("Glob error: {e}")))?;
-        record_coach_path(&path, &mut canonical, &mut translations);
+        if !record_coach_path(&path, &mut canonical, &mut translations) {
+            parse_failures += 1;
+        }
     }
-    Ok((canonical, translations))
+    Ok((canonical, translations, parse_failures))
 }
 
 /// Parse `path` and route it into either the canonical or translations map.
 ///
 /// Non-locale filenames are logged at debug and ignored. Parse errors get a
-/// warning but never bubble up so one broken file can't block the seeder.
+/// warning but never bubble up so one broken file can't block the seeder;
+/// they return `false` so the caller can count them.
 fn record_coach_path(
     path: &Path,
     canonical: &mut HashMap<String, CoachDefinition>,
     translations: &mut HashMap<String, Vec<CoachTranslationFile>>,
-) {
+) -> bool {
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -660,13 +757,13 @@ fn record_coach_path(
             "Skipping non-locale coach file (expected en/fr/es/de/pt): {}",
             path.display()
         );
-        return;
+        return true;
     }
     let coach = match parse_coach_file(path) {
         Ok(c) => c,
         Err(e) => {
             warn!("Failed to parse {}: {}", path.display(), e);
-            return;
+            return false;
         }
     };
     let slug = coach.frontmatter.name.clone();
@@ -683,6 +780,7 @@ fn record_coach_path(
                 source_sha_hint: canonical_sha,
             });
     }
+    true
 }
 
 /// Pivot the two scan maps into a sorted `Vec<CoachWithTranslations>`.

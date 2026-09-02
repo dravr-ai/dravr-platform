@@ -13,7 +13,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use super::PostgresDatabase;
-use crate::repositories::{SeedTable, SeederRepository};
+use crate::repositories::{SeedTable, SeederRepository, COACH_POINTER_REWRITES};
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedCoach, SeedCoachAuthor,
     SeedCoachRelation, SeedCoachTranslation, SeedDemoUser, SeedLlmUsageRecord,
@@ -756,6 +756,38 @@ impl SeederRepository for PostgresDatabase {
                 (id, slug)
             })
             .collect())
+    }
+
+    async fn seed_repoint_coach_references(
+        &self,
+        retired_coach_id: &str,
+        successor_coach_id: &str,
+    ) -> AppResult<u64> {
+        let mut moved = 0u64;
+        for statement in COACH_POINTER_REWRITES {
+            let result = sqlx::query(statement)
+                .bind(successor_coach_id)
+                .bind(retired_coach_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to re-point coach references: {e}"))
+                })?;
+            moved += result.rows_affected();
+        }
+        Ok(moved)
+    }
+
+    async fn seed_detach_coach_conversations(&self, retired_coach_id: &str) -> AppResult<u64> {
+        let result =
+            sqlx::query("UPDATE chat_conversations SET coach_id = NULL WHERE coach_id = $1")
+                .bind(retired_coach_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to detach coach conversations: {e}"))
+                })?;
+        Ok(result.rows_affected())
     }
 
     async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()> {
