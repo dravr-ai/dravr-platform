@@ -56,6 +56,16 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+#[cfg(feature = "client-messaging")]
+use pierre_messaging::commands::CommandDefinition;
+
+/// One `setMyCommands` call: the entries, the scope and the `language_code` they are for.
+#[cfg(feature = "client-messaging")]
+type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static str>);
+
+/// The locales the Telegram `/` menu is published in — the five the strings registry speaks.
+#[cfg(feature = "client-messaging")]
+const TELEGRAM_MENU_LOCALES: [&str; 5] = ["fr", "en", "es", "de", "pt"];
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
@@ -301,26 +311,67 @@ impl ServerContext {
         let (command_registry, command_handler_registry, command_arg_specs, personal) =
             Self::build_command_registries();
 
-        // Push that same catalogue to Telegram's `/` menu, as two lists: the
-        // default scope every chat falls back to, and a group list carrying
-        // the SAME commands with the personal ones marked, so a shared room
-        // can tell which entries act on one member alone without losing the
-        // ability to discover them. Detached because a slow or unreachable
-        // Telegram API must not stall the bind path; the publisher no-ops
-        // when TELEGRAM_BOT_TOKEN is unset.
+        // Initialize contremaitre registries (prompts + tool descriptions +
+        // evidence). The cageux config registry is passed in so the
+        // contremaitre sync can also overlay its snapshot. The GitHub/GCS
+        // overlay runs in the background (off this bind path), so a slow sync
+        // never stalls startup; registries serve compiled-in defaults until
+        // the first background tick converges.
+        let (
+            contremaitre_prompt_registry,
+            contremaitre_tool_desc_registry,
+            contremaitre_evidence_registry,
+            contremaitre_messaging_strings_registry,
+        ) = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
+
+        // Push that same catalogue to Telegram's `/` menu, per locale and as
+        // two lists each: the default scope every chat falls back to, and a
+        // group list carrying the SAME commands with the personal ones
+        // marked, so a shared room can tell which entries act on one member
+        // alone without losing the ability to discover them. Descriptions
+        // come from the five-locale strings registry, so the menu reads in
+        // the athlete's language; a list with no `language_code` is the
+        // fallback for a locale the registry does not speak. Detached because
+        // a slow or unreachable Telegram API must not stall the bind path;
+        // the publisher no-ops when TELEGRAM_BOT_TOKEN is unset.
         #[cfg(feature = "client-messaging")]
         if let Some(registry) = command_registry.as_ref() {
-            let all_commands = registry.bot_command_list();
-            let group_commands = registry.bot_command_list_described(|d| {
-                if personal.contains(&d.name) {
-                    format!("{PERSONAL_MARKER}{}", d.description)
-                } else {
-                    d.description.clone()
-                }
-            });
+            let strings = Arc::clone(&contremaitre_messaging_strings_registry);
+            let mut lists: Vec<TelegramMenuList> = Vec::new();
+            for locale in TELEGRAM_MENU_LOCALES {
+                let describe = |d: &CommandDefinition| {
+                    strings.command_description(&d.name, &d.description, locale)
+                };
+                let all_commands = registry.bot_command_list_described(describe);
+                let group_commands = registry.bot_command_list_described(|d| {
+                    if personal.contains(&d.name) {
+                        format!("{PERSONAL_MARKER}{}", describe(d))
+                    } else {
+                        describe(d)
+                    }
+                });
+                lists.push((all_commands, CommandScope::Default, Some(locale)));
+                lists.push((group_commands, CommandScope::AllGroupChats, Some(locale)));
+            }
+            // The frontmatter's own English line is the fallback list.
+            lists.push((registry.bot_command_list(), CommandScope::Default, None));
+            lists.push((
+                registry.bot_command_list_described(|d| {
+                    if personal.contains(&d.name) {
+                        format!("{PERSONAL_MARKER}{}", d.description)
+                    } else {
+                        d.description.clone()
+                    }
+                }),
+                CommandScope::AllGroupChats,
+                None,
+            ));
+            // Messenger's menu is the plain DM list in the frontmatter's language.
+            let messenger_commands = registry.bot_command_list();
             let publish = tokio::spawn(async move {
-                publish_telegram_commands(&all_commands, CommandScope::Default).await;
-                publish_telegram_commands(&group_commands, CommandScope::AllGroupChats).await;
+                for (commands, scope, language_code) in &lists {
+                    publish_telegram_commands(commands, *scope, *language_code).await;
+                }
                 // Messenger has no group thread, so its menu is the DM list —
                 // the same one, unmarked.
                 // LIMITATION(registre#129): `publish_messenger_menu` and
@@ -330,7 +381,7 @@ impl ServerContext {
                 // app-globally behind a 12h human-bootstrapped token, and its
                 // slash commands cannot be invoked in threads, where the
                 // coach conversation lives; Discord is deprioritized.
-                publish_messenger_menu(&all_commands).await;
+                publish_messenger_menu(&messenger_commands).await;
             });
             // A panic in a detached task is otherwise swallowed, leaving a
             // stale menu with nothing in the logs to explain it.
@@ -357,19 +408,6 @@ impl ServerContext {
 
         // Sync tool_catalog table with registry so tenant filtering always has complete data
         Self::run_tool_catalog_sync(&tool_registry, &repos).await;
-
-        // Initialize contremaitre registries (prompts + tool descriptions +
-        // evidence). The cageux config registry is passed in so the
-        // contremaitre sync can also overlay its snapshot. The GitHub/GCS
-        // overlay runs in the background (off this bind path), so a slow sync
-        // never stalls startup; registries serve compiled-in defaults until
-        // the first background tick converges.
-        let (
-            contremaitre_prompt_registry,
-            contremaitre_tool_desc_registry,
-            contremaitre_evidence_registry,
-            contremaitre_messaging_strings_registry,
-        ) = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
 
         // Create notification service and start scheduler if notifications
         // feature is enabled. Built after the contremaitre registries because

@@ -292,7 +292,7 @@ async function openConversation(page: Page) {
  */
 function assistantTurn(page: Page) {
   return page
-    .locator('div.flex.gap-3')
+    .locator('[data-testid="message-row"][data-role="assistant"]')
     .filter({ has: page.locator(`img[alt="${COACH_TITLE}"]`) });
 }
 
@@ -316,7 +316,7 @@ test.describe('Chat - the assistant turn is authored by the coach', () => {
     // The user's own turn is still labelled "You" — the coach label is scoped
     // to the assistant side, not applied to the whole thread.
     const userTurn = page
-      .locator('div.flex.gap-3')
+      .locator('[data-testid="message-row"][data-role="user"]')
       .filter({ hasText: 'How did the block go?' });
     await expect(userTurn.first()).toContainText('You');
   });

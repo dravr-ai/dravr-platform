@@ -207,7 +207,7 @@ export default function OnboardingConnectProvider({
               <DravrLogo size={64} />
 
               <h1 className="mt-6 font-display font-semibold text-3xl text-on-surface">
-                {userDisplayName ? `Welcome, ${userDisplayName}` : t('onboarding.welcomeToDravr')}
+                {userDisplayName ? t('onboarding.welcomeNamed', { name: userDisplayName }) : t('onboarding.welcomeToDravr')}
               </h1>
 
               <p className="mt-3 text-sm text-on-surface-variant max-w-md font-label">

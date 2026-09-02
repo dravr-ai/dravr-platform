@@ -38,7 +38,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::TenantId;
+use pierre_core::models::{default_locale, TenantId};
 use pierre_core::pagination::StoreSortOrder;
 use pierre_mcp_schema::PropertySchema;
 use pierre_services::coach_store::{
@@ -57,6 +57,21 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+
+/// The language the athlete reads the catalogue in — their stored locale,
+/// or the platform default when the row does not say.
+async fn athlete_locale(context: &ToolExecutionContext) -> String {
+    context
+        .resources
+        .data()
+        .repos()
+        .users
+        .get_global(context.user_id)
+        .await
+        .ok()
+        .flatten()
+        .map_or_else(default_locale, |user| user.locale)
+}
 
 /// Factory for the Coach Store tools, registered under the `store` category.
 #[must_use]
@@ -189,7 +204,8 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
                 cursor,
             };
 
-            let page = browse_store(&repos, viewer_tenant, &params).await?;
+            let locale = athlete_locale(&context).await;
+            let page = browse_store(&repos, viewer_tenant, &params, &locale).await?;
             let coaches: Vec<Value> = page.coaches.iter().map(project).collect();
             let payload = json!({
                 "coaches": coaches,
@@ -273,7 +289,8 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
             };
 
             let repos = context.resources.data().repos().coach_repos();
-            let coaches = search_store(&repos, query, Some(limit_arg(&args))).await?;
+            let locale = athlete_locale(&context).await;
+            let coaches = search_store(&repos, query, Some(limit_arg(&args)), &locale).await?;
             let rendered: Vec<Value> = coaches.iter().map(project).collect();
             let payload = json!({
                 "query": query,

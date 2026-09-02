@@ -242,9 +242,9 @@ describe('StoreScreen', () => {
       renderStoreScreen();
 
       await waitFor(() => {
-        expect(screen.getAllByText('training').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('nutrition').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('recovery').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Training').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Nutrition').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Recovery').length).toBeGreaterThan(0);
       });
     });
 

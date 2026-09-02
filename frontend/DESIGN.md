@@ -264,13 +264,42 @@ send button. It carries a local `eslint-disable` naming the reason.
 Checkbox, radio, number, file and range have no primitive yet — that is why the
 raw-`<input>` rule is a ratchet rather than a hard zero.
 
-### Chat surfaces
+### Chat surfaces — the messenger layout
+
+The athlete app is a messenger, and reads like one: WhatsApp Web is the
+reference for the layout, Boreal for every tone. Three columns on a wide
+screen, one at a time below `lg` (1024px) — the list until a thread is open,
+then the thread with a back button in its header.
+
+| Region | Light | Dark | Notes |
+|---|---|---|---|
+| Icon rail (72px) | `surface-container` | `surface-container-lowest` | Brand mark, one icon per destination (Chat, Discover, Notifications), gear + avatar at the bottom. No name or role text — the name lives at the top of Settings. |
+| List column (360/400px) | `surface-container-lowest` | `surface` | Title + `+`, a search field, filter chips (All / Unread / Groups / Coaches), then rows. |
+| List row | hover `surface-container-low`, selected `surface-container-high` | same tokens | 48px initials avatar, title + time on line 1, preview + unread pill on line 2, inset ghost-border divider. Unread pill = `bg-primary text-on-primary`. |
+| Thread header | `surface-container` | `surface-container-low` | Avatar, title (the way into the info drawer), one subtitle line, `+`. |
+| Thread canvas | `surface-container-low` | `surface-container-low` | Bubbles on it, a day pill (`surface-container-high`) between days. |
+| Composer bar | `surface-container` with field `surface-container-lowest` | bar `surface-container-low`, field `surface-container-high` | The field must sit a step off its bar in both schemes. |
 
 | Element | Class | Notes |
 |---|---|---|
-| AI bubble | `.chat-bubble-ai` | `surface-container-lowest`, 1px ghost-border |
-| User bubble | `.chat-bubble-user` | `bg-primary text-on-primary` |
-| Typing dots | `.ai-typing-dot` | Three-step opacity breath, 1.4s loop |
+| Coach bubble | `.chat-bubble-ai` | Left side. Light: `surface-container-lowest` + ghost-border; dark: `surface-container-high` — a step **above** the dark canvas, where "lowest" would sink below it. `rounded-2xl` with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]`. |
+| Athlete bubble | `.chat-bubble-user` | Right side. Light: `bg-primary text-on-primary`; dark: `primary-container` / `on-primary-container` — mint `primary` on the dark canvas reads as a CTA, not a message. |
+| Time stamp | inside the bubble, `text-xs` | 24-hour clock in every locale, the same clock the list row shows. |
+| Author line | `text-xs font-semibold text-primary` | Coach's name, on the first bubble of a run only; the athlete's side carries no label (alignment says it). |
+| Actions row | under the bubble | Copy / share / rate / regenerate and model·latency show on hover, focus, or a coarse pointer — never as a permanent line under every reply. |
+| Typing dots | `.ai-typing-dot` | Three-step opacity breath, 1.4s loop, inside a coach bubble. |
+| Verdict chip | `data-testid="verdict-chip"` | Always a button; the label is the localized count and the worst status word, and it opens every verdict of that reply. |
+
+Command replies (`finish_reason === "command"`) are coach bubbles too, with
+only the copy action. Prose in bubbles runs through `@tailwindcss/typography`
+with every `--tw-prose-*` variable mapped to Boreal tokens in
+`tailwind.config.cjs`, so headings, bold, code and table borders follow the
+theme instead of Tailwind gray.
+
+**Configuration is not a destination.** A provider connection, a
+notification setting or a privacy choice lives under Settings, reached from
+the gear and the avatar; the rail lists only the places an athlete goes to
+*do* something.
 
 ### Focus rings
 
@@ -296,7 +325,7 @@ pseudo-class so it never renders unless focused.
 Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
 (chips only). Cards are `xl` (12px). Buttons are `lg` (8px). Tags are `full`.
 
-Content max-width: 1280px main, 720px reading, sidebar 280px (collapsed 72px).
+Content max-width: 1280px main, 720px reading. Athlete shell: icon rail 72px + list column 360px (`lg`) / 400px (`xl`); operator shell: sidebar 260px, rail 72px when collapsed.
 
 ---
 

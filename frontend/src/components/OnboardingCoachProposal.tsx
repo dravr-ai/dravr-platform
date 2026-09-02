@@ -7,7 +7,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ProposedCoach } from '@pierre/shared-types';
-import { coachesApi } from '../services/api';
+import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
+import { defaultConversationTitle } from '@pierre/chat-utils';
+import { chatApi, coachesApi } from '../services/api';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
 import { useTranslation } from '@pierre/i18n';
@@ -35,8 +37,15 @@ export default function OnboardingCoachProposal({
   userDisplayName?: string | null;
   onComplete: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [selecting, setSelecting] = useState<string | null>(null);
+
+  // A sport as the profile spells it, in the athlete's language when the
+  // vocabulary knows it and as spelled on the wire when it does not.
+  const sportLabel = (sport: string): string => {
+    const key = activitySportLabelKey(sport);
+    return key ? t(key) : sport;
+  };
 
   const { data, isLoading, isError } = useQuery({
     queryKey: COACH_PROPOSAL_QUERY_KEY,
@@ -46,13 +55,25 @@ export default function OnboardingCoachProposal({
     retry: 1,
   });
 
-  const handleStart = async (coachId: string) => {
+  const handleStart = async (coachId: string, coachTitle: string) => {
     setSelecting(coachId);
     try {
       // Mark the chosen coach as used so it surfaces first on the dashboard.
       await coachesApi.recordUsage(coachId);
     } catch {
-      // Non-fatal: proceed to the dashboard regardless.
+      // Non-fatal: the choice below still opens the coach's thread.
+    }
+    try {
+      // « Démarrer » means start talking to this coach: open a thread bound to
+      // it and land inside it. The dashboard reads `#chat/<id>` when it mounts,
+      // so the hash is set before onboarding hands over to it.
+      const conversation = await chatApi.createConversation({
+        coach_id: coachId,
+        title: coachTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
+      });
+      window.location.hash = `#chat/${encodeURIComponent(conversation.id)}`;
+    } catch {
+      // The dashboard still opens; the "+" beside the chat starts the thread.
     }
     onComplete();
   };
@@ -101,19 +122,16 @@ export default function OnboardingCoachProposal({
         {profile.has_profile ? (
           <>
             <p className="text-sm text-on-surface font-label">
-              {t('frag.overTheLast')} {profile.window_days} days we logged{' '}
-              <span className="font-semibold">{profile.total_activities}</span> activities
-              {primary ? (
-                <>
-                  , mostly <span className="font-semibold capitalize">{primary}</span>
-                </>
-              ) : null}
-              .
+              {t('app.obWindowSummary', {
+                days: profile.window_days,
+                count: profile.total_activities,
+              })}
+              {primary ? t('app.obMostlySport', { sport: sportLabel(primary) }) : ''}
             </p>
             <div className="mt-3 space-y-1.5">
               {profile.sport_mix.map((s) => (
                 <div key={s.sport} className="flex items-center gap-3">
-                  <span className="w-20 text-xs text-on-surface-variant capitalize">{s.sport}</span>
+                  <span className="w-20 text-xs text-on-surface-variant">{sportLabel(s.sport)}</span>
                   <div className="flex-1 h-2 rounded-full bg-surface-container-high overflow-hidden">
                     <div
                       className="h-full boreal-hero-gradient"
@@ -142,7 +160,7 @@ export default function OnboardingCoachProposal({
             proposed={proposed}
             selecting={selecting === proposed.coach.id}
             disabled={selecting !== null}
-            onStart={() => void handleStart(proposed.coach.id)}
+            onStart={() => void handleStart(proposed.coach.id, proposed.coach.title)}
           />
         ))}
       </div>
@@ -178,7 +196,7 @@ function CoachProposalCard({
             {coach.title}
           </h3>
           <p className="mt-0.5 text-xs uppercase tracking-wide text-on-surface-variant">
-            {coach.category}
+            {t(coachCategoryLabelKey(coach.category))}
           </p>
         </div>
         <Button variant="primary" onClick={onStart} disabled={disabled}>

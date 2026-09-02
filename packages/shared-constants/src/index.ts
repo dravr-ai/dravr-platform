@@ -10,6 +10,8 @@ export {
   MIN_MAX_TOOL_ITERATIONS,
   MAX_MAX_TOOL_ITERATIONS,
   DEFAULT_MAX_TOOL_ITERATIONS,
+  COACH_CATEGORY_LABEL_KEY,
+  coachCategoryLabelKey,
 } from './coaches';
 
 // Design system (Boreal Editorial colors, typography, spacing, effects)
@@ -59,7 +61,7 @@ export type { NotificationCategoryMeta } from './notifications';
 export {
   COMMAND_PREFIX,
   COMMAND_DRAFTS,
-  SLASH_HINT,
+  SLASH_HINT_KEY,
   isCommandDraft,
   matchCommands,
   commandDraftFor,
@@ -102,6 +104,10 @@ export {
 } from './notification-routing';
 export type { NotificationDestination, NotificationNavTarget } from './notification-routing';
 
+// Memory fact kinds (the server's FactKind wire values and their label keys)
+export { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from './memory';
+export type { MemoryFactKind } from './memory';
+
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';
 export type { QueryKeys } from './query-keys';
@@ -116,3 +122,13 @@ export {
   IdleWatch,
 } from './query-policy';
 export type { IdleWatchOptions } from './query-policy';
+
+// Claim-verdict vocabulary: the status and evidence words both chat surfaces
+// print, as corpus keys resolved with each client's own t()
+export {
+  VERDICT_STATUS_LABEL_KEY,
+  EVIDENCE_STRENGTH_LABEL_KEY,
+  VERDICT_CHIP_ONE_KEY,
+  VERDICT_CHIP_N_KEY,
+  verdictChipLabel,
+} from './verdicts';

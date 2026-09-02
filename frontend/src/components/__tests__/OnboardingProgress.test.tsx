@@ -10,9 +10,9 @@ import OnboardingProgress from '../OnboardingProgress';
 import type { OnboardingProgressItem } from '../../onboarding/steps';
 
 const STEPS: OnboardingProgressItem[] = [
-  { id: 'profile_type', label: 'About you', status: 'done' },
-  { id: 'connect_provider', label: 'Connect', status: 'current' },
-  { id: 'coach_proposal', label: 'Coach', status: 'upcoming' },
+  { id: 'profile_type', labelKey: 'onboarding.stepAboutYou', status: 'done' },
+  { id: 'connect_provider', labelKey: 'onboarding.stepConnect', status: 'current' },
+  { id: 'coach_proposal', labelKey: 'onboarding.stepCoach', status: 'upcoming' },
 ];
 
 describe('OnboardingProgress', () => {

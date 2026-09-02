@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Individual message item in the chat message list — one switch over the turn's reply blocks
+// ABOUTME: One persisted message as a messenger bubble — one switch over the turn's reply blocks inside it
 // ABOUTME: The server decided what this surface draws; nothing here re-derives it from the reply prose
 
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -13,14 +13,21 @@ import {
   mergeVerdictSeverities,
   parseWorkoutPlan,
   summarizeVerdicts,
-  verdictSummaryLabel,
   type VerdictTone,
 } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
-import { countActivities, parseSceneBlocks, splitVizMarkers, transcriptBlocks } from '@pierre/chat-utils';
+import {
+  COMMAND_FINISH_REASON,
+  countActivities,
+  parseSceneBlocks,
+  splitVizMarkers,
+  transcriptBlocks,
+} from '@pierre/chat-utils';
+import { verdictChipLabel } from '@pierre/shared-constants';
 import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import MessageBubble from './MessageBubble';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useTranslation } from '@pierre/i18n';
 
@@ -43,6 +50,10 @@ interface MessageItemProps {
   /** Label shown above assistant turns — the active coach's name, or
    *  'Dravr' when the conversation has no coach attached. */
   assistantLabel?: string;
+  /** The clock inside the bubble, already formatted for the reader. */
+  timestamp?: string;
+  /** First row of a run by the same author — gets the avatar and the author line. */
+  groupStart?: boolean;
   onCopy?: () => void;
   onShare?: () => void;
   onThumbsUp?: () => void;
@@ -52,8 +63,12 @@ interface MessageItemProps {
   /** Persist an optional "what went wrong?" reason for a thumbs-down. */
   onSubmitReason?: (comment: string) => void;
   onRetry?: () => void;
-  /** Open the verdict detail drawer for a single verdict. */
-  onShowVerdict?: (verdict: ClaimVerdict) => void;
+  /**
+   * Open the verdict drawer for this message. Receives the rows the surface
+   * has for it — possibly none yet, when only the turn's chips have landed,
+   * in which case the host fetches them.
+   */
+  onShowVerdict?: (verdicts: ClaimVerdict[], messageId: string) => void;
   /** Send a follow-up user message (used by "ask me about this claim"). */
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
   /** Press handler for a control the reply's `actions` block carried. */
@@ -73,7 +88,7 @@ function chipClassForTone(tone: VerdictTone): string {
       return 'bg-info/15 text-on-info-container hover:bg-info/25';
     case 'secondary':
     default:
-      return 'bg-surface-container-high/15 text-on-surface hover:bg-surface-container-high/25';
+      return 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest';
   }
 }
 
@@ -118,18 +133,21 @@ function FeedbackReasonForm({
         }}
         placeholder={t('chat.feedbackReasonPlaceholder')}
         aria-label={t('chat.feedbackReasonLabel')}
-        className="flex-1 max-w-xs px-2 py-1 text-xs rounded bg-surface-container-high text-on-surface placeholder:text-outline border border-outline/20 focus:outline-none focus:border-primary"
+        className="flex-1 max-w-xs rounded border ghost-border bg-surface-container-high px-2 py-1 text-xs text-on-surface placeholder:text-outline focus:border-primary focus:outline-none"
       />
       <button
         type="button"
         onClick={submit}
-        className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+        className="rounded bg-primary/15 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/25"
       >
         {saved ? t('chat.feedbackReasonSaved') : t('chat.feedbackReasonSend')}
       </button>
     </div>
   );
 }
+
+/** The action-row icon buttons share one look; only the active feedback tones differ. */
+const ACTION_BUTTON = 'p-0.5 text-outline transition-colors hover:text-on-surface';
 
 const MessageItem = memo(function MessageItem({
   message,
@@ -139,6 +157,8 @@ const MessageItem = memo(function MessageItem({
   blocks,
   verdicts,
   assistantLabel,
+  timestamp,
+  groupStart = true,
   onCopy,
   onShare,
   onThumbsUp,
@@ -152,6 +172,8 @@ const MessageItem = memo(function MessageItem({
 }: MessageItemProps) {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
+  const isCommand = message.finish_reason === COMMAND_FINISH_REASON;
+  const author = assistantLabel ?? t('shell.brandName');
 
   const messageVerdicts = useMemo(
     () => (verdicts ?? []).filter((v) => v.message_id === message.id),
@@ -183,6 +205,15 @@ const MessageItem = memo(function MessageItem({
   function renderBlock(block: ReplyBlock, key: number): ReactNode {
     switch (block.type) {
       case 'prose': {
+        // The athlete's own words are shown as typed — a question is not
+        // markdown, and a stray asterisk should stay an asterisk.
+        if (isUser) {
+          return (
+            <p key={key} className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+              {block.text}
+            </p>
+          );
+        }
         const segments = splitVizMarkers(linkifyUrls(block.text));
         return (
           <div
@@ -205,8 +236,8 @@ const MessageItem = memo(function MessageItem({
       case 'activity_list':
         return (
           <details key={key} className="mb-3">
-            <summary className="cursor-pointer text-sm text-on-surface-variant hover:text-on-surface transition-colors select-none">
-              Your Activities ({countActivities(block.text)})
+            <summary className="cursor-pointer select-none text-sm text-on-surface-variant transition-colors hover:text-on-surface">
+              {t('app.yourActivitiesCount', { count: countActivities(block.text) })}
             </summary>
             <div className="mt-2 ml-4 text-on-surface text-sm prose prose-sm dark:prose-invert max-w-none">
               <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
@@ -238,25 +269,33 @@ const MessageItem = memo(function MessageItem({
         );
 
       case 'verdicts': {
-        const summary = summarizeVerdicts(mergeVerdictSeverities(messageVerdicts, block.chips));
+        // The turn's chips preview the verdicts until the rows land; once the
+        // rows exist they are the count, so the chip cannot grow when a chip
+        // and its row spell the claim differently.
+        const severities =
+          messageVerdicts.length > 0
+            ? messageVerdicts.map((row) => ({ status: row.status, evidence_strength: row.evidence_strength }))
+            : mergeVerdictSeverities([], block.chips);
+        const summary = summarizeVerdicts(severities);
         if (!summary || isUser) return null;
-        const detail = messageVerdicts[0];
+        const single = messageVerdicts.length === 1 ? messageVerdicts[0] : null;
         return (
           <div key={key} className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={detail && onShowVerdict ? () => onShowVerdict(detail) : undefined}
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${chipClassForTone(summary.tone)}`}
+              data-testid="verdict-chip"
+              onClick={onShowVerdict ? () => onShowVerdict(messageVerdicts, message.id) : undefined}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors focus-ring ${chipClassForTone(summary.tone)}`}
               title={t('app.claimVerdictSummary', { count: summary.count, status: summary.worstStatus, strength: summary.worstStrength ?? summary.worstStatus })}
             >
-              <ShieldAlert className="w-3 h-3" />
-              <span>{verdictSummaryLabel(summary)}</span>
+              <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+              <span>{verdictChipLabel(t, summary)}</span>
             </button>
             {summary.count > 1 ? <span className="text-xs text-outline">{t('chat.clickForDetails')}</span> : null}
-            {onAskAboutClaim && detail && summary.count === 1 ? (
+            {onAskAboutClaim && single ? (
               <button
                 type="button"
-                onClick={() => onAskAboutClaim(detail)}
+                onClick={() => onAskAboutClaim(single)}
                 className="text-xs text-primary hover:underline"
               >
                 {t('chat.askAboutClaim')}
@@ -278,7 +317,7 @@ const MessageItem = memo(function MessageItem({
                   key={`${action.value}-${idx}`}
                   type="button"
                   onClick={() => onActionClick?.(action)}
-                  className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                  className="inline-flex items-center rounded-lg bg-primary/15 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/25"
                 >
                   {action.label}
                 </button>
@@ -294,9 +333,9 @@ const MessageItem = memo(function MessageItem({
               href={block.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-on-primary hover:bg-primary/90 transition-colors no-underline"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary no-underline transition-colors hover:bg-primary/90"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="h-4 w-4" />
               {t('frag.reconnect')} {block.display_name}
             </a>
           </div>
@@ -309,112 +348,92 @@ const MessageItem = memo(function MessageItem({
     }
   }
 
-  return (
-    <div className="flex gap-3">
-      {/* Avatar */}
-      <div className="flex-shrink-0">
-        {isUser ? (
-          <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center">
-            <svg className="w-4 h-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-          </div>
-        ) : (
-          <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
-        )}
-      </div>
-      {/* Message Content */}
-      <div className="flex-1 min-w-0 pt-1">
-        <div className="font-medium text-on-surface text-sm mb-1">
-          {isUser ? 'You' : (assistantLabel ?? t('shell.brandName'))}
-        </div>
+  if (isUser) {
+    return (
+      <MessageBubble side="user" timestamp={timestamp} groupStart={groupStart}>
+        <span className="sr-only">{t('chat.senderYou')}</span>
         {replyBlocks.map((block, index) => renderBlock(block, index))}
-        {/* Action icons and metadata for assistant messages - matches mobile design */}
-        {!isUser && (
-          <div className="mt-2 flex items-center gap-4">
-            {isError ? (
-              /* For error messages, show only Retry button with label */
-              <button
-                onClick={onRetry}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-on-surface font-medium bg-surface-container-high rounded hover:bg-white/15 transition-colors"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>{t('chat.retry')}</span>
-              </button>
-            ) : (
-              /* Normal assistant message actions */
-              <>
-                {/* Copy */}
-                {onCopy && (
-                  <button
-                    onClick={onCopy}
-                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
-                    title={t('chat.copyMessage')}
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {/* Share - always visible */}
-                {onShare && (
-                  <button
-                    onClick={onShare}
-                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
-                    title={t('chat.share')}
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {/* Thumbs Up */}
-                {onThumbsUp && (
-                  <button
-                    onClick={onThumbsUp}
-                    className={`p-0.5 transition-colors ${
-                      feedback === 'up' ? 'text-primary' : 'text-outline hover:text-on-surface'
-                    }`}
-                    title={t('chat.feedbackGood')}
-                  >
-                    <ThumbsUp className={`w-3.5 h-3.5 ${feedback === 'up' ? 'fill-current' : ''}`} />
-                  </button>
-                )}
-                {/* Thumbs Down */}
-                {onThumbsDown && (
-                  <button
-                    onClick={onThumbsDown}
-                    className={`p-0.5 transition-colors ${
-                      feedback === 'down' ? 'text-error' : 'text-outline hover:text-on-surface'
-                    }`}
-                    title={t('chat.feedbackPoor')}
-                  >
-                    <ThumbsDown className={`w-3.5 h-3.5 ${feedback === 'down' ? 'fill-current' : ''}`} />
-                  </button>
-                )}
-                {/* Retry */}
-                {onRetry && (
-                  <button
-                    onClick={onRetry}
-                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
-                    title={t('chat.regenerateResponse')}
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {/* Model and response time - to the right of icons */}
-                {metadata && (
-                  <span className="text-xs text-outline ml-2">
-                    {metadata.model}{metadata.executionTimeMs ? ` · ${(metadata.executionTimeMs / 1000).toFixed(1)}s` : ''}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        )}
-        {/* Optional thumbs-down reason — the down rating is already saved; this
-            adds/updates the free-text comment on the same feedback row. */}
-        {!isUser && !isError && feedback === 'down' && onSubmitReason && (
-          <FeedbackReasonForm initialComment={feedbackComment} onSubmit={onSubmitReason} />
-        )}
-      </div>
+      </MessageBubble>
+    );
+  }
+
+  // The row's actions live under the bubble and show on hover, focus or a
+  // coarse pointer. An error row offers only the retry; a command reply, only
+  // the copy — there is no model to rate or re-run.
+  const actions = isError ? (
+    onRetry && (
+      <button
+        onClick={onRetry}
+        className="flex items-center gap-1 rounded bg-surface-container-high px-2 py-1 text-xs font-medium text-on-surface transition-colors hover:bg-surface-container-highest"
+      >
+        <RefreshCw className="h-3.5 w-3.5" />
+        <span>{t('chat.retry')}</span>
+      </button>
+    )
+  ) : (
+    <div role="group" aria-label={t('chat.messageActions')} className="flex items-center gap-3">
+      {onCopy && (
+        <button onClick={onCopy} className={ACTION_BUTTON} title={t('chat.copyMessage')}>
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {onShare && !isCommand && (
+        <button onClick={onShare} className={ACTION_BUTTON} title={t('chat.share')}>
+          <Share2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {onThumbsUp && !isCommand && (
+        <button
+          onClick={onThumbsUp}
+          className={`p-0.5 transition-colors ${feedback === 'up' ? 'text-primary' : 'text-outline hover:text-on-surface'}`}
+          title={t('chat.feedbackGood')}
+        >
+          <ThumbsUp className={`h-3.5 w-3.5 ${feedback === 'up' ? 'fill-current' : ''}`} />
+        </button>
+      )}
+      {onThumbsDown && !isCommand && (
+        <button
+          onClick={onThumbsDown}
+          className={`p-0.5 transition-colors ${feedback === 'down' ? 'text-error' : 'text-outline hover:text-on-surface'}`}
+          title={t('chat.feedbackPoor')}
+        >
+          <ThumbsDown className={`h-3.5 w-3.5 ${feedback === 'down' ? 'fill-current' : ''}`} />
+        </button>
+      )}
+      {onRetry && !isCommand && (
+        <button onClick={onRetry} className={ACTION_BUTTON} title={t('chat.regenerateResponse')}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {metadata && !isCommand && (
+        <span className="ml-2 text-xs text-outline">
+          {metadata.model}{metadata.executionTimeMs ? ` · ${(metadata.executionTimeMs / 1000).toFixed(1)}s` : ''}
+        </span>
+      )}
     </div>
+  );
+
+  return (
+    <>
+      <MessageBubble
+        side="assistant"
+        authorLabel={author}
+        avatar={<img src="/dravr-icon.svg" alt={author} className="h-8 w-8 rounded-full" />}
+        timestamp={timestamp}
+        groupStart={groupStart}
+        finishReason={message.finish_reason}
+        actions={actions}
+      >
+        {replyBlocks.map((block, index) => renderBlock(block, index))}
+      </MessageBubble>
+      {/* Optional thumbs-down reason — the down rating is already saved; this
+          adds/updates the free-text comment on the same feedback row. */}
+      {!isError && feedback === 'down' && onSubmitReason && (
+        <div className="ml-10">
+          <FeedbackReasonForm initialComment={feedbackComment} onSubmit={onSubmitReason} />
+        </div>
+      )}
+    </>
   );
 });
 

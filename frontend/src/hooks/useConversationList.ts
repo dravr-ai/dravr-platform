@@ -14,10 +14,13 @@ import {
 } from '@tanstack/react-query';
 import {
   buildConversationRow,
+  CONVERSATION_ROW_LABEL_KEYS,
   filterRows,
   sortRowsByActivity,
+  type ConversationRowLabels,
   type ConversationRowModel,
 } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 import type { ConversationsResponse } from '@pierre/api-client';
 import type { Conversation } from '@pierre/shared-types';
 import { chatApi } from '../services/api';
@@ -125,13 +128,26 @@ export function useConversationList(query = ''): ConversationListState {
     return last?.total ?? conversations.length;
   }, [result.data, conversations.length]);
 
+  // The words the shared row model cannot spell itself, in the viewer's
+  // language — so the same key set feeds a row here and on mobile.
+  const { t, language } = useTranslation();
+  const labels = useMemo<ConversationRowLabels>(
+    () => ({
+      locale: language,
+      you: t(CONVERSATION_ROW_LABEL_KEYS.you),
+      coach: t(CONVERSATION_ROW_LABEL_KEYS.coach),
+      untitled: t(CONVERSATION_ROW_LABEL_KEYS.untitled),
+    }),
+    [t, language],
+  );
+
   const rows = useMemo(() => {
     const now = new Date();
     const built = sortRowsByActivity(
-      conversations.map((conversation) => buildConversationRow(conversation, now)),
+      conversations.map((conversation) => buildConversationRow(conversation, labels, now)),
     );
     return filterRows(built, query);
-  }, [conversations, query]);
+  }, [conversations, labels, query]);
 
   const { fetchNextPage, refetch } = result;
   const loadMore = useCallback(() => {

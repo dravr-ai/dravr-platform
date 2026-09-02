@@ -76,7 +76,7 @@ describe('client locale corpus', () => {
     // and the phone read one source. A key counts once whichever side
     // renders it.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2209);
+    expect(reference).toHaveLength(2334);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

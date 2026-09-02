@@ -56,8 +56,8 @@ export interface OnboardingContext {
 /** A single step in the onboarding journey. */
 export interface OnboardingStepDef {
   id: OnboardingStepId;
-  /** Short label for the progress indicator. */
-  label: string;
+  /** Corpus key of the short label the progress indicator shows; resolved with t() at render. */
+  labelKey: string;
   /**
    * Whether this step belongs to *this* user's journey right now. Phase-gated:
    * profile-type and connect-provider belong to the pre-connect phase
@@ -81,7 +81,7 @@ export interface OnboardingStepDef {
 export const ONBOARDING_STEPS: OnboardingStepDef[] = [
   {
     id: 'profile_type',
-    label: 'About you',
+    labelKey: 'onboarding.stepAboutYou',
     isApplicable: (c) =>
       c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
     isComplete: (c) => c.profileTypeChosen,
@@ -93,7 +93,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // is the only proposal input we can guarantee exists when it runs. It also
     // means a user who never connects still gets a non-generic proposal.
     id: 'about_you',
-    label: 'About your training',
+    labelKey: 'onboarding.stepAboutTraining',
     isApplicable: (c) =>
       c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
     isComplete: (c) => c.aboutYouDone,
@@ -103,14 +103,14 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // reason it exists at all: a coach should not prescribe load before we have
     // asked. A "yes" raises a coach-visible flag and never blocks sign-up.
     id: 'parq',
-    label: 'Health check',
+    labelKey: 'onboarding.stepHealthCheck',
     isApplicable: (c) =>
       c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
     isComplete: (c) => c.parqDone,
   },
   {
     id: 'connect_provider',
-    label: 'Connect',
+    labelKey: 'onboarding.stepConnect',
     isApplicable: (c) => c.needsProviderConnection === true && !c.skippedProvider,
     // "Complete" once a provider is connected. Only ever evaluated for the
     // progress indicator: while the step is applicable `needs === true`, so this
@@ -119,7 +119,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
   },
   {
     id: 'coach_proposal',
-    label: 'Coach',
+    labelKey: 'onboarding.stepCoach',
     isApplicable: (c) =>
       c.onboardingActive && c.justOnboarded && c.needsProviderConnection === false,
     isComplete: (c) => c.coachProposalDone,
@@ -132,7 +132,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // transition: an already-connected user who hasn't set up messaging is
     // prompted once, and the done/skip flags stop re-prompts.
     id: 'messaging_channel',
-    label: 'Chat app',
+    labelKey: 'onboarding.stepChatApp',
     isApplicable: (c) =>
       c.onboardingActive &&
       c.needsProviderConnection === false &&
@@ -147,7 +147,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // Configure/link the chosen messaging app (QR + deep link, or OAuth redirect).
     // Applicable once a channel is chosen; auto-satisfied when no channel exists.
     id: 'messaging_configure',
-    label: 'Link',
+    labelKey: 'onboarding.stepLink',
     isApplicable: (c) =>
       c.onboardingActive &&
       c.needsProviderConnection === false &&
@@ -193,7 +193,8 @@ export type OnboardingStepStatus = 'done' | 'current' | 'upcoming';
 /** A step plus its progress-indicator display status. */
 export interface OnboardingProgressItem {
   id: OnboardingStepId;
-  label: string;
+  /** Corpus key of the step's label; the indicator resolves it with t(). */
+  labelKey: string;
   status: OnboardingStepStatus;
 }
 
@@ -224,7 +225,7 @@ export function onboardingProgress(ctx: OnboardingContext): OnboardingProgressIt
     : journey.length; // onboarding finished — everything is behind us
   return journey.map((s, i) => ({
     id: s.id,
-    label: s.label,
+    labelKey: s.labelKey,
     status: i === currentIndex ? 'current' : i < currentIndex ? 'done' : 'upcoming',
   }));
 }
@@ -274,3 +275,85 @@ export function isOnboardingSport(value: string): value is OnboardingSport {
   return (ONBOARDING_SPORTS as readonly string[]).includes(value);
 }
 
+/**
+ * The corpus key naming each activity sport the training profile can report —
+ * the `dravr-cageux` `SportType` vocabulary, keyed by its `snake_case` serde
+ * name. A separate table from {@link SPORT_LABEL_KEY}: that one is the six
+ * onboarding chips and is pinned to them; this one is every sport a provider
+ * sync can produce.
+ */
+export const ACTIVITY_SPORT_LABEL_KEY: Record<string, string> = {
+  run: 'app.sportRun',
+  ride: 'app.sportRide',
+  swim: 'app.sportSwim',
+  walk: 'app.sportWalk',
+  hike: 'app.sportHike',
+  virtual_ride: 'app.sportVirtualRide',
+  virtual_run: 'app.sportVirtualRun',
+  workout: 'app.sportWorkout',
+  yoga: 'app.sportYoga',
+  ebike_ride: 'app.sportEbikeRide',
+  mountain_bike: 'app.sportMountainBike',
+  gravel_ride: 'app.sportGravelRide',
+  cross_country_skiing: 'app.sportCrossCountrySkiing',
+  alpine_skiing: 'app.sportAlpineSkiing',
+  snowboarding: 'app.sportSnowboarding',
+  snowshoe: 'app.sportSnowshoe',
+  ice_skating: 'app.sportIceSkating',
+  backcountry_skiing: 'app.sportBackcountrySkiing',
+  kayaking: 'app.sportKayaking',
+  canoeing: 'app.sportCanoeing',
+  rowing: 'app.sportRowing',
+  paddleboarding: 'app.sportPaddleboarding',
+  surfing: 'app.sportSurfing',
+  kitesurfing: 'app.sportKitesurfing',
+  strength_training: 'app.sportStrengthTraining',
+  crossfit: 'app.sportCrossfit',
+  pilates: 'app.sportPilates',
+  rock_climbing: 'app.sportRockClimbing',
+  trail_running: 'app.sportTrailRunning',
+  soccer: 'app.sportSoccer',
+  basketball: 'app.sportBasketball',
+  tennis: 'app.sportTennis',
+  golf: 'app.sportGolf',
+  skateboarding: 'app.sportSkateboarding',
+  inline_skating: 'app.sportInlineSkating',
+};
+
+/** Provider spellings of the same sports, folded onto the canonical serde names. */
+const ACTIVITY_SPORT_ALIASES: Record<string, string> = {
+  alpine_ski: 'alpine_skiing',
+  nordic_ski: 'cross_country_skiing',
+  backcountry_ski: 'backcountry_skiing',
+  trail_run: 'trail_running',
+  weight_training: 'strength_training',
+  mountain_bike_ride: 'mountain_bike',
+  e_bike_ride: 'ebike_ride',
+  stand_up_paddling: 'paddleboarding',
+  snowboard: 'snowboarding',
+  ice_skate: 'ice_skating',
+  inline_skate: 'inline_skating',
+  kayak: 'kayaking',
+  canoe: 'canoeing',
+  surf: 'surfing',
+  kitesurf: 'kitesurfing',
+};
+
+/**
+ * The label key for a sport as the wire spells it, or `null` for a sport the
+ * vocabulary does not know — the caller then shows the wire spelling itself.
+ *
+ * The proposal profile has carried title-cased display strings
+ * (`"Trail Running"`, `"Kayaking V2"`) as well as serde names, so the lookup
+ * folds case and spacing and drops a provider's version suffix before it
+ * matches; the same call keeps working once the wire carries the codes.
+ */
+export function activitySportLabelKey(sport: string): string | null {
+  const folded = sport
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/_v\d+$/, '');
+  const canonical = ACTIVITY_SPORT_ALIASES[folded] ?? folded;
+  return ACTIVITY_SPORT_LABEL_KEY[canonical] ?? null;
+}

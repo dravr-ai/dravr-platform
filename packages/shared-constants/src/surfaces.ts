@@ -111,7 +111,7 @@ export const USER_SURFACES: readonly UserSurface[] = [
     label: 'Data Providers',
     web: 'data-providers',
     mobile: '/(app)/(tabs)/(settings)/connections',
-    webNav: 'Data Providers',
+    webNav: null,
     blocks: NO_BLOCKS,
   },
   {

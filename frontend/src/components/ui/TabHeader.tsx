@@ -29,7 +29,7 @@ export function TabHeader({ icon, gradient, description, actions }: TabHeaderPro
         >
           {icon}
         </div>
-        <p className="text-sm text-on-surface-variant min-w-0 truncate">{description}</p>
+        <p data-testid="tab-header-description" className="text-sm text-on-surface-variant min-w-0 truncate">{description}</p>
       </div>
       {actions && (
         <div className="flex items-center gap-2 flex-shrink-0">

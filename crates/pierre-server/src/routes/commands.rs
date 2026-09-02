@@ -21,9 +21,11 @@
 //!
 //! Every field comes from the `commands/**/*.md` frontmatter by way of the
 //! registry the server already serves: the command string, its argument
-//! signature and its one-line description. Nothing here is a literal, so a
-//! command added to the catalogue appears in the palette with no client change
-//! and no second list to keep in step.
+//! signature and its one-line description — the last one resolved through the
+//! five-locale strings registry in the caller's language, exactly as `/help`
+//! resolves it. Nothing here is a literal, so a command added to the catalogue
+//! appears in the palette with no client change and no second list to keep in
+//! step.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,6 +39,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use pierre_commands::{caller_group_standing, CallerGroupStanding, PlatformCommandContext};
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppError;
 use pierre_core::models::default_locale;
 use pierre_messaging::commands::CommandDefinition;
@@ -79,7 +82,8 @@ pub struct CommandEntry {
     /// Argument signature from the same frontmatter (`yes|no`, `[week|today]`).
     /// Absent for a command that takes no arguments.
     pub args: Option<String>,
-    /// One-line description, the same text `/help` prints.
+    /// One-line description in the caller's locale, the same text `/help`
+    /// prints.
     pub description: String,
     /// Domain grouping (`general`, `group`, `coach`, `data`, ...).
     pub domain: String,
@@ -103,6 +107,8 @@ pub struct CommandCatalogueResponse {
 fn entry(
     definition: &CommandDefinition,
     arg_specs: Option<&HashMap<String, String>>,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
 ) -> CommandEntry {
     CommandEntry {
         name: definition.name.clone(),
@@ -110,7 +116,7 @@ fn entry(
         args: arg_specs
             .and_then(|specs| specs.get(&definition.name))
             .cloned(),
-        description: definition.description.clone(),
+        description: strings.command_description(&definition.name, &definition.description, locale),
         domain: definition.domain.clone(),
     }
 }
@@ -172,7 +178,8 @@ pub async fn list_commands(
     let arg_specs = resources.common.command_arg_specs.as_deref();
 
     // The athlete's stored preference, resolved the same way a chat turn
-    // resolves it. Group lookups render their not-found text through it.
+    // resolves it. Group lookups render their not-found text through it, and
+    // every entry's description is read in it.
     let locale = resources
         .common
         .repos
@@ -243,7 +250,14 @@ pub async fn list_commands(
         .all_commands()
         .into_iter()
         .filter(|definition| is_listed(&resources, definition, standing.as_ref()))
-        .map(|definition| entry(definition, arg_specs))
+        .map(|definition| {
+            entry(
+                definition,
+                arg_specs,
+                &resources.mcp.messaging_strings_registry,
+                &ctx.locale,
+            )
+        })
         .collect();
     // The registry hands back HashMap values, so without this the palette lists
     // the same commands in a different order on every process start.

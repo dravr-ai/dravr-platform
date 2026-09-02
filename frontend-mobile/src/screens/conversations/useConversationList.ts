@@ -13,7 +13,14 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import { buildConversationRow, sortRowsByActivity, type ConversationRowModel } from '@pierre/chat-utils';
+import {
+  buildConversationRow,
+  CONVERSATION_ROW_LABEL_KEYS,
+  sortRowsByActivity,
+  type ConversationRowLabels,
+  type ConversationRowModel,
+} from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 import type { ConversationsResponse } from '@pierre/api-client';
 import { chatApi } from '../../services/api';
 import type { Conversation } from '../../types';
@@ -89,9 +96,25 @@ export function useConversationRows() {
     return unique;
   }, [query.data]);
 
+  // The words the shared row model cannot spell itself, in the viewer's
+  // language — the same key set the web list resolves.
+  const { t, language } = useTranslation();
+  const labels = useMemo<ConversationRowLabels>(
+    () => ({
+      locale: language,
+      you: t(CONVERSATION_ROW_LABEL_KEYS.you),
+      coach: t(CONVERSATION_ROW_LABEL_KEYS.coach),
+      untitled: t(CONVERSATION_ROW_LABEL_KEYS.untitled),
+    }),
+    [t, language],
+  );
+
   const rows = useMemo<ConversationRowModel[]>(
-    () => sortRowsByActivity(conversations.map((conversation) => buildConversationRow(conversation))),
-    [conversations],
+    () =>
+      sortRowsByActivity(
+        conversations.map((conversation) => buildConversationRow(conversation, labels)),
+      ),
+    [conversations, labels],
   );
 
   const unreadTotal = useMemo(

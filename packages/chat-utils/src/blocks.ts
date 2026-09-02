@@ -1,5 +1,5 @@
 // ABOUTME: Decodes a persisted transcript row into the same ReplyBlock list a live turn arrives in
-// ABOUTME: So each client walks one block list, whether the turn just landed or was read back from history
+// ABOUTME: So each client walks one block list, whether the turn just landed or was read back from history; a command reply is re-expressed as markdown on the way
 
 import type { ClaimVerdict, Message, ReplyBlock } from '@pierre/shared-types';
 import { splitActivityContent } from './activity';
@@ -8,6 +8,45 @@ import { parseSceneBlocks } from './viz';
 
 /** `kind` marking the stored scene entry that is a workout plan, not a chart. */
 const WORKOUT_PLAN_KIND = 'workout_plan';
+
+/** The `finish_reason` of a turn a slash command answered, not a coach. */
+export const COMMAND_FINISH_REASON = 'command';
+
+/** The entities canot's rich-text dialect escapes in text nodes. */
+const RICH_TEXT_ENTITIES: Record<string, string> = {
+  '&lt;': '<',
+  '&gt;': '>',
+  '&amp;': '&',
+  '&quot;': '"',
+  '&#39;': "'",
+};
+
+/**
+ * Re-express a command reply for a markdown renderer.
+ *
+ * Command handlers answer in canot's rich-text dialect — the `<b>`, `<i>`,
+ * `<code>` subset every messaging channel renderer translates natively. The
+ * server converts that to markdown for the in-app surfaces before it persists
+ * a turn, so a fresh row already arrives clean; a row persisted before that
+ * conversion existed still carries the tags, and a markdown renderer would
+ * print them as text. This is the one place both clients repair such a row.
+ *
+ * Every line the handler wrote is kept as a line: a lone newline is a soft
+ * break to a markdown renderer, which is how `/help` collapsed into a single
+ * paragraph, so each one becomes a hard break. A blank line still separates
+ * paragraphs, and a hard break at the end of a list item is inert.
+ */
+export function commandReplyMarkdown(text: string): string {
+  const converted = text
+    .replace(/<b>([\s\S]*?)<\/b>/g, '**$1**')
+    .replace(/<i>([\s\S]*?)<\/i>/g, '_$1_')
+    .replace(/<code>([\s\S]*?)<\/code>/g, '`$1`')
+    .replace(/&(?:lt|gt|amp|quot|#39);/g, (entity) => RICH_TEXT_ENTITIES[entity] ?? entity);
+  return converted
+    .split('\n')
+    .map((line) => (line.trim().length === 0 ? '' : `${line.trimEnd()}  `))
+    .join('\n');
+}
 
 /**
  * Rebuild the reply blocks for a message the server sent no block list for.
@@ -42,13 +81,17 @@ export function transcriptBlocks(
     return asked.length > 0 ? [{ type: 'prose', text: asked }] : [];
   }
 
-  const [activityList, analysis] = splitActivityContent(cleaned);
+  // A command's reply is one prose block in the dialect the surface reads;
+  // it never carries an activity list, a scene or a plan.
+  const isCommandReply = message.finish_reason === COMMAND_FINISH_REASON;
+  const [activityList, analysis] = isCommandReply ? [null, cleaned] : splitActivityContent(cleaned);
 
   if (activityList) {
     blocks.push({ type: 'activity_list', text: activityList });
   }
 
-  const prose = (activityList ? analysis : cleaned).trim();
+  const body = activityList ? analysis : cleaned;
+  const prose = (isCommandReply ? commandReplyMarkdown(body) : body).trim();
   if (prose.length > 0) {
     blocks.push({ type: 'prose', text: prose });
   }

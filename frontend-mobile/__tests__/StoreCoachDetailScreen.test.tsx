@@ -150,7 +150,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('training')).toBeTruthy();
+        expect(getByText('Training')).toBeTruthy();
       });
     });
 
@@ -160,7 +160,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('75 installs')).toBeTruthy();
+        expect(getByText('75 users')).toBeTruthy();
       });
     });
 
@@ -504,7 +504,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('1 install')).toBeTruthy();
+        expect(getByText('1 user')).toBeTruthy();
       });
     });
 

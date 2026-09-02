@@ -75,12 +75,12 @@ describe('StoreScreen', () => {
     });
 
     it('should render category filters', async () => {
-      const { getByText } = render(
+      const { getByText, getAllByText } = render(
         <StoreScreen />
       );
       await waitFor(() => {
         expect(getByText('All')).toBeTruthy();
-        expect(getByText('Training')).toBeTruthy();
+        expect(getAllByText('Training').length).toBeGreaterThan(0);
         expect(getByText('Nutrition')).toBeTruthy();
         expect(getByText('Recovery')).toBeTruthy();
       });
@@ -146,7 +146,7 @@ describe('StoreScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('150 installs')).toBeTruthy();
+        expect(getByText('150 users')).toBeTruthy();
       });
     });
 
@@ -156,12 +156,12 @@ describe('StoreScreen', () => {
       ];
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
-      const { getByText } = render(
+      const { getByText, getAllByText } = render(
         <StoreScreen />
       );
 
       await waitFor(() => {
-        expect(getByText('training')).toBeTruthy();
+        expect(getAllByText('Training').length).toBeGreaterThan(0);
       });
     });
 
@@ -189,17 +189,18 @@ describe('StoreScreen', () => {
       ];
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
-      const { getByText } = render(
+      const { getByText, getAllByText } = render(
         <StoreScreen />
       );
 
       await waitFor(() => {
-        expect(getByText('Training')).toBeTruthy();
+        expect(getAllByText('Training').length).toBeGreaterThan(0);
       });
 
       // Clear previous calls and press Training filter
       mockBrowseStoreCoaches.mockClear();
-      fireEvent.press(getByText('Training'));
+      // The chip comes before the cards, whose badges carry the same word.
+      fireEvent.press(getAllByText('Training')[0]);
 
       await waitFor(() => {
         expect(mockBrowseStoreCoaches).toHaveBeenCalledWith(
@@ -211,7 +212,7 @@ describe('StoreScreen', () => {
     it('should clear category filter when All is pressed', async () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
 
-      const { getByText } = render(
+      const { getByText, getAllByText } = render(
         <StoreScreen />
       );
 
@@ -221,7 +222,8 @@ describe('StoreScreen', () => {
       });
 
       // First select a category and wait for the load triggered by that
-      fireEvent.press(getByText('Training'));
+      // The chip comes before the cards, whose badges carry the same word.
+      fireEvent.press(getAllByText('Training')[0]);
       await waitFor(() => {
         expect(mockBrowseStoreCoaches).toHaveBeenCalledWith(
           expect.objectContaining({ category: 'training' })

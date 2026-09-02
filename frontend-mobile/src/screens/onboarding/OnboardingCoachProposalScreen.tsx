@@ -14,7 +14,10 @@ import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
 import { useTranslation } from '@pierre/i18n';
-import { SPORT_LABEL_KEY, isOnboardingSport } from '@pierre/shared-constants';
+import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
+import { useRouter } from 'expo-router';
+import { useConversations } from '../chat/useConversations';
+import { threadHref } from '../../navigation/routes';
 
 /**
  * Onboarding coach proposal (mobile).
@@ -31,6 +34,15 @@ export function OnboardingCoachProposalScreen() {
   const { user } = useAuth();
   const { markSeen } = useCoachProposalSeen(user?.id);
   const [selecting, setSelecting] = useState<string | null>(null);
+  const router = useRouter();
+  const { createConversation } = useConversations();
+
+  // A sport as the profile spells it, in the athlete's language when the
+  // vocabulary knows it and as spelled on the wire when it does not.
+  const sportLabel = (sport: string): string => {
+    const key = activitySportLabelKey(sport);
+    return key ? t(key) : sport;
+  };
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['coaches', 'proposal'] as const,
@@ -39,14 +51,23 @@ export function OnboardingCoachProposalScreen() {
     retry: 1,
   });
 
-  const handleStart = async (coachId: string) => {
+  const handleStart = async (coachId: string, coachTitle: string) => {
     setSelecting(coachId);
     try {
       await coachesApi.recordUsage(coachId);
     } catch {
-      // Non-fatal: proceed regardless.
+      // Non-fatal: the choice below still opens the coach's thread.
     }
+    // « Démarrer » means start talking to this coach: the step is done, and
+    // the athlete lands inside a thread bound to the coach rather than on
+    // the list. Marking the step first lets the layout leave onboarding.
     await markSeen();
+    try {
+      const conversation = await createConversation({ coach_id: coachId, title: coachTitle });
+      router.push(threadHref(conversation.id));
+    } catch {
+      // The list still opens; the "+" starts the thread.
+    }
   };
 
   const finish = () => {
@@ -83,7 +104,13 @@ export function OnboardingCoachProposalScreen() {
   const { profile, coaches } = data;
 
   return (
-    <Shell heading="Here's your starting lineup">
+    <Shell
+      heading={
+        user?.display_name
+          ? t('app.obStartingLineup', { name: user.display_name })
+          : t('frag.startingLineup')
+      }
+    >
       <View className="mt-5 rounded-2xl border border-outline-variant bg-surface-container px-4 py-4">
         {profile.has_profile ? (
           <>
@@ -100,16 +127,14 @@ export function OnboardingCoachProposalScreen() {
                     // put English inside French prose: ", surtout Running."
                     // A sport the server sends that is not one of ours falls
                     // back to its own name rather than to a missing key.
-                    sport: isOnboardingSport(profile.primary_sport)
-                      ? t(SPORT_LABEL_KEY[profile.primary_sport])
-                      : profile.primary_sport,
+                    sport: sportLabel(profile.primary_sport),
                   })
                 : ''}
             </Text>
             <View className="mt-3 gap-2">
               {profile.sport_mix.map((s) => (
                 <View key={s.sport} className="flex-row items-center gap-3">
-                  <Text className="w-20 text-xs text-on-surface-variant capitalize">{s.sport}</Text>
+                  <Text className="w-20 text-xs text-on-surface-variant">{sportLabel(s.sport)}</Text>
                   <View className="flex-1 h-2 rounded-full bg-surface-container-high overflow-hidden">
                     <View
                       className="h-full bg-primary"
@@ -137,7 +162,7 @@ export function OnboardingCoachProposalScreen() {
             proposed={proposed}
             selecting={selecting === proposed.coach.id}
             disabled={selecting !== null}
-            onStart={() => void handleStart(proposed.coach.id)}
+            onStart={() => void handleStart(proposed.coach.id, proposed.coach.title)}
           />
         ))}
       </View>
@@ -169,7 +194,9 @@ function CoachProposalCard({
           <Text className="text-base font-semibold text-on-surface" numberOfLines={1}>
             {coach.title}
           </Text>
-          <Text className="mt-0.5 text-xs uppercase text-on-surface-variant">{coach.category}</Text>
+          <Text className="mt-0.5 text-xs uppercase text-on-surface-variant">
+            {t(coachCategoryLabelKey(coach.category))}
+          </Text>
         </View>
         <Button
           title={selecting ? t('app.starting') : t('app.start')}

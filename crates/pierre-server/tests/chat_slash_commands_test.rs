@@ -1553,9 +1553,14 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
     // The domain survives with exactly the commands that need no group: the
     // list (possibly empty) and the two ways into one — creating a group and
     // joining one by invite code.
+    // Each command is a `- /command …` list item.
     let group_commands: Vec<&str> = text
         .lines()
-        .filter_map(|l| l.trim_start().strip_prefix("/group"))
+        .filter_map(|l| {
+            l.trim_start()
+                .trim_start_matches("- ")
+                .strip_prefix("/group")
+        })
         .map(|rest| rest.split(" — ").next().unwrap_or(rest).trim())
         .map(|args| args.split_whitespace().next().unwrap_or(""))
         .collect();
@@ -1703,11 +1708,19 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
         "argument-free commands must render without a signature:\n{text}"
     );
 
-    // Domain headings are localized (fr is the default locale). A raw domain
-    // slug in the output means the heading has no messaging string.
+    // Domain headings are localized (fr is the default locale) and bold, so
+    // the in-app markdown renderers draw them as headings while a messaging
+    // channel still reads them as a starred line. A raw domain slug in the
+    // output means the heading has no messaging string.
     assert!(
-        text.contains("Entraînement:"),
-        "training domain heading must be localized:\n{text}"
+        text.contains("**Entraînement**"),
+        "training domain heading must be localized and bold:\n{text}"
+    );
+    // Descriptions come from the same five-locale registry as the headings —
+    // a French reader gets a French line, not the frontmatter's English.
+    assert!(
+        text.contains("Afficher ton plan d'entraînement"),
+        "command descriptions must be localized:\n{text}"
     );
     assert!(
         !text.contains("training:"),
@@ -1718,9 +1731,11 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
     // HashMap, so an unsorted render reshuffles on every process start.
     // Compare the command halves, not whole lines: the em-dash separator sorts
     // after letters, so a whole-line sort is not the order commands are in.
+    // Each command is one `- /command …` list item.
     let group_block: Vec<&str> = text
         .lines()
-        .filter(|l| l.trim_start().starts_with("/group"))
+        .map(|l| l.trim_start().trim_start_matches("- "))
+        .filter(|l| l.starts_with("/group"))
         .map(|l| l.trim().split(" — ").next().unwrap_or(l))
         .collect();
     assert!(
@@ -1854,4 +1869,71 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
             "`{hidden}` acts on this room's group, which the caller is not in:\n{text}"
         );
     }
+}
+
+/// A command answers in canot's rich-text dialect for the messaging channels
+/// to render natively. The in-app surfaces parse markdown, so the same reply
+/// must reach the web already re-expressed — live and in the persisted row —
+/// or `/privacy` shows `<b>` tags and `/help` collapses into one paragraph.
+#[tokio::test]
+async fn command_replies_reach_the_web_as_markdown_and_persist_that_way() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_user_id, _tenant_id, auth) = seed_user_tenant(&resources, "cmd-markdown@test.com").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
+
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &auth)
+        .json(&json!({"content": "/privacy"}))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
+    let live = body.assistant.message.content.clone();
+    assert!(
+        live.contains("**") && live.contains('`'),
+        "the live reply must carry markdown emphasis and code, got:\n{live}"
+    );
+    assert!(
+        !live.contains("<b>") && !live.contains("<code>"),
+        "no rich-text tag may reach a markdown surface, got:\n{live}"
+    );
+
+    // The transcript row is what a reload draws; it holds the same text.
+    let resp = AxumTestRequest::get(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let stored: serde_json::Value = resp.json();
+    let reply = stored["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .find(|m| m["role"] == "assistant")
+        .expect("the command reply is persisted");
+    let content = reply["content"].as_str().expect("content");
+    assert!(
+        content.contains("**") && !content.contains("<b>"),
+        "the persisted row must hold the markdown form, got:\n{content}"
+    );
+
+    // `/help` is shaped so a markdown renderer keeps every command on its own
+    // line: bold domain headings and one list item per command.
+    let help = help_in_conversation(router, &auth, &conv_id).await;
+    assert!(
+        help.lines()
+            .filter(|l| l.trim_start().starts_with("- /"))
+            .count()
+            >= 5,
+        "/help must list commands as items, got:\n{help}"
+    );
+    assert!(
+        help.contains("**"),
+        "/help domain headings must be bold, got:\n{help}"
+    );
 }

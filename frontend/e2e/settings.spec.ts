@@ -457,8 +457,8 @@ test.describe('Settings Page - User Mode', () => {
   test('profile tab shows user info and stats', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    // User info should be visible (name appears in both sidebar and settings content)
-    await expect(page.getByRole('main').getByText('Web Test')).toBeVisible();
+    // The name heads the settings menu too, so the assertion targets the profile pane
+    await expect(page.getByTestId('settings-pane').getByText('Web Test')).toBeVisible();
     // Email appears in both the header and the form field
     await expect(page.getByText('webtest@pierre.dev').first()).toBeVisible();
 
@@ -474,10 +474,12 @@ test.describe('Settings Page - User Mode', () => {
     await page.getByRole('button', { name: 'About' }).click();
     await page.waitForTimeout(300);
 
-    await expect(page.getByText('Version')).toBeVisible();
-    await expect(page.getByText('1.0.0')).toBeVisible();
-    await expect(page.getByText('Help Center')).toBeVisible();
-    await expect(page.getByText('Terms & Privacy')).toBeVisible();
+    // The menu row's hint names "Version" too, so the assertions read the open pane
+    const pane = page.getByTestId('settings-pane');
+    await expect(pane.getByText('Version')).toBeVisible();
+    await expect(pane.getByText('1.0.0')).toBeVisible();
+    await expect(pane.getByText('Help Center')).toBeVisible();
+    await expect(pane.getByText('Terms & Privacy')).toBeVisible();
   });
 
   test('account tab shows member since and change password', async ({ page }) => {

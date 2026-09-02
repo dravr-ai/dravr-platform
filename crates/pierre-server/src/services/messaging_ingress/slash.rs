@@ -287,6 +287,7 @@ pub(super) async fn try_handle_slash_command(
                 CommandPersistence::RoomVisibleOnly
             },
             sender_id: Some(sender_id),
+            prose: profile.render.prose,
             text,
         },
     )

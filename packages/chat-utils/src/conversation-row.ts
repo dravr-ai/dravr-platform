@@ -16,8 +16,34 @@ export type ConversationKind = 'group' | 'channel' | 'coach' | 'plain';
 /** How many avatar colours a client provides; {@link avatarSlot} indexes into them. */
 export const AVATAR_SLOTS = 6;
 
-/** What a row shows when the conversation carries no title. */
-export const UNTITLED_CONVERSATION = 'Untitled chat';
+/**
+ * The i18n keys behind the words this model cannot spell itself.
+ *
+ * A shared package has no translator, so each client resolves these with its
+ * own `t()` into a {@link ConversationRowLabels} and hands that to
+ * {@link buildConversationRow} — one key set, so web and mobile read the same
+ * catalogue entries for the same row.
+ */
+export const CONVERSATION_ROW_LABEL_KEYS = {
+  /** What prefixes the athlete's own last line. */
+  you: 'chat.previewYou',
+  /** What a group row calls a coach that no longer exists. */
+  coach: 'chat.previewCoach',
+  /** What a row shows when the conversation carries no title. */
+  untitled: 'app.untitledChat',
+} as const;
+
+/** The locale-dependent inputs a row is built with, resolved by the client. */
+export interface ConversationRowLabels {
+  /** BCP 47 tag the timestamp's weekday and month are spelled in, e.g. `fr`. */
+  locale: string;
+  /** `You` — prefixes the athlete's own last line, on every kind of row. */
+  you: string;
+  /** `Coach` — names the speaker in a group row whose coach no longer exists. */
+  coach: string;
+  /** `Untitled chat` — the title of a thread that carries none. */
+  untitled: string;
+}
 
 /** One row of the unified conversation list, ready to draw. */
 export interface ConversationRowModel {
@@ -102,23 +128,24 @@ export function avatarSlot(
   return fnv1a(key) % AVATAR_SLOTS;
 }
 
-/** What a group row says when the coach that spoke no longer exists. */
-const ANONYMOUS_COACH = 'Coach';
-
 /**
  * The one-line preview under the title.
  *
  * The athlete's own rows read `You: …` everywhere. A coach's reply carries the
  * coach's name only in a group row, where more than one voice speaks; in a
  * 1:1 thread the title already says who answered. Empty for a thread with no
- * message yet.
+ * message yet. `labels` supplies the `You` and the fallback `Coach` in the
+ * reader's language.
  */
-export function previewFor(conversation: Conversation): string {
+export function previewFor(
+  conversation: Conversation,
+  labels: Pick<ConversationRowLabels, 'you' | 'coach'>,
+): string {
   const last = conversation.last_message;
   if (!last) return '';
-  if (last.role === 'user') return `You: ${last.preview}`;
+  if (last.role === 'user') return `${labels.you}: ${last.preview}`;
   if (deriveKind(conversation) === 'group') {
-    return `${conversation.coach_title || ANONYMOUS_COACH}: ${last.preview}`;
+    return `${conversation.coach_title || labels.coach}: ${last.preview}`;
   }
   return last.preview;
 }
@@ -138,21 +165,44 @@ function pad2(value: number): string {
  * app does it: the clock time today, the weekday within the last week, and
  * the date beyond that — with the year only once it is not this one.
  *
- * `now` is injectable so a test can pin the buckets. An unparseable stamp
- * yields an empty string rather than `Invalid Date` in a row.
+ * The clock is always 24-hour `HH:mm`, whatever the locale, so the row agrees
+ * with the title {@link defaultConversationTitle} stamps; the weekday and the
+ * month are spelled by `Intl` in `locale`. `now` is injectable so a test can
+ * pin the buckets. An unparseable stamp yields an empty string rather than
+ * `Invalid Date` in a row.
  */
-export function formatListTimestamp(iso: string, now: Date = new Date()): string {
+export function formatListTimestamp(iso: string, locale: string, now: Date = new Date()): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
   if (dayDiff <= 0) return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-  if (dayDiff < 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
-  return date.toLocaleDateString(
-    'en-US',
+  if (dayDiff < 7) return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date);
+  return new Intl.DateTimeFormat(
+    locale,
     date.getFullYear() === now.getFullYear()
       ? { month: 'short', day: 'numeric' }
       : { month: 'short', day: 'numeric', year: 'numeric' },
-  );
+  ).format(date);
+}
+
+/**
+ * The title a client gives a conversation it creates before any message
+ * names it: `prefix` and the moment of creation, e.g. `Chat Sep 1 16:18` or
+ * `Discussion 1 sept. 16:18`.
+ *
+ * The date and the clock are formatted separately and joined with a space
+ * rather than as one `Intl` date-time, which would put a locale comma between
+ * them. The clock is 24-hour, the same clock the list row shows, so a title
+ * and its row never disagree about the hour.
+ */
+export function defaultConversationTitle(prefix: string, now: Date, locale: string): string {
+  const day = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(now);
+  const time = new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(now);
+  return `${prefix} ${day} ${time}`;
 }
 
 /**
@@ -160,13 +210,16 @@ export function formatListTimestamp(iso: string, now: Date = new Date()): string
  *
  * Last activity is the newest message when there is one and the
  * conversation's own `updated_at` otherwise, so a renamed empty thread still
- * sorts and stamps sensibly.
+ * sorts and stamps sensibly. `labels` carries the reader's locale and the
+ * three words the row cannot spell on its own (see
+ * {@link CONVERSATION_ROW_LABEL_KEYS}).
  */
 export function buildConversationRow(
   conversation: Conversation,
+  labels: ConversationRowLabels,
   now: Date = new Date(),
 ): ConversationRowModel {
-  const title = conversation.title?.trim() || UNTITLED_CONVERSATION;
+  const title = conversation.title?.trim() || labels.untitled;
   const lastActivityAt = conversation.last_message?.created_at ?? conversation.updated_at;
   return {
     id: conversation.id,
@@ -178,8 +231,8 @@ export function buildConversationRow(
     channel: resolveChannelOrigin(conversation),
     initials: initialsFor(title),
     avatarSlot: avatarSlot(conversation),
-    preview: previewFor(conversation),
-    timestamp: formatListTimestamp(lastActivityAt, now),
+    preview: previewFor(conversation, labels),
+    timestamp: formatListTimestamp(lastActivityAt, labels.locale, now),
     unreadCount: Math.max(0, conversation.unread_count ?? 0),
     lastActivityAt,
   };

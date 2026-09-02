@@ -16,15 +16,14 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachFieldOverlay, CoachHandle, CoachListItem,
-    CoachPrerequisites, CoachVersion, CoachVisibility, CreateCoachRequest,
-    CreateSystemCoachRequest, ListCoachesFilter, UpdateCoachRequest,
+    Coach, CoachAssignment, CoachCategory, CoachHandle, CoachListItem, CoachPrerequisites,
+    CoachVersion, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
+    UpdateCoachRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_core::models::{split_visuals, CoachRuntimeContext};
 use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::Row;
-use std::collections::HashMap;
 use uuid::Uuid;
 
 impl PostgresDatabase {
@@ -401,48 +400,22 @@ impl CoachesRepository for PostgresDatabase {
         coaches: &mut [CoachListItem],
         locale: &str,
     ) -> AppResult<()> {
-        // English is canonical — skip the round-trip entirely.
-        if locale == "en" || coaches.is_empty() {
-            return Ok(());
-        }
-
-        let coach_ids: Vec<String> = coaches.iter().map(|it| it.coach.id.to_string()).collect();
-
-        let rows = sqlx::query(
-            r"
-            SELECT coach_id, title, description, purpose, instructions
-            FROM coach_translations
-            WHERE locale = $1 AND coach_id = ANY($2)
-            ",
-        )
-        .bind(locale)
-        .bind(&coach_ids)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to load coach translations: {e}")))?;
-
-        if rows.is_empty() {
-            return Ok(());
-        }
-
-        // coach_id → (title, description, purpose, instructions) overlay
-        let mut overlays: HashMap<String, CoachFieldOverlay> = HashMap::with_capacity(rows.len());
-        for row in &rows {
-            let id: String = row.get("coach_id");
-            overlays.insert(
-                id,
-                CoachFieldOverlay {
-                    title: row.try_get("title").ok(),
-                    description: row.try_get("description").ok(),
-                    purpose: row.try_get("purpose").ok(),
-                    instructions: row.try_get("instructions").ok(),
-                },
-            );
-        }
-
+        let ids: Vec<String> = coaches.iter().map(|it| it.coach.id.to_string()).collect();
+        let overlays = self.coach_translation_overlays(&ids, locale).await?;
         for item in coaches.iter_mut() {
             if let Some(ov) = overlays.get(&item.coach.id.to_string()) {
                 ov.apply(&mut item.coach);
+            }
+        }
+        Ok(())
+    }
+
+    async fn translate_coaches(&self, coaches: &mut [Coach], locale: &str) -> AppResult<()> {
+        let ids: Vec<String> = coaches.iter().map(|c| c.id.to_string()).collect();
+        let overlays = self.coach_translation_overlays(&ids, locale).await?;
+        for coach in coaches.iter_mut() {
+            if let Some(ov) = overlays.get(&coach.id.to_string()) {
+                ov.apply(coach);
             }
         }
         Ok(())

@@ -16,7 +16,6 @@ import type { PendingComposerAction } from './ChatTab';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
-  ConversationList,
   usePendingUsersCount,
   useStoreStatsPendingCount,
   useUnreadConversationsCount,
@@ -100,6 +99,15 @@ interface TabDefinition {
 }
 
 import { DravrLogo } from './DravrLogo';
+import { IconRail } from './layout/IconRail';
+import SettingsShell from './settings/SettingsShell';
+import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
+
+/** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
+function parseSettingsTab(segment: string): SettingsTab | null {
+  const id = decodeURIComponent(segment);
+  return SETTINGS_TABS.some((entry) => entry.id === id) ? (id as SettingsTab) : null;
+}
 
 interface DashboardProps {
   pendingInviteCode?: string | null;
@@ -148,7 +156,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // handle, which only renders when `!sidebarCollapsed`).
   const isTablet = useIsTablet();
   const sidebarCollapsed = userSidebarCollapsed || isTablet;
-  const showConversationPane = activeTab === 'chat' && !sidebarCollapsed;
+  // An operator's role is worth a line under the name; an athlete's is not —
+  // "user" under one's own name reads as a label with nothing to say.
+  const operatorRoleBadge =
+    user?.role === 'super_admin'
+      ? t('shell.roleSuperAdmin')
+      : user?.role === 'admin'
+        ? t('shell.roleAdmin')
+        : null;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit
@@ -213,6 +228,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     initialTabSeg === 'chat' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
   );
 
+  // The open settings section, from `#settings/<section>`; `null` is the
+  // menu alone on a narrow screen and the first section on a wide one.
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(
+    initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg) : null,
+  );
+
   // The coach whose Discover edit sheet is open, from `#discover/<coachId>`.
   const [editingCoachId, setEditingCoachId] = useState<string | null>(
     initialTabSeg === 'discover' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
@@ -236,6 +257,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const route = (() => {
     if (activeTab === 'discover' && editingCoachId) return `discover/${encodeURIComponent(editingCoachId)}`;
     if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
+    if (activeTab === 'settings' && settingsTab) return `settings/${settingsTab}`;
     return activeTab;
   })();
 
@@ -294,6 +316,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     setActiveTab(tab);
     setEditingCoachId(tab === 'discover' && sub ? decodeURIComponent(sub) : null);
     setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
+    setSettingsTab(tab === 'settings' ? parseSettingsTab(sub) : null);
   }, [isAdminUser]);
 
   // React to back/forward and external hash edits.
@@ -444,7 +467,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     ) },
   ], [adminTabs]);
 
-  // Regular user tabs - Settings accessible via gear icon, not sidebar
+  // Regular user tabs — the destinations of the rail. Settings is reached
+  // from the gear and the avatar, and a provider connection is configuration,
+  // so it lives under Settings rather than beside Chat.
   const regularTabs: TabDefinition[] = useMemo(() => [
     { id: 'chat', name: t('nav.chat'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -455,11 +480,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     { id: 'discover', name: t('nav.discover'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-    ) },
-    { id: 'data-providers', name: t('nav.dataProviders'), icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
       </svg>
     ) },
     { id: 'notifications', name: t('nav.notifications'), icon: (
@@ -518,13 +538,32 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
 
-  // Admin user view: Full sidebar with tabs - Dark Theme
+  // The rail is what an athlete sees; the conversation list lives inside the
+  // chat pane. An operator keeps the expanded sidebar — twenty destinations
+  // do not fit a column of icons.
+  const railWidth = 72;
+  const asideWidth = isAdminUser ? (sidebarCollapsed ? 72 : sidebarWidth) : railWidth;
+
   return (
     <div className="min-h-dvh bg-surface flex">
+      {!isAdminUser && (
+        <IconRail
+          tabs={tabs.map((tab) => ({ id: tab.id, name: tab.name, icon: tab.icon, badge: tab.badge }))}
+          activeTab={activeTab}
+          onSelect={(id) => {
+            setActiveTab(id);
+            if (id === 'chat') setSelectedConversation(null);
+          }}
+          onOpenSettings={() => setActiveTab('settings')}
+          settingsActive={activeTab === 'settings' || activeTab === 'data-providers'}
+          userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
+        />
+      )}
       {/* Vertical Sidebar - Dark.
           Width animates only when toggling collapse; while the user is
           actively dragging the resize handle we suspend the transition
           so the cursor tracks the edge in real time. */}
+      {isAdminUser && (
       <aside
         className={clsx(
           'hidden md:flex fixed left-0 top-0 h-dvh bg-surface-container-low border-r ghost-border flex-col z-40 overflow-hidden',
@@ -554,12 +593,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             and the conversation pane below takes the rest of the column —
             the list is the sidebar's main content there, not a footnote
             under the tabs. */}
-        <nav
-          className={clsx(
-            'py-4 overflow-x-hidden',
-            showConversationPane ? 'flex-shrink-0' : 'flex-1 overflow-y-auto',
-          )}
-        >
+        <nav className="flex-1 overflow-x-hidden overflow-y-auto py-4">
           <ul className="space-y-1 px-3">
             {tabs.map((tab, index) => {
               // Render section header when the section changes
@@ -624,21 +658,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           </ul>
         </nav>
 
-        {/* The unified conversation list — every thread the athlete is in,
-            whatever created it. Shown while the Chat tab is active and the
-            sidebar is wide enough to read a row. */}
-        {showConversationPane && (
-          <div
-            className="flex-1 min-h-0 flex flex-col border-t ghost-border"
-            data-testid="conversation-pane"
-          >
-            <ConversationList
-              selectedConversation={selectedConversation}
-              onSelectConversation={setSelectedConversation}
-            />
-          </div>
-        )}
-
         {/* User Profile Section - Bottom of sidebar */}
         <div className={clsx(
           'border-t ghost-border',
@@ -674,9 +693,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                   <p className="text-[11px] font-medium text-on-surface truncate leading-tight">
                     {user?.display_name || user?.email}
                   </p>
-                  <span className="text-[9px] text-on-surface-variant uppercase">
-                    {user?.role === 'super_admin' ? t('shell.roleSuperAdmin') : user?.role === 'admin' ? t('shell.roleAdmin') : t('shell.roleUser')}
-                  </span>
+                  {operatorRoleBadge && (
+                    <span className="text-xs text-on-surface-variant uppercase">{operatorRoleBadge}</span>
+                  )}
                 </div>
               )}
             </button>
@@ -755,6 +774,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           />
         )}
       </aside>
+      )}
 
       {/* Main Content Area — margin tracks the sidebar's live width on
           desktop; on mobile the sidebar is hidden so we collapse the gutter
@@ -767,7 +787,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           'flex-1 min-w-0 h-dvh flex flex-col',
           isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
-        style={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 72 : sidebarWidth) }}
+        style={{ marginLeft: isMobile ? 0 : asideWidth }}
       >
         {/* Top Header Bar - only for admin tabs; user tabs have their own TabHeader */}
         {isAdminUser && (
@@ -949,18 +969,36 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <StoreScreen onNavigate={applyRoute} ownCoachId={editingCoachId} />
           </Suspense>
         )}
-        {activeTab === 'settings' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <UserSettings />
-          </Suspense>
+        {activeTab === 'settings' && isAdminUser && (
+          <div className={PAGE_GUTTER_CLASS}>
+            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+              <UserSettings />
+            </Suspense>
+          </div>
         )}
-        {/* Admins are platform operators: provider connections are a
-            user-account surface (mirrors ADMIN_HIDDEN_TABS in UserSettings),
-            so the pane is role-gated even against a hand-typed #data-providers. */}
+        {/* An athlete's settings are a menu beside the open section — the
+            shape of every messenger's settings pane. A provider connection is
+            one of those sections; a hand-typed #data-providers opens it. Admins
+            are platform operators and keep the strip without that section. */}
+        {activeTab === 'settings' && !isAdminUser && (
+          <SettingsShell
+            tab={settingsTab}
+            onSelect={setSettingsTab}
+            onBack={() => setSettingsTab(null)}
+          />
+        )}
         {activeTab === 'data-providers' && !isAdminUser && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <UserSettings initialTab="connections" hideTabNav />
-          </Suspense>
+          <SettingsShell
+            tab="connections"
+            onSelect={(id) => {
+              setSettingsTab(id);
+              setActiveTab('settings');
+            }}
+            onBack={() => {
+              setSettingsTab(null);
+              setActiveTab('settings');
+            }}
+          />
         )}
         {activeTab === 'notifications' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
@@ -1012,7 +1050,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             }}
             userLabel={user?.display_name || user?.email || ''}
             userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
-            userRole={user?.role === 'super_admin' ? t('shell.roleSuperAdmin') : user?.role === 'admin' ? t('shell.roleAdmin') : t('shell.roleUser')}
+            userRole={operatorRoleBadge ?? undefined}
             onOpenSettings={() => setActiveTab('settings')}
             onSignOut={logout}
           />

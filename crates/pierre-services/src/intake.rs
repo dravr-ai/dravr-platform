@@ -107,7 +107,7 @@ pub const INTAKE_TOPICS: [IntakeTopic; 8] = [
 impl IntakeTopic {
     /// The PAR-Q+ question id this topic screens, or `None` for profile type.
     ///
-    /// These are the ids [`crate::parq::PARQ_QUESTIONS`] already uses, so a
+    /// These are the ids [`crate::parq::PARQ_QUESTION_IDS`] already uses, so a
     /// flag raised in chat is the same row as one raised through the API.
     #[must_use]
     pub const fn parq_id(self) -> Option<&'static str> {

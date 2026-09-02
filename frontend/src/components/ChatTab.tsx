@@ -6,12 +6,16 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { TabHeader } from './ui';
 import { chatApi, providersApi } from '../services/api';
 import { holdIdleWhileBusy, idleSignal } from '../services/api/idleSignal';
 import { track } from '../services/analytics';
-import { ChevronDown, MessageCircle } from 'lucide-react';
-import { statusTextForProgress, trustedActionUrl } from '@pierre/chat-utils';
+import {
+  avatarSlot,
+  defaultConversationTitle,
+  initialsFor,
+  statusTextForProgress,
+  trustedActionUrl,
+} from '@pierre/chat-utils';
 import {
   MessageList,
   MessageInput,
@@ -20,6 +24,10 @@ import {
   ConversationInfoPanel,
 } from './chat';
 import VerdictDrawer from './chat/VerdictDrawer';
+import ChatShell from './chat/ChatShell';
+import ThreadHeader from './chat/ThreadHeader';
+import ConversationList from './dashboard/ConversationList';
+import { useIsDesktop } from '../hooks/useBreakpoint';
 import UsageWarningBanner from './chat/UsageWarningBanner';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
@@ -60,6 +68,19 @@ function latestPersistedMessageId(messages: Message[] | undefined): string | nul
 }
 
 /**
+ * The header line naming the connected providers, agreeing in number with
+ * how many there are: "Strava connected" / "Strava, Garmin connectés".
+ */
+function connectedProvidersLine(
+  t: (key: string, values?: Record<string, string | number>) => string,
+  names: string[],
+): string {
+  return t(names.length === 1 ? 'chat.providersConnectedOne' : 'chat.providersConnectedN', {
+    providers: names.join(', '),
+  });
+}
+
+/**
  * A composer action the shell hands the chat surface.
  *
  * `draft` seeds the composer and leaves the athlete to press send; `send`
@@ -95,7 +116,7 @@ export default function ChatTab({
   pendingComposerAction,
   onPendingComposerActionConsumed,
 }: ChatTabProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const queryClient = useQueryClient();
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
@@ -184,7 +205,7 @@ export default function ChatTab({
   // Claim verdicts attached to messages in the selected conversation.
   // Refetched alongside messages so a coach reply that triggers verification
   // surfaces its chip without a manual reload.
-  const { data: verdictsData } = useQuery({
+  const { data: verdictsData, isFetching: verdictsFetching, refetch: refetchVerdicts } = useQuery({
     queryKey: ['chat', 'verdicts', selectedConversation],
     queryFn: () => chatApi.getConversationVerdicts(selectedConversation!),
     enabled: !!selectedConversation,
@@ -213,8 +234,40 @@ export default function ChatTab({
     return activeConversation?.title?.trim() || t('app.newConversation');
   }, [activeConversation, activeCoachTitle, t]);
 
-  // Drawer state for the claim verdict detail surface.
-  const [selectedVerdict, setSelectedVerdict] = useState<ClaimVerdict | null>(null);
+  // The line under the name: the coach's handle, or what the coach can see.
+  const connectedProviderNames = useMemo(
+    () => (providersData?.providers ?? []).filter((p) => p.connected).map((p) => p.display_name),
+    [providersData],
+  );
+  const providerStatusLine = useMemo<string | null>(() => {
+    if (connectedProviderNames.length > 0) return connectedProvidersLine(t, connectedProviderNames);
+    return providersLoaded ? t('chat.noProviderStatus') : null;
+  }, [connectedProviderNames, providersLoaded, t]);
+  const headerSubtitle = useMemo<string | null>(() => {
+    if (activeConversation?.group_name) return t('chat.groupChatBadge');
+    if (activeConversation?.coach_handle) return `@${activeConversation.coach_handle}`;
+    return providerStatusLine;
+  }, [activeConversation, providerStatusLine, t]);
+
+  // Below the desktop breakpoint the list hides behind the open thread, so
+  // the header carries the way back to it.
+  const isDesktop = useIsDesktop();
+
+  // The message whose verdicts the drawer shows. The rows are written right
+  // after the reply row, so a chip that landed before the read did opens the
+  // drawer on a refetch rather than on nothing.
+  const [verdictMessageId, setVerdictMessageId] = useState<string | null>(null);
+  const drawerVerdicts = useMemo(
+    () => (verdictMessageId ? verdicts.filter((v) => v.message_id === verdictMessageId) : []),
+    [verdicts, verdictMessageId],
+  );
+  const handleShowVerdict = useCallback(
+    (_rows: ClaimVerdict[], messageId: string) => {
+      setVerdictMessageId(messageId);
+      if (!verdicts.some((v) => v.message_id === messageId)) void refetchVerdicts();
+    },
+    [verdicts, refetchVerdicts],
+  );
 
   const handleAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
     setNewMessage(
@@ -226,8 +279,13 @@ export default function ChatTab({
   // coach's system prompt at runtime from the coaches table.
   const createConversation = useMutation<{ id: string }, Error, string | void>({
     mutationFn: (coachId) => {
-      const now = new Date();
-      const defaultTitle = `Chat ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+      // Named for the moment it starts, in the viewer's language and on the
+      // same 24-hour clock the list row shows; a rename replaces it.
+      const defaultTitle = defaultConversationTitle(
+        t('chat.newConversationTitlePrefix'),
+        new Date(),
+        language,
+      );
       return chatApi.createConversation({
         title: defaultTitle,
         coach_id: coachId || pendingCoachId || undefined,
@@ -766,111 +824,97 @@ export default function ChatTab({
     handleThreadGone();
   };
 
-  return (
-    <div className="h-full flex bg-surface relative">
-      {/* Main Content Area - conversations are now in Dashboard sidebar */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* The nudge used to appear only after a send was refused with a 403.
-            That refusal is gone — a providerless athlete now gets a real coach
-            reply that says what it cannot see — so the banner is driven by
-            provider state directly and shows before they ask, not after they
-            are turned away. Self-hides once a provider is connected. */}
-        {showConnectBanner && (
-          <div className="px-4 md:px-6 pt-3">
-            <ConnectProviderBanner />
-          </div>
-        )}
-        {!selectedConversation ? (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <TabHeader
-              icon={<MessageCircle className="w-5 h-5" />}
-              gradient="boreal-hero-gradient"
-              description={
-                hasConnectedProvider
-                  ? providersData?.providers?.filter(p => p.connected).map(p =>
-                      p.display_name
-                    ).join(', ') + ' connected'
-                  : t('chat.noProviderStatus')
-              }
-              actions={composeMenu(false)}
-            />
-            <ChatEmptyState
-              compose={composeMenu(false)}
-              onOpenCommands={handleOpenCommands}
-              disabled={createConversation.isPending}
-            />
-          </div>
-        ) : (
-          /* Active Conversation View */
-          <div className="h-full flex flex-col">
-            {/* Usage warning banner */}
-            <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
+  const banner = showConnectBanner ? (
+    <div className="px-4 pt-3 md:px-6">
+      <ConnectProviderBanner />
+    </div>
+  ) : null;
 
-            {/* Conversation Header: the title is the way in to Group info,
-                Coach info or the plain thread's own controls — exactly where
-                App Messaging keeps it. */}
-            <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setInfoOpensParticipants(false);
-                  setInfoOpen(true);
-                }}
-                aria-haspopup="dialog"
-                data-testid="conversation-header-title"
-                title={headerTitle}
-                className="min-w-0 flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-container-low transition-colors"
-              >
-                {activeCoachTitle && !activeConversation?.group_id && (
-                  <img src="/dravr-icon.svg" alt="" className="w-5 h-5 rounded-md flex-shrink-0" />
-                )}
-                <span className="text-sm font-semibold text-on-surface truncate">{headerTitle}</span>
-                <ChevronDown className="w-4 h-4 flex-shrink-0 text-on-surface-variant" aria-hidden="true" />
-              </button>
-              <div className="flex items-center gap-2 flex-shrink-0">{composeMenu(true)}</div>
-            </div>
-            <div className="flex-1 overflow-y-auto min-h-0">
-              <div className="max-w-3xl mx-auto py-4 md:py-6 px-4 md:px-6">
-                <MessageList
-                  messages={messagesData?.messages || []}
-                  messageMetadata={messageMetadata}
-                  messageFeedback={messageFeedback}
-                  messageFeedbackComment={messageFeedbackComment}
-                  messageBlocks={messageBlocks}
-                  verdicts={verdicts}
-                  assistantLabel={activeCoachTitle ?? undefined}
-                  isLoading={messagesLoading}
-                  isStreaming={isStreaming}
-                  streamingContent={streamingContent}
-                  progressStatusText={progressStatusText}
-                  errorMessage={errorMessage}
-                  oauthNotification={oauthNotification}
-                  onDismissError={() => setErrorMessage(null)}
-                  onDismissOAuthNotification={() => setOauthNotification(null)}
-                  onCopyMessage={handleCopyMessage}
-                  onShareMessage={handleShareMessage}
-                  onThumbsUp={handleThumbsUp}
-                  onThumbsDown={handleThumbsDown}
-                  onSubmitFeedbackReason={handleSubmitFeedbackReason}
-                  onRetryMessage={handleRetryMessage}
-                  onShowVerdict={setSelectedVerdict}
-                  onAskAboutClaim={handleAskAboutClaim}
-                  onActionClick={handleActionClick}
-                />
-              </div>
-            </div>
+  // The list's "+" knows which thread is open, so on a wide screen it offers
+  // the same three ways in as the thread header's "+" beside it.
+  const listColumn = (
+    <ConversationList
+      selectedConversation={selectedConversation}
+      onSelectConversation={onSelectConversation}
+      compose={composeMenu(Boolean(selectedConversation))}
+    />
+  );
 
-            <MessageInput
-              value={newMessage}
-              onChange={setNewMessage}
-              onSend={handleSendMessage}
-              isStreaming={isStreaming}
-              disabled={usageStatus.sendDisabled}
-              conversationId={selectedConversation}
-            />
-          </div>
-        )}
+  const threadPane = !selectedConversation ? (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {banner}
+      <ChatEmptyState
+        compose={composeMenu(false)}
+        onOpenCommands={handleOpenCommands}
+        disabled={createConversation.isPending}
+        onNavigate={onNavigate}
+        providerStatus={providerStatusLine}
+      />
+    </div>
+  ) : (
+    /* Active Conversation View */
+    <div className="flex h-full flex-col">
+      <ThreadHeader
+        title={headerTitle}
+        subtitle={headerSubtitle}
+        initials={initialsFor(headerTitle)}
+        avatarSlot={activeConversation ? avatarSlot(activeConversation) : 0}
+        showBrandMark={Boolean(activeCoachTitle) && !activeConversation?.group_id}
+        onOpenInfo={() => {
+          setInfoOpensParticipants(false);
+          setInfoOpen(true);
+        }}
+        onBack={isDesktop ? undefined : () => onSelectConversation(null)}
+        actions={composeMenu(true)}
+      />
+      {/* Usage warning banner */}
+      <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
+      {banner}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="px-4 py-4 md:px-8">
+          <MessageList
+            messages={messagesData?.messages || []}
+            messageMetadata={messageMetadata}
+            messageFeedback={messageFeedback}
+            messageFeedbackComment={messageFeedbackComment}
+            messageBlocks={messageBlocks}
+            verdicts={verdicts}
+            assistantLabel={activeCoachTitle ?? undefined}
+            isLoading={messagesLoading}
+            isStreaming={isStreaming}
+            streamingContent={streamingContent}
+            progressStatusText={progressStatusText}
+            errorMessage={errorMessage}
+            oauthNotification={oauthNotification}
+            onDismissError={() => setErrorMessage(null)}
+            onDismissOAuthNotification={() => setOauthNotification(null)}
+            onCopyMessage={handleCopyMessage}
+            onShareMessage={handleShareMessage}
+            onThumbsUp={handleThumbsUp}
+            onThumbsDown={handleThumbsDown}
+            onSubmitFeedbackReason={handleSubmitFeedbackReason}
+            onRetryMessage={handleRetryMessage}
+            onShowVerdict={handleShowVerdict}
+            onAskAboutClaim={handleAskAboutClaim}
+            onActionClick={handleActionClick}
+          />
+        </div>
       </div>
+
+      <MessageInput
+        value={newMessage}
+        onChange={setNewMessage}
+        onSend={handleSendMessage}
+        isStreaming={isStreaming}
+        disabled={usageStatus.sendDisabled}
+        conversationId={selectedConversation}
+      />
+    </div>
+  );
+
+  return (
+    <div className="relative h-full">
+      <ChatShell list={listColumn} thread={threadPane} hasSelection={Boolean(selectedConversation)} />
 
       {/* Drawers */}
       {infoOpen && activeConversation ? (
@@ -895,13 +939,14 @@ export default function ChatTab({
         />
       ) : null}
 
-      {selectedVerdict ? (
+      {verdictMessageId ? (
         <VerdictDrawer
-          verdict={selectedVerdict}
-          onClose={() => setSelectedVerdict(null)}
-          onAskAboutClaim={() => {
-            handleAskAboutClaim(selectedVerdict);
-            setSelectedVerdict(null);
+          verdicts={drawerVerdicts}
+          loading={verdictsFetching && drawerVerdicts.length === 0}
+          onClose={() => setVerdictMessageId(null)}
+          onAskAboutClaim={(verdict) => {
+            handleAskAboutClaim(verdict);
+            setVerdictMessageId(null);
           }}
         />
       ) : null}

@@ -81,6 +81,11 @@ pub trait CoachesRepository: Send + Sync {
         coaches: &mut [CoachListItem],
         locale: &str,
     ) -> AppResult<()>;
+    /// [`Self::apply_translations`] for bare coach rows — the store listing
+    /// and the catalogue detail carry a [`Coach`] without the list-item
+    /// wrapper, and a French athlete browsing the store reads the same
+    /// `coach_translations` overlay the chat's `/coach list` already shows.
+    async fn translate_coaches(&self, coaches: &mut [Coach], locale: &str) -> AppResult<()>;
     /// Update an existing coach.
     ///
     /// Snapshots the pre-update state as a new version before applying the

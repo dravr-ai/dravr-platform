@@ -17,40 +17,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import type { MemoryFactRow } from '@pierre/api-client';
+import { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
 import { spacing, borderRadius, fontSize, fontWeight, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
-/**
- * The corpus key for each fact kind. Module scope, so it holds keys rather than
- * sentences; `humanizeKind` takes the caller's `t` and resolves one.
- *
- * A kind the server sends that is not listed here falls back to its own name
- * capitalised, which is what it did before and is still better than blank.
- */
-const KIND_LABEL_KEYS: Record<string, string> = {
-  preference: 'app.preferences',
-  physiology: 'app.physiology',
-  injury: 'app.injuries',
-  goal: 'app.goals',
-  schedule: 'app.schedules',
-  equipment: 'app.equipment',
-  other: 'app.other',
-};
-
-function humanizeKind(kind: string, t: (key: string) => string): string {
-  const key = KIND_LABEL_KEYS[kind];
-  return key ? t(key) : kind.charAt(0).toUpperCase() + kind.slice(1);
-}
-
-function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
+// Formatted in the locale the screen renders in, not the device's: a French
+// athlete reads "1 sept. 2026, 16:28", not "9/1/2026, 4:28:23 PM".
+function formatUpdated(iso: string, language: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
     return iso;
   }
+  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
 // The memory-extraction prompt models predicates as third-person verbs
@@ -66,17 +47,24 @@ function capitalizeFirst(text: string): string {
   return text.length === 0 ? text : text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+function factSentence(fact: Pick<MemoryFactRow, 'subject' | 'predicate' | 'object'>): string {
+  if (isUserSubject(fact.subject)) {
+    return `${capitalizeFirst(fact.predicate)} ${fact.object}`.trim();
+  }
+  return `${fact.subject} ${fact.predicate} ${fact.object}`.trim();
+}
+
 export function MemoryScreen(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
-  const [kindFilter, setKindFilter] = useState<string>('');
+  const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: [...MEMORY_FACTS_QUERY_KEY, kindFilter],
     queryFn: () =>
       userApi.listMemoryFacts({
-        kind: (kindFilter || undefined) as MemoryFactRow['kind'] | undefined,
+        kind: kindFilter || undefined,
         limit: 100,
       }),
   });
@@ -95,7 +83,7 @@ export function MemoryScreen(): React.JSX.Element {
   const facts = useMemo(() => data?.facts ?? [], [data?.facts]);
 
   const groupedByKind = useMemo(() => {
-    const groups = new Map<string, MemoryFactRow[]>();
+    const groups = new Map<MemoryFactRow['kind'], MemoryFactRow[]>();
     for (const f of facts) {
       const bucket = groups.get(f.kind);
       if (bucket) {
@@ -110,7 +98,7 @@ export function MemoryScreen(): React.JSX.Element {
   const handleForget = (fact: MemoryFactRow): void => {
     Alert.alert(
       t('app.forgetThisFactQ'),
-      t('app.confirmForgetFact', { fact: `${fact.subject} ${fact.predicate} ${fact.object}` }),
+      t('app.confirmForgetFact', { fact: factSentence(fact) }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -122,15 +110,11 @@ export function MemoryScreen(): React.JSX.Element {
     );
   };
 
-  const kindOptions: { value: string; label: string }[] = [
-    { value: '', label: t('app.filterAll') },
-    { value: 'preference', label: t('app.preferences') },
-    { value: 'physiology', label: t('app.physiology') },
-    { value: 'injury', label: t('app.injuries') },
-    { value: 'goal', label: t('app.goals') },
-    { value: 'schedule', label: t('app.schedules') },
-    { value: 'equipment', label: t('app.equipment') },
-    { value: 'other', label: t('app.other') },
+  // The chips and the group headers read the same shared table, so a kind the
+  // server sends is never a translated word in one place and a raw enum in the other.
+  const kindOptions: { value: MemoryFactRow['kind'] | ''; label: string }[] = [
+    { value: '', label: t('shell.memoryFilterAllKinds') },
+    ...MEMORY_FACT_KINDS.map((kind) => ({ value: kind, label: t(MEMORY_KIND_LABEL_KEY[kind]) })),
   ];
 
   return (
@@ -277,12 +261,15 @@ export function MemoryScreen(): React.JSX.Element {
                     fontWeight: fontWeight.semibold,
                   }}
                 >
-                  {humanizeKind(kind, t)}
+                  {t(MEMORY_KIND_LABEL_KEY[kind])}
                 </Text>
                 <Text
+                  testID="memory-fact-count"
                   style={{ color: colors.text.tertiary, fontSize: fontSize.xs }}
                 >
-                  {items.length} fact{items.length === 1 ? '' : 's'}
+                  {t(items.length === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', {
+                    count: items.length,
+                  })}
                 </Text>
               </View>
               {items.map((fact, idx) => (
@@ -327,19 +314,24 @@ export function MemoryScreen(): React.JSX.Element {
                       )}
                     </Text>
                     <Text
+                      testID="memory-fact-meta"
                       style={{
                         color: colors.text.tertiary,
                         fontSize: fontSize.xs,
                         marginTop: spacing.xs,
                       }}
                     >
-                      {t('app.confidence')} {(fact.confidence * 100).toFixed(0)}% ·
-                      Updated {formatTimestamp(fact.updated_at)}
+                      {t('shell.memoryFactMeta', {
+                        confidence: (fact.confidence * 100).toFixed(0),
+                        updated: formatUpdated(fact.updated_at, language),
+                      })}
+                      {/* The coach is named by title, never by its id — a UUID means nothing to the athlete. */}
+                      {fact.coach_title ? ` · ${t('shell.memoryFactCoach', { name: fact.coach_title })}` : ''}
                     </Text>
                   </View>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={`Forget ${isUserSubject(fact.subject) ? `${capitalizeFirst(fact.predicate)} ${fact.object}` : `${fact.subject} ${fact.predicate} ${fact.object}`}`}
+                    accessibilityLabel={t('shell.memoryForgetFactLabel', { fact: factSentence(fact) })}
                     onPress={() => handleForget(fact)}
                     disabled={forgetMutation.isPending}
                     style={{

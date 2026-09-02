@@ -96,8 +96,8 @@ describe('MessageItem claim verdict chip', () => {
         onShowVerdict={onShowVerdict}
       />,
     );
-    fireEvent.click(screen.getByText(/1 verdict/));
-    expect(onShowVerdict).toHaveBeenCalledWith(verdict);
+    fireEvent.click(screen.getByTestId('verdict-chip'));
+    expect(onShowVerdict).toHaveBeenCalledWith([verdict], 'msg-1');
   });
 
   it('renders the Ask me about this claim shortcut for single-verdict messages', () => {

@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Message list component displaying chat messages with streaming support
-// ABOUTME: Handles message display, streaming content, loading states, and errors
+// ABOUTME: The thread's transcript — bubbles grouped by author, a day pill between days, and the live rows of a turn
+// ABOUTME: Streaming text, the thinking dots, an error and a provider notice all speak from the coach's side of the thread
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { filterDisplayMessages } from '@pierre/chat-utils';
+import {
+  dayLabelFor,
+  filterDisplayMessages,
+  formatMessageTime,
+  isSameMessageGroup,
+  localDayKey,
+} from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
+import MessageBubble from './MessageBubble';
+import DaySeparator from './DaySeparator';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
@@ -52,12 +60,17 @@ interface MessageListProps {
   /** Persist an optional thumbs-down reason for a message. */
   onSubmitFeedbackReason: (messageId: string, comment: string) => void;
   onRetryMessage: (messageId: string) => void;
-  /** Click handler for the verdict chip → open detail drawer. */
-  onShowVerdict?: (verdict: ClaimVerdict) => void;
+  /** Click handler for the verdict chip → open the drawer for that message. */
+  onShowVerdict?: (verdicts: ClaimVerdict[], messageId: string) => void;
   /** "Ask me about this claim" callback → ChatTab dispatches a follow-up. */
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;
+}
+
+/** The coach's mark beside a live row — the same one a persisted reply carries. */
+function CoachAvatar({ label }: { label: string }) {
+  return <img src="/dravr-icon.svg" alt={label} className="h-8 w-8 rounded-full" />;
 }
 
 export default function MessageList({
@@ -86,149 +99,175 @@ export default function MessageList({
   onAskAboutClaim,
   onActionClick,
 }: MessageListProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const author = assistantLabel ?? t('shell.brandName');
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
 
-  if (isLoading) {
-    return (
-      <div className="text-center text-on-surface-variant py-8 text-sm">{t('chat.loadingMessages')}</div>
-    );
-  }
-
   // Filter out internal LLM plumbing rows (tool_call / tool_result) so their
   // raw <tool_call>/<tool_result> XML never renders — this matters most for
   // messaging-origin conversations (Telegram etc.) that surface in web chat
   // with the same scaffolding rows as native web chat.
-  const visibleMessages = filterDisplayMessages(messages);
+  const visibleMessages = useMemo(() => filterDisplayMessages(messages), [messages]);
+
+  // The rows with what surrounds them decided: a day pill where the local
+  // date changes, and a run boundary where the author or the five-minute
+  // window does. Both read `created_at`, so an optimistic row (stamped when
+  // it was typed) sits in the right run too.
+  const rows = useMemo(() => {
+    const out: ReactNode[] = [];
+    let previous: Message | null = null;
+    let previousDay = '';
+    for (const msg of visibleMessages) {
+      const day = localDayKey(msg.created_at);
+      if (day && day !== previousDay) {
+        const label = dayLabelFor(msg.created_at, language);
+        out.push(
+          <DaySeparator
+            key={`day-${day}`}
+            label={
+              label.kind === 'today'
+                ? t('chat.dayToday')
+                : label.kind === 'yesterday'
+                  ? t('chat.dayYesterday')
+                  : label.label
+            }
+          />,
+        );
+        previousDay = day;
+      }
+      const groupStart = previous === null || !isSameMessageGroup(previous, msg);
+      out.push(
+        <MessageItem
+          key={msg.id}
+          message={msg}
+          metadata={messageMetadata.get(msg.id)}
+          feedback={messageFeedback.get(msg.id)}
+          feedbackComment={messageFeedbackComment.get(msg.id)}
+          isError={msg.isError}
+          blocks={messageBlocks?.get(msg.id)}
+          verdicts={verdicts}
+          assistantLabel={assistantLabel}
+          timestamp={formatMessageTime(msg.created_at, language)}
+          groupStart={groupStart}
+          onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
+          onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
+          onThumbsUp={msg.role === 'assistant' ? () => onThumbsUp(msg.id) : undefined}
+          onThumbsDown={msg.role === 'assistant' ? () => onThumbsDown(msg.id) : undefined}
+          onSubmitReason={
+            msg.role === 'assistant' ? (comment: string) => onSubmitFeedbackReason(msg.id, comment) : undefined
+          }
+          onRetry={msg.role === 'assistant' ? () => onRetryMessage(msg.id) : undefined}
+          onShowVerdict={onShowVerdict}
+          onAskAboutClaim={onAskAboutClaim}
+          onActionClick={onActionClick}
+        />,
+      );
+      previous = msg;
+    }
+    return out;
+  }, [
+    visibleMessages,
+    language,
+    t,
+    messageMetadata,
+    messageFeedback,
+    messageFeedbackComment,
+    messageBlocks,
+    verdicts,
+    assistantLabel,
+    onCopyMessage,
+    onShareMessage,
+    onThumbsUp,
+    onThumbsDown,
+    onSubmitFeedbackReason,
+    onRetryMessage,
+    onShowVerdict,
+    onAskAboutClaim,
+    onActionClick,
+  ]);
+
+  if (isLoading) {
+    return (
+      <div className="py-8 text-center text-sm text-on-surface-variant">{t('chat.loadingMessages')}</div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {visibleMessages.map((msg) => {
-        return (
-          <MessageItem
-            key={msg.id}
-            message={msg}
-            metadata={messageMetadata.get(msg.id)}
-            feedback={messageFeedback.get(msg.id)}
-            feedbackComment={messageFeedbackComment.get(msg.id)}
-            isError={msg.isError}
-            blocks={messageBlocks?.get(msg.id)}
-            verdicts={verdicts}
-            assistantLabel={assistantLabel}
-            onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
-            onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
-            onThumbsUp={msg.role === 'assistant' ? () => onThumbsUp(msg.id) : undefined}
-            onThumbsDown={msg.role === 'assistant' ? () => onThumbsDown(msg.id) : undefined}
-            onSubmitReason={
-              msg.role === 'assistant' ? (comment: string) => onSubmitFeedbackReason(msg.id, comment) : undefined
-            }
-            onRetry={msg.role === 'assistant' ? () => onRetryMessage(msg.id) : undefined}
-            onShowVerdict={onShowVerdict}
-            onAskAboutClaim={onAskAboutClaim}
-            onActionClick={onActionClick}
-          />
-        );
-      })}
+    <div className="flex flex-col">
+      {rows}
 
       {/* OAuth connection notification */}
       {oauthNotification && (
-        <div className="flex gap-3 animate-fadeIn">
-          <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
+        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+          <div className="flex items-start gap-3">
+            <p className="text-sm leading-relaxed text-on-surface">
+              {t('app.providerConnected', { provider: oauthNotification.provider })}
+            </p>
+            <button
+              onClick={onDismissOAuthNotification}
+              className="text-outline transition-colors hover:text-on-surface"
+              aria-label={t('chat.dismiss')}
+            >
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <div className="flex-1 min-w-0 pt-1">
-            <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
-              {assistantLabel ?? t('shell.brandName')}
-              <button
-                onClick={onDismissOAuthNotification}
-                className="text-outline hover:text-on-surface transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="text-on-surface text-sm leading-relaxed">
-              {oauthNotification.provider} connected successfully. You can now access your {oauthNotification.provider} data.
-            </div>
-          </div>
-        </div>
+        </MessageBubble>
       )}
 
       {/* Streaming response */}
       {isStreaming && streamingContent && (
-        <div className="flex gap-3">
-          <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
+        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+          <div className="text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
+            <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+              {linkifyUrls(streamingContent)}
+            </Markdown>
           </div>
-          <div className="flex-1 min-w-0 pt-1">
-            <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
-              {assistantLabel ?? t('shell.brandName')}
-              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
+          {/* Live pipeline progress (tool calls / steps) below the streamed
+              text so the user sees what the model is doing even after the
+              first tokens arrive. */}
+          {progressStatusText && (
+            <div className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
+              <div className="pierre-spinner h-3 w-3"></div>
+              <span>{progressStatusText}</span>
             </div>
-            <div className="text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
-              <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-                {linkifyUrls(streamingContent)}
-              </Markdown>
-            </div>
-            {/* Live pipeline progress (tool calls / steps) below the
-                streamed text so the user sees what the model is doing
-                even after the first tokens arrive. */}
-            {progressStatusText && (
-              <div className="mt-1 flex items-center gap-2 text-on-surface-variant text-xs">
-                <div className="pierre-spinner w-3 h-3"></div>
-                <span>{progressStatusText}</span>
-              </div>
-            )}
-          </div>
-        </div>
+          )}
+        </MessageBubble>
       )}
 
-      {/* Thinking/Loading indicator */}
+      {/* Thinking indicator — three breathing dots, the way every messenger says "typing" */}
       {isStreaming && !streamingContent && (
-        <div className="flex gap-3">
-          <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
+        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+          <div className="flex items-center gap-2 text-sm text-on-surface-variant" role="status" aria-live="polite">
+            <span className="flex items-center gap-1" aria-hidden="true">
+              <span className="ai-typing-dot" />
+              <span className="ai-typing-dot" />
+              <span className="ai-typing-dot" />
+            </span>
+            <span>{progressStatusText ?? t('chat.thinking')}</span>
           </div>
-          <div className="flex-1 pt-1">
-            <div className="font-medium text-on-surface text-sm mb-2 flex items-center gap-2">
-              {assistantLabel ?? t('shell.brandName')}
-            </div>
-            <div className="flex items-center gap-2 text-on-surface-variant text-sm">
-              <div className="pierre-spinner w-4 h-4"></div>
-              <span>{progressStatusText ?? t('chat.thinking')}</span>
-            </div>
-          </div>
-        </div>
+        </MessageBubble>
       )}
 
       {/* Error message display */}
       {errorMessage && !isStreaming && (
-        <div className="flex gap-3">
-          <div className="flex-shrink-0">
-            <div className="w-8 h-8 rounded-full bg-error/20 flex items-center justify-center">
-              <svg className="w-4 h-4 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
+        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+          <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2">
+            <p className="text-sm text-error">{errorMessage}</p>
+            <button
+              onClick={onDismissError}
+              className="mt-2 text-xs text-error underline transition-colors hover:text-error"
+            >
+              {t('chat.dismiss')}
+            </button>
           </div>
-          <div className="flex-1 pt-1">
-            <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3">
-              <p className="text-error text-sm">{errorMessage}</p>
-              <button
-                onClick={onDismissError}
-                className="text-error hover:text-error text-xs mt-2 underline transition-colors"
-              >
-                {t('chat.dismiss')}
-              </button>
-            </div>
-          </div>
-        </div>
+        </MessageBubble>
       )}
 
       <div ref={messagesEndRef} />

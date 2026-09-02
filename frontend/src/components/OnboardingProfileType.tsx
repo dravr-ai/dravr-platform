@@ -82,14 +82,14 @@ export default function OnboardingProfileType({
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         <ChoiceCard
           title={t('onboarding.imAnAthlete')}
-          description="Track your own training and get coaching tuned to how you actually train."
+          description={t('onboarding.athleteCardDescription')}
           busy={choosing === 'athlete'}
           disabled={choosing !== null}
           onSelect={handleAthlete}
         />
         <ChoiceCard
           title={t('onboarding.iCoachOthers')}
-          description="Build plans and manage the athletes you coach. Unlocks coach-facing plan builders."
+          description={t('onboarding.coachCardDescription')}
           busy={choosing === 'coach'}
           disabled={choosing !== null}
           onSelect={() => void handleCoach()}

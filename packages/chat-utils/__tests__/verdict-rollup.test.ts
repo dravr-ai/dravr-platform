@@ -7,7 +7,6 @@ import {
   mergeVerdictSeverities,
   summarizeVerdicts,
   verdictChipSeverity,
-  verdictSummaryLabel,
 } from '@pierre/shared-types';
 
 function row(overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
@@ -87,22 +86,5 @@ describe('mergeVerdictSeverities', () => {
       { status: 'supported', evidence_strength: 'strong' },
       { status: 'unsupported' },
     ]);
-  });
-});
-
-describe('verdictSummaryLabel', () => {
-  it('qualifies with the evidence strength where the surface read the rows', () => {
-    const summary = summarizeVerdicts([{ status: 'contradicted', evidence_strength: 'none' }]);
-    expect(summary).not.toBeNull();
-    expect(verdictSummaryLabel(summary!)).toBe('1 verdict · none');
-  });
-
-  it('qualifies with the status where only the turn\'s chips arrived', () => {
-    const summary = summarizeVerdicts([
-      verdictChipSeverity({ claim: 'a', contradicted: true }),
-      verdictChipSeverity({ claim: 'b', contradicted: false }),
-    ]);
-    expect(summary).not.toBeNull();
-    expect(verdictSummaryLabel(summary!)).toBe('2 verdicts · contradicted');
   });
 });

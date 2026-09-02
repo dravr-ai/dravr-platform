@@ -32,17 +32,19 @@ import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoach, CoachCategory } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
 // Category filter options. `key` is the value sent to the API and must stay
 // English; `labelKey` is what the chip shows and is resolved at render, since
-// module scope cannot hold a hook.
+// module scope cannot hold a hook. The chips and the card badges read the same
+// shared table, so one screen never shows a category in two languages.
 const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; labelKey: string }> = [
   { key: 'all', labelKey: 'app.filterAll' },
-  { key: 'training', labelKey: 'app.training' },
-  { key: 'nutrition', labelKey: 'app.nutrition' },
-  { key: 'recovery', labelKey: 'app.recovery' },
-  { key: 'recipes', labelKey: 'app.recipes' },
-  { key: 'mobility', labelKey: 'app.mobility' },
-  { key: 'custom', labelKey: 'app.custom' },
+  { key: 'training', labelKey: COACH_CATEGORY_LABEL_KEY.training },
+  { key: 'nutrition', labelKey: COACH_CATEGORY_LABEL_KEY.nutrition },
+  { key: 'recovery', labelKey: COACH_CATEGORY_LABEL_KEY.recovery },
+  { key: 'recipes', labelKey: COACH_CATEGORY_LABEL_KEY.recipes },
+  { key: 'mobility', labelKey: COACH_CATEGORY_LABEL_KEY.mobility },
+  { key: 'custom', labelKey: COACH_CATEGORY_LABEL_KEY.custom },
 ];
 
 // Sort options
@@ -245,18 +247,21 @@ export function StoreScreen() {
     >
       <View className="flex-row justify-between items-center mb-1">
         <View
+          testID="category-badge"
           className="px-2 py-0.5 rounded"
           style={{ backgroundColor: COACH_CATEGORY_COLORS[item.category] + '20' }}
         >
           <Text
-            className="text-xs font-medium capitalize"
+            className="text-xs font-medium"
             style={{ color: COACH_CATEGORY_COLORS[item.category] }}
           >
-            {item.category}
+            {t(coachCategoryLabelKey(item.category))}
           </Text>
         </View>
-        <Text className="text-xs text-text-secondary">
-          {item.install_count} {item.install_count === 1 ? 'install' : 'installs'}
+        <Text testID="install-count" className="text-xs text-text-secondary">
+          {t(item.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
+            count: item.install_count,
+          })}
         </Text>
       </View>
 

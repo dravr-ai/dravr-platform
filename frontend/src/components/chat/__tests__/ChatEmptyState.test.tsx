@@ -7,16 +7,18 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SLASH_HINT } from '@pierre/shared-constants';
 import ChatEmptyState from '../ChatEmptyState';
 
-function renderEmptyState(overrides: { disabled?: boolean } = {}) {
+function renderEmptyState(
+  overrides: { disabled?: boolean; providerStatus?: string | null } = {},
+) {
   const onOpenCommands = vi.fn();
   render(
     <ChatEmptyState
       compose={<button type="button">Compose</button>}
       onOpenCommands={onOpenCommands}
       disabled={overrides.disabled}
+      providerStatus={overrides.providerStatus}
     />,
   );
   return { onOpenCommands };
@@ -34,7 +36,9 @@ describe('ChatEmptyState', () => {
 
   it('teaches the "/" and "@" grammar with the shared hint', () => {
     renderEmptyState();
-    expect(screen.getByText(SLASH_HINT)).toBeInTheDocument();
+    expect(
+      screen.getByText('Type / for commands · @handle brings a coach in for one turn'),
+    ).toBeInTheDocument();
   });
 
   it('asks the host to open a thread with the palette when Commands is pressed', async () => {
@@ -49,5 +53,22 @@ describe('ChatEmptyState', () => {
   it('disables Commands while a conversation is being created', () => {
     renderEmptyState({ disabled: true });
     expect(screen.getByTestId('chat-empty-commands')).toBeDisabled();
+  });
+
+  it('names what the coach can see in the footer, and stays quiet until that is known', () => {
+    const { unmount } = render(
+      <ChatEmptyState
+        compose={<button type="button">Compose</button>}
+        onOpenCommands={vi.fn()}
+        providerStatus={null}
+      />,
+    );
+    expect(screen.queryByTestId('chat-empty-provider-status')).not.toBeInTheDocument();
+    unmount();
+
+    renderEmptyState({ providerStatus: 'No provider connected' });
+    expect(screen.getByTestId('chat-empty-provider-status')).toHaveTextContent(
+      'No provider connected',
+    );
   });
 });

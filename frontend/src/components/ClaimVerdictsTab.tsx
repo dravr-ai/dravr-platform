@@ -270,7 +270,7 @@ export default function ClaimVerdictsTab() {
 
       {selectedVerdict ? (
         <VerdictDrawer
-          verdict={selectedVerdict}
+          verdicts={[selectedVerdict]}
           onClose={() => setSelectedVerdict(null)}
         />
       ) : null}

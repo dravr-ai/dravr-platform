@@ -44,25 +44,26 @@ const DEFAULT_STYLE = {
   hoverColor: 'hover:border-on-surface-variant',
 };
 
-// Get description based on capabilities
-const getProviderDescription = (provider: ProviderStatus): string => {
+// The corpus key of the one-line blurb a provider's capability set earns;
+// the card resolves it with t() so the line reads in the athlete's language.
+const providerDescriptionKey = (provider: ProviderStatus): string => {
   const caps = provider.capabilities;
   if (caps.includes('activities') && caps.includes('sleep')) {
-    return 'Activities, sleep & recovery';
+    return 'providerBlurb.activitiesSleepRecovery';
   }
   if (caps.includes('activities')) {
-    return 'Activities & workouts';
+    return 'providerBlurb.activitiesWorkouts';
   }
   if (caps.includes('sleep')) {
-    return 'Sleep tracking';
+    return 'providerBlurb.sleepTracking';
   }
-  return 'Fitness data';
+  return 'providerBlurb.fitnessData';
 };
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
 // Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
 // dial. Default falls back to a neutral disc.
-const ProviderIcon = ({ providerId, className }: { providerId: string; className?: string }) => {
+export const ProviderIcon = ({ providerId, className }: { providerId: string; className?: string }) => {
   const baseClass = className || 'w-5 h-5';
 
   switch (providerId) {
@@ -336,7 +337,7 @@ export default function ProviderConnectionCards({
               provider.connected
                 ? t('providers.isConnectedAria', { provider: provider.display_name })
                 : isNonOAuth
-                  ? `${provider.display_name} - ${getProviderDescription(provider)}`
+                  ? `${provider.display_name} - ${t(providerDescriptionKey(provider))}`
                   : t('providers.connectToAria', { provider: provider.display_name })
             }
           >
@@ -369,7 +370,7 @@ export default function ProviderConnectionCards({
                     {isNonOAuth && !provider.connected && <Badge variant="secondary">{t('providers.demoBadge')}</Badge>}
                   </div>
                   <p className="text-sm text-on-surface-variant mt-0.5 leading-snug">
-                    {getProviderDescription(provider)}
+                    {t(providerDescriptionKey(provider))}
                   </p>
                 </div>
                 {isActionable && (

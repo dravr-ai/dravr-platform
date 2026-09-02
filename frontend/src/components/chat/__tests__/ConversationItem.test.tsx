@@ -7,6 +7,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AVATAR_SLOTS, buildConversationRow } from '@pierre/chat-utils';
+
+/** The words the row cannot spell itself, as the English client resolves them. */
+const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitled chat' };
 import type { Conversation } from '@pierre/shared-types';
 import ConversationItem from '../ConversationItem';
 import { AVATAR_SLOT_CLASSES, avatarSlotClass } from '../avatarSlots';
@@ -41,7 +44,7 @@ function renderRow(
   return render(
     <ul>
       <ConversationItem
-        row={buildConversationRow(conv, NOW)}
+        row={buildConversationRow(conv, LABELS, NOW)}
         isSelected={state.isSelected ?? false}
         isEditing={state.isEditing ?? false}
         editedTitleValue={state.editedTitleValue ?? ''}
@@ -192,8 +195,8 @@ describe('avatar palette', () => {
   });
 
   it('gives the same thread the same colour on every render', () => {
-    const first = buildConversationRow(conversation({ id: 'conv-stable' }), NOW).avatarSlot;
-    const second = buildConversationRow(conversation({ id: 'conv-stable' }), NOW).avatarSlot;
+    const first = buildConversationRow(conversation({ id: 'conv-stable' }), LABELS, NOW).avatarSlot;
+    const second = buildConversationRow(conversation({ id: 'conv-stable' }), LABELS, NOW).avatarSlot;
     expect(avatarSlotClass(first)).toBe(avatarSlotClass(second));
     expect(avatarSlotClass(AVATAR_SLOTS)).toBe(AVATAR_SLOT_CLASSES[0]);
   });

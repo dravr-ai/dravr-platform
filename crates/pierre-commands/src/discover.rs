@@ -106,7 +106,8 @@ impl DiscoverHandler {
         Ok(match Scope::parse(words) {
             Scope::All => {
                 let page =
-                    browse_store_page(&repos, ctx.tenant_id, None, offset, PAGE_SIZE).await?;
+                    browse_store_page(&repos, ctx.tenant_id, None, offset, PAGE_SIZE, &ctx.locale)
+                        .await?;
                 Listing {
                     coaches: page.coaches,
                     next_page: page
@@ -116,9 +117,15 @@ impl DiscoverHandler {
                 }
             }
             Scope::Category(category) => {
-                let page =
-                    browse_store_page(&repos, ctx.tenant_id, Some(category), offset, PAGE_SIZE)
-                        .await?;
+                let page = browse_store_page(
+                    &repos,
+                    ctx.tenant_id,
+                    Some(category),
+                    offset,
+                    PAGE_SIZE,
+                    &ctx.locale,
+                )
+                .await?;
                 Listing {
                     coaches: page.coaches,
                     next_page: page
@@ -128,7 +135,7 @@ impl DiscoverHandler {
                 }
             }
             Scope::Search(query) => Listing {
-                coaches: search_store(&repos, &query, Some(PAGE_SIZE)).await?,
+                coaches: search_store(&repos, &query, Some(PAGE_SIZE), &ctx.locale).await?,
                 next_page: None,
                 asked: Some(query),
             },

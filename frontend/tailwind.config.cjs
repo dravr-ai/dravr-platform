@@ -49,6 +49,8 @@ module.exports = {
         success: 'rgb(var(--color-success) / <alpha-value>)',
         warning: 'rgb(var(--color-warning) / <alpha-value>)',
         info: 'rgb(var(--color-info) / <alpha-value>)',
+        // The overlay behind drawers and sheets — a shadow of the page in both themes.
+        scrim: 'rgb(var(--color-scrim) / <alpha-value>)',
 
         // DESIGN.md §2 pillar accents — semantic, so they flip with the theme.
         activity: 'rgb(var(--color-activity) / <alpha-value>)',
@@ -179,6 +181,48 @@ module.exports = {
         // Inset ghost border, repointed at the lifted Product Tier opacity.
         'glass': 'inset 0 0 0 1px rgba(155, 165, 159, 0.40)',
       },
+      // Coach prose runs through @tailwindcss/typography, whose stock palette
+      // is Tailwind gray in both schemes. Every prose variable — and its
+      // `invert` twin, so `dark:prose-invert` stays inert — reads the Boreal
+      // tokens instead, which already flip with the theme.
+      typography: {
+        DEFAULT: {
+          css: {
+            '--tw-prose-body': 'rgb(var(--color-on-surface))',
+            '--tw-prose-headings': 'rgb(var(--color-on-surface))',
+            '--tw-prose-lead': 'rgb(var(--color-on-surface-variant))',
+            '--tw-prose-links': 'rgb(var(--color-primary))',
+            '--tw-prose-bold': 'rgb(var(--color-on-surface))',
+            '--tw-prose-counters': 'rgb(var(--color-on-surface-variant))',
+            '--tw-prose-bullets': 'rgb(var(--color-outline-variant))',
+            '--tw-prose-hr': 'var(--ghost-border)',
+            '--tw-prose-quotes': 'rgb(var(--color-on-surface))',
+            '--tw-prose-quote-borders': 'rgb(var(--color-primary))',
+            '--tw-prose-captions': 'rgb(var(--color-on-surface-variant))',
+            '--tw-prose-code': 'rgb(var(--color-on-surface))',
+            '--tw-prose-pre-code': 'rgb(var(--color-on-surface))',
+            '--tw-prose-pre-bg': 'rgb(var(--color-surface-container-high))',
+            '--tw-prose-th-borders': 'var(--ghost-border-strong)',
+            '--tw-prose-td-borders': 'var(--ghost-border)',
+            '--tw-prose-invert-body': 'rgb(var(--color-on-surface))',
+            '--tw-prose-invert-headings': 'rgb(var(--color-on-surface))',
+            '--tw-prose-invert-lead': 'rgb(var(--color-on-surface-variant))',
+            '--tw-prose-invert-links': 'rgb(var(--color-primary))',
+            '--tw-prose-invert-bold': 'rgb(var(--color-on-surface))',
+            '--tw-prose-invert-counters': 'rgb(var(--color-on-surface-variant))',
+            '--tw-prose-invert-bullets': 'rgb(var(--color-outline-variant))',
+            '--tw-prose-invert-hr': 'var(--ghost-border)',
+            '--tw-prose-invert-quotes': 'rgb(var(--color-on-surface))',
+            '--tw-prose-invert-quote-borders': 'rgb(var(--color-primary))',
+            '--tw-prose-invert-captions': 'rgb(var(--color-on-surface-variant))',
+            '--tw-prose-invert-code': 'rgb(var(--color-on-surface))',
+            '--tw-prose-invert-pre-code': 'rgb(var(--color-on-surface))',
+            '--tw-prose-invert-pre-bg': 'rgb(var(--color-surface-container-high))',
+            '--tw-prose-invert-th-borders': 'var(--ghost-border-strong)',
+            '--tw-prose-invert-td-borders': 'var(--ghost-border)',
+          },
+        },
+      },
       backdropBlur: {
         xs: '2px',
         boreal: '12px', // canonical glass blur (DESIGN.md §2)
@@ -190,7 +234,7 @@ module.exports = {
       },
       backgroundImage: {
         // Canonical 145° primary → primary_container
-        'boreal-hero': 'linear-gradient(145deg, #00241a 0%, #0d3b2e 100%)',
+        'boreal-hero': 'linear-gradient(145deg, rgb(var(--color-primary)) 0%, rgb(var(--color-primary-container)) 100%)',
         // Legacy gradient names — all repoint at the boreal hero so content
         // sweep can delete or rename them safely.
         'gradient-activity': 'linear-gradient(145deg, #3c6658 0%, #234e40 100%)',

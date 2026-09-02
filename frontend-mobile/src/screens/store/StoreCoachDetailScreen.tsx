@@ -23,6 +23,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
 import type { StoreCoach, StoreCoachDetail } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import { coachCategoryLabelKey } from '@pierre/shared-constants';
 
 /**
  * The athlete's installed copy of a listing, if any. An install mints a copy
@@ -201,12 +202,14 @@ export function StoreCoachDetailScreen() {
             className="px-3 py-1 rounded-full"
             style={{ backgroundColor: categoryColor + '20' }}
           >
-            <Text className="text-sm font-semibold capitalize" style={{ color: categoryColor }}>
-              {coach.category}
+            <Text className="text-sm font-semibold" style={{ color: categoryColor }}>
+              {t(coachCategoryLabelKey(coach.category))}
             </Text>
           </View>
           <Text testID="install-count" className="text-sm text-text-secondary">
-            {coach.install_count} {coach.install_count === 1 ? 'install' : 'installs'}
+            {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
+              count: coach.install_count,
+            })}
           </Text>
         </View>
 

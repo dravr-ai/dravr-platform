@@ -106,14 +106,15 @@ test.describe('Mobile authenticated layout', () => {
   });
 
   test('navigating from drawer dismisses it and switches tab', async ({ page }) => {
-    // Chat, Discover and Notifications are the pinned primary tabs, so the
-    // drawer holds what the bar does not — Data Providers is the athlete's
-    // secondary destination.
+    // Chat, Discover and Notifications are the pinned primary tabs; a
+    // provider connection is configuration, so it lives under Settings and
+    // the drawer offers Settings, not a Data Providers destination.
     await page.getByRole('button', { name: 'Open menu' }).click();
     const drawer = page.getByRole('dialog', { name: 'Secondary navigation' });
-    await drawer.getByRole('button', { name: /^Data Providers/ }).click();
+    await expect(drawer.getByRole('button', { name: /^Data Providers/ })).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Settings' }).click();
     await expect(drawer).toBeHidden();
-    await expect(page).toHaveURL(/#data-providers/);
+    await expect(page).toHaveURL(/#settings/);
   });
 });
 
@@ -130,7 +131,7 @@ test.describe('Mobile composer', () => {
     });
     await mockConversationCreate(page);
     await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
-    await page.getByTestId('chat-empty-state').getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByTestId('conversation-pane').getByRole('button', { name: 'New', exact: true }).click();
     await page.getByRole('menuitem', { name: 'New chat' }).click();
     await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible();
   });

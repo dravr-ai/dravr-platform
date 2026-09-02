@@ -7,6 +7,9 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import { buildConversationRow, type ConversationRowModel } from '@pierre/chat-utils';
+
+/** The words the row cannot spell itself, as the English client resolves them. */
+const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitled chat' };
 import type { Conversation } from '@pierre/shared-types';
 import { ConversationRow, previewMentionsSomeone } from '../src/screens/conversations/ConversationRow';
 
@@ -26,7 +29,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
 }
 
 function row(overrides: Partial<Conversation> = {}): ConversationRowModel {
-  return buildConversationRow(conversation(overrides), NOW);
+  return buildConversationRow(conversation(overrides), LABELS, NOW);
 }
 
 function renderRow(model: ConversationRowModel) {

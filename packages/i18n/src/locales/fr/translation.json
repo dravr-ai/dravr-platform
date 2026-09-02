@@ -166,7 +166,6 @@
     "composerSendAria": "Envoyer le message",
     "composerTapMicToStop": "Touche le micro pour arrêter l'enregistrement",
     "concerns": "Points de vigilance",
-    "confidence": "Confiance",
     "configured": "Configuré",
     "confirmArchiveGroup": "Archiver « {{group}} » ? Les membres perdront l'accès au coaching partagé.",
     "confirmArchiveGroupWeb": "Cela archivera définitivement « {{group}} » et retirera tous les membres. Cette action est irréversible.",
@@ -304,7 +303,6 @@
     "enterResetCodeFromEmail": "Saisis le code de réinitialisation reçu par e-mail",
     "enterVerificationCode": "Saisis le code de vérification",
     "enterYourPassword": "Saisis ton mot de passe",
-    "equipment": "Équipement",
     "errorWithReason": "Erreur : {{reason}}",
     "everyChatAppLinked": "Toutes les applis de discussion disponibles sont liées.",
     "expand": "Développer",
@@ -372,7 +370,6 @@
     "garminAccount": "Compte Garmin",
     "garminEmail": "E-mail Garmin",
     "goBack": "Retour",
-    "goals": "Objectifs",
     "googleEmail": "E-mail Google",
     "group": "Groupe",
     "groupArchivedPermanently": "Le groupe a été archivé définitivement.",
@@ -395,7 +392,6 @@
     "iCoachOthers": "J'entraîne d'autres personnes",
     "imAnAthlete": "Je suis athlète",
     "inactive": "Inactif",
-    "injuries": "Blessures",
     "installCoach": "Installer le coach",
     "installed": "Installé",
     "inviteCodeCopied": "Code d'invitation copié !",
@@ -494,14 +490,14 @@
     "obMostlySport": ", surtout {{sport}}.",
     "obNoActivitiesYet": "Nous n'avons pas encore trouvé d'activités récentes — voici quelques coachs pour commencer. Tes choix s'affineront à mesure que ton service synchronise des données.",
     "obNoSuggestions": "Nous n'avons pas pu établir tes suggestions de coach pour le moment.",
-    "obParqGreeting": "Un rapide bilan de santé, {{name}}",
+    "obParqGreeting": "Un bilan de santé rapide, {{name}}",
     "obReadingActivities": "Nous lisons les activités suivies par ton service pour trouver les coachs qui correspondent à ta façon de t'entraîner.",
     "obSportQuestion": "Que pratiques-tu principalement ?",
     "obStartingLineup": "Voici ton effectif de départ, {{name}}",
     "obTellMeGreeting": "Parle-moi de ton entraînement, {{name}}",
     "obTellMeTitle": "Parle-moi de ton entraînement",
     "obThreeQuestions": "Trois questions rapides pour que ton coach te connaisse dès le départ. Passe celles que tu veux — on verra le reste en chemin.",
-    "obWhyHint": "C'est à ça que ton coach reviendra quand l'entraînement deviendra dur.",
+    "obWhyHint": "C'est à ça que ton coach reviendra quand l'entraînement se corsera.",
     "obWhyMatters": "Et pourquoi est-ce important pour toi ?",
     "obWhyPlaceholder": "Suivre le rythme de mes enfants sur les sentiers",
     "obWindowSummary": "Sur les {{days}} derniers jours, nous avons enregistré {{count}} activités",
@@ -520,12 +516,8 @@
     "opening": "Ouverture…",
     "openingCheckout": "Ouverture du paiement…",
     "orContinueWith": "ou continuer avec",
-    "other": "Autre",
     "otherSignInMethods": "Autres méthodes de connexion",
     "overreaching": "Surmenage",
-    "parqAnswerAll": "Réponds à tout pour continuer",
-    "parqBlurb": "Questions standards avant de commencer. Rien ici ne bloque ton compte — un oui indique simplement à ton coach où être prudent.",
-    "parqTitle": "Un rapide bilan de santé",
     "participantAdded": "Participant ajouté",
     "participantRemoved": "Participant retiré",
     "participants": "Participants",
@@ -548,7 +540,6 @@
     "pendingApprovalTitle": "Compte en attente d'approbation",
     "personalInformation": "Informations personnelles",
     "personalRecord": "Record personnel",
-    "physiology": "Physiologie",
     "planAndUsage": "Forfait et utilisation",
     "planCancelScheduled": "Ton forfait doit être résilié à la fin de la période en cours. Utilise Gérer l'abonnement pour le reprendre.",
     "planCompareBlurb": "Compare ce qu'inclut chaque forfait. Les limites affichées sont celles que l'app applique.",
@@ -563,8 +554,8 @@
     "pleaseFillAllFields": "Remplis tous les champs",
     "pleaseSelectProvider": "Choisis un fournisseur",
     "portalOpenFailed": "Impossible d'ouvrir le portail",
-    "preferences": "Préférences",
     "prefetchActivity": "Précharger les données d'activité",
+    "preparingConnection": "Préparation de la connexion…",
     "preparingLink": "Préparation de ton lien {{channel}}…",
     "previewAthlete": "Une athlète fictive, Maya, à trois semaines d'un marathon.",
     "previewHide": "Masquer l'exemple",
@@ -651,7 +642,6 @@
     "saving": "Enregistrement…",
     "scanQrOrTap": "Scanne un QR ou touche pour ouvrir l'app",
     "scanQrOtherDevice": "Scanne le QR avec un autre appareil, ou touche ci-dessous pour ouvrir",
-    "schedules": "Horaires",
     "searchCoaches": "Rechercher des coachs…",
     "secureConnection": "Connexion sécurisée",
     "secureSessionBlurb": "Dravr utilise une session de navigateur sécurisée pour connecter ton compte. Tes identifiants ne sont jamais conservés.",
@@ -687,12 +677,47 @@
     "sortBy": "Trier par :",
     "sortNewest": "Plus récents",
     "sortPopular": "Populaires",
+    "sportAlpineSkiing": "Ski alpin",
+    "sportBackcountrySkiing": "Ski hors-piste",
+    "sportBasketball": "Basketball",
+    "sportCanoeing": "Canot",
+    "sportCrossCountrySkiing": "Ski de fond",
+    "sportCrossfit": "CrossFit",
     "sportCycling": "Vélo",
+    "sportEbikeRide": "Vélo électrique",
+    "sportGolf": "Golf",
+    "sportGravelRide": "Gravel",
+    "sportHike": "Randonnée",
     "sportHiking": "Randonnée",
+    "sportIceSkating": "Patin à glace",
+    "sportInlineSkating": "Patin à roues alignées",
+    "sportKayaking": "Kayak",
+    "sportKitesurfing": "Kitesurf",
+    "sportMountainBike": "Vélo de montagne",
+    "sportPaddleboarding": "Planche à pagaie",
+    "sportPilates": "Pilates",
+    "sportRide": "Vélo",
+    "sportRockClimbing": "Escalade",
+    "sportRowing": "Aviron",
+    "sportRun": "Course",
     "sportRunning": "Course à pied",
+    "sportSkateboarding": "Planche à roulettes",
+    "sportSnowboarding": "Planche à neige",
+    "sportSnowshoe": "Raquette",
+    "sportSoccer": "Soccer",
     "sportStrength": "Renforcement",
+    "sportStrengthTraining": "Musculation",
+    "sportSurfing": "Surf",
+    "sportSwim": "Natation",
     "sportSwimming": "Natation",
+    "sportTennis": "Tennis",
+    "sportTrailRunning": "Course en sentier",
     "sportTriathlon": "Triathlon",
+    "sportVirtualRide": "Vélo intérieur",
+    "sportVirtualRun": "Tapis roulant",
+    "sportWalk": "Marche",
+    "sportWorkout": "Entraînement",
+    "sportYoga": "Yoga",
     "start": "Commencer",
     "startVoiceInput": "Démarrer la saisie vocale",
     "starting": "Démarrage…",
@@ -700,6 +725,7 @@
     "startupQueryOptional": "Requête de démarrage (facultatif)",
     "startupQueryPlaceholder": "Que doit analyser le coach dès le premier message ? p. ex. Analyse ma charge d'entraînement et repère les tendances",
     "status": "Statut",
+    "stillWorkingProvider": "Encore un instant… la connexion chez le fournisseur peut être lente.",
     "stopVoiceInput": "Arrêter la saisie vocale",
     "stravaDevAppHint": "Pour les personnes ayant une app développeur Strava enregistrée",
     "stravaErrorReason": "Erreur Strava : {{reason}}",
@@ -725,6 +751,7 @@
     "stylePowerBullet2Web": "Échelle de préparation P0–P3 sur chaque verdict.",
     "stylePowerTag": "Rigueur d'endurance — ligne par ligne, référencé",
     "stylePowerTagWeb": "Rigueur ligne par ligne, avec citations des cadres",
+    "submittingCredentials": "Envoi de tes identifiants…",
     "summary": "Résumé",
     "switch": "Basculer",
     "switchToDark": "Passer au mode sombre",
@@ -919,6 +946,7 @@
     "analyzeConversationFailed": "Impossible d’analyser la conversation",
     "analyzingConversation": "Analyse de la conversation...",
     "askAboutClaim": "Pose-moi une question sur cette affirmation",
+    "backToList": "Retour aux discussions",
     "browseAllCoaches": "Tout parcourir",
     "cancel": "Annuler",
     "categoryAnalysis": "Analyse",
@@ -945,6 +973,7 @@
     "coachesLoadFailed": "Impossible de charger les coachs",
     "commandsButton": "Commandes",
     "commandsLabel": "Commandes",
+    "confidenceLabel": "confiance : {{confidence}} %",
     "confirmDelete": "Supprimer cette conversation ?",
     "connectDataHint": "Connecte un fournisseur pour des analyses personnalisées, ou continue sans",
     "connectDataTitle": "Connecte tes données sportives",
@@ -967,6 +996,8 @@
     "createCustomCoachTitle": "Créer un coach personnalisé",
     "dangerZone": "Zone sensible",
     "dataContextSection": "Contexte de données",
+    "dayToday": "Aujourd'hui",
+    "dayYesterday": "Hier",
     "deleteAction": "Supprimer",
     "deleteChatHint": "Supprimer ce chat et ses messages.",
     "deleteCoach": "Supprimer le coach",
@@ -982,8 +1013,14 @@
     "easyFloor": "Minimum facile",
     "editCoach": "Modifier le coach",
     "editCoachTitle": "Modifier le coach",
+    "emptyStateBody": "Ton coach lit ton entraînement et te répond ici. Choisis une discussion à gauche, ou lances-en une nouvelle.",
     "emptyStatePrompt": "Choisis un chat, ou démarres-en un",
+    "evidenceLabel": "preuves : {{strength}}",
+    "evidenceMixed": "mitigée",
+    "evidenceNone": "aucune",
     "evidenceReferences": "Références des preuves",
+    "evidenceStrong": "solide",
+    "evidenceWeak": "faible",
     "feedbackGood": "Bonne réponse",
     "feedbackPoor": "Mauvaise réponse",
     "feedbackReasonLabel": "Motif de l’avis",
@@ -992,6 +1029,10 @@
     "feedbackReasonSend": "Envoyer",
     "feedbackSaveFailed": "Impossible d’enregistrer ton avis",
     "fetchAthleteProfile": "Récupérer aussi le profil de l’athlète",
+    "filterCoaches": "Coachs",
+    "filterGroups": "Groupes",
+    "filterUnread": "Non lus",
+    "fromChannel": "Via {{channel}}",
     "fuelCarbs": "{{value}} g/h de glucides",
     "fuelFluid": "{{value}} ml/h de liquide",
     "fuelGutTraining": "Entraînement digestif",
@@ -1014,12 +1055,14 @@
     "limitReachedTitle": "Tu as atteint ta limite",
     "listLoadFailed": "Tes discussions n’ont pas pu être chargées.",
     "listRetry": "Réessayer",
+    "listTitle": "Discussions",
     "loadMore": "Charger la suite",
     "loadingMessages": "Chargement des messages...",
     "markUnread": "Marquer la conversation comme non lue",
     "maxToolIterations": "Tours d’outils max par échange",
     "mentionHint": "fait intervenir ce coach pour une réponse, dans n’importe quel chat.",
     "mentionLabel": "Mention :",
+    "messageActions": "Actions sur le message",
     "messageDravrLabel": "Écris à Dravr",
     "messageDravrPlaceholder": "Écris à Dravr...",
     "messageError": "Le message n’est pas parti",
@@ -1028,6 +1071,7 @@
     "needIdeas": "Besoin d’idées ?",
     "newChat": "Nouvelle discussion",
     "newConversation": "Nouvelle conversation",
+    "newConversationTitlePrefix": "Discussion",
     "newGroupChat": "Nouvelle discussion de groupe",
     "newMenuButton": "Nouveau",
     "noChatsEmptyHint": "Aucune discussion pour l’instant — démarres-en une avec le \"+\" à côté de la discussion",
@@ -1045,12 +1089,18 @@
     "personasEmptyHint": "Demande à ton admin de t’attribuer des personnalités de coaching pour démarrer.",
     "personasTitle": "Personnalités de coaching IA",
     "prefetchActivityData": "Précharger les données d’activité au début de la conversation",
+    "previewCoach": "Coach",
+    "previewYou": "Toi",
     "promptSuggestions": "Suggestions",
     "provenanceCoach": "Coach",
     "provenanceConversation": "Conversation",
     "provenanceHeading": "Provenance",
     "provenanceMessage": "Message",
     "provenanceUser": "Utilisateur",
+    "providersConnectedN": "{{providers}} connectés",
+    "providersConnectedOne": "{{providers}} connecté",
+    "quickConnectProvider": "Connecter tes données",
+    "quickDiscover": "Trouver un coach",
     "readyToAnalyze": "Prêt à analyser ta forme",
     "recommendedForYou": "Recommandé pour toi",
     "refreshPageHint": "Essaie de recharger la page",
@@ -1068,10 +1118,12 @@
     "sendButton": "Envoyer",
     "sendMessage": "Envoyer",
     "sendMessageAria": "Envoyer le message",
+    "senderYou": "Toi",
     "share": "Partager",
     "shareToFeed": "Partager sur le fil",
     "showCoach": "Afficher le coach",
     "showHiddenCoaches": "Afficher les coachs masqués",
+    "slashHint": "Tape / pour les commandes · @nom fait intervenir un coach pour une réponse",
     "startConversation": "Démarre une conversation",
     "startConversationPrompt": "Démarre une conversation",
     "startupQueryLabel": "Requête de démarrage (facultatif)",
@@ -1090,8 +1142,18 @@
     "trainingPlanTitle": "Plan d’entraînement",
     "tryAgain": "Réessayer",
     "typeMessage": "Écris un message…",
+    "unreadCountAria": "{{count}} non lus",
     "untitledChat": "Discussion sans titre",
+    "verdictChipN": "{{count}} verdicts · {{qualifier}}",
+    "verdictChipOne": "{{count}} verdict · {{qualifier}}",
     "verdictDrawerAria": "Détail du verdict sur l’affirmation",
+    "verdictStatusContradicted": "contredite",
+    "verdictStatusRhetorical": "rhétorique",
+    "verdictStatusSupported": "appuyée",
+    "verdictStatusUnsupported": "non appuyée",
+    "verdictStatusUnverifiable": "invérifiable",
+    "verdictsLoading": "Chargement des verdicts…",
+    "verdictsTitle": "Verdicts sur cette réponse",
     "weeklyTss": "TSS hebdo",
     "whatAreCoaches": "C’est quoi, un coach ?",
     "whatAreCoachesBody": "Les coachs sont des assistants IA spécialisés, entraînés pour t’aider sur des aspects précis de ta pratique sportive. Choisis un coach pour démarrer une conversation centrée sur sa spécialité.",
@@ -1103,6 +1165,7 @@
     "calibrate": {
       "complete_header": "Calibrage terminé — j'ai retenu {0} réponses sur {1}.",
       "complete_missing": "Il me manque ta réponse sur {0}. C'est ce qui limite jusqu'où je peux pousser, alors reprenons cette question — écris /calibrate.",
+      "description": "Ajuster l'intensité que ton entraînement devrait avoir — une courte entrevue guidée (six questions, plus l'alimentation et les exigences de l'épreuve quand ça s'applique) ; dans un groupe, l'échange est visible et c'est à toi seul de répondre",
       "followup_no_plan": "Tu veux que je te construise un plan là-dessus ?",
       "followup_plan": "Tu veux que je reconstruise tes semaines à venir avec ça ?",
       "opener": "On va calibrer la difficulté de ton entraînement. Je pars de tes données récentes et je te pose six questions courtes — une à la fois. Première : tu veux que ça devienne plus dur comment — plus d'heures, plus de séances dures, ou des sorties longues plus longues ?",
@@ -1140,10 +1203,35 @@
       "removed": "{0} ne répond plus dans cette conversation.",
       "user_updated": "Coach sélectionné : {0}."
     },
+    "coach-add": {
+      "description": "Amener un de tes coachs installés dans cette conversation"
+    },
+    "coach-assign": {
+      "description": "Assigner un coach à un groupe précis"
+    },
+    "coach-create": {
+      "description": "Rédiger un nouveau coach à partir de cette conversation, puis confirmer pour le créer"
+    },
+    "coach-invite": {
+      "description": "Émettre le code d'invitation du coach humain de ce groupe"
+    },
+    "coach-list": {
+      "description": "Lister tes coachs installés — mentionne @handle pour un seul tour, /coach add @handle pour le lier"
+    },
+    "coach-remove": {
+      "description": "Détacher le coach de cette conversation"
+    },
+    "confirm": {
+      "description": "Approuver une action mise en attente par le gardien de sécurité"
+    },
+    "deny": {
+      "description": "Annuler une action mise en attente par le gardien de sécurité"
+    },
     "discover": {
       "add_label": "Utiliser ici",
       "card_title": "Catalogue de coachs",
       "catalogue_empty": "Le catalogue de coachs est vide.",
+      "description": "Parcourir le catalogue de coachs par catégorie ou par recherche",
       "empty": "Aucun coach du catalogue ne correspond à « {0} ». Tape /discover pour voir les nouveautés.",
       "install_already": "{0} est déjà installé. Utilise-le dans n'importe quelle discussion : /coach add @{1}, ou mentionne @{1} dans un message pour un seul tour.",
       "install_unknown_handle": "Aucun coach publié ne répond à {0}. Tape /discover pour parcourir le catalogue.",
@@ -1151,6 +1239,9 @@
       "installed": "{0} est installé. Utilise-le dans n'importe quelle discussion : /coach add @{1}, ou mentionne @{1} dans un message pour un seul tour.",
       "item": "• {0} — @{1} [{2}]\n  {3}\n",
       "more_label": "Suivants"
+    },
+    "discover-install": {
+      "description": "Installer un coach du catalogue par son @handle"
     },
     "group": {
       "coach_detached": "{0} n'a plus de coach humain attitré.",
@@ -1161,6 +1252,7 @@
       "create_unavailable": "Le coaching de groupe n'est pas inclus dans ton forfait.",
       "create_usage": "Usage : /group create nom-du-groupe — par exemple /group create Coureurs du dimanche",
       "created": "Groupe « {0} » créé avec le coach {1}. Invite des membres avec /group invite.",
+      "description": "Lister mes groupes",
       "invite_body": "Lien d'invitation pour {0} :\nhttps://app.dravr.ai/groups/join/{1}\n\nCode : {2}\nValide 7 jours.",
       "invite_forbidden": "Seuls les admins et les propriétaires peuvent générer des liens d'invitation.",
       "invite_label": "Inviter des membres",
@@ -1193,7 +1285,35 @@
       },
       "status_summary": "{0} — statistiques :\n- Membres : {1}\n- Actifs : {2}\n- Partage entre pairs : {3}"
     },
+    "group-coach": {
+      "description": "Choisir le coach Dravr de ce groupe, ou détacher son coach humain"
+    },
+    "group-consent": {
+      "description": "Choisir si tes données d'entraînement sont partagées avec les membres de ce groupe"
+    },
+    "group-create": {
+      "description": "Créer un groupe de coaching autour du coach de cette conversation"
+    },
+    "group-invite": {
+      "description": "Générer un lien d'invitation"
+    },
+    "group-join": {
+      "description": "Rejoindre un groupe de coaching avec un code d'invitation"
+    },
+    "group-leave": {
+      "description": "Quitter ton groupe"
+    },
+    "group-members": {
+      "description": "Lister les membres du groupe"
+    },
+    "group-respond": {
+      "description": "Choisir quand le coach de ce groupe répond — à chaque message, ou seulement quand on le mentionne"
+    },
+    "group-status": {
+      "description": "Afficher les statistiques du groupe"
+    },
     "help": {
+      "description": "Afficher les commandes disponibles",
       "domain": {
         "account": "Compte",
         "coach": "Coaching",
@@ -1208,10 +1328,12 @@
       "header": "Commandes disponibles :\n"
     },
     "logout": {
-      "confirm_prompt": "Ceci va délier ton compte {0} de Dravr.\nIl faudra le relier pour réutiliser la messagerie.\n\nTape « logout » pour confirmer."
+      "confirm_prompt": "Ceci va délier ton compte {0} de Dravr.\nIl faudra le relier pour réutiliser la messagerie.\n\nTape « logout » pour confirmer.",
+      "description": "Délier ce compte de messagerie"
     },
     "pillars": {
       "arg_dm_only": "Ces sujets-là se couvrent en privé. Écris-moi <code>/pillars</code> en message direct et on les reprend là-bas — rien n'a été modifié ici.",
+      "description": "Parcourir les piliers de santé pour bâtir ou rafraîchir ton profil — full reprend tout, un nom de pilier ne reprend que celui-là ; dans un groupe, le parcours est visible et ne couvre que les piliers partageables",
       "opener": "On va construire ton profil ensemble — je te pose quelques questions, une à la fois. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?",
       "opener_room": "On construit ton profil ici, dans le groupe — tes réponses seront visibles par tout le monde, et c'est à toi seul de répondre. On couvre ta motivation, l'entraînement, l'alimentation, le sommeil et ton entourage ; le stress et les habitudes de récupération se font en privé — écris-moi <code>/pillars</code> en message direct pour ces deux-là. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?",
       "start_failed": "Je n'ai pas réussi à démarrer le profil sur cette conversation. Réessaie dans un instant."
@@ -1219,6 +1341,7 @@
     "plan": {
       "block_line": "Bloc : {0}{1}",
       "day_line": "{0} : {1}",
+      "description": "Afficher ton plan d'entraînement — compte à rebours vers l'objectif plus aujourd'hui et demain, la semaine complète, ou aujourd'hui seulement",
       "empty": "Aucun plan enregistré pour l'instant — demande à ton coach d'en construire un vers ton objectif.",
       "goal_line": "Objectif : {0} — {1} ({2} jours)",
       "no_coverage": "pas couvert par le plan",
@@ -1231,7 +1354,11 @@
       "tomorrow": "Demain",
       "week_header": "Semaine du {0}{1}"
     },
+    "plan-share": {
+      "description": "Publier ton plan d'entraînement dans la salle où tu l'écris — compte à rebours vers l'objectif plus aujourd'hui et demain, la semaine complète, ou aujourd'hui seulement"
+    },
     "privacy": {
+      "description": "Voir ton réglage de consentement aux statistiques anonymes",
       "off_confirmation": "Le consentement aux statistiques anonymes est maintenant <b>désactivé</b>. Aucune donnée d'usage anonyme ne sera collectée.\n\nUtilise <code>/privacy on</code> pour te réinscrire à tout moment.",
       "on_confirmation": "Le consentement aux statistiques anonymes est maintenant <b>activé</b>. Merci de nous aider à améliorer Dravr !\n\nUtilise <code>/privacy off</code> pour te retirer à tout moment.",
       "status": {
@@ -1240,18 +1367,26 @@
       },
       "status_line": "Le consentement aux statistiques anonymes est actuellement <b>{0}</b>.\n\nUtilise <code>/privacy on</code> pour l'activer ou <code>/privacy off</code> pour le désactiver."
     },
+    "privacy-off": {
+      "description": "Retirer le consentement aux statistiques anonymes"
+    },
+    "privacy-on": {
+      "description": "Donner le consentement aux statistiques anonymes"
+    },
     "reset": {
       "confirm": "🔄 Nouvelle conversation démarrée — on repart à neuf. Ton historique précédent reste archivé.",
       "walk_interrupted": "\n\nTon profil était en cours — écris <code>/pillars</code> pour reprendre."
     },
     "status": {
       "channel_label": "\nCanal : {0}",
+      "description": "Résumé de ton compte",
       "groups_label": "\nGroupes : {0}",
       "header": "Ton statut Dravr :\n",
       "providers_label": "\nFournisseurs : {0}",
       "providers_none": "\nFournisseurs : aucun connecté"
     },
     "timezone": {
+      "description": "Régler ton fuseau horaire pour afficher tes activités à l'heure locale",
       "invalid": "Fuseau horaire invalide. Donne un nom IANA, par exemple : <code>/timezone America/Toronto</code>.",
       "set": "Fuseau horaire réglé sur <b>{0}</b>. Les heures de départ de tes activités s'afficheront désormais dans ce fuseau."
     }
@@ -1358,6 +1493,7 @@
     "forkCoach": "Dupliquer",
     "goBack": "Retour",
     "handleHint": "Tape le @pseudo d’un coach dans n’importe quelle discussion pour l’amener dans la conversation.",
+    "headerDescription": "Trouve des coachs IA",
     "hiddenBadge": "Masqué",
     "hide": "Masquer",
     "importCategoryLabel": "Catégorie :",
@@ -1374,6 +1510,8 @@
     "importTokensLabel": "Jetons :",
     "importWarningsLabel": "Avertissements :",
     "importing": "Import en cours...",
+    "installCountN": "{{count}} utilisateurs",
+    "installCountOne": "{{count}} utilisateur",
     "instructionsSection": "Consignes",
     "lastUpdatedLabel": "Dernière mise à jour :",
     "loadMyCoachesFailed": "Impossible de charger tes coachs",
@@ -1437,7 +1575,6 @@
     "chatWith": "Discuter avec",
     "chatWithCoachNamed": "Discuter avec {{coach}}",
     "clientIdLabel": "Identifiant client :",
-    "confidence": "Confiance",
     "connectTo": "Se connecter à",
     "connectWith": "Se connecter avec",
     "connectWithApp": "Se connecter avec {{app}}",
@@ -1464,7 +1601,6 @@
     "mayTakeUpTo": "Cela peut prendre jusqu’à {{budget}}",
     "noLimit": "Sans limite",
     "openApp": "Ouvrir {{app}}",
-    "overTheLast": "Sur les",
     "participants": "Participants",
     "passwordMinError": "Le mot de passe doit faire au moins {{n}} caractères",
     "passwordMinHint": "Minimum {{n}} caractères",
@@ -1877,11 +2013,13 @@
     "aboutYouHint": "Trois questions rapides pour que ton coach te connaisse dès le départ. Passe celles que tu veux — on rattrapera le reste en route.",
     "almostThere": "On y est presque",
     "analyzingTrainingData": "Analyse de tes données d’entraînement…",
+    "athleteCardDescription": "Suis ton propre entraînement et reçois un coaching ajusté à ta vraie façon de t'entraîner.",
     "cancelChooseOtherProvider": "Annuler et essayer un autre fournisseur",
     "channelOneTap": "Connexion en un seul appui",
     "channelRecommended": "Recommandé",
     "channelScanQr": "Scanne un QR ou appuie pour ouvrir l’app",
     "channelSettingUp": "Configuration en cours…",
+    "coachCardDescription": "Bâtis des plans et gère les athlètes que tu entraînes. Débloque les outils de planification pour coachs.",
     "coachProposalNoActivities": "On n’a pas encore trouvé d’activités récentes — voici quelques coachs pour démarrer. Tes suggestions s’affineront à mesure que ton fournisseur synchronise plus de données.",
     "coachSuggestionsFailed": "Impossible de préparer tes suggestions de coach pour le moment.",
     "connectAnytimeHint": "Tu peux connecter un fournisseur à tout moment — ton coach en a besoin pour lire ton activité.",
@@ -1905,9 +2043,8 @@
     "otherSportLabel": "Ou autre chose",
     "otherSportPlaceholder": "Écris un autre sport",
     "parqAnswerAll": "Réponds à tout pour continuer",
-    "parqHeading": "Un petit bilan de santé",
-    "parqIntro": "Questions standard avant de commencer. Rien ici ne bloque ton compte — un oui dit simplement à ton coach d’être prudent aux bons endroits.",
-    "parqYes": "Oui",
+    "parqHeading": "Un bilan de santé rapide",
+    "parqIntro": "Questions standard avant de commencer. Rien ici ne bloque ton compte — un oui indique simplement à ton coach où redoubler de prudence.",
     "primarySportLabel": "Tu fais surtout quoi ?",
     "profileTypeIntro": "Comment vas-tu utiliser Dravr ? Cela adapte les coachs qu'on te propose. Tu peux changer d'avis à tout moment dans les réglages.",
     "progressAria": "Progression de la configuration",
@@ -1919,6 +2056,13 @@
     "skipForNow": "Passer pour l’instant",
     "startButton": "Démarrer",
     "starting": "Démarrage…",
+    "stepAboutTraining": "Ton entraînement",
+    "stepAboutYou": "Toi",
+    "stepChatApp": "Appli de messagerie",
+    "stepCoach": "Coach",
+    "stepConnect": "Connexion",
+    "stepHealthCheck": "Bilan de santé",
+    "stepLink": "Lier",
     "stepOfLabel": "Étape {{current}} sur {{total}} : {{label}}",
     "tellMeAboutTraining": "Parle-moi de ton entraînement",
     "welcomeNamed": "Bienvenue, {{name}}",
@@ -1984,9 +2128,13 @@
     "title": "Informations du profil"
   },
   "providerBlurb": {
+    "activitiesSleepRecovery": "Activités, sommeil et récupération",
+    "activitiesWorkouts": "Activités et entraînements",
+    "fitnessData": "Données d'entraînement",
     "garmin": "Activités et données de santé des appareils Garmin",
     "generic": "Fournisseur de données sportives",
     "intervals": "Analyses d’endurance, activités et bien-être",
+    "sleepTracking": "Suivi du sommeil",
     "strava": "Activités de course, de vélo et de natation",
     "synthSleep": "Données de sommeil synthétiques pour le développement",
     "synthTest": "Données de test synthétiques pour le développement",
@@ -2040,6 +2188,7 @@
     "appearanceSystem": "Système",
     "appearanceSystemHint": "Suivre le réglage de l’appareil",
     "autoMode": "Automatique (système)",
+    "backToMenu": "Retour aux réglages",
     "changesFailed": "Impossible d’enregistrer tes modifications",
     "changesSaved": "Modifications enregistrées",
     "claudeDesktop": "Claude Desktop",
@@ -2082,15 +2231,27 @@
   },
   "settingsTabs": {
     "about": "À propos",
+    "aboutHint": "Version, aide et mentions légales",
     "account": "Compte",
+    "accountHint": "Mot de passe, courriel, fermeture du compte",
     "ai": "Paramètres IA",
+    "aiHint": "Modèle et fournisseur de ton coach",
     "coaching": "Style de coaching",
+    "coachingHint": "La façon dont ton coach te parle",
+    "connections": "Sources de données",
+    "connectionsHint": "Strava, Garmin et les données que ton coach lit",
     "memory": "Mémoire",
+    "memoryHint": "Ce que ton coach retient de toi",
     "messaging": "Messagerie",
+    "messagingHint": "Telegram, WhatsApp et les autres applis de messagerie",
     "notifications": "Notifications",
+    "notificationsHint": "Ce dont on te prévient, et où",
     "privacy": "Confidentialité et données",
+    "privacyHint": "Consentement aux statistiques et tes données",
     "profile": "Profil",
-    "tokens": "Jetons d’API"
+    "profileHint": "Nom, nom affiché, persona de coaching",
+    "tokens": "Jetons d’API",
+    "tokensHint": "Jetons d'API personnels"
   },
   "settingsUi": {
     "allFieldsRequired": "Tous les champs sont obligatoires",
@@ -2209,13 +2370,20 @@
     "intervalsVerifying": "Vérification…",
     "memoryEmpty": "Aucune info enregistrée pour l’instant.",
     "memoryEmptyHint": "Échange quelques messages avec un coach et la plateforme commencera à construire ton profil de mémoire.",
+    "memoryFactCoach": "Coach {{name}}",
+    "memoryFactCountN": "{{count}} infos",
+    "memoryFactCountOne": "{{count}} info",
+    "memoryFactMeta": "Confiance {{confidence}} % · Mis à jour {{updated}}",
     "memoryFilterAllKinds": "Tous les types",
     "memoryFilterByKind": "Filtrer par type",
     "memoryForget": "Oublier",
     "memoryForgetConfirm": "Oublier cette info ?",
+    "memoryForgetFactLabel": "Oublier {{fact}}",
     "memoryKindEquipment": "Équipement",
     "memoryKindGoal": "Objectif",
     "memoryKindInjury": "Blessure",
+    "memoryKindMedical": "Santé",
+    "memoryKindNorthStar": "Cap",
     "memoryKindOther": "Autre",
     "memoryKindPhysiology": "Physiologie",
     "memoryKindPreference": "Préférence",
@@ -2277,7 +2445,6 @@
     "previewSpecificsHint": "Les détails — les 24 %, le sommeil, la taille du bloc — sont lus depuis le service que tu connectes. Sans lui, un coach ne peut que te donner la réponse générique.",
     "roleAdmin": "Admin",
     "roleSuperAdmin": "Super Admin",
-    "roleUser": "Utilisateur",
     "sciotteAppleAccount": "Compte Apple",
     "sciotteApproveOnPhone": "Regarde ton téléphone et approuve la connexion",
     "sciotteBack": "Retour",

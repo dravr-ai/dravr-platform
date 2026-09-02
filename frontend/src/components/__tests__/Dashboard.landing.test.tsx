@@ -101,7 +101,7 @@ describe('Dashboard landing — regular user', () => {
     await waitFor(() => expect(window.location.hash).toBe('#chat'));
   });
 
-  it('offers exactly Chat, Discover, Data Providers and Notifications in the sidebar', async () => {
+  it('offers exactly Chat, Discover and Notifications in the rail — providers live under Settings', async () => {
     await act(async () => {
       renderDashboard();
     });
@@ -110,7 +110,7 @@ describe('Dashboard landing — regular user', () => {
     const labels = within(nav)
       .getAllByRole('button')
       .map((button) => button.textContent?.trim());
-    expect(labels).toEqual(['Chat', 'Discover', 'Data Providers', 'Notifications']);
+    expect(labels).toEqual(['Chat', 'Discover', 'Notifications']);
   });
 
   it('resolves a stale #groups hash typed after load to chat', async () => {

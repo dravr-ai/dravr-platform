@@ -11,6 +11,14 @@
 //! coach sees a redacted flag (raw answer withheld from the prompt — see
 //! `okf::render_fact`). Flags carry a 12-month `valid_until` so stale health
 //! data prompts a re-screen.
+//!
+//! This module owns the question *ids* and their order. The question *text*
+//! is a user-facing string and lives where every other one does: the
+//! five-locale messaging-strings registry, under `messaging.intake.parq.*`,
+//! reached through [`crate::intake::IntakeTopic::string_key`]. The REST
+//! surface and the messaging intake therefore ask the same words in the
+//! athlete's own language, and a flag records the id — the same value on
+//! every surface and in every locale.
 
 use chrono::{Duration, Utc};
 use pierre_core::errors::AppResult;
@@ -29,56 +37,34 @@ const PARQ_VALID_DAYS: i64 = 365;
 /// PAR-Q finding.
 pub const PARQ_PREDICATE: &str = "answered yes (PAR-Q)";
 
-/// A single PAR-Q+ pre-participation question.
-pub struct ParqQuestion {
-    /// Stable identifier submitted in answers.
-    pub id: &'static str,
-    /// The question text shown to the user.
-    pub text: &'static str,
-}
-
-/// The seven standard PAR-Q+ pre-participation questions.
-pub const PARQ_QUESTIONS: [ParqQuestion; 7] = [
-    ParqQuestion {
-        id: "heart_condition",
-        text: "Has a doctor ever said that you have a heart condition?",
-    },
-    ParqQuestion {
-        id: "chest_pain",
-        text: "Do you feel pain in your chest at rest, during daily activities, or during exercise?",
-    },
-    ParqQuestion {
-        id: "dizziness",
-        text: "Do you lose balance from dizziness, or have you lost consciousness in the last 12 months?",
-    },
-    ParqQuestion {
-        id: "chronic_condition",
-        text: "Have you been diagnosed with another chronic medical condition (other than heart disease)?",
-    },
-    ParqQuestion {
-        id: "medication",
-        text: "Are you currently taking prescribed medications for a chronic medical condition?",
-    },
-    ParqQuestion {
-        id: "joint_problem",
-        text: "Do you have a bone, joint, or soft-tissue problem that could be made worse by activity?",
-    },
-    ParqQuestion {
-        id: "supervised_only",
-        text: "Has a doctor said you should only do medically supervised physical activity?",
-    },
+/// The seven standard PAR-Q+ question ids, in the order the instrument asks
+/// them.
+///
+/// Stable identifiers: submitted in answers, stored as a raised flag's
+/// `object`, and bridged to each question's localized text by
+/// [`crate::intake::IntakeTopic::parq_id`].
+pub const PARQ_QUESTION_IDS: [&str; 7] = [
+    "heart_condition",
+    "chest_pain",
+    "dizziness",
+    "chronic_condition",
+    "medication",
+    "joint_problem",
+    "supervised_only",
 ];
 
-/// Look up a question's text by id.
+/// Whether `id` names one of the seven PAR-Q+ questions.
 #[must_use]
-fn question_text(id: &str) -> Option<&'static str> {
-    PARQ_QUESTIONS.iter().find(|q| q.id == id).map(|q| q.text)
+pub fn is_parq_question(id: &str) -> bool {
+    PARQ_QUESTION_IDS.contains(&id)
 }
 
 /// Persist a coach-visible medical flag for each "Yes" answer.
 ///
 /// Each flag is a `kind=Medical`, `source=onboarding` fact with 12-month
-/// freshness; unknown ids are ignored. Returns the number of flags raised.
+/// freshness whose `object` is the question id — locale-independent, so a
+/// flag raised from a French screen and one raised from an English screen are
+/// the same fact. Unknown ids are ignored. Returns the number of flags raised.
 /// Tenant-scoped. A "Yes" never blocks sign-up — this only records the flag.
 ///
 /// # Errors
@@ -96,9 +82,9 @@ where
     let valid_until = Some(Utc::now() + Duration::days(PARQ_VALID_DAYS));
     let mut raised = 0u64;
     for id in yes_question_ids {
-        let Some(text) = question_text(id) else {
+        if !is_parq_question(id) {
             continue;
-        };
+        }
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id,
@@ -108,7 +94,7 @@ where
             pillar: None,
             subject: "you",
             predicate: PARQ_PREDICATE,
-            object: text,
+            object: id,
             confidence: 1.0,
             source: FactSource::Onboarding,
             valid_until,
@@ -123,12 +109,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{question_text, PARQ_QUESTIONS};
+    use super::{is_parq_question, PARQ_QUESTION_IDS};
+    use crate::intake::{IntakeTopic, INTAKE_TOPICS};
 
     #[test]
     fn seven_questions_with_unique_ids() {
-        assert_eq!(PARQ_QUESTIONS.len(), 7);
-        let mut ids: Vec<&str> = PARQ_QUESTIONS.iter().map(|q| q.id).collect();
+        assert_eq!(PARQ_QUESTION_IDS.len(), 7);
+        let mut ids: Vec<&str> = PARQ_QUESTION_IDS.to_vec();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), 7, "question ids must be unique");
@@ -136,7 +123,24 @@ mod tests {
 
     #[test]
     fn question_lookup() {
-        assert!(question_text("heart_condition").is_some());
-        assert!(question_text("not_a_question").is_none());
+        assert!(is_parq_question("heart_condition"));
+        assert!(!is_parq_question("not_a_question"));
+    }
+
+    #[test]
+    fn every_id_has_a_localized_intake_topic_in_the_same_order() {
+        let from_intake: Vec<&str> = INTAKE_TOPICS
+            .iter()
+            .filter_map(|topic| topic.parq_id())
+            .collect();
+        assert_eq!(
+            from_intake,
+            PARQ_QUESTION_IDS.to_vec(),
+            "the intake walk and the REST screen must ask the same questions in the same order"
+        );
+        assert_eq!(
+            IntakeTopic::HeartCondition.parq_id(),
+            Some("heart_condition")
+        );
     }
 }

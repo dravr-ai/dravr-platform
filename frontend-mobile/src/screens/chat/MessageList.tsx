@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
 import { countActivities, isToolPlumbingMessage, transcriptBlocks } from '@pierre/chat-utils';
-import { SLASH_HINT } from '@pierre/shared-constants';
+import { SLASH_HINT_KEY, verdictChipLabel } from '@pierre/shared-constants';
 import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, aiGlow, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
@@ -26,7 +26,6 @@ import {
   mergeVerdictSeverities,
   parseWorkoutPlan,
   summarizeVerdicts,
-  verdictSummaryLabel,
 } from '@pierre/shared-types';
 import type { RenderBlock } from '@pierre/scene-types';
 import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
@@ -422,7 +421,7 @@ export function MessageList({
           >
             <Ionicons name="shield-half-outline" size={12} color={tint} />
             <Text className="text-xs ml-1" style={{ color: tint }}>
-              {verdictSummaryLabel(summary)}
+              {verdictChipLabel(t, summary)}
             </Text>
           </View>
         );
@@ -619,7 +618,7 @@ export function MessageList({
         {t('app.emptyThreadPrompt')}
       </Text>
       <Text className="text-sm text-text-tertiary text-center mt-2" testID="chat-slash-hint">
-        {SLASH_HINT}
+        {t(SLASH_HINT_KEY)}
       </Text>
     </ScrollView>
   );

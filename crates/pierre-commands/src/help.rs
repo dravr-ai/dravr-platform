@@ -42,7 +42,17 @@ const SHORTCUT_COMMANDS: [&str; 3] = ["plan", "status", "discover"];
 ///
 /// Lists all registered commands grouped by domain, each line showing the
 /// command's argument signature so a reader learns how to invoke it and not
-/// only what it does.
+/// only what it does. Descriptions come from the five-locale strings registry
+/// keyed by the command's catalogue name, so the listing reads in the
+/// caller's language, not only its headings.
+///
+/// The listing is shaped to read on every surface at once: a `**domain**`
+/// heading, one `- /command — description` line per command, and a blank
+/// line between sections. The in-app clients parse that as a heading and a
+/// list; a messaging channel shows it as typed, where a dash-led line and a
+/// starred heading are still a readable plain-text menu. A card body is
+/// HTML-escaped by the channel renderers, so the heading cannot ride the
+/// rich-text dialect the reply strings use.
 ///
 /// The listing is also the cross-channel menu: it comes back as a card whose
 /// buttons each channel renders natively — a Telegram inline keyboard, Slack
@@ -179,7 +189,7 @@ impl CommandHandler for HelpHandler {
             let domain_label =
                 domain_label_key.map_or_else(|| domain.clone(), |key| reg.render(key, locale, &[]));
 
-            let _ = writeln!(text, "\n{domain_label}:");
+            let _ = writeln!(text, "\n**{domain_label}**");
             for cmd in commands {
                 // Marked only in a shared room: in a DM every command is
                 // inherently the reader's own, so the glyph would sit on
@@ -189,13 +199,13 @@ impl CommandHandler for HelpHandler {
                 } else {
                     ""
                 };
+                let description = reg.command_description(&cmd.name, &cmd.description, locale);
                 match self.arg_specs.get(&cmd.name) {
                     Some(args) => {
-                        let _ =
-                            writeln!(text, "  {mark}{} {args} — {}", cmd.command, cmd.description);
+                        let _ = writeln!(text, "- {mark}{} {args} — {description}", cmd.command);
                     }
                     None => {
-                        let _ = writeln!(text, "  {mark}{} — {}", cmd.command, cmd.description);
+                        let _ = writeln!(text, "- {mark}{} — {description}", cmd.command);
                     }
                 }
             }

@@ -15,7 +15,7 @@
 //! today/tomorrow lookup and the race countdown are all deterministic.
 
 use anyhow::Result;
-use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, SlashRequest};
+use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, ProseFormat, SlashRequest};
 use pierre_commands::plan::{PlanShareHandler, PlanShowHandler};
 use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_core::chunking::chunk_reply;
@@ -1451,6 +1451,7 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         ambient_group_fallback: true,
         persistence: CommandPersistence::RoomVisibleOnly,
         sender_id: Some(ROOM_SENDER),
+        prose: ProseFormat::PlainText,
         text,
     };
 

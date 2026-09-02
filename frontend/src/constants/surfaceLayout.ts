@@ -39,6 +39,8 @@ const BLEED_ROUTES: ReadonlySet<string> = new Set([
   'chat', // ChatTab — composer pinned to the pane floor, own message scroller
   'discover', // StoreScreen — TabHeader over its own results scroller
   'notifications', // NotificationsPanel — sticky header over its own list scroller
+  'settings', // SettingsShell — menu column beside the open section, own scrollers
+  'data-providers', // SettingsShell opened on the connections section
 ]);
 
 /** The gutter the shell applies to a `padded` route. */

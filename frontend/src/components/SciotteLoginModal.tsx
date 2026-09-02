@@ -9,6 +9,8 @@ import { oauthApi } from '../services/api';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { formatTimeout } from './sciotteLoginCopy';
 import { useTranslation } from '@pierre/i18n';
+import { ProviderIcon } from './ProviderConnectionCards';
+import { clsx } from 'clsx';
 import { describeApiError } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
@@ -121,7 +123,7 @@ export default function SciotteLoginModal({
 
         if (data.status === 'connected') {
           setPhase('success');
-          setStatus('Connected!');
+          setStatus(t('app.connectedBang'));
           onConnected();
           setTimeout(onClose, 1500);
         } else if (data.status === 'two_factor_choice') {
@@ -172,7 +174,7 @@ export default function SciotteLoginModal({
 
         if (data.status === 'connected') {
           setPhase('success');
-          setStatus('Connected!');
+          setStatus(t('app.connectedBang'));
           onConnected();
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
@@ -238,11 +240,11 @@ export default function SciotteLoginModal({
 
   const progressLabel = (() => {
     if (phase !== 'logging-in') return status;
-    if (elapsedSecs < 4) return 'Launching headless browser…';
+    if (elapsedSecs < 4) return t('app.preparingConnection');
     if (elapsedSecs < 10) return t('app.navigatingTo', { provider: providerLabel });
-    if (elapsedSecs < 18) return 'Submitting credentials…';
+    if (elapsedSecs < 18) return t('app.submittingCredentials');
     if (elapsedSecs < 28) return t('app.waitingForProvider', { provider: providerLabel });
-    return 'Still working… provider login can be slow.';
+    return t('app.stillWorkingProvider');
   })();
 
   // OTP submission
@@ -260,7 +262,7 @@ export default function SciotteLoginModal({
 
         if (data.status === 'connected') {
           setPhase('success');
-          setStatus('Connected!');
+          setStatus(t('app.connectedBang'));
           onConnected();
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
@@ -302,13 +304,17 @@ export default function SciotteLoginModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
           <div className="flex items-center gap-3">
-            {/* Strava orange, not a Boreal token. This is a third-party brand
-                mark next to Strava's own logo path — recolouring it to
-                `warning` would misrepresent the provider being connected. */}
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-warning to-warning flex items-center justify-center flex-shrink-0">
-              <svg className="w-4 h-4 text-on-surface" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
-              </svg>
+            {/* The mark of the provider being connected — Strava's chevron on
+                its brand orange (a third-party colour, not a Boreal token), or
+                Garmin's dial on the product tone. One icon source for both:
+                the same component the provider cards draw. */}
+            <div
+              className={clsx(
+                'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                target === 'garmin' ? 'bg-primary/15 text-primary' : 'bg-warning text-on-surface',
+              )}
+            >
+              <ProviderIcon providerId={target === 'garmin' ? 'sciotte_garmin' : 'sciotte'} className="w-4 h-4" />
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>

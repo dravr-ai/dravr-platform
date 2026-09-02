@@ -541,7 +541,7 @@ fn fallback_reason(item: &CoachListItem, primary_sport: Option<&str>, locale: &s
 /// when the user has no stored preference or the lookup fails, keeping the REST
 /// onboarding proposal's coach rationales in the user's language and consistent
 /// with the messaging auto-send path.
-async fn resolve_user_locale<C: MiddlewareCtx>(
+pub async fn resolve_user_locale<C: MiddlewareCtx>(
     ctx: &Arc<C>,
     user_id: Uuid,
     tenant_id: TenantId,

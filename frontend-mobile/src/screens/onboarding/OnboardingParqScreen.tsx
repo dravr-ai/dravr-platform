@@ -71,9 +71,9 @@ export function OnboardingParqScreen() {
   return (
     <SafeAreaView className="flex-1 bg-surface">
       <ScrollView contentContainerClassName="px-6 py-10">
-        <Text className="text-2xl font-bold text-on-surface text-center">{t('app.parqTitle')}</Text>
+        <Text className="text-2xl font-bold text-on-surface text-center">{t('onboarding.parqHeading')}</Text>
         <Text className="mt-3 text-sm text-on-surface-variant text-center">
-          {t('app.parqBlurb')}
+          {t('onboarding.parqIntro')}
         </Text>
 
         <View className="mt-8 gap-3">
@@ -85,7 +85,7 @@ export function OnboardingParqScreen() {
               <Text className="text-sm text-on-surface">{q.text}</Text>
               <View className="mt-3 flex-row gap-2">
                 {[
-                  { label: 'No', value: false },
+                  { label: t('common.no'), value: false },
                   { label: t('common.yes'), value: true },
                 ].map(({ label, value }) => {
                   const selected = answers[q.id] === value;
@@ -114,7 +114,7 @@ export function OnboardingParqScreen() {
 
         <View className="mt-8 gap-3">
           <Button
-            title={saving ? t('app.saving') : allAnswered ? t('app.continue') : t('app.parqAnswerAll')}
+            title={saving ? t('app.saving') : allAnswered ? t('app.continue') : t('onboarding.parqAnswerAll')}
             onPress={() => void finish('complete')}
             disabled={saving || !allAnswered}
           />

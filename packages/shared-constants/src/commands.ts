@@ -30,10 +30,12 @@ export const COMMAND_DRAFTS = {
 } as const;
 
 /**
- * The one line an empty thread shows beside the composer — the discoverable
- * path to the command palette and the mention grammar, on every client.
+ * The corpus key of the one line an empty thread shows beside the composer —
+ * the discoverable path to the command palette and the mention grammar, on
+ * every client. A constants module cannot translate, so it names the key and
+ * each client resolves it with its own `t()`.
  */
-export const SLASH_HINT = 'Type / for commands · @handle brings a coach in for one turn';
+export const SLASH_HINT_KEY = 'chat.slashHint';
 
 /**
  * Whether this composer text is a command draft at all.

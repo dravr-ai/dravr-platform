@@ -7,23 +7,20 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
+import { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
 import { userApi } from '../../services/api';
 import { Card, Button, Badge, ConfirmDialog, Select } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
+// The dropdown and the group badge read the same shared table, so a kind the
+// server sends is never a translated word in one place and a raw enum in the other.
 function kindOptions(t: (key: string) => string): { value: MemoryFactRow['kind'] | ''; label: string }[] {
   return [
-  { value: '', label: t('shell.memoryFilterAllKinds') },
-  { value: 'preference', label: t('shell.memoryKindPreference') },
-  { value: 'physiology', label: t('shell.memoryKindPhysiology') },
-  { value: 'injury', label: t('shell.memoryKindInjury') },
-  { value: 'goal', label: t('shell.memoryKindGoal') },
-  { value: 'schedule', label: t('shell.memoryKindSchedule') },
-  { value: 'equipment', label: t('shell.memoryKindEquipment') },
-  { value: 'other', label: t('shell.memoryKindOther') },
-];
+    { value: '', label: t('shell.memoryFilterAllKinds') },
+    ...MEMORY_FACT_KINDS.map((kind) => ({ value: kind, label: t(MEMORY_KIND_LABEL_KEY[kind]) })),
+  ];
 }
 
 const KIND_VARIANT: Record<MemoryFactRow['kind'], 'success' | 'info' | 'warning' | 'error' | 'secondary'> = {
@@ -33,19 +30,23 @@ const KIND_VARIANT: Record<MemoryFactRow['kind'], 'success' | 'info' | 'warning'
   goal: 'info',
   schedule: 'secondary',
   equipment: 'secondary',
+  north_star: 'info',
+  medical: 'warning',
   other: 'secondary',
 };
 
-function humanizeKind(kind: string): string {
-  return kind.charAt(0).toUpperCase() + kind.slice(1);
-}
-
-function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
+// Formatted in the locale the panel renders in, not the browser's: a French
+// athlete reads "1 sept. 2026, 16:28", not "9/1/2026, 4:28:23 PM".
+function formatUpdated(iso: string, language: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
     return iso;
   }
+  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function factCount(t: (key: string, options: { count: number }) => string, count: number): string {
+  return t(count === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', { count });
 }
 
 // The memory-extraction prompt models predicates as third-person verbs
@@ -69,7 +70,7 @@ function factSentence(fact: Pick<MemoryFactRow, 'subject' | 'predicate' | 'objec
 }
 
 export default function MemoryPanel() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
   const [pendingForget, setPendingForget] = useState<MemoryFactRow | null>(null);
@@ -138,8 +139,8 @@ export default function MemoryPanel() {
               options={kindOptions(t).map((opt) => ({ value: opt.value, label: opt.label }))}
             />
           </div>
-          <span className="pb-2 text-xs text-outline">
-            {facts.length} fact{facts.length === 1 ? '' : 's'}
+          <span data-testid="memory-fact-count" className="pb-2 text-xs text-outline">
+            {factCount(t, facts.length)}
           </span>
         </div>
       </Card>
@@ -172,9 +173,9 @@ export default function MemoryPanel() {
             <Card key={kind} className="overflow-hidden">
               <div className="border-b border-outline-variant bg-surface-container px-4 py-2">
                 <div className="flex items-center gap-2">
-                  <Badge variant={KIND_VARIANT[kind]}>{humanizeKind(kind)}</Badge>
-                  <span className="text-xs text-on-surface-variant">
-                    {items.length} fact{items.length === 1 ? '' : 's'}
+                  <Badge variant={KIND_VARIANT[kind]}>{t(MEMORY_KIND_LABEL_KEY[kind])}</Badge>
+                  <span data-testid="memory-fact-count" className="text-xs text-on-surface-variant">
+                    {factCount(t, items.length)}
                   </span>
                 </div>
               </div>
@@ -198,10 +199,13 @@ export default function MemoryPanel() {
                           </>
                         )}
                       </p>
-                      <p className="mt-1 text-xs text-on-surface-variant">
-                        {t('frag.confidence')} {(fact.confidence * 100).toFixed(0)}% ·{' '}
-                        Updated {formatTimestamp(fact.updated_at)}
-                        {fact.coach_id ? ` · Coach ${fact.coach_id}` : ''}
+                      <p data-testid="memory-fact-meta" className="mt-1 text-xs text-on-surface-variant">
+                        {t('shell.memoryFactMeta', {
+                          confidence: (fact.confidence * 100).toFixed(0),
+                          updated: formatUpdated(fact.updated_at, language),
+                        })}
+                        {/* The coach is named by title, never by its id — a UUID means nothing to the athlete. */}
+                        {fact.coach_title ? ` · ${t('shell.memoryFactCoach', { name: fact.coach_title })}` : ''}
                       </p>
                     </div>
                     <Button

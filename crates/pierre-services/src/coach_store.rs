@@ -24,7 +24,9 @@
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::pagination::StoreSortOrder;
-use pierre_database::database::{CoachCategory, CoachWithListing};
+use std::slice;
+
+use pierre_database::database::{Coach, CoachCategory, CoachWithListing, StoreListing};
 use pierre_database::views::CoachRepos;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -129,6 +131,7 @@ pub async fn browse_store(
     repos: &CoachRepos,
     viewer_tenant: TenantId,
     params: &BrowseStoreParams<'_>,
+    locale: &str,
 ) -> AppResult<StorePage> {
     let limit = params.limit.clamp(1, MAX_STORE_PAGE_SIZE);
     let page = repos
@@ -136,7 +139,8 @@ pub async fn browse_store(
         .get_published_coaches_cursor(params.category, params.sort_by, limit, params.cursor)
         .await?;
 
-    let mut coaches: Vec<StoreCoach> = page.items.into_iter().map(StoreCoach::from).collect();
+    let items = translate_listings(repos, page.items, locale).await?;
+    let mut coaches: Vec<StoreCoach> = items.into_iter().map(StoreCoach::from).collect();
     apply_grade_rank(repos, viewer_tenant, &mut coaches).await;
 
     Ok(StorePage {
@@ -176,6 +180,7 @@ pub async fn browse_store_page(
     category: Option<CoachCategory>,
     offset: u32,
     limit: u32,
+    locale: &str,
 ) -> AppResult<StoreOffsetPage> {
     let limit = limit.clamp(1, MAX_STORE_PAGE_SIZE - 1);
     let page_len = limit as usize;
@@ -186,6 +191,7 @@ pub async fn browse_store_page(
     let has_more = rows.len() > page_len;
     rows.truncate(page_len);
 
+    let rows = translate_listings(repos, rows, locale).await?;
     let mut coaches: Vec<StoreCoach> = rows.into_iter().map(StoreCoach::from).collect();
     apply_grade_rank(repos, viewer_tenant, &mut coaches).await;
 
@@ -208,6 +214,7 @@ pub async fn search_store(
     repos: &CoachRepos,
     query: &str,
     limit: Option<u32>,
+    locale: &str,
 ) -> AppResult<Vec<StoreCoach>> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
@@ -220,6 +227,7 @@ pub async fn search_store(
         .store_listings
         .search_published_coaches(trimmed, Some(limit))
         .await?;
+    let coaches = translate_listings(repos, coaches, locale).await?;
     Ok(coaches.into_iter().map(StoreCoach::from).collect())
 }
 
@@ -279,6 +287,48 @@ pub async fn install_store_coach(
 
 /// Re-rank a page of store coaches by coach grade, degrading to the existing
 /// order when grades cannot be computed.
+/// Overlay the `coach_translations` rows for `locale` onto listing coaches.
+///
+/// The store reads the canonical English row; a French athlete browsing it
+/// deserves the same French title and description the chat's `/coach list`
+/// already shows. The coaches are lifted out of their listings, translated
+/// as one batch, and zipped back so the listing data rides along untouched.
+async fn translate_listings(
+    repos: &CoachRepos,
+    items: Vec<CoachWithListing>,
+    locale: &str,
+) -> AppResult<Vec<CoachWithListing>> {
+    let (mut coaches, listings): (Vec<Coach>, Vec<StoreListing>) = items
+        .into_iter()
+        .map(|item| (item.coach, item.listing))
+        .unzip();
+    repos
+        .coaches
+        .translate_coaches(&mut coaches, locale)
+        .await?;
+    Ok(coaches
+        .into_iter()
+        .zip(listings)
+        .map(|(coach, listing)| CoachWithListing { coach, listing })
+        .collect())
+}
+
+/// Overlay one published coach's translation for the detail read.
+///
+/// # Errors
+///
+/// Returns the repository error when the translation read fails.
+pub async fn translate_published_coach(
+    repos: &CoachRepos,
+    coach: &mut CoachWithListing,
+    locale: &str,
+) -> AppResult<()> {
+    repos
+        .coaches
+        .translate_coaches(slice::from_mut(&mut coach.coach), locale)
+        .await
+}
+
 async fn apply_grade_rank(repos: &CoachRepos, viewer_tenant: TenantId, coaches: &mut [StoreCoach]) {
     match compute_coach_grades(repos, viewer_tenant, DEFAULT_VERDICT_LIMIT).await {
         Ok(grading) => rerank_by_grade(coaches, |c| c.id.to_string(), &grading),

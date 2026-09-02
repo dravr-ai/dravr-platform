@@ -22,6 +22,7 @@ mod chat_listing;
 mod chat_read_markers;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
+mod coach_translations;
 /// Coaches repository implementation
 pub mod coaches;
 mod coaches_assignments;

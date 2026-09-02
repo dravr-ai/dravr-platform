@@ -41,7 +41,9 @@ export function OnboardingProfileTypeScreen() {
     await markChosen();
   };
 
-  const heading = user?.display_name ? `Welcome, ${user.display_name}` : t('app.welcomeToDravr');
+  const heading = user?.display_name
+    ? t('onboarding.welcomeNamed', { name: user.display_name })
+    : t('app.welcomeToDravr');
 
   return (
     <Shell heading={heading}>
@@ -51,14 +53,14 @@ export function OnboardingProfileTypeScreen() {
       <View className="mt-6 gap-4">
         <ChoiceCard
           title={t('app.imAnAthlete')}
-          description="Track your own training and get coaching tuned to how you actually train."
+          description={t('onboarding.athleteCardDescription')}
           busy={choosing === 'athlete'}
           disabled={choosing !== null}
           onSelect={() => void finish('athlete')}
         />
         <ChoiceCard
           title={t('app.iCoachOthers')}
-          description="Build plans and manage the athletes you coach. Unlocks coach-facing plan builders."
+          description={t('onboarding.coachCardDescription')}
           busy={choosing === 'coach'}
           disabled={choosing !== null}
           onSelect={() => void finish('coach')}

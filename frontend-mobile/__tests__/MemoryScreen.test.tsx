@@ -92,8 +92,8 @@ describe('MemoryScreen', () => {
     expect(getByText(/left achilles tendinitis/i)).toBeTruthy();
     // "Goals" and "Injuries" appear twice each — once as a filter chip and
     // once as a section header. Assert at least one match for both.
-    expect(getAllByText('Goals').length).toBeGreaterThan(0);
-    expect(getAllByText('Injuries').length).toBeGreaterThan(0);
+    expect(getAllByText('Goal').length).toBeGreaterThan(0);
+    expect(getAllByText('Injury').length).toBeGreaterThan(0);
   });
 
   it('does not render the "you has connected X" pattern when the LLM emits a third-person predicate for a "you" subject', async () => {

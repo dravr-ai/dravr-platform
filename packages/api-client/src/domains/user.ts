@@ -461,11 +461,28 @@ export function createUserApi(axios: AxiosInstance) {
   };
 }
 
-/** Wire shape for a single user_facts row served to the memory panel. */
+/**
+ * Wire shape for a single user_facts row served to the memory panel.
+ *
+ * `kind` is the server's `FactKind` serde string — the nine values
+ * `@pierre/shared-constants` lists as `MEMORY_FACT_KINDS`. `coach_title` is
+ * the coach behind `coach_id`, joined by the server so the panel can name the
+ * coach; a fact no coach authored, or whose coach is gone, carries none.
+ */
 export interface MemoryFactRow {
   id: string;
   coach_id: string | null;
-  kind: 'preference' | 'physiology' | 'injury' | 'goal' | 'schedule' | 'equipment' | 'other';
+  coach_title: string | null;
+  kind:
+    | 'preference'
+    | 'physiology'
+    | 'injury'
+    | 'goal'
+    | 'schedule'
+    | 'equipment'
+    | 'north_star'
+    | 'medical'
+    | 'other';
   subject: string;
   predicate: string;
   object: string;

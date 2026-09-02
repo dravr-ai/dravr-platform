@@ -335,7 +335,7 @@ export function OnboardingConnectScreen() {
             className="text-3xl font-bold text-text-primary mb-3"
             accessibilityRole="header"
           >
-            {user?.display_name ? `Welcome, ${user.display_name}` : t('app.welcomeToDravr')}
+            {user?.display_name ? t('onboarding.welcomeNamed', { name: user.display_name }) : t('app.welcomeToDravr')}
           </Text>
           <Text className="text-base text-text-secondary leading-6">
             {t('app.obConnectBlurb')}

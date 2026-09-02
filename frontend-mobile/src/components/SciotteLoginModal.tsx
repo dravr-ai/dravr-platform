@@ -195,7 +195,7 @@ export function SciotteLoginModal({
 
       if (data.status === 'connected') {
         setPhase('success');
-        setStatus('Connected!');
+        setStatus(t('app.connectedBang'));
         onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'two_factor_choice') {
@@ -234,7 +234,7 @@ export function SciotteLoginModal({
 
       if (data.status === 'connected') {
         setPhase('success');
-        setStatus('Connected!');
+        setStatus(t('app.connectedBang'));
         onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
@@ -280,7 +280,7 @@ export function SciotteLoginModal({
 
       if (data.status === 'connected') {
         setPhase('success');
-        setStatus('Connected!');
+        setStatus(t('app.connectedBang'));
         onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {

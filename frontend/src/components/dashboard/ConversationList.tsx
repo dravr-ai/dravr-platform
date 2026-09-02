@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The unified conversation list — a search pinned above flat rows sorted by last activity
-// ABOUTME: One list for every thread the athlete is in, whatever surface created it; Telegram-shaped
+// ABOUTME: The conversation list column — its title and "+", a search, filter chips, then flat rows sorted by last activity
+// ABOUTME: One list for every thread the athlete is in, whatever surface created it; the shape every messenger keeps on the left
 
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { clsx } from 'clsx';
 import { Search } from 'lucide-react';
 import type { ConversationRowModel } from '@pierre/chat-utils';
 import { useConversationList, useConversationMutations } from '../../hooks/useConversationList';
@@ -15,6 +16,32 @@ import { useTranslation } from '@pierre/i18n';
 interface ConversationListProps {
   selectedConversation: string | null;
   onSelectConversation: (id: string | null) => void;
+  /** The chat "+" menu, rendered by the host so it stays wired to the one conversation-creating mutation. */
+  compose?: ReactNode;
+}
+
+/** Which rows the chips above the list keep. */
+type RowFilter = 'all' | 'unread' | 'groups' | 'coaches';
+
+const FILTERS: { key: RowFilter; labelKey: string }[] = [
+  { key: 'all', labelKey: 'discover.filterAll' },
+  { key: 'unread', labelKey: 'chat.filterUnread' },
+  { key: 'groups', labelKey: 'chat.filterGroups' },
+  { key: 'coaches', labelKey: 'chat.filterCoaches' },
+];
+
+function keepsRow(filter: RowFilter, row: ConversationRowModel): boolean {
+  switch (filter) {
+    case 'unread':
+      return row.unreadCount > 0;
+    case 'groups':
+      return row.kind === 'group';
+    case 'coaches':
+      return row.kind === 'coach';
+    case 'all':
+    default:
+      return true;
+  }
 }
 
 /**
@@ -28,9 +55,11 @@ interface ConversationListProps {
 export default function ConversationList({
   selectedConversation,
   onSelectConversation,
+  compose,
 }: ConversationListProps) {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<RowFilter>('all');
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editedTitleValue, setEditedTitleValue] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState<ConversationRowModel | null>(null);
@@ -40,6 +69,7 @@ export default function ConversationList({
   const { rename, remove, isRemoving, markUnread } = useConversationMutations();
 
   const searchActive = searchQuery.trim().length > 0;
+  const visibleRows = useMemo(() => rows.filter((row) => keepsRow(filter, row)), [rows, filter]);
 
   const handleStartRename = (row: ConversationRowModel): void => {
     setEditingConversationId(row.id);
@@ -71,37 +101,66 @@ export default function ConversationList({
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid="conversation-list">
-      <div className="px-3 pt-3 pb-2 flex-shrink-0">
-        <Input
-          type="search"
-          size="sm"
-          leftIcon={<Search className="w-3.5 h-3.5" />}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t('convPanel.searchChats')}
-          aria-label={t('convPanel.search')}
-        />
+    <div className="flex h-full min-h-0 flex-col" data-testid="conversation-list">
+      <div className="flex-shrink-0 px-4 pt-4 pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-display text-xl font-semibold text-on-surface">{t('chat.listTitle')}</h2>
+          {compose ? <div className="flex items-center">{compose}</div> : null}
+        </div>
+        <div className="mt-3">
+          <Input
+            type="search"
+            size="sm"
+            leftIcon={<Search className="w-3.5 h-3.5" />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('convPanel.searchChats')}
+            aria-label={t('convPanel.search')}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label={t('chat.listTitle')}>
+          {FILTERS.map((entry) => {
+            const active = filter === entry.key;
+            return (
+              <button
+                key={entry.key}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                data-testid={`conversation-filter-${entry.key}`}
+                onClick={() => setFilter(entry.key)}
+                className={clsx(
+                  'rounded-full px-3 py-1 text-xs font-medium transition-colors focus-ring',
+                  active
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface',
+                )}
+              >
+                {t(entry.labelKey)}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
-          <p className="px-3 py-2 text-outline text-sm">{t('chat.conversationsLoading')}</p>
+          <p className="px-4 py-3 text-sm text-outline">{t('chat.conversationsLoading')}</p>
         ) : isError ? (
-          <div className="px-3 py-2 space-y-2">
+          <div className="space-y-2 px-4 py-3">
             <p className="text-sm text-error">{t('chat.listLoadFailed')}</p>
             <Button variant="secondary" size="sm" onClick={refetch}>
               {t('chat.listRetry')}
             </Button>
           </div>
-        ) : rows.length === 0 ? (
-          <p className="px-3 py-6 text-center text-sm text-outline" data-testid="conversation-list-empty">
-            {searchActive ? t('convPanel.noChatsMatch') : t('chat.noChatsEmptyHint')}
+        ) : visibleRows.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-outline" data-testid="conversation-list-empty">
+            {searchActive || filter !== 'all' ? t('convPanel.noChatsMatch') : t('chat.noChatsEmptyHint')}
           </p>
         ) : (
           <>
-            <ul className="space-y-0.5" aria-label={t('chat.conversations')}>
-              {rows.map((row) => (
+            <ul aria-label={t('chat.conversations')}>
+              {visibleRows.map((row) => (
                 <ConversationItem
                   key={row.id}
                   row={row}
@@ -119,7 +178,7 @@ export default function ConversationList({
               ))}
             </ul>
             {hasMore && !searchActive && (
-              <div className="px-3 py-3 flex justify-center">
+              <div className="flex justify-center px-3 py-3">
                 <Button
                   variant="secondary"
                   size="sm"

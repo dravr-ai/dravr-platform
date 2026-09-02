@@ -12,7 +12,10 @@
 //! enforced by the caller (the route handler resolves the active tenant
 //! from the authenticated session before invoking these helpers).
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
@@ -34,7 +37,12 @@ pub struct UserFactRow {
     pub id: String,
     /// Coach the fact is scoped to, or `null` for cross-coach facts.
     pub coach_id: Option<String>,
-    /// One of `preference | physiology | injury | goal | schedule | equipment | other`.
+    /// The title of that coach, resolved for the panel so it can name the
+    /// coach rather than print its id; `null` when the fact has no coach or
+    /// the coach no longer resolves for this user.
+    pub coach_title: Option<String>,
+    /// The `FactKind` serde name — `preference`, `physiology`, `injury`,
+    /// `goal`, `schedule`, `equipment`, `north_star`, `medical` or `other`.
     pub kind: String,
     /// Subject phrase, typically `"you"`.
     pub subject: String,
@@ -97,10 +105,16 @@ pub async fn list_user_facts(
         .list_user_facts(tenant_id, user_id, coach_id, kind, clamped)
         .await?;
 
+    let coach_titles = coach_titles_for(repos, &facts, user_id, tenant_id).await;
+
     let rows: Vec<UserFactRow> = facts
         .into_iter()
         .map(|f| UserFactRow {
             id: f.id,
+            coach_title: f
+                .coach_id
+                .as_deref()
+                .and_then(|id| coach_titles.get(id).cloned()),
             coach_id: f.coach_id,
             kind: f.kind.as_str().to_owned(),
             subject: f.subject,
@@ -114,6 +128,37 @@ pub async fn list_user_facts(
 
     let total = rows.len();
     Ok(UserFactListResponse { facts: rows, total })
+}
+
+/// The title of every coach the facts name, one lookup per distinct coach.
+///
+/// A page of facts usually names one or two coaches many times over, so the
+/// lookups are keyed by coach id rather than run per row. A coach that no
+/// longer resolves for this user — deleted, or from a tenant the user left —
+/// simply has no title, and the row keeps its id.
+async fn coach_titles_for(
+    repos: &CoachRepos,
+    facts: &[pierre_memory::UserFact],
+    user_id: &str,
+    tenant_id: TenantId,
+) -> HashMap<String, String> {
+    let mut titles = HashMap::new();
+    let Ok(user_uuid) = Uuid::parse_str(user_id) else {
+        return titles;
+    };
+    let mut distinct: Vec<&str> = facts.iter().filter_map(|f| f.coach_id.as_deref()).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    for coach_id in distinct {
+        if let Ok(Some(coach)) = repos
+            .coaches
+            .get_by_id(coach_id, user_uuid, tenant_id)
+            .await
+        {
+            titles.insert(coach_id.to_owned(), coach.title);
+        }
+    }
+    titles
 }
 
 /// GDPR-grade Forget: remove a single fact when it belongs to the

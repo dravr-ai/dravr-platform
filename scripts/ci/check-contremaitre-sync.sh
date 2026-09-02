@@ -54,18 +54,18 @@ FAILED=false
 # clients embed them, GET /api/i18n/{locale} serves them, contremaitre overlays
 # them. One key set across the five files is the invariant that used to be
 # `entries == keys × 5` over the Rust COMPILED_IN table. Every `KEY_*` literal
-# the registry declares must exist in the catalogue, and a key is rendered by
+# declared anywhere in the contremaitre crate must exist in the catalogue, and a key is rendered by
 # exactly one side: server-rendered keys (the KEY_* set) take positional {0}
 # placeholders, client keys take i18next {{name}} placeholders.
 CATALOGUE_DIR="packages/i18n/src/locales"
-MS="crates/pierre-contremaitre/src/messaging_strings.rs"
+REGISTRY_SRC="crates/pierre-contremaitre/src"
 
-if [[ ! -f "$MS" ]] || [[ ! -f "$CATALOGUE_DIR/fr/translation.json" ]]; then
+if [[ ! -d "$REGISTRY_SRC" ]] || [[ ! -f "$CATALOGUE_DIR/fr/translation.json" ]]; then
     echo -e "${RED}❌ Catalogue or registry source not found — this check is stale.${NC}"
     FAILED=true
 else
-    if CATALOGUE_REPORT="$(python3 - "$CATALOGUE_DIR" "$MS" <<'PY'
-import json, re, sys
+    if CATALOGUE_REPORT="$(python3 - "$CATALOGUE_DIR" "$REGISTRY_SRC" <<'PY'
+import json, pathlib, re, sys
 
 catalogue_dir, registry_src = sys.argv[1], sys.argv[2]
 locales = ["fr", "en", "es", "de", "pt"]
@@ -92,8 +92,9 @@ for locale in locales:
     problems += [f"{locale} is missing {k}" for k in sorted(reference - keys)]
     problems += [f"{locale} has an extra key {k}" for k in sorted(keys - reference)]
 
-with open(registry_src, encoding="utf-8") as fh:
-    source = fh.read()
+source = "\n".join(
+    path.read_text(encoding="utf-8") for path in sorted(pathlib.Path(registry_src).rglob("*.rs"))
+)
 server_keys = set(re.findall(r'^pub const KEY_[A-Z0-9_]+: &str =\s*"([^"]+)"', source, re.M | re.S))
 problems += [f"registry declares {k} but the catalogue has no such key" for k in sorted(server_keys - reference)]
 
@@ -117,7 +118,7 @@ PY
     else
         echo -e "${RED}❌ Catalogue drift:${NC}"
         printf '%s\n' "$CATALOGUE_REPORT" | sed 's/^/   /'
-        echo -e "${YELLOW}   Every key ships in fr/en/es/de/pt under ${CATALOGUE_DIR}, every KEY_* in ${MS} names one of them.${NC}"
+        echo -e "${YELLOW}   Every key ships in fr/en/es/de/pt under ${CATALOGUE_DIR}, every KEY_* under ${REGISTRY_SRC} names one of them.${NC}"
         FAILED=true
     fi
 fi

@@ -5,16 +5,19 @@ import { describe, it, expect } from 'vitest';
 import type { Conversation } from '@pierre/shared-types';
 import {
   AVATAR_SLOTS,
-  UNTITLED_CONVERSATION,
   avatarSlot,
   buildConversationRow,
   deriveKind,
   filterRows,
   formatListTimestamp,
+  defaultConversationTitle,
   initialsFor,
   previewFor,
   sortRowsByActivity,
 } from '../src/conversation-row';
+
+/** The words the row cannot spell itself, as the English client resolves them. */
+const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitled chat' };
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
@@ -103,56 +106,56 @@ describe('previewFor', () => {
   const user = { preview: 'How was my week?', role: 'user' as const, created_at: '2026-08-26T10:00:00Z' };
 
   it('prefixes the athlete\'s own rows with You: on every kind of row', () => {
-    expect(previewFor(conversation({ last_message: user }))).toBe('You: How was my week?');
-    expect(previewFor(conversation({ group_id: 'g1', coach_title: 'Phil', last_message: user }))).toBe(
+    expect(previewFor(conversation({ last_message: user }), LABELS)).toBe('You: How was my week?');
+    expect(previewFor(conversation({ group_id: 'g1', coach_title: 'Phil', last_message: user }), LABELS)).toBe(
       'You: How was my week?',
     );
   });
 
   it('names the coach only in a group row', () => {
     expect(
-      previewFor(conversation({ group_id: 'g1', coach_title: 'Marathon Coach', last_message: assistant })),
+      previewFor(conversation({ group_id: 'g1', coach_title: 'Marathon Coach', last_message: assistant }), LABELS),
     ).toBe('Marathon Coach: Ease off this week.');
-    expect(previewFor(conversation({ coach_id: 'c1', coach_title: 'Marathon Coach', last_message: assistant }))).toBe(
+    expect(previewFor(conversation({ coach_id: 'c1', coach_title: 'Marathon Coach', last_message: assistant }), LABELS)).toBe(
       'Ease off this week.',
     );
-    expect(previewFor(conversation({ channel_type: 'telegram', last_message: assistant }))).toBe(
+    expect(previewFor(conversation({ channel_type: 'telegram', last_message: assistant }), LABELS)).toBe(
       'Ease off this week.',
     );
   });
 
   it('falls to "Coach" in a group whose coach no longer exists', () => {
-    expect(previewFor(conversation({ group_id: 'g1', coach_title: null, last_message: assistant }))).toBe(
+    expect(previewFor(conversation({ group_id: 'g1', coach_title: null, last_message: assistant }), LABELS)).toBe(
       'Coach: Ease off this week.',
     );
   });
 
   it('is empty for a thread with no message yet', () => {
-    expect(previewFor(conversation())).toBe('');
-    expect(previewFor(conversation({ last_message: null }))).toBe('');
+    expect(previewFor(conversation(), LABELS)).toBe('');
+    expect(previewFor(conversation({ last_message: null }), LABELS)).toBe('');
   });
 });
 
 describe('formatListTimestamp', () => {
   it('shows the clock time for today', () => {
-    expect(formatListTimestamp(localIso(2026, 8, 27, 9, 50), NOW)).toBe('09:50');
-    expect(formatListTimestamp(localIso(2026, 8, 27, 0, 5), NOW)).toBe('00:05');
+    expect(formatListTimestamp(localIso(2026, 8, 27, 9, 50), 'en-US', NOW)).toBe('09:50');
+    expect(formatListTimestamp(localIso(2026, 8, 27, 0, 5), 'en-US', NOW)).toBe('00:05');
   });
 
   it('shows the weekday inside the last week', () => {
-    expect(formatListTimestamp(localIso(2026, 8, 26), NOW)).toBe('Wed');
-    expect(formatListTimestamp(localIso(2026, 8, 24), NOW)).toBe('Mon');
-    expect(formatListTimestamp(localIso(2026, 8, 21), NOW)).toBe('Fri');
+    expect(formatListTimestamp(localIso(2026, 8, 26), 'en-US', NOW)).toBe('Wed');
+    expect(formatListTimestamp(localIso(2026, 8, 24), 'en-US', NOW)).toBe('Mon');
+    expect(formatListTimestamp(localIso(2026, 8, 21), 'en-US', NOW)).toBe('Fri');
   });
 
   it('shows the date from seven days back, with the year once it is another year', () => {
-    expect(formatListTimestamp(localIso(2026, 8, 20), NOW)).toBe('Aug 20');
-    expect(formatListTimestamp(localIso(2026, 1, 3), NOW)).toBe('Jan 3');
-    expect(formatListTimestamp(localIso(2025, 12, 31), NOW)).toBe('Dec 31, 2025');
+    expect(formatListTimestamp(localIso(2026, 8, 20), 'en-US', NOW)).toBe('Aug 20');
+    expect(formatListTimestamp(localIso(2026, 1, 3), 'en-US', NOW)).toBe('Jan 3');
+    expect(formatListTimestamp(localIso(2025, 12, 31), 'en-US', NOW)).toBe('Dec 31, 2025');
   });
 
   it('is empty for a stamp that does not parse', () => {
-    expect(formatListTimestamp('not a date', NOW)).toBe('');
+    expect(formatListTimestamp('not a date', 'en-US', NOW)).toBe('');
   });
 });
 
@@ -174,6 +177,7 @@ describe('buildConversationRow', () => {
           created_at: localIso(2026, 8, 27, 9, 50),
         },
       }),
+      LABELS,
       NOW,
     );
 
@@ -197,9 +201,10 @@ describe('buildConversationRow', () => {
   it('names an untitled thread and stamps it from updated_at when it has no message', () => {
     const row = buildConversationRow(
       conversation({ title: null, updated_at: localIso(2026, 8, 24, 8, 0) }),
+      LABELS,
       NOW,
     );
-    expect(row.title).toBe(UNTITLED_CONVERSATION);
+    expect(row.title).toBe(LABELS.untitled);
     expect(row.initials).toBe('UC');
     expect(row.preview).toBe('');
     expect(row.timestamp).toBe('Mon');
@@ -208,7 +213,7 @@ describe('buildConversationRow', () => {
   });
 
   it('badges a messaging-origin thread from its channel_type', () => {
-    const row = buildConversationRow(conversation({ channel_type: 'telegram' }), NOW);
+    const row = buildConversationRow(conversation({ channel_type: 'telegram' }), LABELS, NOW);
     expect(row.kind).toBe('channel');
     expect(row.channel).toEqual({ channel: 'telegram', label: 'Telegram' });
   });
@@ -218,6 +223,7 @@ describe('sortRowsByActivity', () => {
   it('orders newest activity first, by the last message or else updated_at', () => {
     const quiet = buildConversationRow(
       conversation({ id: 'quiet', updated_at: '2026-08-25T10:00:00Z' }),
+      LABELS,
       NOW,
     );
     const busy = buildConversationRow(
@@ -226,10 +232,12 @@ describe('sortRowsByActivity', () => {
         updated_at: '2026-08-20T10:00:00Z',
         last_message: { preview: 'hi', role: 'user', created_at: '2026-08-27T10:00:00Z' },
       }),
+      LABELS,
       NOW,
     );
     const middle = buildConversationRow(
       conversation({ id: 'middle', updated_at: '2026-08-26T10:00:00Z' }),
+      LABELS,
       NOW,
     );
 
@@ -244,6 +252,7 @@ describe('filterRows', () => {
   const rows = [
     buildConversationRow(
       conversation({ id: 'a', title: 'Marathon plan', coach_id: 'c1', coach_handle: 'marathon-coach' }),
+      LABELS,
       NOW,
     ),
     buildConversationRow(
@@ -252,9 +261,10 @@ describe('filterRows', () => {
         title: 'Tuesday',
         last_message: { preview: 'Deadlift form check', role: 'user', created_at: '2026-08-27T10:00:00Z' },
       }),
+      LABELS,
       NOW,
     ),
-    buildConversationRow(conversation({ id: 'c', title: 'Recovery week' }), NOW),
+    buildConversationRow(conversation({ id: 'c', title: 'Recovery week' }), LABELS, NOW),
   ];
 
   it('matches the title, the coach handle and the preview, case-insensitively', () => {
@@ -267,5 +277,27 @@ describe('filterRows', () => {
 
   it('keeps every row for a blank query', () => {
     expect(filterRows(rows, '   ').map((row) => row.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('locale-aware formatting', () => {
+  const NOW = new Date(2026, 7, 27, 16, 18); // Thu 27 Aug 2026 16:18 local
+
+  it('spells the weekday and the month in the reader\'s language, on one 24-hour clock', () => {
+    expect(formatListTimestamp(new Date(2026, 7, 26).toISOString(), 'fr', NOW)).toMatch(/^mer/);
+    expect(formatListTimestamp(new Date(2026, 7, 20).toISOString(), 'fr', NOW)).toMatch(/^20 août/);
+    expect(formatListTimestamp(new Date(2026, 7, 27, 9, 5).toISOString(), 'fr', NOW)).toBe('09:05');
+  });
+
+  it('titles a fresh thread with the prefix, the day and the 24-hour time', () => {
+    expect(defaultConversationTitle('Chat', NOW, 'en-US')).toBe('Chat Aug 27 16:18');
+    expect(defaultConversationTitle('Discussion', NOW, 'fr')).toBe('Discussion 27 août 16:18');
+  });
+
+  it('spells You, Coach and the untitled fallback from the labels it is handed', () => {
+    const fr = { locale: 'fr', you: 'Toi', coach: 'Coach', untitled: 'Discussion sans titre' };
+    const mine = conversation({ last_message: { role: 'user', preview: 'Salut', created_at: NOW.toISOString() } });
+    expect(previewFor(mine, fr)).toBe('Toi: Salut');
+    expect(buildConversationRow(conversation({ title: '  ' }), fr, NOW).title).toBe('Discussion sans titre');
   });
 });

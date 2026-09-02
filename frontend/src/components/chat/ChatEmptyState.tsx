@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: What the chat pane shows with no thread open — one line, the "+" menu and the "/" commands button
+// ABOUTME: What the thread pane shows with no thread open — the brand mark, one invitation, the "+" and three quick ways in
 // ABOUTME: The discoverable path to the command palette, so "/" is never the only way to find it
 
 import type { ReactNode } from 'react';
-import { MessageCircle, Slash } from 'lucide-react';
-import { SLASH_HINT } from '@pierre/shared-constants';
-import { Button } from '../ui';
+import { clsx } from 'clsx';
+import { Compass, Link2, Slash } from 'lucide-react';
+import { SLASH_HINT_KEY } from '@pierre/shared-constants';
+import { DravrLogo } from '../DravrLogo';
 import { useTranslation } from '@pierre/i18n';
 
 interface ChatEmptyStateProps {
@@ -18,47 +19,107 @@ interface ChatEmptyStateProps {
   compose: ReactNode;
   /** Start a conversation whose composer already holds `/`, palette open. */
   onOpenCommands: () => void;
-  /** Disables the commands button while a conversation is being created. */
+  /** Disables the quick actions while a conversation is being created. */
   disabled?: boolean;
+  /** Jump to another tab — the coach catalogue, the data providers. */
+  onNavigate?: (route: string) => void;
+  /** What the coach can see right now: the connected providers, or that there are none. */
+  providerStatus?: string | null;
+}
+
+/** One of the round quick actions under the invitation. */
+function QuickAction({
+  icon,
+  label,
+  onClick,
+  disabled,
+  testId,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testId}
+      className="flex w-24 flex-col items-center gap-2 rounded-xl px-2 py-2 text-on-surface transition-colors hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
+    >
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-container-high text-primary">
+        {icon}
+      </span>
+      <span className="text-center text-xs leading-tight">{label}</span>
+    </button>
+  );
 }
 
 /**
- * The empty chat pane.
+ * The empty thread pane.
  *
- * One line naming what to do, the `+` that starts a conversation, and a
- * `Commands` button that opens a thread with `/` already typed — the visible
- * affordance the slash palette otherwise lacks.
+ * A centred card on the canvas: the mark, one line naming what to do, the
+ * `+` that starts a conversation as the single call to action, and three
+ * quick ways in below it — the command palette, the coach catalogue and the
+ * data providers. The footer names what the coach can see, so an athlete with
+ * nothing connected learns it here rather than after the first question.
  */
 export default function ChatEmptyState({
   compose,
   onOpenCommands,
   disabled = false,
+  onNavigate,
+  providerStatus,
 }: ChatEmptyStateProps) {
   const { t } = useTranslation();
   return (
     <div
-      className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-10 text-center"
+      className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10"
       data-testid="chat-empty-state"
     >
-      <div className="w-12 h-12 rounded-full bg-surface-container-low flex items-center justify-center">
-        <MessageCircle className="w-6 h-6 text-primary" aria-hidden="true" />
+      <div className="flex w-full max-w-md flex-col items-center rounded-xl border ghost-border bg-surface-container-lowest px-8 py-10 text-center shadow-card">
+        <DravrLogo size={72} />
+        <h2 className="mt-6 font-display text-xl font-semibold text-on-surface">
+          {t('chat.emptyStatePrompt')}
+        </h2>
+        <p className="mt-2 text-sm text-on-surface-variant">{t('chat.emptyStateBody')}</p>
+        <div className="mt-6 flex items-center justify-center">{compose}</div>
       </div>
-      <p className="text-base text-on-surface">{t('chat.emptyStatePrompt')}</p>
-      <div className="flex items-center gap-2">
-        {compose}
-        <Button
-          variant="secondary"
+      <div className="mt-8 flex flex-wrap items-start justify-center gap-2">
+        <QuickAction
+          icon={<Slash className="h-5 w-5" aria-hidden="true" />}
+          label={t('chat.commandsButton')}
           onClick={onOpenCommands}
           disabled={disabled}
-          data-testid="chat-empty-commands"
-        >
-          <span className="flex items-center gap-1.5">
-            <Slash className="w-4 h-4" aria-hidden="true" />
-            {t('chat.commandsButton')}
-          </span>
-        </Button>
+          testId="chat-empty-commands"
+        />
+        {onNavigate && (
+          <>
+            <QuickAction
+              icon={<Compass className="h-5 w-5" aria-hidden="true" />}
+              label={t('chat.quickDiscover')}
+              onClick={() => onNavigate('discover')}
+              testId="chat-empty-discover"
+            />
+            <QuickAction
+              icon={<Link2 className="h-5 w-5" aria-hidden="true" />}
+              label={t('chat.quickConnectProvider')}
+              onClick={() => onNavigate('data-providers')}
+              testId="chat-empty-connect"
+            />
+          </>
+        )}
       </div>
-      <p className="text-xs text-outline max-w-sm">{SLASH_HINT}</p>
+      {providerStatus ? (
+        <p className="mt-6 text-xs text-on-surface-variant" data-testid="chat-empty-provider-status">
+          {providerStatus}
+        </p>
+      ) : null}
+      <p className={clsx('max-w-sm text-xs text-outline', providerStatus ? 'mt-1' : 'mt-6')}>
+        {t(SLASH_HINT_KEY)}
+      </p>
     </div>
   );
 }

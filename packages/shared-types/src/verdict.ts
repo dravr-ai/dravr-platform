@@ -195,15 +195,3 @@ export function summarizeVerdicts(
     tone: VERDICT_STATUS_TONE[worstStatus],
   };
 }
-
-/**
- * The chip's label: how many verdicts, and the worst thing about them.
- *
- * The qualifier is the weakest evidence where a surface read the rows, and the
- * worst status where it only has the turn's chips — so a chip never has to
- * invent a strength nobody sent it.
- */
-export function verdictSummaryLabel(summary: VerdictSummary): string {
-  const noun = summary.count === 1 ? 'verdict' : 'verdicts';
-  return `${summary.count} ${noun} · ${summary.worstStrength ?? summary.worstStatus}`;
-}

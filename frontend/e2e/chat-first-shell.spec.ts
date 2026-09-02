@@ -358,7 +358,7 @@ test.describe('Chat-first shell', () => {
 
     await page.goto('/#chat/conv-1');
     await page.waitForSelector('aside', { timeout: 10000 });
-    await expect(page.getByTestId('conversation-header-title')).toHaveText('Sunday long run');
+    await expect(page.getByTestId('thread-title')).toHaveText('Sunday long run');
 
     await page.getByRole('button', { name: 'New', exact: true }).first().click();
     const menu = page.getByRole('menu', { name: 'Start a conversation' });

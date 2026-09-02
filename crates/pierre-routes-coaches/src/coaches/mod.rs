@@ -17,6 +17,8 @@ pub mod proposal_profile;
 /// Request and response types for coach API endpoints.
 pub mod types;
 mod user;
+
+pub(crate) use user::resolve_user_locale;
 mod versions;
 
 use std::sync::Arc;

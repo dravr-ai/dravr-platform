@@ -228,9 +228,19 @@ async fn catalogue_entries_carry_the_frontmatter_verbatim() {
     assert_eq!(plan.name, "plan");
     assert_eq!(plan.domain, "training");
     assert_eq!(plan.args.as_deref(), Some("[week|today]"));
+    // The description is read in the caller's locale (fr, the default) from
+    // the five-locale registry, so it is the French line, not the English
+    // frontmatter the catalogue file carries.
+    let registry = &resources.mcp.messaging_strings_registry;
     assert_eq!(
         plan.description,
-        "Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone"
+        registry.get("commands.plan.description", "fr"),
+        "the palette description must be the registry's French line"
+    );
+    assert_ne!(
+        plan.description,
+        "Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone",
+        "a French reader must not get the English frontmatter"
     );
 
     // `/plan share` is deliberately absent here: a catalogue fetched without
@@ -534,8 +544,8 @@ async fn plan_share_is_listed_only_where_a_room_exists() {
     assert_eq!(share.domain, "training");
     assert_eq!(share.args.as_deref(), Some("[week|today]"));
     assert!(
-        share.description.contains("into the room"),
-        "the description says where the reply goes: {}",
+        share.description.contains("dans la salle"),
+        "the description says where the reply goes, in the reader's language: {}",
         share.description
     );
 }

@@ -30,6 +30,8 @@
 
 /// Hot-reloadable `IntelligenceConfig` snapshot registry — populated by the sync engine.
 pub mod cageux_config;
+/// Catalogue keys and the registry read for slash-command descriptions.
+pub mod command_descriptions;
 /// Environment-based configuration for repo, GCS bucket, PAT, and webhook secret
 pub mod config;
 /// Structured error types mapped to `AppError` via `ErrorCode`

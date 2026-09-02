@@ -8,16 +8,13 @@ import React from 'react';
 import { useTranslation } from '@pierre/i18n';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { avatarSlot, deriveKind, initialsFor, UNTITLED_CONVERSATION } from '@pierre/chat-utils';
+import { avatarSlot, CONVERSATION_ROW_LABEL_KEYS, deriveKind, initialsFor } from '@pierre/chat-utils';
 import { MENTION_PREFIX } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
 import type { Conversation } from '../../types';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
-
-/** What the header shows before the athlete has started a thread. */
-export const NEW_CHAT_TITLE = 'New Chat';
 
 interface ChatHeaderProps {
   currentConversation: Conversation | null;
@@ -39,7 +36,11 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const title = currentConversation?.title?.trim() || (currentConversation ? UNTITLED_CONVERSATION : NEW_CHAT_TITLE);
+  // An open thread with no title reads as untitled; before a thread exists the
+  // header names what the athlete is about to start.
+  const title =
+    currentConversation?.title?.trim() ||
+    (currentConversation ? t(CONVERSATION_ROW_LABEL_KEYS.untitled) : t('chat.newChat'));
   const kind = currentConversation ? deriveKind(currentConversation) : null;
   const handle = currentConversation?.coach_handle ?? null;
 

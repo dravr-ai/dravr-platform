@@ -150,11 +150,11 @@ describe('onboardingProgress — stable position-based labeled sequence', () => 
     const items = onboardingProgress(
       ctx({ needsProviderConnection: true, profileTypeChosen: false, coachProposalDone: false }),
     );
-    expect(items.map((i) => i.label)).toEqual([
-      'About you',
-      'About your training',
-      'Health check',
-      'Connect',
+    expect(items.map((i) => i.labelKey)).toEqual([
+      'onboarding.stepAboutYou',
+      'onboarding.stepAboutTraining',
+      'onboarding.stepHealthCheck',
+      'onboarding.stepConnect',
     ]);
   });
 

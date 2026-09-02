@@ -15,18 +15,20 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
 import { useTranslation } from '@pierre/i18n';
+import { defaultConversationTitle } from '@pierre/chat-utils';
+import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
 
 // Category filter options
 // Built at import time, where `t` does not exist: the table carries the key
 // and the render resolves it.
 const CATEGORY_FILTERS = [
   { key: 'all', labelKey: 'discover.filterAll' },
-  { key: 'training', labelKey: 'chat.categoryTraining' },
-  { key: 'nutrition', labelKey: 'chat.categoryNutrition' },
-  { key: 'recovery', labelKey: 'chat.categoryRecovery' },
-  { key: 'recipes', labelKey: 'chat.categoryRecipes' },
-  { key: 'mobility', labelKey: 'chat.categoryMobility' },
-  { key: 'custom', labelKey: 'chat.categoryCustom' },
+  { key: 'training', labelKey: COACH_CATEGORY_LABEL_KEY.training },
+  { key: 'nutrition', labelKey: COACH_CATEGORY_LABEL_KEY.nutrition },
+  { key: 'recovery', labelKey: COACH_CATEGORY_LABEL_KEY.recovery },
+  { key: 'recipes', labelKey: COACH_CATEGORY_LABEL_KEY.recipes },
+  { key: 'mobility', labelKey: COACH_CATEGORY_LABEL_KEY.mobility },
+  { key: 'custom', labelKey: COACH_CATEGORY_LABEL_KEY.custom },
 ] as const;
 
 type CategoryFilter = typeof CATEGORY_FILTERS[number]['key'];
@@ -91,16 +93,9 @@ interface StoreScreenProps {
   ownCoachId?: string | null;
 }
 
-/** The default title a fresh conversation gets, matching the chat tab's own. */
-function defaultConversationTitle(): string {
-  const now = new Date();
-  const day = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  return `Chat ${day} ${time}`;
-}
 
 export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
@@ -240,7 +235,12 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   // tab. The hint hands over the `/coach add @handle` draft the athlete types
   // there.
   const openChat = useMutation({
-    mutationFn: () => chatApi.createConversation({ title: defaultConversationTitle() }),
+    // The same title the chat tab gives a fresh thread: the viewer's language,
+    // the list row's 24-hour clock.
+    mutationFn: () =>
+      chatApi.createConversation({
+        title: defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
+      }),
     onSuccess: (conversation) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       setActionError(null);
@@ -382,7 +382,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       <TabHeader
         icon={<Compass className="w-5 h-5" />}
         gradient="from-activity to-activity"
-        description="Find AI coaching assistants"
+        description={t('discover.headerDescription')}
       />
 
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -558,6 +558,7 @@ interface CoachCardProps {
 }
 
 const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
+  const { t } = useTranslation();
   const categoryColors = COACH_CATEGORY_COLORS[coach.category] ?? 'bg-surface-container-high/20 text-on-surface-variant';
 
   return (
@@ -565,13 +566,20 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
       onClick={onClick}
       className="text-left p-4 bg-surface-container-low border ghost-border rounded-xl hover:border-primary/40 hover:bg-surface-container hover:shadow-ambient transition-all duration-200 group"
     >
-      {/* Header with category and install count */}
+      {/* Header with category and install count. The badge reads the same
+          vocabulary as the filter chips above it, so one screen never shows
+          the category in two languages. */}
       <div className="flex items-center justify-between mb-2">
-        <span className={clsx('px-2.5 py-0.5 text-xs font-medium rounded-full capitalize', categoryColors)}>
-          {coach.category}
+        <span
+          data-testid="coach-category-badge"
+          className={clsx('px-2.5 py-0.5 text-xs font-medium rounded-full', categoryColors)}
+        >
+          {t(coachCategoryLabelKey(coach.category))}
         </span>
-        <span className="text-xs text-on-surface-variant">
-          {coach.install_count} {coach.install_count === 1 ? 'user' : 'users'}
+        <span data-testid="coach-install-count" className="text-xs text-on-surface-variant">
+          {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
+            count: coach.install_count,
+          })}
         </span>
       </div>
 
@@ -695,11 +703,16 @@ function CoachDetailView({
         <div className="p-6 space-y-6">
           {/* Category & Stats */}
           <div className="flex items-center justify-between">
-            <span className={clsx('px-3 py-1 text-sm font-medium rounded-full capitalize', categoryColors)}>
-              {coach.category}
+            <span
+              data-testid="coach-category-badge"
+              className={clsx('px-3 py-1 text-sm font-medium rounded-full', categoryColors)}
+            >
+              {t(coachCategoryLabelKey(coach.category))}
             </span>
-            <span className="text-sm text-on-surface-variant">
-              {coach.install_count} {coach.install_count === 1 ? 'user' : 'users'}
+            <span data-testid="coach-install-count" className="text-sm text-on-surface-variant">
+              {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
+                count: coach.install_count,
+              })}
             </span>
           </div>
 

@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use crate::coaches::resolve_user_locale;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -28,8 +29,8 @@ use pierre_database::database::{CoachCategory, CoachWithListing, PublishStatus};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
 use pierre_services::coach_store::{
-    browse_store, install_store_coach, search_store, BrowseStoreParams, StoreCoach,
-    DEFAULT_STORE_PAGE_SIZE,
+    browse_store, install_store_coach, search_store, translate_published_coach, BrowseStoreParams,
+    StoreCoach, DEFAULT_STORE_PAGE_SIZE,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{field, info, Span};
@@ -210,7 +211,10 @@ async fn handle_browse<C: CoachesCtx + MiddlewareCtx>(
         limit: query.limit.unwrap_or(DEFAULT_STORE_PAGE_SIZE),
         cursor: query.cursor.as_deref(),
     };
-    let page = browse_store(&ctx.repos().coach_repos(), viewer_tenant, &params).await?;
+    // The athlete reads the catalogue in their own language: the listing
+    // rows carry the English coach and the overlay adds the translation.
+    let locale = resolve_user_locale(&ctx, auth.user_id, viewer_tenant).await;
+    let page = browse_store(&ctx.repos().coach_repos(), viewer_tenant, &params, &locale).await?;
 
     info!(
         "User {} browsed store: {} coaches (category={:?}, sort={:?}, has_more={})",
@@ -246,10 +250,13 @@ async fn handle_get_coach<C: CoachesCtx + MiddlewareCtx>(
         .map_err(|_| AppError::invalid_input(format!("Invalid coach ID: {coach_id}")))?;
 
     // Get the published coach (cross-tenant - any published coach is visible)
-    let cwl = manager
+    let mut cwl = manager
         .get_published_coach(&coach_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
+    let viewer_tenant = get_user_tenant(&auth)?;
+    let locale = resolve_user_locale(&ctx, auth.user_id, viewer_tenant).await;
+    translate_published_coach(&ctx.repos().coach_repos(), &mut cwl, &locale).await?;
 
     info!(
         "User {} viewed store coach: {} ({})",
@@ -325,8 +332,11 @@ async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
 
-    // Search across all tenants (global Store)
-    let store_coaches = search_store(&ctx.repos().coach_repos(), &query.q, query.limit).await?;
+    // Search across all tenants (global Store), read in the athlete's language.
+    let viewer_tenant = get_user_tenant(&auth)?;
+    let locale = resolve_user_locale(&ctx, auth.user_id, viewer_tenant).await;
+    let store_coaches =
+        search_store(&ctx.repos().coach_repos(), &query.q, query.limit, &locale).await?;
 
     info!(
         "User {} searched store for '{}': {} results",

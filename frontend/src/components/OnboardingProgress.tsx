@@ -30,7 +30,7 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
           {t('onboarding.stepOfLabel', {
             current: currentIndex + 1,
             total: steps.length,
-            label: current.label,
+            label: t(current.labelKey),
           })}
         </span>
       ) : null}
@@ -49,7 +49,7 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
               <span
                 className={`text-center text-[11px] leading-tight ${labelClass(step.status)}`}
               >
-                {step.label}
+                {t(step.labelKey)}
               </span>
             </div>
           </li>

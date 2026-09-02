@@ -106,7 +106,6 @@ export {
   verdictChipSeverity,
   mergeVerdictSeverities,
   summarizeVerdicts,
-  verdictSummaryLabel,
 } from './verdict.js';
 
 // Structured-workout plan types (builder-coach plan cards)

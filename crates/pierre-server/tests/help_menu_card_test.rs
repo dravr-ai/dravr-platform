@@ -162,8 +162,12 @@ async fn a_shared_room_marks_the_commands_that_act_on_one_athlete() -> Result<()
         .lines()
         .find(|l| l.contains("/calibrate"))
         .unwrap_or_else(|| panic!("/calibrate missing from the listing:\n{body}"));
+    // Each command is a `- ` list item; the marker sits right after the dash.
     assert!(
-        marked_line.trim_start().starts_with(PERSONAL_MARKER),
+        marked_line
+            .trim_start()
+            .trim_start_matches("- ")
+            .starts_with(PERSONAL_MARKER),
         "/calibrate acts on one athlete and must be marked in a room: {marked_line:?}"
     );
 
@@ -174,7 +178,10 @@ async fn a_shared_room_marks_the_commands_that_act_on_one_athlete() -> Result<()
         .find(|l| l.contains("/group status"))
         .unwrap_or_else(|| panic!("/group status missing from the listing:\n{body}"));
     assert!(
-        !unmarked_line.trim_start().starts_with(PERSONAL_MARKER),
+        !unmarked_line
+            .trim_start()
+            .trim_start_matches("- ")
+            .starts_with(PERSONAL_MARKER),
         "/group status reports the room and must not be marked: {unmarked_line:?}"
     );
     Ok(())

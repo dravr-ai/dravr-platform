@@ -27,9 +27,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
-use pierre_core::models::{CoverageMap, TenantId};
+use pierre_core::models::{default_locale, CoverageMap, TenantId};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_services::intake::INTAKE_TOPICS;
 use pierre_services::{about_you, onboarding_gate, parq};
 
 /// Response body for `GET /api/me/onboarding-status`.
@@ -182,7 +183,7 @@ pub async fn handle_self_get(
 pub struct ParqQuestionDto {
     /// Stable identifier echoed back in the answers payload.
     pub id: String,
-    /// Question text.
+    /// Question text, in the caller's locale.
     pub text: String,
 }
 
@@ -224,18 +225,40 @@ fn active_tenant(auth: &AuthenticatedUser) -> Result<TenantId, AppError> {
         })
 }
 
-/// `GET /api/me/parq` — the structured PAR-Q+ questions.
+/// `GET /api/me/parq` — the structured PAR-Q+ questions, in the caller's
+/// language.
+///
+/// The question set never varies per athlete; its language does. The text is
+/// the same five-locale registry string the messaging intake asks with, so an
+/// athlete screened on the web and one screened over Telegram read the same
+/// instrument — and the ids the client echoes back are locale-independent.
 ///
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails.
-pub async fn handle_parq_get(_auth: AuthenticatedUser) -> Result<Response, AppError> {
-    // The extractor enforces auth; the question set has no per-user variation.
-    let questions = parq::PARQ_QUESTIONS
+pub async fn handle_parq_get(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+) -> Result<Response, AppError> {
+    // The stored preference, resolved the way every REST read resolves it.
+    let locale = resources
+        .common
+        .repos
+        .users
+        .get_global(auth.user_id)
+        .await
+        .ok()
+        .flatten()
+        .map_or_else(default_locale, |user| user.locale);
+    let registry = &resources.mcp.messaging_strings_registry;
+    let questions = INTAKE_TOPICS
         .iter()
-        .map(|q| ParqQuestionDto {
-            id: q.id.to_owned(),
-            text: q.text.to_owned(),
+        .filter_map(|topic| {
+            let id = topic.parq_id()?;
+            Some(ParqQuestionDto {
+                id: id.to_owned(),
+                text: registry.get(topic.string_key(), &locale),
+            })
         })
         .collect();
     Ok((StatusCode::OK, Json(ParqQuestionsResponse { questions })).into_response())

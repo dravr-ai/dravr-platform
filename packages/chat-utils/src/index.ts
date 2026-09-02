@@ -8,8 +8,9 @@ export { trustedActionUrl } from './action-url';
 export { quotaNoticeBanner } from './quota';
 export type { QuotaBanner } from './quota';
 
-// Persisted transcript row -> the ReplyBlock list a live turn arrives in
-export { transcriptBlocks } from './blocks';
+// Persisted transcript row -> the ReplyBlock list a live turn arrives in, and
+// the command-reply normaliser both that read and the live turn path apply
+export { COMMAND_FINISH_REASON, commandReplyMarkdown, transcriptBlocks } from './blocks';
 
 // Activity list parsing (backward compat for old messages with baked-in content)
 export { splitActivityContent, countActivities } from './activity';
@@ -27,19 +28,26 @@ export type { MessageChannelOrigin } from './conversation';
 
 // The unified conversation-list row: one model, one preview rule, one
 // timestamp rule, one avatar colour — derived identically on web and mobile.
+// The words it cannot spell itself arrive as labels each client resolves
+// from CONVERSATION_ROW_LABEL_KEYS with its own t().
 export {
   AVATAR_SLOTS,
-  UNTITLED_CONVERSATION,
+  CONVERSATION_ROW_LABEL_KEYS,
   deriveKind,
   initialsFor,
   avatarSlot,
   previewFor,
   formatListTimestamp,
+  defaultConversationTitle,
   buildConversationRow,
   sortRowsByActivity,
   filterRows,
 } from './conversation-row';
-export type { ConversationKind, ConversationRowModel } from './conversation-row';
+export type {
+  ConversationKind,
+  ConversationRowLabels,
+  ConversationRowModel,
+} from './conversation-row';
 
 // Turn-progress event → status text mapping (shared by web + mobile)
 export { statusTextForProgress, THINKING_PLACEHOLDER } from './progress';
@@ -49,3 +57,13 @@ export { statusTextForProgress, THINKING_PLACEHOLDER } from './progress';
 // same way.
 export { splitVizMarkers, parseSceneBlocks, blockAt } from './viz';
 export type { VizSegment } from './viz';
+
+// The bubble clock, the day pill and the grouping window of the messenger thread
+export {
+  MESSAGE_GROUP_WINDOW_MS,
+  dayLabelFor,
+  formatMessageTime,
+  isSameMessageGroup,
+  localDayKey,
+} from './message-time';
+export type { DayLabel } from './message-time';

@@ -51,6 +51,8 @@
   --color-surface-container-highest: 226 227 224;
   --color-surface-variant: 226 227 224;
   --color-surface-tint: 60 102 88;
+  /* The tone behind a drawer or sheet; reads as a shadow of the page, not as black. */
+  --color-scrim: 26 28 27;
   --color-on-surface: 26 28 27;
   --color-on-surface-variant: 65 72 69;
 
@@ -134,6 +136,7 @@ html.dark {
   --color-surface-container-highest: 50 53 50;
   --color-surface-variant: 65 72 69;
   --color-surface-tint: 163 208 190;
+  --color-scrim: 0 0 0;
   --color-on-surface: 225 227 222;
   --color-on-surface-variant: 192 200 195;
 
@@ -398,25 +401,25 @@ html.dark {
      making the input unreadable on the dark modal. */
   .input-glass {
     @apply w-full px-4 py-3 rounded-md text-sm font-sans text-on-surface transition-all duration-base;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgb(var(--color-surface-container-lowest) / 0.6);
     border: 1px solid var(--ghost-border);
     caret-color: currentColor;
   }
 
   .input-glass::placeholder {
-    color: rgba(192, 200, 195, 0.5);
+    color: rgb(var(--color-outline));
   }
 
   .input-glass:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--color-surface-container-lowest) / 0.8);
     border-color: var(--ghost-border-strong);
   }
 
   .input-glass:focus {
     outline: none;
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.45);
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+    background: rgb(var(--color-surface-container-lowest) / 0.9);
+    border-color: rgb(var(--color-primary));
+    box-shadow: 0 0 0 3px rgb(var(--color-primary) / 0.15);
   }
 
   .input-glass:disabled {
@@ -430,7 +433,7 @@ html.dark {
   .input-glass:-webkit-autofill:focus,
   .input-glass:-webkit-autofill:active {
     -webkit-text-fill-color: rgb(var(--color-on-surface)) !important;
-    -webkit-box-shadow: 0 0 0 1000px rgba(40, 42, 41, 1) inset !important;
+    -webkit-box-shadow: 0 0 0 1000px rgb(var(--color-surface-container-high)) inset !important;
     caret-color: rgb(var(--color-on-surface)) !important;
     transition: background-color 9999s ease-in-out 0s;
   }
@@ -456,57 +459,55 @@ html.dark {
      `full` radius only for small tags/chips)
      ========================================================================== */
 
+  /* Every badge reads its tone from the theme tokens, so the same chip is
+     legible on the light canvas and the dark one — a fixed hex was
+     dark-on-dark the moment the theme flipped. */
   .badge {
     @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
-    background: #e8e8e5;          /* surface-container-high */
-    color: #1a1c1b;               /* on-surface */
+    background: rgb(var(--color-surface-container-high));
+    color: rgb(var(--color-on-surface));
     font-family: 'Inter', system-ui, sans-serif;
   }
 
   .badge-success,
   .badge-professional {
     @apply badge;
-    background: rgba(60, 102, 88, 0.14);  /* activity sage */
-    color: #234e40;
+    background: rgb(var(--color-success) / 0.15);
+    color: rgb(var(--color-on-success-container));
   }
 
   .badge-warning,
   .badge-trial {
     @apply badge;
-    background: rgba(143, 106, 46, 0.14); /* nutrition bronze */
-    color: #6e5020;
+    background: rgb(var(--color-warning) / 0.15);
+    color: rgb(var(--color-on-warning-container));
   }
 
   .badge-error,
   .badge-destructive {
     @apply badge;
-    background: #ffdad6;          /* error-container */
-    color: #93000a;               /* on-error-container */
+    background: rgb(var(--color-error) / 0.15);
+    color: rgb(var(--color-error));
   }
 
   .badge-info,
   .badge-starter {
     @apply badge;
-    background: rgba(13, 59, 46, 0.12); /* primary-container tint */
-    color: #0d3b2e;
+    background: rgb(var(--color-info) / 0.15);
+    color: rgb(var(--color-on-info-container));
   }
 
-  .badge-enterprise {
+  .badge-enterprise,
+  .badge-mobility {
     @apply badge;
-    background: rgba(122, 77, 94, 0.14); /* mobility aged rose */
-    color: #5a3744;
+    background: rgb(var(--color-mobility) / 0.15);
+    color: rgb(var(--color-on-mobility-container));
   }
 
   .badge-secondary {
     @apply badge;
-    background: #eeeeeb;          /* surface-container */
-    color: #414845;               /* on-surface-variant */
-  }
-
-  .badge-mobility {
-    @apply badge;
-    background: rgba(122, 77, 94, 0.14);
-    color: #5a3744;
+    background: rgb(var(--color-surface-container));
+    color: rgb(var(--color-on-surface-variant));
   }
 
   /* ==========================================================================
@@ -519,17 +520,17 @@ html.dark {
 
   .status-online {
     @apply status-dot;
-    background-color: #3c6658;    /* activity sage */
+    background-color: rgb(var(--color-success));
   }
 
   .status-offline {
     @apply status-dot;
-    background-color: #c0c8c3;    /* outline-variant */
+    background-color: rgb(var(--color-outline-variant));
   }
 
   .status-error {
     @apply status-dot;
-    background-color: #ba1a1a;    /* error */
+    background-color: rgb(var(--color-error));
   }
 
   /* ==========================================================================
@@ -546,7 +547,7 @@ html.dark {
 
   .tab-active {
     @apply text-primary;
-    border-bottom-color: #00241a;
+    border-bottom-color: rgb(var(--color-primary));
   }
 
   /* Admin tab variant is just the editorial tab in this system. */
@@ -564,8 +565,8 @@ html.dark {
 
   .pierre-spinner {
     @apply rounded-full w-4 h-4 animate-spin;
-    border: 2px solid rgba(192, 200, 195, 0.3);
-    border-top-color: #00241a;
+    border: 2px solid rgb(var(--color-outline-variant));
+    border-top-color: rgb(var(--color-primary));
   }
 
   .focus-ring {
@@ -610,17 +611,36 @@ html.dark {
   }
 
   /* ==========================================================================
-     Chat bubbles — DESIGN.md §5 cards on surface-container-lowest with ghost
-     border. No glassmorphism in the chat panel.
+     Chat bubbles — DESIGN.md §5. The one bubble source for the messenger
+     thread: a coach speaks from the left on a card that lifts off the canvas,
+     the athlete from the right in the brand tone. The tail corner is the
+     4px one (mobile's convention); the width bound keeps a long reply from
+     spanning the pane like a document.
      ========================================================================== */
 
   .chat-bubble-ai {
-    @apply rounded-lg p-4 max-w-[85%] bg-surface-container-lowest text-on-surface;
-    border: 1px solid rgba(192, 200, 195, 0.15);
+    @apply rounded-2xl rounded-bl-md px-4 py-2.5 max-w-[85%] lg:max-w-[65%] text-on-surface;
+    background: rgb(var(--color-surface-container-lowest));
+    border: 1px solid var(--ghost-border);
+  }
+
+  /* The dark canvas is surface-container-low; the coach's card sits a step
+     above it, where a "lowest" tone would sink below the page instead. */
+  html.dark .chat-bubble-ai {
+    background: rgb(var(--color-surface-container-high));
   }
 
   .chat-bubble-user {
-    @apply rounded-lg p-4 max-w-[85%] ml-auto bg-primary text-on-primary;
+    @apply rounded-2xl rounded-br-md px-4 py-2.5 max-w-[85%] lg:max-w-[65%] ml-auto;
+    background: rgb(var(--color-primary));
+    color: rgb(var(--color-on-primary));
+  }
+
+  /* Mint `primary` on the dark canvas reads as a call to action, not as a
+     message; the container pair keeps the athlete's words a quiet green. */
+  html.dark .chat-bubble-user {
+    background: rgb(var(--color-primary-container));
+    color: rgb(var(--color-on-primary-container));
   }
 
   /* ==========================================================================
@@ -645,7 +665,7 @@ html.dark {
   }
 
   .ai-input-focus:focus {
-    border-bottom: 2px solid #00241a;
+    border-bottom: 2px solid rgb(var(--color-primary));
     outline: none;
   }
 
@@ -656,7 +676,7 @@ html.dark {
 
   .ai-typing-dot {
     @apply w-2 h-2 rounded-full;
-    background-color: #717974;    /* outline — neutral ink */
+    background-color: rgb(var(--color-outline));
     animation: aiTyping 1.4s infinite ease-in-out both;
   }
 
@@ -865,7 +885,11 @@ html.dark {
      Uses `background-image` (not the shorthand) so `bg-clip-text` on the
      same element still clips the gradient to the text. */
   .boreal-hero-gradient {
-    background-image: linear-gradient(145deg, #00241a 0%, #0d3b2e 100%);
+    background-image: linear-gradient(
+      145deg,
+      rgb(var(--color-primary)) 0%,
+      rgb(var(--color-primary-container)) 100%
+    );
     background-color: transparent;
   }
 

@@ -63,7 +63,7 @@ export default function OnboardingParq({
 
   if (isLoading) {
     return (
-      <OnboardingShell heading="A quick health check">
+      <OnboardingShell heading={t('onboarding.parqHeading')}>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
         </div>
@@ -88,8 +88,8 @@ export default function OnboardingParq({
             <span className="text-sm text-on-surface">{q.text}</span>
             <div className="flex shrink-0 gap-1" role="group" aria-label={q.text}>
               {[
-                { label: 'No', value: false },
-                { label: t('onboarding.parqYes'), value: true },
+                { label: t('common.no'), value: false },
+                { label: t('common.yes'), value: true },
               ].map(({ label, value }) => {
                 const selected = answers[q.id] === value;
                 return (

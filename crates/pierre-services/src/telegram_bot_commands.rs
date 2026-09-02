@@ -18,10 +18,11 @@
 //! therefore appears in the Telegram menu on the next boot rather than needing
 //! a manual BotFather edit.
 //!
-//! Two lists are published, both with no `language_code`: the catalogue
-//! carries one description per command (localization in `commands/*.md`
-//! covers the reply strings, not the frontmatter descriptions), and the
-//! default scope is what Telegram serves to every user locale.
+//! Each scope is published once per locale the strings registry speaks, with
+//! Telegram's `language_code` naming the locale, plus one list with no
+//! `language_code` as the fallback for a viewer whose language has no list
+//! of its own. Telegram serves the nearest match, so a French athlete's menu
+//! reads in French while an unknown locale still gets a menu.
 //!
 //! The default scope already reaches groups — Telegram's resolution chain for
 //! a group ends on it — so the second, `all_group_chats` list exists to
@@ -137,7 +138,11 @@ impl CommandScope {
 /// Best-effort: a Telegram outage at boot must not fail startup, so failures
 /// are logged and swallowed. Neither the URL nor the response body is logged —
 /// the token sits in the request path, and a rejection description can echo it.
-pub async fn publish_telegram_commands(commands: &[(String, String)], scope: CommandScope) {
+pub async fn publish_telegram_commands(
+    commands: &[(String, String)],
+    scope: CommandScope,
+    language_code: Option<&str>,
+) {
     let Ok(token) = env::var("TELEGRAM_BOT_TOKEN") else {
         return;
     };
@@ -158,6 +163,9 @@ pub async fn publish_telegram_commands(commands: &[(String, String)], scope: Com
     let mut body = json!({ "commands": payload });
     if let Some(scope_payload) = scope.payload() {
         body["scope"] = scope_payload;
+    }
+    if let Some(code) = language_code {
+        body["language_code"] = json!(code);
     }
 
     let url = format!("https://api.telegram.org/bot{token}/setMyCommands");
