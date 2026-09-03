@@ -14,6 +14,7 @@ import {
   COMMAND_FINISH_REASON,
   defaultConversationTitle,
   initialsFor,
+  providerStatusLine,
   statusForProgress,
   threadSubtitle,
   trustedActionUrl,
@@ -68,19 +69,6 @@ function latestPersistedMessageId(messages: Message[] | undefined): string | nul
     if (!messages[i].id.startsWith(OPTIMISTIC_USER_ID_PREFIX)) return messages[i].id;
   }
   return null;
-}
-
-/**
- * The header line naming the connected providers, agreeing in number with
- * how many there are: "Strava connected" / "Strava, Garmin connectés".
- */
-function connectedProvidersLine(
-  t: (key: string, values?: Record<string, string | number>) => string,
-  names: string[],
-): string {
-  return t(names.length === 1 ? 'chat.providersConnectedOne' : 'chat.providersConnectedN', {
-    providers: names.join(', '),
-  });
 }
 
 /**
@@ -235,20 +223,16 @@ export default function ChatTab({
   }, [activeConversation, activeCoachTitle, t]);
 
   // The line under the name: the coach's handle, or what the coach can see.
-  const connectedProviderNames = useMemo(
-    () => (providersData?.providers ?? []).filter((p) => p.connected).map((p) => p.display_name),
-    [providersData],
+  const providerStatus = useMemo<string | null>(
+    () => providerStatusLine(t, providersData?.providers, providersLoaded),
+    [providersData, providersLoaded, t],
   );
-  const providerStatusLine = useMemo<string | null>(() => {
-    if (connectedProviderNames.length > 0) return connectedProvidersLine(t, connectedProviderNames);
-    return providersLoaded ? t('chat.noProviderStatus') : null;
-  }, [connectedProviderNames, providersLoaded, t]);
   const headerSubtitle = useMemo<string | null>(() => {
     const subtitle = threadSubtitle(activeConversation);
     if (subtitle?.kind === 'group') return t('chat.groupChatBadge');
     if (subtitle?.kind === 'handle') return `${MENTION_PREFIX}${subtitle.handle}`;
-    return providerStatusLine;
-  }, [activeConversation, providerStatusLine, t]);
+    return providerStatus;
+  }, [activeConversation, providerStatus, t]);
 
   // Below the desktop breakpoint the list hides behind the open thread, so
   // the header carries the way back to it.
@@ -865,7 +849,7 @@ export default function ChatTab({
         onOpenCommands={handleOpenCommands}
         disabled={createConversation.isPending}
         onNavigate={onNavigate}
-        providerStatus={providerStatusLine}
+        providerStatus={providerStatus}
       />
     </div>
   ) : (

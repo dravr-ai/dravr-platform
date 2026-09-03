@@ -13,7 +13,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog } from '../../components/ui';
 import { trackMobile } from '../../services/analytics';
-import { defaultConversationTitle, trustedActionUrl } from '@pierre/chat-utils';
+import { defaultConversationTitle, providerStatusLine, trustedActionUrl } from '@pierre/chat-utils';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 
 import { ChatHeader } from './ChatHeader';
@@ -81,6 +81,12 @@ export function ChatScreen() {
     }
   }, [keyboard.height, scrollToBottom]);
   const providerStatus = useProviderStatus();
+  // The header's fallback line, from the same rule web renders.
+  const headerProviderStatus = useMemo(
+    () =>
+      providerStatusLine(t, providerStatus.connectedProviders, providerStatus.providersLoaded),
+    [providerStatus.connectedProviders, providerStatus.providersLoaded, t],
+  );
   const usageStatus = useUsageStatus();
   // The flow state behind the info sheet's "Participants" row. The tab bar's
   // "+" holds its own copy for the same thread, so "add someone to this
@@ -447,6 +453,7 @@ export function ChatScreen() {
         <ChatHeader
           currentConversation={conversations.currentConversation}
           insetTop={insets.top}
+          providerStatus={headerProviderStatus}
           onBackPress={goBackToList}
           onTitlePress={openInfoSheet}
         />

@@ -13,6 +13,12 @@ import { useTranslation } from '@pierre/i18n';
 
 export interface ProviderStatusState {
   connectedProviders: ExtendedProviderStatus[];
+  /**
+   * True once a status call has answered. The list starts empty, so anything
+   * derived from it before then reads as "nothing connected" for a connected
+   * athlete — which is how the header would flash the wrong line on every open.
+   */
+  providersLoaded: boolean;
   selectedProvider: string | null;
   providerModalVisible: boolean;
   connectingProvider: string | null;
@@ -36,6 +42,7 @@ export interface ProviderStatusActions {
 export function useProviderStatus(): ProviderStatusState & ProviderStatusActions {
   const { t } = useTranslation();
   const [connectedProviders, setConnectedProviders] = useState<ExtendedProviderStatus[]>([]);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [providerModalVisible, setProviderModalVisible] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
@@ -47,6 +54,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       setError(null);
       const response = await oauthApi.getProvidersStatus();
       setConnectedProviders(response.providers || []);
+      setProvidersLoaded(true);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : t('providers.failedLoadProviderStatus');
@@ -156,6 +164,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
 
   return {
     connectedProviders,
+    providersLoaded,
     selectedProvider,
     providerModalVisible,
     connectingProvider,

@@ -24,6 +24,11 @@ import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 interface ChatHeaderProps {
   currentConversation: Conversation | null;
   insetTop: number;
+  /**
+   * What the coach can see, for a thread with no group and no handle to name.
+   * `null` while the status call is still in flight.
+   */
+  providerStatus: string | null;
   /** Back to the conversation list the thread was opened from. */
   onBackPress: () => void;
   /** Open the thread's info sheet — group info, coach info, or the plain rows. */
@@ -33,6 +38,7 @@ interface ChatHeaderProps {
 export function ChatHeader({
   currentConversation,
   insetTop,
+  providerStatus,
   onBackPress,
   onTitlePress,
 }: ChatHeaderProps) {
@@ -93,6 +99,21 @@ export function ChatHeader({
             <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-handle">
               {MENTION_PREFIX}
               {subtitle.handle}
+            </Text>
+          )}
+          {/*
+            Neither a group nor a coach handle to name, so the line says what
+            the coach can actually read. Web has said this for a while; the
+            phone said nothing, which left an athlete whose provider session
+            had died with no explanation for a coach gone quiet (carnet#231).
+          */}
+          {!subtitle && providerStatus && (
+            <Text
+              className="text-xs text-text-tertiary"
+              numberOfLines={1}
+              testID="chat-header-provider-status"
+            >
+              {providerStatus}
             </Text>
           )}
         </View>

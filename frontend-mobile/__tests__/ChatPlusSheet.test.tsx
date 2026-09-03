@@ -166,6 +166,7 @@ describe('the chat "+"', () => {
         <ChatHeader
           currentConversation={null}
           insetTop={0}
+          providerStatus={null}
           onBackPress={onBackPress}
           onTitlePress={jest.fn()}
         />,

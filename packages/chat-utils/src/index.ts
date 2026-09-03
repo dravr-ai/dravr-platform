@@ -83,3 +83,8 @@ export { formatDateTime } from './date-format';
 // What a chat header says under the title, with one precedence for both clients
 export { threadSubtitle } from './thread-subtitle';
 export type { ThreadSubtitle } from './thread-subtitle';
+
+// The header's fallback line when there is no group and no handle to name:
+// which providers the coach can see, or that none are connected.
+export { providerStatusLine } from './provider-status';
+export type { ProviderStatusRow } from './provider-status';

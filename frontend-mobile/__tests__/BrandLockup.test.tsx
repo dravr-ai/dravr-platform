@@ -175,6 +175,7 @@ describe('the Dravr lockup on the phone', () => {
         <ChatHeader
           currentConversation={null}
           insetTop={0}
+          providerStatus={null}
           onBackPress={jest.fn()}
           onTitlePress={jest.fn()}
         />,
