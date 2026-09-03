@@ -30,7 +30,9 @@ use serde::Deserialize;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
-use crate::memory_dedup::{anchor_of, decide, normalize_object, Candidate, DedupConfig, FactWrite};
+use crate::memory_dedup::{
+    anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
+};
 use pierre_llm::ChatProvider;
 
 /// Minimum confidence for an extracted fact to be persisted.
@@ -522,7 +524,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
         // repeat naming the group.
         let target = match write {
             FactWrite::MergeInto(id) => Some(id),
-            FactWrite::Insert => restated_fact_id(existing, same_as, kind),
+            FactWrite::Insert => restated_fact_id(existing, same_as, kind, &object),
         };
 
         if let Some(fact_id) = target {
@@ -560,18 +562,28 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
 
 /// The row the extractor's `same_as` names, when it names one honestly.
 ///
-/// Three ways to answer nothing, all of which insert rather than guess: no
+/// Four ways to answer nothing, all of which insert rather than guess: no
 /// field at all (a stale prompt, or the model saw no restatement), a number
-/// outside the list it was shown, and a number naming a fact of a different
-/// kind than the one being written — a goal does not restate an injury, and a
-/// model that says so has lost the thread rather than found a duplicate.
+/// outside the list it was shown, a number naming a fact of a different kind
+/// than the one being written — a goal does not restate an injury — and a
+/// named restatement that changes a quantity, which is a changed race rather
+/// than the same one said again.
 fn restated_fact_id(
     existing: &[UserFact],
     same_as: Option<usize>,
     kind: FactKind,
+    object: &str,
 ) -> Option<String> {
     let index = same_as?.checked_sub(1)?;
     let named = existing.get(index)?;
+    if introduces_a_number(&named.object, object) {
+        warn!(
+            named = %named.object,
+            candidate = %object,
+            "extractor named a restatement that changes a quantity; writing a new fact instead"
+        );
+        return None;
+    }
     if named.kind != kind {
         warn!(
             named_kind = ?named.kind,

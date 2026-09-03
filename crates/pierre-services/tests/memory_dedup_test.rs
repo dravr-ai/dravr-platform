@@ -9,7 +9,7 @@
 use chrono::{Duration, Utc};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 use pierre_services::memory_dedup::{
-    anchor_of, decide, normalize_object, Candidate, DedupConfig, FactWrite,
+    anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
 };
 
 fn config() -> DedupConfig {
@@ -244,5 +244,51 @@ fn two_goals_on_one_template_are_never_merged_here() {
         ),
         FactWrite::Insert,
         "a different distance is a different goal, however close the wording"
+    );
+}
+
+/// The guard behind the extractor's paraphrase answer.
+///
+/// Found by putting the real prompt to two production providers: asked to
+/// extract "finalement je passe au 50 km au Mont Albert" against a 26 km
+/// anchor, one named the anchor as a restatement. Merging that keeps the old
+/// race and discards the new one, which is the failure the whole feature
+/// exists to avoid — so the code refuses it rather than trusting the prompt.
+#[test]
+fn a_changed_quantity_is_never_a_restatement() {
+    let anchor = "Un ultra de 26 km au Mont Albert en Gaspésie";
+
+    assert!(
+        introduces_a_number(anchor, "finalement je passe au 50 km au Mont Albert"),
+        "a different distance is a different race"
+    );
+    assert!(
+        introduces_a_number("sub-3 marathon", "sub-3:30 marathon"),
+        "a time is one quantity: 3:30 must not read as a restatement of 3"
+    );
+}
+
+/// The guard must not eat the restatements it exists alongside — including one
+/// that drops the number entirely, which is how athletes actually repeat
+/// themselves.
+#[test]
+fn a_restatement_may_repeat_or_drop_a_number_but_not_add_one() {
+    let anchor = "Un ultra de 26 km au Mont Albert en Gaspésie";
+
+    assert!(
+        !introduces_a_number(anchor, "le 26 km au Mont Albert"),
+        "the same number again is the same fact"
+    );
+    assert!(
+        !introduces_a_number(anchor, "that 26 km ultra at Mont Albert"),
+        "the cross-language restatement both providers got right"
+    );
+    assert!(
+        !introduces_a_number(anchor, "le même ultra au Mont Albert"),
+        "dropping the detail is still the same goal"
+    );
+    assert!(
+        !introduces_a_number("morning sessions", "runs before work"),
+        "no numbers on either side is not a disagreement"
     );
 }

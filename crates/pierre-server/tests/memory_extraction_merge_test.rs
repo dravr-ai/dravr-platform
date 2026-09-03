@@ -239,6 +239,28 @@ async fn a_different_goal_the_extractor_did_not_name_becomes_its_own_row() {
     );
 }
 
+/// The case two live providers disagreed on: asked to extract a switch from
+/// the 26 km to the 50 km, one named the anchor as a restatement. Merging it
+/// keeps the old race and drops the new one, so the code refuses a named
+/// restatement that changes a quantity whatever the model says.
+#[tokio::test]
+async fn a_named_restatement_that_changes_a_distance_is_refused() {
+    let (_extractor, facts, _user, _tenant, _res) = Box::pin(run(
+        r#"[{"kind":"goal","predicate_code":"training_for","object":"finalement je passe au 50 km au Mont Albert","confidence":0.9,"stated_by":"user","same_as":1}]"#,
+    ))
+    .await;
+
+    assert_eq!(
+        facts.len(),
+        2,
+        "the 50 km is a new goal; the 26 km anchor keeps its own row: {facts:?}"
+    );
+    assert!(
+        facts.iter().any(|f| f.object == ANCHOR),
+        "the athlete's original goal survives untouched: {facts:?}"
+    );
+}
+
 /// A number naming nothing in the list is a model that lost the thread. It
 /// inserts rather than attaching the fact to whatever row that index lands on.
 #[tokio::test]

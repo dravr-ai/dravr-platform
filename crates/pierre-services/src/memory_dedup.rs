@@ -150,6 +150,54 @@ pub fn decide(existing: &[UserFact], candidate: &Candidate<'_>, config: DedupCon
     })
 }
 
+/// Whether `candidate` introduces a number the fact it claims to restate does
+/// not have.
+///
+/// A restatement may drop detail — "le même ultra au Mont Albert" restates
+/// "un ultra de 26 km au Mont Albert" — but it cannot introduce a quantity
+/// the original never carried. "50 km" against a "26 km" anchor is a changed
+/// race, and merging it would keep the old goal and discard the new one.
+///
+/// This is a structural guard, not a second opinion. The prompt already tells
+/// the extractor that a different distance is a new fact, and measured against
+/// two production providers one of them named the anchor anyway. The same file
+/// learned this once before: prompt-only enforcement of provenance failed and
+/// was replaced by a field the code checks (see `is_coach_prescription`).
+///
+/// Numbers are compared as whole tokens, so "3:30" is one quantity and not a
+/// three and a thirty — otherwise "sub-3:30" would read as a restatement of
+/// "sub-3".
+#[must_use]
+pub fn introduces_a_number(anchor_object: &str, candidate_object: &str) -> bool {
+    let known = number_tokens(anchor_object);
+    number_tokens(candidate_object)
+        .into_iter()
+        .any(|token| !known.contains(&token))
+}
+
+/// Every number-like token in `text`, lowercased: digits with the separators
+/// that keep a quantity whole (`:` for a time, `.` and `,` for a decimal,
+/// `h` for an hour).
+fn number_tokens(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        let joins = ch.is_ascii_digit()
+            || (!current.is_empty() && matches!(ch, ':' | '.' | ',' | 'h' | 'H'));
+        if joins {
+            current.push(ch.to_ascii_lowercase());
+        } else if !current.is_empty() {
+            out.push(current.trim_end_matches([':', '.', ',', 'h']).to_owned());
+            current = String::new();
+        }
+    }
+    if !current.is_empty() {
+        out.push(current.trim_end_matches([':', '.', ',', 'h']).to_owned());
+    }
+    out.retain(|t| !t.is_empty());
+    out
+}
+
 /// The anchor among `candidates`, exposed so the extractor's paraphrase answer
 /// merges into the same row this module would have chosen.
 ///
