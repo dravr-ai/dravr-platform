@@ -18,7 +18,6 @@ pub mod proposal_profile;
 pub mod types;
 mod user;
 
-pub(crate) use user::resolve_user_locale;
 mod versions;
 
 use std::sync::Arc;

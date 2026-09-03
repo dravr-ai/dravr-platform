@@ -45,6 +45,7 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachVisibility, CreateSystemCoachRequest, UpdateCoachRequest,
 };
 use pierre_core::models::TenantId;
+use pierre_core::pagination::parse_limit_offset;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -214,17 +215,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             // The schema has always advertised limit/offset; execute ignored
             // both, so a client paging through coaches silently re-read the
             // full set every call. Clamped per the pagination rule.
-            let limit = args
-                .get("limit")
-                .and_then(Value::as_u64)
-                .and_then(|v| usize::try_from(v).ok())
-                .unwrap_or(50)
-                .clamp(1, 100);
-            let offset = args
-                .get("offset")
-                .and_then(Value::as_u64)
-                .and_then(|v| usize::try_from(v).ok())
-                .unwrap_or(0);
+            let (limit, offset) = parse_limit_offset(&args, 50, 100);
 
             let manager = ctx.resources.coaches_manager();
             let coaches = manager

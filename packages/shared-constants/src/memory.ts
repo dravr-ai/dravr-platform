@@ -4,25 +4,7 @@
 // ABOUTME: The memory fact kind vocabulary both memory screens read — the filter and the group badge share one word
 // ABOUTME: Mirrors the server's FactKind serde strings; labels are corpus keys, resolved with t() at render
 
-/**
- * Every `kind` a user_facts row can carry, in the order the server's
- * `FactKind` enum declares them (`crates/pierre-memory/src/facts.rs`). The
- * strings are the wire values — what the server serializes and what the
- * filter sends back — so they stay English whatever the athlete reads.
- */
-export const MEMORY_FACT_KINDS = [
-  'preference',
-  'physiology',
-  'injury',
-  'goal',
-  'schedule',
-  'equipment',
-  'north_star',
-  'medical',
-  'other',
-] as const;
-
-export type MemoryFactKind = (typeof MEMORY_FACT_KINDS)[number];
+import type { MemoryFactKind } from '@pierre/shared-types';
 
 /**
  * The corpus key naming each kind. Module scope cannot hold a hook, so the

@@ -25,7 +25,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_llm::{FunctionCall, FunctionResponse};
 
-use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
+use crate::protocol::types::{auth_required_provider, META_AUTH_REQUIRED_PROVIDER};
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::tool_execution::{build_function_response, log_tool_response_size};
 use crate::tool_loop_io::{GuardianConfirmRequest, GuardianDenial};
@@ -213,7 +213,7 @@ pub async fn execute_function_calls(
 ) -> Result<ExecutedFunctionCalls, AppError> {
     let mut responses = Vec::with_capacity(function_calls.len());
     let mut executed: Vec<String> = Vec::new();
-    let mut auth_required_provider: Option<String> = None;
+    let mut dead_provider: Option<String> = None;
     let mut guardian_denied: Option<GuardianDenial> = None;
     let mut guardian_confirm: Option<GuardianConfirmRequest> = None;
     for function_call in function_calls {
@@ -228,12 +228,8 @@ pub async fn execute_function_calls(
         // `FunctionResponse`, which intentionally drops `metadata` (the LLM
         // doesn't need it). First tool to trip wins so we don't lose it across
         // a multi-tool batch.
-        if auth_required_provider.is_none() {
-            if let Some(meta) = tool_response.metadata.as_ref() {
-                if let Some(serde_json::Value::String(p)) = meta.get(META_AUTH_REQUIRED_PROVIDER) {
-                    auth_required_provider = Some(p.clone());
-                }
-            }
+        if dead_provider.is_none() {
+            dead_provider = auth_required_provider(&tool_response);
         }
 
         // Capture the first Guardian denial or parked confirmation (enforce
@@ -282,7 +278,7 @@ pub async fn execute_function_calls(
     }
     Ok(ExecutedFunctionCalls {
         responses,
-        auth_required_provider,
+        auth_required_provider: dead_provider,
         guardian_denied,
         guardian_confirm,
         executed,

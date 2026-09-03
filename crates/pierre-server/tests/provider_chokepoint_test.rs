@@ -30,10 +30,12 @@ mod common;
 use common::{create_test_server_resources, create_test_tenant, create_test_tenant_with_provider};
 use pierre_core::models::UserOAuthToken;
 use pierre_tool_runtime::protocol::{
-    UniversalRequest, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
+    auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
+    META_AUTH_REQUIRED_PROVIDER,
 };
 use serde_json::json;
 use serial_test::serial;
+use std::collections::HashMap;
 use std::env;
 use uuid::Uuid;
 
@@ -84,13 +86,8 @@ async fn a_providerless_dispatch_is_refused_with_recovery_metadata() {
         !resp.success,
         "zero provider_connections rows must refuse a REQUIRES_PROVIDER dispatch"
     );
-    let provider = resp
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER))
-        .and_then(|v| v.as_str());
     assert_eq!(
-        provider,
+        auth_required_provider(&resp).as_deref(),
         Some("sciotte"),
         "the refusal must carry the exact metadata the auth_recovery stage decodes \
          into a hosted-login flow; anything else silently breaks that handoff"
@@ -293,10 +290,7 @@ async fn an_unregistered_provider_name_does_not_bypass_the_refusal() {
              athlete; got {resp:?}"
         );
         assert_eq!(
-            resp.metadata
-                .as_ref()
-                .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER))
-                .and_then(|v| v.as_str()),
+            auth_required_provider(&resp).as_deref(),
             Some("sciotte"),
             "provider={bogus} must still carry the recovery metadata"
         );
@@ -339,5 +333,63 @@ async fn the_default_provider_override_bypasses_the_chokepoint() {
         "with the deployment override set, the chokepoint must stand aside exactly \
          as the resolvers do, got: {:?}",
         resp.error
+    );
+}
+
+/// The reconnect signal is a metadata key holding a **string**, and every
+/// consumer decodes it the same way through `auth_required_provider`.
+///
+/// Read by hand at six sites, the check was written three different ways: two
+/// only asked whether the key was present. A non-string value there would have
+/// read as "this athlete must reconnect" and sent the turn down the hosted-login
+/// path with no provider to name, so the shared decoder rejects it.
+#[test]
+fn auth_required_provider_reads_only_a_string_slug() {
+    let no_metadata = UniversalResponse {
+        success: false,
+        result: None,
+        error: Some("boom".to_owned()),
+        metadata: None,
+    };
+    assert_eq!(
+        auth_required_provider(&no_metadata),
+        None,
+        "a failure carrying no metadata names no provider"
+    );
+
+    let unrelated_metadata = UniversalResponse {
+        metadata: Some(HashMap::from([("elapsed_ms".to_owned(), json!(12))])),
+        ..no_metadata.clone()
+    };
+    assert_eq!(
+        auth_required_provider(&unrelated_metadata),
+        None,
+        "metadata without the key names no provider"
+    );
+
+    let non_string = UniversalResponse {
+        metadata: Some(HashMap::from([(
+            META_AUTH_REQUIRED_PROVIDER.to_owned(),
+            json!(true),
+        )])),
+        ..no_metadata.clone()
+    };
+    assert_eq!(
+        auth_required_provider(&non_string),
+        None,
+        "the key holding a non-string must not read as a reconnect signal"
+    );
+
+    let dead_connection = UniversalResponse {
+        metadata: Some(HashMap::from([(
+            META_AUTH_REQUIRED_PROVIDER.to_owned(),
+            json!("strava"),
+        )])),
+        ..no_metadata
+    };
+    assert_eq!(
+        auth_required_provider(&dead_connection).as_deref(),
+        Some("strava"),
+        "the slug the athlete must reconnect is returned verbatim"
     );
 }

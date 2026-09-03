@@ -238,7 +238,7 @@ jobs:
 
       - name: Run SDK integration tests
         working-directory: sdk
-        run: bun run test:integration -- --updateSnapshot
+        run: bun run test:integration
         env:
           DATABASE_URL: "sqlite::memory:"
           AUTO_APPROVE_USERS: "true"

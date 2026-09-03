@@ -7,6 +7,8 @@
 
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/worktree.sh"
+
 usage() {
     cat <<'USAGE'
 Usage: merge-and-cleanup.sh [-m <message> | -F <file>] [branch-name] [worktree-path]
@@ -50,18 +52,17 @@ while getopts ":m:F:h" opt; do
 done
 shift $((OPTIND - 1))
 
-MAIN_WORKTREE="$(git rev-parse --show-toplevel)"
-FIRST_WORKTREE="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"
-LAST_BRANCH_FILE="$MAIN_WORKTREE/.claude/skills/.last-feature-branch"
+MAIN_WORKTREE="$(main_worktree_root)"
+LAST_BRANCH_FILE="$(last_branch_file)"
 
-if [[ "$MAIN_WORKTREE" != "$FIRST_WORKTREE" ]]; then
-    echo "Error: run this from the main worktree ($FIRST_WORKTREE), not from $MAIN_WORKTREE"
+if [[ "$(current_worktree_root)" != "$MAIN_WORKTREE" ]]; then
+    echo "Error: run this from the main worktree ($MAIN_WORKTREE), not from $(current_worktree_root)"
     exit 1
 fi
 
 if [[ $# -ge 1 ]]; then
     BRANCH_NAME="$1"
-    WORKTREE_PATH="${2:-$(dirname "$MAIN_WORKTREE")/pierre_mcp_server-${BRANCH_NAME//\//-}}"
+    WORKTREE_PATH="${2:-$(feature_worktree_path "$BRANCH_NAME")}"
 elif [[ -f "$LAST_BRANCH_FILE" ]]; then
     SAVED_INFO="$(cat "$LAST_BRANCH_FILE")"
     BRANCH_NAME="${SAVED_INFO%%|*}"

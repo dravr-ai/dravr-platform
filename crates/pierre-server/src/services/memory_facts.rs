@@ -22,9 +22,9 @@ use axum::{
 use serde::Deserialize;
 
 use pierre_core::errors::AppError;
-use pierre_core::models::default_locale;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::{
     fact_kind_from_query, forget_user_fact, list_user_facts, SentenceRenderer, DEFAULT_LIST_LIMIT,
 };
@@ -66,15 +66,7 @@ pub async fn get_facts_handler(
     let kind = fact_kind_from_query(params.kind.as_deref());
     // The sentence is rendered here, once, in the athlete's stored locale —
     // the same way every REST read resolves it.
-    let locale = resources
-        .common
-        .repos
-        .users
-        .get_global(auth.user_id)
-        .await
-        .ok()
-        .flatten()
-        .map_or_else(default_locale, |user| user.locale);
+    let locale = resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
 
     let response = list_user_facts(
         &data.repos().coach_repos(),

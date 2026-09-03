@@ -8,7 +8,12 @@ import React from 'react';
 import { useTranslation } from '@pierre/i18n';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { avatarSlot, CONVERSATION_ROW_LABEL_KEYS, deriveKind, initialsFor } from '@pierre/chat-utils';
+import {
+  avatarSlot,
+  CONVERSATION_ROW_LABEL_KEYS,
+  initialsFor,
+  threadSubtitle,
+} from '@pierre/chat-utils';
 import { MENTION_PREFIX } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
 import type { Conversation } from '../../types';
@@ -38,8 +43,8 @@ export function ChatHeader({
   const title =
     currentConversation?.title?.trim() ||
     (currentConversation ? t(CONVERSATION_ROW_LABEL_KEYS.untitled) : t('chat.newChat'));
-  const kind = currentConversation ? deriveKind(currentConversation) : null;
-  const handle = currentConversation?.coach_handle ?? null;
+  // Group before handle — the precedence both headers now share.
+  const subtitle = threadSubtitle(currentConversation);
 
   return (
     <View
@@ -79,15 +84,15 @@ export function ChatHeader({
           <Text className="text-lg font-semibold text-text-primary" numberOfLines={1} testID="chat-title">
             {title}
           </Text>
-          {handle && (
-            <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-handle">
-              {MENTION_PREFIX}
-              {handle}
-            </Text>
-          )}
-          {!handle && kind === 'group' && currentConversation?.group_name && (
+          {subtitle?.kind === 'group' && currentConversation?.group_name && (
             <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-group">
               {currentConversation.group_name}
+            </Text>
+          )}
+          {subtitle?.kind === 'handle' && (
+            <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-handle">
+              {MENTION_PREFIX}
+              {subtitle.handle}
             </Text>
           )}
         </View>

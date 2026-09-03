@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::fmt::Write as _;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 #[cfg(feature = "health-sync")]
@@ -21,7 +22,6 @@ use pierre_database::repositories::ActivityCacheRepository;
 use pierre_database::AuthRepos;
 #[cfg(feature = "health-sync")]
 use pierre_providers::registry::global_registry;
-#[cfg(feature = "health-sync")]
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
@@ -311,47 +311,21 @@ impl RefreshService {
                 }
 
                 if config.wait_for_refresh {
-                    let budget = config.wait_for_refresh_timeout();
-                    match timeout(
-                        budget,
+                    let result = bound_blocking_sync(
+                        &pf.provider,
+                        config.wait_for_refresh_timeout(),
                         self.sync_provider_blocking(user_id, tenant_id, &pf.provider),
                     )
-                    .await
-                    {
-                        Ok(result) if result.success => {
-                            info!(
-                                provider = %pf.provider,
-                                records = result.records_synced,
-                                "Blocking refresh completed before chat handoff"
-                            );
-                            // Reflect the just-completed sync so build_coach_hint
-                            // (which reads .freshness) treats it as Fresh and
-                            // omits the stale-data warning.
-                            pf.last_sync_at = Some(Utc::now());
-                            pf.freshness = DataFreshness::Fresh;
-                            fresh.push(pf.provider.clone());
-                        }
-                        Ok(result) => {
-                            warn!(
-                                provider = %pf.provider,
-                                message = %result.message,
-                                "Blocking refresh reported failure; LLM will see stale cache"
-                            );
-                            refreshing.push(pf.provider.clone());
-                        }
-                        Err(_elapsed) => {
-                            warn!(
-                                provider = %pf.provider,
-                                timeout_secs = budget.as_secs(),
-                                "Blocking refresh exceeded budget; LLM will see stale cache"
-                            );
-                            // Sync may still complete in the background — the
-                            // orchestrator task we awaited is not cancelled by
-                            // tokio::time::timeout because it ran inside this
-                            // task. (If we move to spawn-then-await later, add
-                            // an explicit detach here.)
-                            refreshing.push(pf.provider.clone());
-                        }
+                    .await;
+                    if result.success {
+                        // Reflect the just-completed sync so build_coach_hint
+                        // (which reads .freshness) treats it as Fresh and
+                        // omits the stale-data warning.
+                        pf.last_sync_at = Some(Utc::now());
+                        pf.freshness = DataFreshness::Fresh;
+                        fresh.push(pf.provider.clone());
+                    } else {
+                        refreshing.push(pf.provider.clone());
                     }
                 } else {
                     self.spawn_provider_sync(user_id, tenant_id, pf.provider.clone());
@@ -398,35 +372,12 @@ impl RefreshService {
                 // ran unbounded, so a wedged single-provider sync could hold a
                 // chat turn open indefinitely while the "all" form of the same
                 // ask was capped.
-                let budget = RefreshConfig::default().wait_for_refresh_timeout();
-                match timeout(
-                    budget,
+                bound_blocking_sync(
+                    provider,
+                    RefreshConfig::default().wait_for_refresh_timeout(),
                     self.sync_provider_blocking(user_id, tenant_id, provider),
                 )
                 .await
-                {
-                    Ok(result) => result,
-                    Err(_elapsed) => {
-                        warn!(
-                            provider,
-                            timeout_secs = budget.as_secs(),
-                            "Blocking single-provider refresh exceeded budget"
-                        );
-                        // Mirrors the provider=="all" branch: report the
-                        // budget honestly and do NOT respawn — the awaited
-                        // orchestrator work may survive the timeout, and a
-                        // second spawn here would double-sync.
-                        RefreshResult {
-                            provider: provider.to_owned(),
-                            success: false,
-                            message: format!(
-                                "Sync did not complete within {}s; ask again shortly                                  or retry the refresh",
-                                budget.as_secs()
-                            ),
-                            records_synced: 0,
-                        }
-                    }
-                }
             } else {
                 self.spawn_provider_sync(user_id, tenant_id, provider.to_owned());
                 RefreshResult {
@@ -710,6 +661,58 @@ pub struct RefreshResult {
     pub message: String,
     /// Number of records synced (0 if failed or async).
     pub records_synced: u32,
+}
+
+/// Await a provider sync under a wall-clock budget, reporting the outcome.
+///
+/// Both blocking refresh paths — the per-provider sweep and the single-provider
+/// ask — owe the same three behaviours: log a completed sync, log a reported
+/// failure, and cap a sync that never returns. Written twice, they drifted:
+/// only one of them capped the wait at all until 938829b8c, and the copy that
+/// gained the cap also gained a line-wrap that put 34 spaces into the middle of
+/// a sentence the coach relays to the athlete.
+///
+/// On timeout the awaited work is NOT respawned: it ran inside this task, so
+/// `tokio::time::timeout` does not cancel it, and a second spawn would
+/// double-sync.
+pub async fn bound_blocking_sync<F>(provider: &str, budget: Duration, sync: F) -> RefreshResult
+where
+    F: Future<Output = RefreshResult>,
+{
+    match timeout(budget, sync).await {
+        Ok(result) if result.success => {
+            info!(
+                provider,
+                records = result.records_synced,
+                "Blocking refresh completed before chat handoff"
+            );
+            result
+        }
+        Ok(result) => {
+            warn!(
+                provider,
+                message = %result.message,
+                "Blocking refresh reported failure; LLM will see stale cache"
+            );
+            result
+        }
+        Err(_elapsed) => {
+            warn!(
+                provider,
+                timeout_secs = budget.as_secs(),
+                "Blocking refresh exceeded budget; LLM will see stale cache"
+            );
+            RefreshResult {
+                provider: provider.to_owned(),
+                success: false,
+                message: format!(
+                    "Sync did not complete within {}s; ask again shortly or retry the refresh",
+                    budget.as_secs()
+                ),
+                records_synced: 0,
+            }
+        }
+    }
 }
 
 /// Whether the registry describes `provider` as serving activities and

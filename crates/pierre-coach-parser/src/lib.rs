@@ -27,6 +27,7 @@ use pierre_core::models::coaches::{
 };
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_core::tokens::CHARS_PER_TOKEN;
 
 /// Drift classification (pure functions + types) for the `pierre-cli check-drift coaches` binary.
@@ -107,14 +108,6 @@ pub enum RelationType {
     Sequel,
 }
 
-/// BCP-47 short codes the seeder recognizes as translation filenames.
-///
-/// Matches the compiled-in locales in
-/// the string catalogue `pierre_contremaitre::messaging_strings` embeds; adding a new
-/// locale requires only appending here and shipping the corresponding
-/// `<slug>/<locale>.md` file.
-pub const SUPPORTED_LOCALES: &[&str] = &["en", "fr", "es", "de", "pt"];
-
 /// Canonical locale for coach content.
 ///
 /// The directory MUST contain a `<locale>.md` file for this code; the
@@ -122,7 +115,12 @@ pub const SUPPORTED_LOCALES: &[&str] = &["en", "fr", "es", "de", "pt"];
 /// files cause the seeder to skip the coach directory with a warning.
 pub const CANONICAL_LOCALE: &str = "en";
 
-/// `true` when `stem` is one of [`SUPPORTED_LOCALES`].
+/// `true` when `stem` is a locale the platform speaks, so a `<slug>/<stem>.md`
+/// file is a translation rather than some other document.
+///
+/// Reads [`pierre_core::models::SUPPORTED_LOCALES`] — the one list — so a sixth
+/// locale becomes a recognised filename by being added there, and the seeder
+/// can never recognise a locale the catalogue does not ship.
 #[must_use]
 pub fn is_locale_code(stem: &str) -> bool {
     SUPPORTED_LOCALES.contains(&stem)

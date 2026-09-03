@@ -59,16 +59,33 @@ FAILED=false
 # placeholders, client keys take i18next {{name}} placeholders.
 CATALOGUE_DIR="packages/i18n/src/locales"
 REGISTRY_SRC="crates/pierre-contremaitre/src"
+LOCALE_LIST_RS="crates/pierre-core/src/models/user.rs"
+LOCALE_LIST_TS="packages/i18n/src/config.ts"
 
 if [[ ! -d "$REGISTRY_SRC" ]] || [[ ! -f "$CATALOGUE_DIR/fr/translation.json" ]]; then
     echo -e "${RED}❌ Catalogue or registry source not found — this check is stale.${NC}"
     FAILED=true
 else
-    if CATALOGUE_REPORT="$(python3 - "$CATALOGUE_DIR" "$REGISTRY_SRC" <<'PY'
+    # The locale list is read, never spelled here: SUPPORTED_LOCALES in
+    # pierre-core is the one list, and the clients' SUPPORTED_LANGUAGES must
+    # agree with it in order (the first entry is the default locale on both
+    # sides). Parsed in shell rather than in the Python below, which stock
+    # macOS bash (3.2) mis-parses when the heredoc body grows.
+    LOCALES_RS="$(sed -nE 's/.*SUPPORTED_LOCALES: \[&str; [0-9]+\] = \[(.*)\];.*/\1/p' "$LOCALE_LIST_RS" | tr -d '" ')"
+    LOCALES_TS="$(sed -nE 's/.*SUPPORTED_LANGUAGES[^=]*= *\[([^]]*)\].*/\1/p' "$LOCALE_LIST_TS" | tr -d "' ")"
+    if [[ -z "$LOCALES_RS" ]]; then
+        echo -e "${RED}❌ could not read SUPPORTED_LOCALES from $LOCALE_LIST_RS${NC}"
+        FAILED=true
+    elif [[ "$LOCALES_RS" != "$LOCALES_TS" ]]; then
+        echo -e "${RED}❌ Locale drift: the clients speak [$LOCALES_TS] but the platform speaks [$LOCALES_RS] — one list, same order.${NC}"
+        FAILED=true
+    fi
+
+    if CATALOGUE_REPORT="$(python3 - "$CATALOGUE_DIR" "$REGISTRY_SRC" "$LOCALES_RS" <<'PY'
 import json, pathlib, re, sys
 
-catalogue_dir, registry_src = sys.argv[1], sys.argv[2]
-locales = ["fr", "en", "es", "de", "pt"]
+catalogue_dir, registry_src, locale_csv = sys.argv[1:4]
+locales = [code for code in locale_csv.split(",") if code]
 
 
 def flatten(tree, prefix=""):
@@ -130,8 +147,10 @@ fi
 # cargo metadata; fall back to a sibling checkout; warn-skip if unresolvable so
 # an offline machine is not blocked from pushing.
 YAML=""
+# The list comprehension avoids a `((` inside `$( )`, which stock macOS bash
+# (3.2) parses as the start of an arithmetic expansion and then rejects.
 MANIFEST="$(cargo metadata --format-version 1 2>/dev/null \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((p["manifest_path"] for p in d["packages"] if p["name"]=="dravr-contremaitre"), ""))' 2>/dev/null || true)"
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); m=[p["manifest_path"] for p in d["packages"] if p["name"]=="dravr-contremaitre"]; print(m[0] if m else "")' 2>/dev/null || true)"
 if [[ -n "$MANIFEST" && -f "${MANIFEST%Cargo.toml}schemas/notify-events.yaml" ]]; then
     YAML="${MANIFEST%Cargo.toml}schemas/notify-events.yaml"
 elif [[ -f "../dravr-contremaitre/schemas/notify-events.yaml" ]]; then

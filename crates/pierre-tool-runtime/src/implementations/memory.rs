@@ -11,7 +11,7 @@
 //! the Letta/MemGPT-style "active memory" complement to the background
 //! fact extractor in `services/memory_extraction.rs`.
 
-use pierre_core::models::default_locale;
+use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::SentenceRenderer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -559,15 +559,9 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
                 .await?;
             // The coach reads each fact as a sentence in the athlete's own
             // locale, rendered by the same function the memory screen uses.
-            let locale = context
-                .resources
-                .repos()
-                .users
-                .get_global(context.user_id)
-                .await
-                .ok()
-                .flatten()
-                .map_or_else(default_locale, |user| user.locale);
+            let locale =
+                resolve_user_locale(context.resources.repos().users.as_ref(), context.user_id)
+                    .await;
             let sentences =
                 SentenceRenderer::new(context.resources.messaging_strings_registry(), &locale);
 

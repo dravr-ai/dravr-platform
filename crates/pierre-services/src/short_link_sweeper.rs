@@ -17,9 +17,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::periodic::spawn_periodic;
 use pierre_database::repositories::ShortLinkRepository;
-use tokio::time::interval;
-use tracing::{debug, error};
+use tracing::debug;
 
 /// Sweep cadence. Short links live 24h; a periodic reclaim keeps the table
 /// bounded without being chatty (the DELETE is a single indexed range scan).
@@ -32,17 +32,14 @@ const SWEEP_INTERVAL: Duration = Duration::from_hours(6);
 /// sweep is logged and retried on the next tick, never propagated. The
 /// immediate first tick is consumed so a restart doesn't sweep instantly.
 pub fn start_short_link_sweeper(short_links: Arc<dyn ShortLinkRepository>) {
-    tokio::spawn(async move {
-        debug!("short-link sweeper started");
-        let mut ticker = interval(SWEEP_INTERVAL);
-        ticker.tick().await; // consume the immediate first tick
-        loop {
-            ticker.tick().await;
-            match short_links.delete_expired_short_links().await {
-                Ok(0) => {}
-                Ok(removed) => debug!(removed, "short-link sweep reclaimed expired rows"),
-                Err(e) => error!(error = %e, "short-link sweep failed"),
+    spawn_periodic("short-link sweeper", SWEEP_INTERVAL, move || {
+        let short_links = Arc::clone(&short_links);
+        async move {
+            let removed = short_links.delete_expired_short_links().await?;
+            if removed > 0 {
+                debug!(removed, "short-link sweep reclaimed expired rows");
             }
+            Ok(())
         }
     });
 }

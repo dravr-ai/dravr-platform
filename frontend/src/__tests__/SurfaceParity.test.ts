@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, it, expect } from 'vitest';
-import { SURFACE_CAPABILITIES, USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
+import { SETTINGS_PANES, SURFACE_CAPABILITIES, USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
 import { defaultI18nConfig } from '@pierre/i18n';
 
 /**
@@ -26,6 +26,7 @@ const CHAT_RENDERER = path.join(SRC, 'components', 'chat', 'MessageItem.tsx');
 const dashboardSource = fs.readFileSync(DASHBOARD, 'utf8');
 const chatRendererSource = fs.readFileSync(CHAT_RENDERER, 'utf8');
 
+
 /**
  * A web route exists when the Dashboard either declares it as a sidebar tab or
  * renders something for it. Both count: settings sub-surfaces are reachable
@@ -33,10 +34,14 @@ const chatRendererSource = fs.readFileSync(CHAT_RENDERER, 'utf8');
  * would fail six surfaces that genuinely work.
  */
 function dashboardServes(route: string): boolean {
-  return (
-    dashboardSource.includes(`id: '${route}'`) ||
-    dashboardSource.includes(`activeTab === '${route}'`)
-  );
+  const [tab, section] = route.split('/');
+  const servesTab =
+    dashboardSource.includes(`id: '${tab}'`) || dashboardSource.includes(`activeTab === '${tab}'`);
+  if (section === undefined) return servesTab;
+  // A `settings/<section>` route is served when the Dashboard serves `settings`
+  // and the pane registry declares that section — the shape the connections
+  // pane uses now that it is no longer also a top-level tab of its own.
+  return servesTab && SETTINGS_PANES.some((pane) => pane.id === section);
 }
 
 describe('surface parity — web', () => {

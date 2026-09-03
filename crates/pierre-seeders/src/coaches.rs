@@ -715,7 +715,8 @@ async fn publish_single_coach(
 /// Discover canonical coach definitions + their non-canonical translations.
 ///
 /// Expected layout: `coaches_dir/<category>/<slug>/<locale>.md` where `<locale>`
-/// is one of [`pierre_coach_parser::SUPPORTED_LOCALES`]. Each coach directory MUST
+/// satisfies [`pierre_coach_parser::is_locale_code`] — the predicate this
+/// walk actually calls, which reads the platform's one locale list. Each coach directory MUST
 /// contain `en.md` (the canonical source); optional `fr.md` / `es.md` / `de.md`
 /// / `pt.md` siblings become [`CoachTranslationFile`] rows that layer over the
 /// canonical copy at read time via

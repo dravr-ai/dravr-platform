@@ -130,8 +130,7 @@ pub use chat::{
     ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
 };
 pub use coaches::{
-    Coach, CoachCategory, CoachesManager, CreateCoachRequest, ListCoachesFilter, PublishStatus,
-    UpdateCoachRequest,
+    Coach, CoachCategory, CreateCoachRequest, ListCoachesFilter, PublishStatus, UpdateCoachRequest,
 };
 pub use errors::{DatabaseError, DatabaseResult};
 pub use mobility::{

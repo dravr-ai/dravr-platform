@@ -8,7 +8,7 @@ use pierre_core::models::TenantId;
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
+use pierre_services::locale::resolve_user_locale;
 
 /// Resolve the user-facing locale for a messaging turn.
 ///
@@ -18,7 +18,7 @@ use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 ///    — explicit per-channel override (user set Telegram to EN while keeping
 ///    the web app in FR, for example)
 /// 2. `users.locale` — the profile-wide preference edited from the Settings UI
-/// 3. [`pierre_contremaitre::messaging_strings::DEFAULT_LOCALE`] — hard-coded
+/// 3. the platform default locale — the terminal rung, hard-coded
 ///    French fallback
 ///
 /// Never fails: any DB error silently degrades to the next rung. Called once
@@ -49,11 +49,7 @@ pub async fn resolve_messaging_locale(
         }
     }
 
-    if let Ok(Some(user)) = resources.common.repos.users.get_global(user_id).await {
-        if !user.locale.trim().is_empty() {
-            return user.locale;
-        }
-    }
-
-    DEFAULT_LOCALE.to_owned()
+    // Rungs 2 and 3 are the platform-wide question — "what language does this
+    // athlete read" — so they are the shared resolver, not a second copy of it.
+    resolve_user_locale(resources.common.repos.users.as_ref(), user_id).await
 }

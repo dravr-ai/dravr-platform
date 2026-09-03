@@ -41,19 +41,17 @@
 //! athlete receives.
 
 use std::env;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::periodic::spawn_periodic;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures_util::FutureExt as _;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, SportType, TenantId};
 use pierre_database::repositories::SweptVerdict;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome};
-use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -629,40 +627,37 @@ pub fn spawn_commitment_sweep(
 
     debug!(interval_secs, "starting commitment sweep");
 
-    tokio::spawn(async move {
-        // `interval(0)` panics, so a misconfigured env var clamps to one second.
-        let mut ticker = interval(Duration::from_secs(interval_secs.max(1)));
-        ticker.tick().await; // consume the immediate first tick
-        loop {
-            ticker.tick().await;
-            let pass = tick(
-                &repos,
-                reporter.as_deref(),
-                refresher.as_deref(),
-                Utc::now(),
-                DEFAULT_BATCH_SIZE,
-            );
-            match AssertUnwindSafe(pass).catch_unwind().await {
-                Ok(Ok(outcome)) => {
-                    if outcome.labeled > 0 || outcome.reported > 0 {
-                        debug!(
-                            scanned = outcome.scanned,
-                            labeled = outcome.labeled,
-                            deferred = outcome.deferred,
-                            expired = outcome.expired,
-                            reported = outcome.reported,
-                            held = outcome.held,
-                            refreshes = outcome.refreshes,
-                            errors = outcome.errors,
-                            "commitment sweep tick complete"
-                        );
-                    }
+    spawn_periodic(
+        "commitment sweep",
+        Duration::from_secs(interval_secs),
+        move || {
+            let repos = Arc::clone(&repos);
+            let reporter = reporter.clone();
+            let refresher = refresher.clone();
+            async move {
+                let outcome = tick(
+                    &repos,
+                    reporter.as_deref(),
+                    refresher.as_deref(),
+                    Utc::now(),
+                    DEFAULT_BATCH_SIZE,
+                )
+                .await?;
+                if outcome.labeled > 0 || outcome.reported > 0 {
+                    debug!(
+                        scanned = outcome.scanned,
+                        labeled = outcome.labeled,
+                        deferred = outcome.deferred,
+                        expired = outcome.expired,
+                        reported = outcome.reported,
+                        held = outcome.held,
+                        refreshes = outcome.refreshes,
+                        errors = outcome.errors,
+                        "commitment sweep tick complete"
+                    );
                 }
-                Ok(Err(e)) => {
-                    error!(error = %e, "commitment sweep tick errored — retrying next interval");
-                }
-                Err(_) => error!("commitment sweep tick panicked; continuing (see stderr)"),
+                Ok(())
             }
-        }
-    });
+        },
+    );
 }

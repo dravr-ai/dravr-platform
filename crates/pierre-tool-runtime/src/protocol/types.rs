@@ -140,6 +140,23 @@ pub struct UniversalResponse {
 /// [`provider_helpers`](super::provider_helpers).
 pub const META_AUTH_REQUIRED_PROVIDER: &str = "auth_required_provider";
 
+/// The provider slug a failed response says the athlete must reconnect, if any.
+///
+/// Every caller that re-raises the typed auth error, drops a cached page, or
+/// decides a recovery turn reads [`META_AUTH_REQUIRED_PROVIDER`] the same way:
+/// the key must be present *and* hold a string. Reading it by hand once
+/// admitted a non-string value as a reconnect signal, so the extraction lives
+/// here beside the key it reads.
+#[must_use]
+pub fn auth_required_provider(response: &UniversalResponse) -> Option<String> {
+    response
+        .metadata
+        .as_ref()?
+        .get(META_AUTH_REQUIRED_PROVIDER)?
+        .as_str()
+        .map(ToOwned::to_owned)
+}
+
 /// Universal tool definition with handler function
 #[derive(Debug, Clone)]
 pub struct UniversalTool {

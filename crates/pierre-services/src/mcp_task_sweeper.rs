@@ -14,14 +14,15 @@
 //!
 //! Deliberately mirrors [`start_short_link_sweeper`](crate::short_link_sweeper)
 //! rather than inventing a second cadence shape: both reclaim rows whose expiry
-//! the read path already honours.
+//! the read path already honours. Both run on [`spawn_periodic`], which owns
+//! the tick loop, the skipped first tick, and what a failing pass does.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::periodic::spawn_periodic;
 use pierre_database::repositories::McpTaskRepository;
-use tokio::time::interval;
-use tracing::{debug, error};
+use tracing::debug;
 
 /// Sweep cadence. Task TTL is 30 minutes, so an hourly reclaim keeps the table
 /// bounded well inside an order of magnitude of the lifetime it enforces
@@ -30,23 +31,19 @@ const SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 
 /// Start the background MCP task sweeper.
 ///
-/// Spawns a `tokio::time::interval` loop that deletes expired `mcp_tasks` rows
-/// every [`SWEEP_INTERVAL`]. Fire-and-forget and best-effort: a failed sweep is
-/// logged and retried on the next tick, never propagated, because losing a
-/// reclamation pass is survivable and taking the server down for it is not.
-/// The immediate first tick is consumed so a restart doesn't sweep instantly.
+/// Deletes expired `mcp_tasks` rows every [`SWEEP_INTERVAL`]. Fire-and-forget
+/// and best-effort: a failed sweep is logged and retried on the next tick,
+/// never propagated, because losing a reclamation pass is survivable and
+/// taking the server down for it is not.
 pub fn start_mcp_task_sweeper(tasks: Arc<dyn McpTaskRepository>) {
-    tokio::spawn(async move {
-        debug!("MCP task sweeper started");
-        let mut ticker = interval(SWEEP_INTERVAL);
-        ticker.tick().await; // consume the immediate first tick
-        loop {
-            ticker.tick().await;
-            match tasks.delete_expired_tasks(now_ms()).await {
-                Ok(0) => {}
-                Ok(removed) => debug!(removed, "MCP task sweep reclaimed expired rows"),
-                Err(e) => error!(error = %e, "MCP task sweep failed"),
+    spawn_periodic("mcp task sweeper", SWEEP_INTERVAL, move || {
+        let tasks = Arc::clone(&tasks);
+        async move {
+            let removed = tasks.delete_expired_tasks(now_ms()).await?;
+            if removed > 0 {
+                debug!(removed, "MCP task sweep reclaimed expired rows");
             }
+            Ok(())
         }
     });
 }

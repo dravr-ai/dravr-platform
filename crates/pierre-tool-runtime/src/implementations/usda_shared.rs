@@ -17,7 +17,9 @@
 
 use std::sync::{Arc, OnceLock};
 
+use pierre_core::errors::{AppError, AppResult};
 use pierre_external::usda_client::{UsdaClient, UsdaClientConfig};
+use serde_json::Value;
 
 /// Upper bound on caller-supplied ingredient arrays for the USDA fan-outs.
 ///
@@ -26,6 +28,25 @@ use pierre_external::usda_client::{UsdaClient, UsdaClientConfig};
 /// keeping the worst-case cold fan-out bounded by a constant instead of by
 /// whatever array length a caller sends.
 pub const MAX_USDA_INGREDIENTS: usize = 30;
+
+/// Refuse an ingredient array whose length would fan out past
+/// [`MAX_USDA_INGREDIENTS`] USDA calls per ingredient.
+///
+/// Both fan-out tools bound the same array against the same constant, so the
+/// refusal is minted once here rather than copied beside each call site.
+///
+/// # Errors
+///
+/// Returns [`AppError::invalid_input`] naming the length and the cap.
+pub fn check_ingredient_count(ingredients: &[Value]) -> AppResult<()> {
+    if ingredients.len() > MAX_USDA_INGREDIENTS {
+        return Err(AppError::invalid_input(format!(
+            "too many ingredients ({}; max {MAX_USDA_INGREDIENTS})",
+            ingredients.len()
+        )));
+    }
+    Ok(())
+}
 
 static SHARED_USDA_CLIENT: OnceLock<Arc<UsdaClient>> = OnceLock::new();
 

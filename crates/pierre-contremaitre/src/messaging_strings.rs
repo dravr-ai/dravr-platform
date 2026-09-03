@@ -62,16 +62,18 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tracing::{error, warn};
 
+use pierre_core::models::SUPPORTED_LOCALES;
+
 use super::manifest::compute_sha256;
 use super::registry::PromptSource;
 
 /// Default locale used when a caller does not specify one.
 ///
-/// Also used when the requested locale is missing from the registry.
-/// Currently French because the majority user base is francophone; change
-/// this constant (and the order of `pierre_core::models::SUPPORTED_LOCALES`)
-/// when that shifts.
-pub const DEFAULT_LOCALE: &str = "fr";
+/// Also used when the requested locale is missing from the registry. It is the
+/// first entry of [`SUPPORTED_LOCALES`] rather than its own literal, so the
+/// default follows the one list instead of drifting from it — currently
+/// French, because the majority user base is francophone.
+pub const DEFAULT_LOCALE: &str = SUPPORTED_LOCALES[0];
 
 // ── Chat pipeline keys ────────────────────────────────────────────────────
 

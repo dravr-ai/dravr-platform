@@ -1,18 +1,20 @@
 // ABOUTME: Dismissible banner nudging the user to connect a fitness provider.
-// ABOUTME: Shown on coach screens when no provider is connected; routes to the Data Providers tab.
+// ABOUTME: Shown on coach screens when no provider is connected; routes to the connections pane.
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { providersApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
+import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 
 /**
  * Surfaces the "connect a provider" nudge on coach surfaces (the chat flow has its
  * own modal). Hidden once a provider is connected or the user dismisses it for the
- * session. t('app.connect') deep-links to the top-level Data Providers tab.
+ * session. The action navigates through the caller's own router rather than
+ * writing `window.location.hash`, so it lands on the one connections route.
  */
-export function ConnectProviderBanner() {
+export function ConnectProviderBanner({ onNavigate }: { onNavigate: (route: string) => void }) {
   const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(false);
   const { data, isLoading } = useQuery({
@@ -42,9 +44,7 @@ export function ConnectProviderBanner() {
       </div>
       <button
         type="button"
-        onClick={() => {
-          window.location.hash = 'data-providers';
-        }}
+        onClick={() => onNavigate(CONNECTIONS_ROUTE)}
         className="btn-base btn-primary flex-shrink-0 min-h-[44px] px-4 text-sm"
       >
         {t('shell.connectBannerAction')}

@@ -270,22 +270,6 @@ impl NotificationService {
         };
         self.dispatch_with_tier(&request, tier).await
     }
-
-    /// Dispatch a notification at the default [`PushTier::P1`].
-    ///
-    /// P1 is the conservative default for a call site that has not declared a
-    /// tier: it delivers to every persona except the strictest floor (Casual's
-    /// P0), so an unmigrated caller behaves like the high-signal events rather
-    /// than sneaking past every floor as P0 would. Call sites that know their
-    /// product semantics use [`Self::dispatch_with_tier`] directly.
-    ///
-    /// # Errors
-    ///
-    /// Returns the upstream [`CommereError`] when the pipeline itself fails.
-    pub async fn dispatch(&self, request: &DispatchRequest) -> CommereResult<DispatchOutcome> {
-        self.dispatch_with_tier(request, PushTier::P1).await
-    }
-
     /// Dispatch a notification at an explicit [`PushTier`] through the persona
     /// gate, the upstream pipeline, and every platform sink.
     ///

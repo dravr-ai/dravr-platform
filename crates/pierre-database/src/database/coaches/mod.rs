@@ -1,76 +1,22 @@
-// ABOUTME: Coach database module providing CRUD, assignments, versioning, and admin operations
-// ABOUTME: Organizes coach operations into focused sub-modules with shared helpers and type re-exports
+// ABOUTME: Coach row mappers and hash helpers shared by the SQLite coach repositories
+// ABOUTME: Re-exports the coach type definitions so `database::coaches::*` stays one import path
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// System/admin coach management methods
-mod admin;
-/// Coach assignment and user preference methods
-mod assignments;
 /// Type definitions for coach database operations
 mod types;
-/// User-facing coach CRUD and query methods
-mod user;
-/// Coach version history and startup query methods
-mod versions;
 
 pub use types::*;
-pub use user::compute_request_hash;
-pub use versions::row_to_coach_version;
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::{CoachPrerequisites, DataRequirements};
-use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
+use sqlx::{sqlite::SqliteRow, Row};
 use uuid::Uuid;
-
-/// Coach database operations manager
-pub struct CoachesManager {
-    pool: SqlitePool,
-}
-
-impl CoachesManager {
-    /// Create a new coaches manager
-    #[must_use]
-    pub const fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
-    /// Ensure a `coach_assignments` row exists for a user+coach pair.
-    ///
-    /// Uses `INSERT OR IGNORE` so it is safe to call multiple times.
-    /// This is needed for operations like `toggle_favorite`, `record_usage`,
-    /// and `activate_coach` that need an assignment row to update.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub(super) async fn ensure_assignment_exists(
-        &self,
-        coach_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<()> {
-        let id = Uuid::new_v4();
-        let now = Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, 0, 0, NULL)
-            ",
-        )
-        .bind(id.to_string())
-        .bind(coach_id)
-        .bind(user_id.to_string())
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to ensure coach assignment: {e}")))?;
-
-        Ok(())
-    }
-}
 
 /// Convert a database row to a `Coach` struct
 ///
@@ -190,12 +136,66 @@ pub(super) fn row_to_coach_list_item(row: &SqliteRow) -> AppResult<CoachListItem
     })
 }
 
+/// Convert a database row to a `CoachVersion` struct
+///
+/// # Errors
+///
+/// Returns an error if row fields cannot be parsed (invalid UUID, datetime, or JSON)
+pub fn row_to_coach_version(row: &SqliteRow) -> AppResult<CoachVersion> {
+    let id: String = row.get("id");
+    let coach_id: String = row.get("coach_id");
+    let version: i32 = row.get("version");
+    let content_hash: String = row.get("content_hash");
+    let content_snapshot_str: String = row.get("content_snapshot");
+    let change_summary: Option<String> = row.get("change_summary");
+    let created_at_str: String = row.get("created_at");
+    let created_by_str: Option<String> = row.get("created_by");
+
+    let content_snapshot: serde_json::Value = serde_json::from_str(&content_snapshot_str)
+        .map_err(|e| AppError::internal(format!("Invalid JSON in version snapshot: {e}")))?;
+
+    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+        .map_err(|e| AppError::internal(format!("Invalid datetime: {e}")))?
+        .with_timezone(&Utc);
+
+    let created_by = created_by_str
+        .map(|s| Uuid::parse_str(&s))
+        .transpose()
+        .map_err(|e| AppError::internal(format!("Invalid UUID: {e}")))?;
+
+    Ok(CoachVersion {
+        id,
+        coach_id,
+        version,
+        content_hash,
+        content_snapshot,
+        change_summary,
+        created_at,
+        created_by,
+    })
+}
+
 /// Compute hash of content for version tracking
 pub(super) fn compute_content_hash(content: &serde_json::Value) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
     let mut hasher = DefaultHasher::new();
     content.to_string().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Compute a content hash from a `CreateCoachRequest` using `DefaultHasher`.
+///
+/// Hashes the title, `system_prompt`, tags, and all structured section fields
+/// to produce a deterministic 16-character hex string for deduplication.
+#[must_use]
+pub fn compute_request_hash(request: &CreateCoachRequest) -> String {
+    let mut hasher = DefaultHasher::new();
+    request.title.hash(&mut hasher);
+    request.system_prompt.hash(&mut hasher);
+    request.tags.hash(&mut hasher);
+    request.purpose.hash(&mut hasher);
+    request.instructions.hash(&mut hasher);
+    request.example_inputs.hash(&mut hasher);
+    request.example_outputs.hash(&mut hasher);
+    request.success_criteria.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }

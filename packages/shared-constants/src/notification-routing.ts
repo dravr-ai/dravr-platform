@@ -8,7 +8,7 @@ import {
   NOTIFICATION_SCREEN_SURFACES,
   type NotificationScreen,
 } from './surface-capabilities.generated';
-import { USER_SURFACES, type UserSurface } from './surfaces';
+import { surfaceById, type UserSurface } from './surfaces';
 
 /**
  * The surface a notification opens.
@@ -37,11 +37,6 @@ export interface NotificationDestination {
    * the thread they were replying to.
    */
   conversationId?: string;
-}
-
-/** The registry surface for an id, or null when the registry has no such row. */
-function surfaceById(id: string): UserSurface | null {
-  return USER_SURFACES.find((surface) => surface.id === id) ?? null;
 }
 
 /** Read a value as a screen name the server declares, or null. */

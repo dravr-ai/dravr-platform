@@ -163,6 +163,9 @@ import { createMessagingApi } from './domains/messaging';
 import { createNotificationsApi } from './domains/notifications';
 import { createGroupsApi } from './domains/groups';
 import { createFeatureFlagsApi } from './domains/featureFlags';
+export { createPersonasApi } from './domains/personas';
+export type { PersonasApi, PersonaCard, PersonaRule, PersonasResponse } from './domains/personas';
+import { createPersonasApi } from './domains/personas';
 export { createI18nApi } from './domains/i18n';
 export type { I18nApi, I18nBundle, I18nBundleResult } from './domains/i18n';
 import { createI18nApi } from './domains/i18n';
@@ -192,6 +195,8 @@ export interface PierreApiService {
   groups: ReturnType<typeof createGroupsApi>;
   /** Feature flags API */
   featureFlags: ReturnType<typeof createFeatureFlagsApi>;
+  /** The « Style de coaching » cards, rendered from the live persona-contract registry */
+  personas: ReturnType<typeof createPersonasApi>;
   /** The live string catalogue, overlaid on the embedded copy at start-up and on language change */
   i18n: ReturnType<typeof createI18nApi>;
   /** Underlying axios instance for custom requests */
@@ -238,6 +243,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     notifications: createNotificationsApi(axios),
     groups: createGroupsApi(axios),
     featureFlags: createFeatureFlagsApi(axios),
+    personas: createPersonasApi(axios),
     i18n: createI18nApi(axios),
     axios,
     adapter,

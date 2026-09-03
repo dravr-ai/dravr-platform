@@ -315,16 +315,27 @@ export interface McpErrorResponse {
 
 `;
 
-  // Generate a union type of all tool names (already sorted)
+  // Generate the tool-name roster (already sorted) as a runtime value, with the
+  // union derived from it. A type alone cannot be compared against what a live
+  // server lists, which is why the SDK kept a jest snapshot of the same names —
+  // and CI regenerated that snapshot on every run, so it never gated anything.
   const toolNamesUnion = `
 // ============================================================================
 // TOOL NAME TYPES
 // ============================================================================
 
 /**
+ * Every tool the server registers, sorted. The one roster: a caller checking a
+ * name at runtime and the \`ToolName\` union below read the same list.
+ */
+export const TOOL_NAMES = [
+${sortedTools.map(t => `  "${t.name}",`).join('\n')}
+] as const;
+
+/**
  * Union type of all available tool names
  */
-export type ToolName = ${sortedTools.map(t => `"${t.name}"`).join(' | ')};
+export type ToolName = (typeof TOOL_NAMES)[number];
 
 /**
  * Map of tool names to their parameter types

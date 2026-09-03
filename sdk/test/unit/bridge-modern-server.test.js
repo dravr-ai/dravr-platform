@@ -5,19 +5,21 @@
 // ABOUTME: Runs the real host-side handlers against a scripted Dravr endpoint, no Rust server needed
 
 const http = require('http');
-const { PierreMcpClient, MCP_PROTOCOL_VERSION, TASKS_EXTENSION_ID } = require('../../dist/index.js');
+const {
+  PierreMcpClient,
+  MCP_PROTOCOL_VERSION,
+  TASKS_EXTENSION_ID,
+  META_CLIENT_CAPABILITIES: META_CAPABILITIES,
+  META_PROTOCOL_VERSION: META_VERSION,
+} = require('../../dist/index.js');
 const { startProvider, stopProvider } = require('./oauth-callback-harness.js');
-
-const META_CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities';
-const META_VERSION = 'io.modelcontextprotocol/protocolVersion';
+const { complete } = require('../helpers/modern-dravr.js');
 
 /** An access token the bridge can decode a user id out of. */
 function jwtFor(subject) {
   const payload = Buffer.from(JSON.stringify({ sub: subject })).toString('base64');
   return `header.${payload}.signature`;
 }
-
-const complete = (id, result) => ({ jsonrpc: '2.0', id, result: { resultType: 'complete', ...result } });
 
 /**
  * A scripted Dravr: a modern /mcp that challenges without a bearer, discovers with the

@@ -12,6 +12,7 @@ import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types
 import { filterDisplayMessages, statusForProgress } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
+import type { ChatRow } from './MessageList';
 
 export interface MessagesState {
   messages: Message[];
@@ -95,7 +96,7 @@ export interface MessagesActions {
   setMessageBlocks: React.Dispatch<React.SetStateAction<Record<string, ReplyBlock[]>>>;
   setIsSending: (sending: boolean) => void;
   scrollToBottom: () => void;
-  flatListRef: React.RefObject<FlashListRef<Message> | null>;
+  flatListRef: React.RefObject<FlashListRef<ChatRow> | null>;
 }
 
 export function useMessages(): MessagesState & MessagesActions {
@@ -111,7 +112,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const [verdictsLoading, setVerdictsLoading] = useState(false);
   const [quotaNotice, setQuotaNotice] = useState<ReplyNotice | null>(null);
   const [progressText, setProgressText] = useState<string | null>(null);
-  const flatListRef = useRef<FlashListRef<Message>>(null);
+  const flatListRef = useRef<FlashListRef<ChatRow>>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scrollToBottom = useCallback(() => {

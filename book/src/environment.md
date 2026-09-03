@@ -352,11 +352,10 @@ export VITE_BACKEND_URL="http://localhost:8081"
 
 ## Test Gates
 
-Five env vars short-circuit tests that hit live external services. When unset, the test body early-returns (or its `should_run()` helper returns `false`) before any network call. Default `cargo test` skips all six.
+Four env vars short-circuit tests that hit live external services. When unset, the test body early-returns (or its `should_run()` helper returns `false`) before any network call. Default `cargo test` skips all of them.
 
 | Env var | Tests skipped when unset | What it gates |
 |---|---|---|
-| `PIERRE_PROBE_COPILOT` | `copilot_usage_probe_test` | Spawns the real `copilot` CLI subprocess and dumps `response.usage`. |
 | `RUN_LOCAL_LLM_TESTS` | `llm_local_integration_test`, `llm_openai_compatible_test` | Hits a locally-running Ollama / OpenAI-compatible endpoint. |
 | `RUN_VLLM_TESTS` | `llm_local_integration_test` (vLLM subset) | Hits a locally-running vLLM server. |
 | `RUN_NETWORK_TESTS` | `weather_backfill_test` | Calls the live OpenWeather API. |
@@ -365,7 +364,6 @@ Five env vars short-circuit tests that hit live external services. When unset, t
 Run a single gated test explicitly:
 
 ```bash
-PIERRE_PROBE_COPILOT=1 cargo test --test copilot_usage_probe_test -- --nocapture
 RUN_LOCAL_LLM_TESTS=1 cargo test --test llm_local_integration_test -- --nocapture
 ```
 

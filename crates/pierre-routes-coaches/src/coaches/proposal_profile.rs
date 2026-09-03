@@ -8,6 +8,8 @@ use std::collections::HashSet;
 
 use pierre_config::coach_recommendations::CoachRecommendationConfig;
 use pierre_core::models::{Dossier, Pillar, SportProfile};
+use pierre_services::activity_sports::{sport_label, MessagingStringsRegistry};
+use pierre_services::coaches::sport_code;
 
 use super::types::{SportProfileSummary, SportShare};
 
@@ -64,8 +66,13 @@ pub fn pillar_context_prompt(dossier: &Dossier) -> Option<String> {
 /// serializable [`SportProfileSummary`] for the response, and a short
 /// human-readable `prompt_text` describing the athlete for the LLM re-rank.
 pub(super) struct ProfileView {
+    /// The wire shape. Its sports are serde **codes**; the clients own the
+    /// five-locale label catalogue and translate them.
     pub(super) summary: SportProfileSummary,
+    /// Prose for the LLM re-rank, sports spelled as the athlete's own words.
     pub(super) prompt_text: String,
+    /// The primary sport as the athlete reads it, for the deterministic
+    /// rationale this crate renders itself.
     pub(super) primary_sport: Option<String>,
 }
 
@@ -78,6 +85,8 @@ pub(super) fn build_profile_view(
     profile: Option<&SportProfile>,
     providers: &HashSet<String>,
     config: &CoachRecommendationConfig,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
 ) -> ProfileView {
     match profile {
         Some(profile) if profile.total_activities > 0 => {
@@ -86,23 +95,35 @@ pub(super) fn build_profile_view(
                 .sport_counts
                 .iter()
                 .map(|(sport, &count)| SportShare {
-                    sport: prettify_sport_label(sport),
+                    sport: sport_code(sport),
                     count,
                     share: share_fraction(count, total),
                 })
                 .collect();
             sport_mix.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.sport.cmp(&b.sport)));
 
-            let primary_sport = profile.primary_sport().map(|s| prettify_sport_label(&s));
+            // The wire carries the code, because the clients own the label
+            // catalogue; the prose this crate renders reads the athlete's own
+            // word for the sport through the shared vocabulary.
+            let primary_code = profile.primary_sport().map(|s| sport_code(&s));
+            let primary_label = primary_code
+                .as_deref()
+                .map(|code| sport_label(strings, code, locale));
             let mix_text = sport_mix
                 .iter()
-                .map(|s| format!("{} {:.0}%", s.sport, s.share * 100.0))
+                .map(|s| {
+                    format!(
+                        "{} {:.0}%",
+                        sport_label(strings, &s.sport, locale),
+                        s.share * 100.0
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let prompt_text = format!(
                 "Trains primarily {primary}; recent sport mix over {days} days: {mix_text} \
                  ({total} activities).",
-                primary = primary_sport.as_deref().unwrap_or("various sports"),
+                primary = primary_label.as_deref().unwrap_or("various sports"),
                 days = profile.window_days,
                 total = profile.total_activities,
             );
@@ -110,13 +131,13 @@ pub(super) fn build_profile_view(
             ProfileView {
                 summary: SportProfileSummary {
                     has_profile: true,
-                    primary_sport: primary_sport.clone(),
+                    primary_sport: primary_code,
                     total_activities: profile.total_activities,
                     window_days: profile.window_days,
                     sport_mix,
                 },
                 prompt_text,
-                primary_sport,
+                primary_sport: primary_label,
             }
         }
         _ => {
@@ -139,31 +160,6 @@ pub(super) fn build_profile_view(
             }
         }
     }
-}
-
-/// Turn a canonical sport label into a human-readable display string.
-///
-/// `SportProfile` stores uncatalogued sports as the `Debug` form of
-/// [`SportType::Other`] — e.g. `Other("alpine_ski")`. This unwraps that wrapper
-/// and title-cases the `snake_case` token so the onboarding profile shows
-/// "Alpine Ski" rather than `Other("alpine_ski")`. Catalogued labels like
-/// `run` become `Run`.
-fn prettify_sport_label(label: &str) -> String {
-    let inner = label
-        .strip_prefix("Other(\"")
-        .and_then(|rest| rest.strip_suffix("\")"))
-        .unwrap_or(label);
-    inner
-        .split('_')
-        .filter(|word| !word.is_empty())
-        .map(|word| {
-            let mut chars = word.chars();
-            chars.next().map_or_else(String::new, |first| {
-                format!("{}{}", first.to_uppercase(), chars.as_str())
-            })
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// `count / total` as an `f32` fraction without precision-loss casts, mirroring

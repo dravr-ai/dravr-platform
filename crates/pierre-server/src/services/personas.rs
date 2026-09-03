@@ -22,6 +22,7 @@ use serde::Deserialize;
 
 use pierre_core::errors::AppError;
 use pierre_middleware::extract_auth_from_headers;
+use pierre_services::locale::resolve_user_locale;
 use pierre_services::personas::{build_personas_response, resolve_persona_locale};
 
 use crate::mcp::resources::ServerContext;
@@ -53,19 +54,14 @@ pub async fn get_personas_handler(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
 
-    // The stored profile locale is the fallback when the query parameter
-    // is absent or unsupported; a missing user row simply skips to the
-    // terminal English fallback.
-    let stored_locale = resources
-        .common
-        .repos
-        .users
-        .get_global(auth.user_id)
-        .await
-        .ok()
-        .flatten()
-        .map(|u| u.locale);
-    let locale = resolve_persona_locale(params.locale.as_deref(), stored_locale.as_deref());
+    // The stored profile locale is the fallback when the query parameter is
+    // absent or unsupported. A user with no usable preference resolves to the
+    // platform default, which `resolve_persona_locale` validates like any other
+    // candidate — so an unsupported value still lands on the terminal English
+    // fallback.
+    let stored_locale =
+        resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
+    let locale = resolve_persona_locale(params.locale.as_deref(), Some(&stored_locale));
 
     let snapshot = resources.fitness.persona_contract_registry.snapshot();
     let response = build_personas_response(

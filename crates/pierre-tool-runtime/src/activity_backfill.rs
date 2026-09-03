@@ -35,7 +35,7 @@ use crate::activity_fetch::{
     activity_cache_retention_days, read_cached_window, serve_historical_window,
     write_through_activity_cache,
 };
-use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
+use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 
@@ -333,10 +333,7 @@ async fn fetch_backfill_activities(
             // auth-required provider (see create_authenticated_provider) —
             // distinguish it from an unsupported-provider / other failure so
             // only a real expiry nudges the user.
-            let auth_required = response
-                .metadata
-                .as_ref()
-                .is_some_and(|m| m.contains_key(META_AUTH_REQUIRED_PROVIDER));
+            let auth_required = auth_required_provider(&response).is_some();
             warn!(
                 user_id = %job.user_id,
                 provider = %job.provider_name,

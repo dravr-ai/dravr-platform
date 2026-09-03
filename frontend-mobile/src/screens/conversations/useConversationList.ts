@@ -15,9 +15,8 @@ import {
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
   buildConversationRow,
-  CONVERSATION_ROW_LABEL_KEYS,
+  conversationRowLabels,
   sortRowsByActivity,
-  type ConversationRowLabels,
   type ConversationRowModel,
 } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
@@ -99,15 +98,7 @@ export function useConversationRows() {
   // The words the shared row model cannot spell itself, in the viewer's
   // language — the same key set the web list resolves.
   const { t, language } = useTranslation();
-  const labels = useMemo<ConversationRowLabels>(
-    () => ({
-      locale: language,
-      you: t(CONVERSATION_ROW_LABEL_KEYS.you),
-      coach: t(CONVERSATION_ROW_LABEL_KEYS.coach),
-      untitled: t(CONVERSATION_ROW_LABEL_KEYS.untitled),
-    }),
-    [t, language],
-  );
+  const labels = useMemo(() => conversationRowLabels(t, language), [t, language]);
 
   const rows = useMemo<ConversationRowModel[]>(
     () =>

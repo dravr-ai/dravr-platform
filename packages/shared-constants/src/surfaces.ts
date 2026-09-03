@@ -109,7 +109,7 @@ export const USER_SURFACES: readonly UserSurface[] = [
   {
     id: 'data-providers',
     label: 'Data Providers',
-    web: 'data-providers',
+    web: 'settings/connections',
     mobile: '/(app)/(tabs)/(settings)/connections',
     webNav: null,
     blocks: NO_BLOCKS,
@@ -175,6 +175,22 @@ export const USER_SURFACES: readonly UserSurface[] = [
     why: 'Operator surface. Deliberately web-only — there is no mobile operator workflow. The design sweep walks it with the other admin surfaces, not the athlete ones.',
   },
 ] as const;
+
+/** The registry row for a surface id, or null when the registry has no such row. */
+export function surfaceById(id: string): UserSurface | null {
+  return USER_SURFACES.find((surface) => surface.id === id) ?? null;
+}
+
+/**
+ * The web route that opens a surface, or null when the registry has no row.
+ *
+ * The registry is the source: a client that spells a route itself is a second
+ * answer to "where does this live", which is how `#data-providers` and
+ * `#settings/connections` both came to open the connections pane.
+ */
+export function webRouteFor(id: string): string | null {
+  return surfaceById(id)?.web ?? null;
+}
 
 /** Surfaces a platform is expected to implement (i.e. not deliberately absent). */
 export function surfacesFor(platform: 'web' | 'mobile'): UserSurface[] {

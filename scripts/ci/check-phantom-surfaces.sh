@@ -126,7 +126,11 @@ else
             | grep -v "^${DOMAINS}/"
     }
     surface_files frontend/src > "$TMP/files_web.txt"
-    surface_files frontend-mobile/src > "$TMP/files_mobile.txt"
+    # `frontend-mobile/app` is expo-router's route tree: layouts and screens
+    # that ship. Scanning only `src` read a call that moved into a layout as a
+    # call that had disappeared — the i18n bundle fetch did exactly that when
+    # its wrapper was deleted, and this pool said the method reached web alone.
+    surface_files frontend-mobile/src frontend-mobile/app > "$TMP/files_mobile.txt"
     surface_files packages/api-client/src packages/shared-constants/src \
         packages/shared-types/src packages/mcp-types/src sdk/src > "$TMP/files_shared.txt"
 
@@ -310,7 +314,7 @@ if [[ -n "$BASE_REF" ]]; then
     # call while the other client keeps making it.
     REMOVED_WEB="$(git diff -U0 --diff-filter=d "${BASE_REF}...HEAD" -- 'frontend/src' 2>/dev/null \
         | grep '^-' | grep -v '^---' || true)"
-    REMOVED_MOBILE="$(git diff -U0 --diff-filter=d "${BASE_REF}...HEAD" -- 'frontend-mobile/src' 2>/dev/null \
+    REMOVED_MOBILE="$(git diff -U0 --diff-filter=d "${BASE_REF}...HEAD" -- 'frontend-mobile/src' 'frontend-mobile/app' 2>/dev/null \
         | grep '^-' | grep -v '^---' || true)"
 
     NEW_FOUND=false

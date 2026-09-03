@@ -32,6 +32,7 @@ use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
 use pierre_services::coach_generation::{coach_quota, resolve_chat_provider};
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
+use pierre_services::locale::resolve_user_locale;
 use pierre_services::{coach_import, coaches as coaches_service, recipes as recipes_service};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -269,7 +270,11 @@ pub(super) async fn handle_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
-    let locale = resolve_user_locale(&ctx, auth.user_id, tenant_id).await;
+    let locale = resolve_user_locale(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        auth.user_id,
+    )
+    .await;
     let (profile, coaches) = build_coach_proposal(&ctx, auth.user_id, tenant_id, &locale).await?;
     let response = CoachProposalResponse {
         profile,
@@ -319,7 +324,13 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
 
     // Recent sport profile (`None` ⇒ cold start: no provider or no activities).
     let sport_profile = load_sport_profile(ctx, user_id, tenant_id, &rec_config).await;
-    let mut profile_view = build_profile_view(sport_profile.as_ref(), &user_providers, &rec_config);
+    let mut profile_view = build_profile_view(
+        sport_profile.as_ref(),
+        &user_providers,
+        &rec_config,
+        ToolRuntime::messaging_strings_registry(ctx.as_ref()),
+        locale,
+    );
 
     // Enrich the re-rank prompt with onboarding pillar context (North Star +
     // covered pillars). Graceful: when the user has no pillar context yet, the
@@ -546,28 +557,6 @@ fn fallback_reason(item: &CoachListItem, primary_sport: Option<&str>, locale: &s
         }
         _ => coaches_service::fallback_reason_generic(locale).to_owned(),
     }
-}
-
-/// Resolve the user's stored locale for proposal localization.
-///
-/// Defaults to the platform [`DEFAULT_LOCALE`](coaches_service::DEFAULT_LOCALE)
-/// when the user has no stored preference or the lookup fails, keeping the REST
-/// onboarding proposal's coach rationales in the user's language and consistent
-/// with the messaging auto-send path.
-pub async fn resolve_user_locale<C: MiddlewareCtx>(
-    ctx: &Arc<C>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-) -> String {
-    MiddlewareCtx::repos(ctx.as_ref())
-        .users
-        .get(user_id, tenant_id)
-        .await
-        .ok()
-        .flatten()
-        .map(|user| user.locale)
-        .filter(|locale| !locale.trim().is_empty())
-        .unwrap_or_else(|| coaches_service::DEFAULT_LOCALE.to_owned())
 }
 
 /// Check if prerequisites are met given user's connected providers

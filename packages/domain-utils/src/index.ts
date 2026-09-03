@@ -3,8 +3,6 @@
 
 // Formatting utilities
 export {
-  formatRelativeDate,
-  formatFullDate,
   formatDuration,
   formatDistance,
   formatPace,

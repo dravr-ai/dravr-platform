@@ -54,6 +54,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# …but the skills' shared shell library is source, not a Python build artifact.
+!.claude/skills/lib/
 parts/
 sdist/
 var/

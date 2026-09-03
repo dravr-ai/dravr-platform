@@ -217,3 +217,8 @@ export type {
 
 // The live string catalogue a client overlays on its embedded copy
 export type { I18nBundle, I18nBundleResult } from './i18n';
+
+export type { PersonaCard, PersonaRule, PersonasResponse } from './personas';
+
+export { MEMORY_FACT_KINDS } from './memory';
+export type { MemoryFactKind } from './memory';

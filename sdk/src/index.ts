@@ -13,7 +13,7 @@
  * Export the main MCP client implementation for programmatic use
  */
 
-export { PierreMcpClient, BridgeConfig } from './bridge';
+export { PierreMcpClient, BridgeConfig } from './mcp-bridge';
 
 /**
  * Export the stateless MCP client the bridge uses to reach the Dravr server over
@@ -29,6 +29,10 @@ export {
   encodeHeaderValue,
   MCP_PROTOCOL_VERSION,
   TASKS_EXTENSION_ID,
+  META_PROTOCOL_VERSION,
+  META_CLIENT_INFO,
+  META_CLIENT_CAPABILITIES,
+  META_SERVER_INFO,
   RPC_METHOD_NOT_FOUND,
   RPC_INVALID_PARAMS,
   RPC_HEADER_MISMATCH,

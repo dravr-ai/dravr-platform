@@ -173,8 +173,6 @@ export interface McpHttpClientOptions {
   bearer?: () => Promise<string | undefined> | string | undefined;
   fetchFn?: typeof fetch;
   log?: (message: string) => void;
-  /** The revision declared on every request; defaults to the one this client implements. */
-  protocolVersion?: string;
   /** Polling cadence when a task handle names none. */
   taskPollIntervalMs?: number;
 }
@@ -308,7 +306,6 @@ export class McpHttpClient {
   private readonly bearer?: McpHttpClientOptions["bearer"];
   private readonly fetchFn: typeof fetch;
   private readonly log: (message: string) => void;
-  private readonly protocolVersion: string;
   private readonly fallbackPollIntervalMs: number;
   private readonly inFlight = new Set<AbortController>();
   private nextId = 1;
@@ -321,7 +318,6 @@ export class McpHttpClient {
     this.bearer = options.bearer;
     this.fetchFn = options.fetchFn ?? fetch;
     this.log = options.log ?? (() => undefined);
-    this.protocolVersion = options.protocolVersion ?? MCP_PROTOCOL_VERSION;
     this.fallbackPollIntervalMs =
       options.taskPollIntervalMs ?? DEFAULT_TASK_POLL_INTERVAL_MS;
   }
@@ -598,7 +594,7 @@ export class McpHttpClient {
     const id = this.nextId++;
     const meta: Record<string, unknown> = {
       ...((params?._meta as Record<string, unknown> | undefined) ?? {}),
-      [META_PROTOCOL_VERSION]: this.protocolVersion,
+      [META_PROTOCOL_VERSION]: MCP_PROTOCOL_VERSION,
       [META_CLIENT_INFO]: this.clientInfo,
       [META_CLIENT_CAPABILITIES]: this.clientCapabilities(),
     };
@@ -612,7 +608,7 @@ export class McpHttpClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
-      "MCP-Protocol-Version": this.protocolVersion,
+      "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
       "Mcp-Method": method,
     };
     const nameSource = NAME_HEADER_SOURCE[method];

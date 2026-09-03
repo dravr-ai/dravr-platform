@@ -27,10 +27,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
-use pierre_core::models::{default_locale, CoverageMap, TenantId};
+use pierre_core::models::{CoverageMap, TenantId};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::intake::INTAKE_TOPICS;
+use pierre_services::locale::resolve_user_locale;
 use pierre_services::{about_you, onboarding_gate, parq};
 
 /// Response body for `GET /api/me/onboarding-status`.
@@ -241,15 +242,7 @@ pub async fn handle_parq_get(
     auth: AuthenticatedUser,
 ) -> Result<Response, AppError> {
     // The stored preference, resolved the way every REST read resolves it.
-    let locale = resources
-        .common
-        .repos
-        .users
-        .get_global(auth.user_id)
-        .await
-        .ok()
-        .flatten()
-        .map_or_else(default_locale, |user| user.locale);
+    let locale = resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
     let registry = &resources.mcp.messaging_strings_registry;
     let questions = INTAKE_TOPICS
         .iter()

@@ -49,4 +49,5 @@ export const groupsApi = api.groups;
 // Effective feature flags for the calling user — the gate both clients read.
 export const featureFlagsApi = api.featureFlags;
 // The live string catalogue, overlaid on the embedded copy at start-up.
+export const personasApi = api.personas;
 export const i18nApi = api.i18n;

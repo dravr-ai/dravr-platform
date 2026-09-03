@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
 import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
+import { formatDateTime } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 
 interface VerdictDrawerProps {
@@ -76,10 +77,7 @@ function VerdictCard({
   const hasProvenance = Boolean(
     verdict.user_id || verdict.coach_id || verdict.conversation_id || verdict.message_id,
   );
-  const emitted = new Date(verdict.created_at);
-  const emittedLabel = Number.isNaN(emitted.getTime())
-    ? verdict.created_at
-    : new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(emitted);
+  const emittedLabel = formatDateTime(verdict.created_at, language);
 
   return (
     <article data-testid="verdict-card" className="space-y-4 border-b ghost-border px-5 py-5 text-sm last:border-b-0">
@@ -213,7 +211,7 @@ export default function VerdictDrawer({
                 ? t('chat.verdictsLoading')
                 : verdicts.length === 1
                   ? t('chat.verdictChipOne', { count: 1, qualifier: t(VERDICT_STATUS_LABEL_KEY[verdicts[0].status]) })
-                  : t('chat.verdictChipN', { count: verdicts.length, qualifier: '' }).replace(/\s*·\s*$/, '')}
+                  : t('chat.verdictsCount', { count: verdicts.length })}
             </p>
           </div>
           <button

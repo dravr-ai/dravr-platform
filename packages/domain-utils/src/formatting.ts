@@ -2,39 +2,6 @@
 // ABOUTME: Pure functions with no platform-specific dependencies
 
 /**
- * Format a date string for conversation list display
- * Shows time for today, "Yesterday", weekday for last week, or date
- */
-export function formatRelativeDate(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) {
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  } else if (diffDays === 1) {
-    return 'Yesterday';
-  } else if (diffDays < 7) {
-    return date.toLocaleDateString('en-US', { weekday: 'short' });
-  } else {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-}
-
-/**
- * Format a date for full display (e.g., "January 15, 2025")
- */
-export function formatFullDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-/**
  * Format duration in seconds to human readable string
  * e.g., 3665 -> "1h 1m 5s"
  */

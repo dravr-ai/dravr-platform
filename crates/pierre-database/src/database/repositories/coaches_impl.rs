@@ -1084,8 +1084,8 @@ impl CoachesRepository for Database {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachRuntimeContext>> {
-        // Column order matches `CoachesManager::get_coach_runtime_context`
-        // in `coaches/versions.rs` — keep in lock-step.
+        // Column order matches the PostgreSQL impl in
+        // `backends/postgres/coaches.rs` — keep both in lock-step.
         type Row = (
             Option<String>,
             String,

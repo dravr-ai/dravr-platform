@@ -38,11 +38,13 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute({ screen: 'settings' })).toBe('settings');
   });
 
-  it('routes a provider-reauth notification to Data Providers', () => {
+  it('routes a provider-reauth notification to the connections pane', () => {
     // `connections` is what pierre-tool-runtime emits on provider_needs_reauth.
     // Neither client's hand-written map handled it, so the tap went nowhere.
+    // The registry maps that screen to the `data-providers` surface, whose one
+    // web route is the settings section — it used to be a top-level tab too.
     expect(webNotificationRoute({ screen: 'connections', provider: 'whoop' })).toBe(
-      'data-providers',
+      'settings/connections',
     );
   });
 

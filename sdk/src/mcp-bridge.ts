@@ -1018,37 +1018,18 @@ export class PierreMcpClient {
       } catch (error) {
         this.log(`Tool call ${request.params.name} failed:`, error);
 
-        // Check if this is an authentication error using multiple detection methods
-        const errorAny = error as any;
-
-        // Method 1: Check structured MCP error data (server sets authentication_failed: true)
-        const authFailedFlag = errorAny?.data?.authentication_failed === true;
-
-        // Method 2: Check MCP JSON-RPC error codes for auth errors
-        const errorCode = errorAny?.code;
-        const hasAuthErrorCode =
-          errorCode && (errorCode === -32603 || errorCode === -32602);
-
-        // Method 3: the transport's own verdict - a 401 carrying the RFC 9728 challenge
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        const errorLower = errorMessage.toLowerCase();
-        const hasHttpAuthStatus =
-          error instanceof McpHttpError && error.status === 401;
 
-        // Method 4: Check error message content
-        const messageIndicatesAuth =
-          errorLower.includes("unauthorized") ||
-          errorLower.includes("authentication failed") ||
-          errorLower.includes("jwt token") ||
-          errorLower.includes("authentication") ||
-          errorLower.includes("re-authenticate");
-
-        const isAuthError =
-          authFailedFlag ||
-          hasAuthErrorCode ||
-          hasHttpAuthStatus ||
-          messageIndicatesAuth;
+        // The session is dead when the transport says so, and only then: a 401
+        // carrying the RFC 9728 challenge. Three other detectors used to sit
+        // beside this one — a `data.authentication_failed` flag no live server
+        // path ever set, the JSON-RPC codes for "internal error" and "invalid
+        // params", and a substring scan for the word "authentication" — so a
+        // failing auth backend or a tool whose own message mentioned
+        // authentication spent the athlete's refresh token on a session that
+        // was never broken.
+        const isAuthError = error instanceof McpHttpError && error.status === 401;
 
         if (isAuthError && this.oauthProvider) {
           this.log(

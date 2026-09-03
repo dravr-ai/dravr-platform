@@ -254,6 +254,22 @@ fn base_locale(locale: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// The canonical serde code for a sport, with the `Other("…")` debug wrapper
+/// unwrapped.
+///
+/// This is what the API sends: the clients hold the sport→label catalogue in
+/// all five locales, so a prettified English string would arrive as something
+/// they have to fold back into a code before they can translate it — which is
+/// exactly the alias table `@pierre/shared-constants` used to carry.
+#[must_use]
+pub fn sport_code(label: &str) -> String {
+    label
+        .strip_prefix("Other(\"")
+        .and_then(|rest| rest.strip_suffix("\")"))
+        .unwrap_or(label)
+        .to_owned()
+}
+
 /// Deterministic rationale localized to `locale` for a sport-matched coach.
 ///
 /// Mirrors the language the re-rank LLM would write in, so the fallback path

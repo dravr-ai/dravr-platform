@@ -1,5 +1,5 @@
 // ABOUTME: AI coach management tools with direct database access.
-// ABOUTME: Implements list_coaches, create_coach, get_coach, etc. using CoachesManager.
+// ABOUTME: Implements list_coaches, create_coach, get_coach, etc. through CoachesRepository.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

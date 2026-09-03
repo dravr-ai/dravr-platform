@@ -16,7 +16,10 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+pub use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+
+// Re-exported above so a caller can name the registry `sport_label` takes
+// without depending on contremaitre for the type alone.
 use serde::Deserialize;
 
 /// The shared table: canonical sport → catalogue key, plus wire aliases.

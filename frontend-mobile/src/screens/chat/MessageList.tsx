@@ -18,7 +18,16 @@ import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
-import { copyableText, countActivities, isToolPlumbingMessage, transcriptBlocks } from '@pierre/chat-utils';
+import {
+  copyableText,
+  countActivities,
+  dayLabelFor,
+  filterDisplayMessages,
+  formatMessageTime,
+  isSameMessageGroup,
+  localDayKey,
+  transcriptBlocks,
+} from '@pierre/chat-utils';
 import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
 import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, useThemeColors } from '../../constants/theme';
@@ -32,12 +41,27 @@ import {
 } from '@pierre/shared-types';
 import type { RenderBlock } from '@pierre/scene-types';
 import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
+import DaySeparator from './DaySeparator';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 import { useTranslation } from '@pierre/i18n';
 
 export type ThemeColors = ReturnType<typeof useThemeColors>;
+
+/**
+ * One entry of the rendered thread: a message, or the day pill above the first
+ * message of a day.
+ *
+ * The list draws a projection of the transcript rather than the transcript
+ * itself, because a separator is a row of the list like any other — FlashList
+ * recycles by `getItemType`, so a pill and a bubble never reuse each other's
+ * view. `groupStart` is the same decision the web thread makes: the first row
+ * of a run of one author's messages carries the larger gap above it.
+ */
+export type ChatRow =
+  | { kind: 'day'; key: string; label: string }
+  | { kind: 'message'; key: string; message: Message; groupStart: boolean };
 
 /**
  * Optional "what went wrong?" reason captured after a thumbs-down. The down
@@ -351,7 +375,7 @@ interface MessageListProps {
   messageBlocks?: Record<string, ReplyBlock[]>;
   /** Claim verdicts for the active conversation, keyed by message_id. */
   verdicts?: ClaimVerdict[];
-  flatListRef: React.RefObject<FlashListRef<Message> | null>;
+  flatListRef: React.RefObject<FlashListRef<ChatRow> | null>;
   onScrollToBottom: () => void;
   onThumbsUp: (messageId: string) => void;
   onThumbsDown: (messageId: string) => void;
@@ -410,7 +434,7 @@ export function MessageList({
   onShowVerdict,
   bottomInset,
 }: MessageListProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
   const handleCopyMessage = async (content: string) => {
@@ -580,13 +604,7 @@ export function MessageList({
     }
   };
 
-  const renderMessage = ({ item }: { item: Message }) => {
-    if (!item?.id) return null;
-    // Defensive: never render internal tool plumbing (tool_call / tool_result).
-    // The list is pre-filtered in useMessages, but a stray row from any other
-    // path must not dump raw <tool_call>/<tool_result> XML at the user.
-    if (isToolPlumbingMessage(item)) return null;
-
+  const renderMessage = (item: Message, groupStart: boolean) => {
     const isUser = item.role === 'user';
     const isError = item.isError === true;
     const rows = (verdicts ?? []).filter((verdict) => verdict.message_id === item.id);
@@ -601,8 +619,13 @@ export function MessageList({
     // token that means nothing, so each becomes a line naming its chart.
     const readableCopy = copyableText(item.content, scenes, t);
 
+    const clock = item.created_at ? formatMessageTime(item.created_at, language) : '';
+
     return (
-      <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>
+      <View
+        testID={groupStart ? 'message-row-start' : 'message-row-continued'}
+        className={`${groupStart ? 'mt-3' : 'mt-1'} ${isUser ? 'items-end' : ''}`}
+      >
         {isUser ? (
           /* User message — right-aligned bubble. Uses surface-container-high
              so it sits one tier above the canvas in both modes (clearly
@@ -617,6 +640,11 @@ export function MessageList({
             }}
           >
             {blocks.map((block, index) => renderBlock(block, index, context))}
+            {clock ? (
+              <Text className="mt-1 text-right text-xs text-text-secondary" testID="message-time">
+                {clock}
+              </Text>
+            ) : null}
           </View>
         ) : (
           /* Assistant message — full-width, no bubble, like Claude */
@@ -668,6 +696,13 @@ export function MessageList({
                 )}
               </>
             )}
+            {/* The clock belongs to the row, not to what it offers: an error
+                row shows Retry and still says when it arrived. */}
+            {clock ? (
+              <Text className="text-xs text-text-tertiary ml-auto" testID="message-time">
+                {clock}
+              </Text>
+            ) : null}
           </View>
         )}
         {/* Optional thumbs-down reason — the down rating is already saved; this
@@ -682,6 +717,54 @@ export function MessageList({
       </View>
     );
   };
+
+  /**
+   * The transcript as rows: a day pill wherever the local date changes, and a
+   * run boundary wherever the author or the five-minute window does.
+   *
+   * Tool plumbing is dropped here rather than inside the renderer, so a
+   * `tool_call` row can never sit between two of an author's messages and
+   * break the run they belong to. Both decisions read `created_at`, which an
+   * optimistic row carries from the moment it was typed.
+   */
+  const rows = useMemo<ChatRow[]>(() => {
+    const out: ChatRow[] = [];
+    let previous: Message | null = null;
+    let previousDay = '';
+    for (const message of filterDisplayMessages(messages ?? [])) {
+      if (!message?.id) continue;
+      const day = message.created_at ? localDayKey(message.created_at) : '';
+      if (day && day !== previousDay) {
+        const label = dayLabelFor(message.created_at, language);
+        out.push({
+          kind: 'day',
+          key: `day-${day}`,
+          label:
+            label.kind === 'today'
+              ? t('chat.dayToday')
+              : label.kind === 'yesterday'
+                ? t('chat.dayYesterday')
+                : label.label,
+        });
+        previousDay = day;
+      }
+      out.push({
+        kind: 'message',
+        key: message.id,
+        message,
+        groupStart: previous === null || !isSameMessageGroup(previous, message),
+      });
+      previous = message;
+    }
+    return out;
+  }, [messages, language, t]);
+
+  const renderRow = ({ item }: { item: ChatRow }) =>
+    item.kind === 'day' ? (
+      <DaySeparator label={item.label} />
+    ) : (
+      renderMessage(item.message, item.groupStart)
+    );
 
   /**
    * The coach is composing.
@@ -759,9 +842,12 @@ export function MessageList({
     <View style={{ flex: 1 }} testID="messages-list">
       <FlashList
         ref={flatListRef}
-        data={messages ?? []}
-        renderItem={renderMessage}
-        keyExtractor={(item, index) => item?.id ?? `fallback-${index}`}
+        data={rows}
+        renderItem={renderRow}
+        keyExtractor={(item) => item.key}
+        // A pill and a bubble are different shapes; recycling one as the other
+        // is what makes a separator flicker into a message on fast scroll.
+        getItemType={(item) => item.kind}
 
         contentContainerStyle={{
           paddingHorizontal: spacing.md,

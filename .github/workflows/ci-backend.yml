@@ -13,6 +13,8 @@ on:
       - 'Cargo.lock'
       - 'deny.toml'
       - 'scripts/ci/**'
+      # The gate self-tests cover the worktree skill library too.
+      - '.claude/skills/lib/**'
       # The fast gate now also reads the clients and the shared packages: the
       # surface gates fail on a reply block only one client renders and on a
       # generated capability catalogue left behind.
@@ -30,6 +32,8 @@ on:
       - 'Cargo.lock'
       - 'deny.toml'
       - 'scripts/ci/**'
+      # The gate self-tests cover the worktree skill library too.
+      - '.claude/skills/lib/**'
       - 'frontend/src/**'
       - 'frontend-mobile/src/**'
       - 'packages/**'
@@ -166,12 +170,13 @@ jobs:
       # their own headers warn about: "An unverified gate is worse than no gate:
       # it reports ✅ forever and everyone believes the budget is enforced."
       # Compile-free like the rest of this job, ~2s together.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, moved symbols)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, moved symbols, worktree lib)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
           ./scripts/ci/check-migration-versions.test.sh
           ./scripts/ci/check-moved-symbols.test.sh
+          ./scripts/ci/worktree-lib.test.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)

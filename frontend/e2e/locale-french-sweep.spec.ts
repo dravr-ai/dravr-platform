@@ -7,6 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import { test, expect, type Page } from '@playwright/test';
+import { webRouteFor } from '@pierre/shared-constants';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 
 // Read from disk rather than importing @pierre/i18n: Playwright's loader
@@ -75,7 +76,22 @@ function englishValuesWithFrenchTranslations(): Set<string> {
   return flagged;
 }
 
-const SURFACES = ['chat', 'discover', 'data-providers', 'groups', 'notifications', 'settings'];
+/**
+ * Every athlete surface, as the hash route that opens it.
+ *
+ * The connections pane is read from the surface registry rather than spelled
+ * here: it moved from a top-level `#data-providers` tab to a section of
+ * settings, and a stale literal would have swept a blank page — the shape of
+ * a sweep that passes because nothing rendered.
+ */
+const SURFACES = [
+  'chat',
+  'discover',
+  webRouteFor('data-providers') ?? 'settings',
+  'groups',
+  'notifications',
+  'settings',
+];
 
 /**
  * Every text node under `root`, trimmed, that equals a string the corpus

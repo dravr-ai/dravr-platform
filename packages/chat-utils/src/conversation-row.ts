@@ -2,6 +2,7 @@
 // ABOUTME: Built from a GET /api/chat/conversations row so web and mobile derive every field the same way
 
 import type { Conversation } from '@pierre/shared-types';
+import { clock24, dayDiff } from './date-buckets';
 import { resolveChannelOrigin, type MessageChannelOrigin } from './conversation';
 
 /**
@@ -43,6 +44,26 @@ export interface ConversationRowLabels {
   coach: string;
   /** `Untitled chat` — the title of a thread that carries none. */
   untitled: string;
+}
+
+/**
+ * Resolve {@link CONVERSATION_ROW_LABEL_KEYS} into the labels a row is built
+ * with, through the caller's own `t()`.
+ *
+ * Both clients wrote this memo body themselves — ten identical lines, comment
+ * included — even though the key set was already shared. The keys are only
+ * half the rule; which ones a row needs is the other half.
+ */
+export function conversationRowLabels(
+  t: (key: string) => string,
+  locale: string,
+): ConversationRowLabels {
+  return {
+    locale,
+    you: t(CONVERSATION_ROW_LABEL_KEYS.you),
+    coach: t(CONVERSATION_ROW_LABEL_KEYS.coach),
+    untitled: t(CONVERSATION_ROW_LABEL_KEYS.untitled),
+  };
 }
 
 /** One row of the unified conversation list, ready to draw. */
@@ -150,16 +171,6 @@ export function previewFor(
   return last.preview;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function startOfDay(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-function pad2(value: number): string {
-  return value < 10 ? `0${value}` : String(value);
-}
-
 /**
  * The relative time a list row shows on the right, the way every messaging
  * app does it: the clock time today, the weekday within the last week, and
@@ -174,9 +185,9 @@ function pad2(value: number): string {
 export function formatListTimestamp(iso: string, locale: string, now: Date = new Date()): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
-  if (dayDiff <= 0) return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-  if (dayDiff < 7) return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date);
+  const days = dayDiff(now, date);
+  if (days <= 0) return clock24(date, locale);
+  if (days < 7) return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date);
   return new Intl.DateTimeFormat(
     locale,
     date.getFullYear() === now.getFullYear()
@@ -197,12 +208,7 @@ export function formatListTimestamp(iso: string, locale: string, now: Date = new
  */
 export function defaultConversationTitle(prefix: string, now: Date, locale: string): string {
   const day = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(now);
-  const time = new Intl.DateTimeFormat(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(now);
-  return `${prefix} ${day} ${time}`;
+  return `${prefix} ${day} ${clock24(now, locale)}`;
 }
 
 /**

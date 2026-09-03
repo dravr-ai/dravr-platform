@@ -59,12 +59,4 @@ await esbuild.build({
 });
 console.log('✅ Built dist/index.js');
 
-// Build bridge entry point separately (it's used as a standalone module)
-await esbuild.build({
-  ...commonOptions,
-  entryPoints: ['src/bridge.ts'],
-  outfile: 'dist/bridge.js',
-});
-console.log('✅ Built dist/bridge.js');
-
 console.log('\n✨ Build completed successfully with esbuild');

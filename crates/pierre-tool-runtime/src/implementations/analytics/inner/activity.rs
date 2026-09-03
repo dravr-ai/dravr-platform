@@ -7,7 +7,7 @@
 use crate::protocol::format::{apply_format_to_response, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{
-    UniversalRequest, UniversalResponse, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
+    auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
 };
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
@@ -516,13 +516,7 @@ pub fn handle_get_activity_intelligence(
                 // incident 2026-08-11). Metadata is dropped at the
                 // ToolResponse boundary, so the typed re-raise here is the
                 // only way the signal survives the bridge.
-                let dead = response
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned);
-                dead.map_or_else(
+                auth_required_provider(&response).map_or_else(
                     || Ok(response),
                     |provider| Err(ProtocolError::ProviderAuthRequired { provider }),
                 )

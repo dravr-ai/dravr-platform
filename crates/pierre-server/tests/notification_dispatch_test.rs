@@ -28,7 +28,7 @@ mod dispatch_tests {
     };
     use pierre_notifications::{
         triggers as notification_triggers, DispatchOutcome, DispatchRequest, NotificationService,
-        SuppressionReason, TenantId,
+        PushTier, SuppressionReason, TenantId,
     };
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
     use serde_json::json;
@@ -110,7 +110,10 @@ mod dispatch_tests {
         let (service, user_id, tenant_id) = setup_service().await;
 
         let request = make_test_request(user_id, tenant_id, NotificationCategory::Training);
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
 
         // No device tokens registered, so notification is persisted but not pushed
         match outcome {
@@ -126,7 +129,10 @@ mod dispatch_tests {
         let (service, user_id, tenant_id) = setup_service().await;
 
         let request = make_test_request(user_id, tenant_id, NotificationCategory::Recovery);
-        service.dispatch(&request).await.unwrap();
+        service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
 
         // Verify the notification was persisted via the same service
         let (notifications, total, _unread) = service
@@ -176,7 +182,10 @@ mod dispatch_tests {
             .unwrap();
 
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
 
         match outcome {
             DispatchOutcome::Suppressed(reason) => {
@@ -221,7 +230,10 @@ mod dispatch_tests {
 
         // Send a TRAINING notification — should NOT be suppressed
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
 
         match outcome {
             DispatchOutcome::PersistedNoDevices { .. } | DispatchOutcome::Delivered { .. } => {
@@ -286,7 +298,10 @@ mod dispatch_tests {
 
         // Third dispatch should be suppressed by frequency cap
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
 
         match outcome {
             DispatchOutcome::Suppressed(reason) => {
@@ -302,7 +317,10 @@ mod dispatch_tests {
 
         // No preferences set — defaults should allow delivery
         let request = make_test_request(user_id, tenant_id, NotificationCategory::Achievement);
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
 
         // Should be persisted (no devices, but not suppressed)
         assert!(
@@ -350,7 +368,10 @@ mod dispatch_tests {
             .unwrap();
 
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
 
         match outcome {
             DispatchOutcome::Suppressed(reason) => {
@@ -785,7 +806,10 @@ mod dispatch_tests {
             .unwrap();
 
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Achievement);
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
         assert!(matches!(
             outcome,
             DispatchOutcome::Suppressed(SuppressionReason::CategoryDisabled)
@@ -994,7 +1018,10 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: false,
         };
-        let regular_outcome = service.dispatch(&regular_request).await.unwrap();
+        let regular_outcome = service
+            .dispatch_with_tier(&regular_request, PushTier::P1)
+            .await
+            .unwrap();
         assert!(
             matches!(
                 regular_outcome,
@@ -1016,7 +1043,10 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: true,
         };
-        let bypass_outcome = service.dispatch(&bypass_request).await.unwrap();
+        let bypass_outcome = service
+            .dispatch_with_tier(&bypass_request, PushTier::P1)
+            .await
+            .unwrap();
         assert!(
             !matches!(
                 bypass_outcome,
@@ -1073,7 +1103,10 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: true,
         };
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
         assert!(
             matches!(
                 outcome,
@@ -1129,7 +1162,10 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: true,
         };
-        let outcome = service.dispatch(&request).await.unwrap();
+        let outcome = service
+            .dispatch_with_tier(&request, PushTier::P1)
+            .await
+            .unwrap();
         assert!(
             matches!(
                 outcome,

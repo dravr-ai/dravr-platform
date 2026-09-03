@@ -7,7 +7,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
+import { formatDateTime } from '@pierre/chat-utils';
 import { userApi } from '../../services/api';
 import { Card, Button, Badge, ConfirmDialog } from '../ui';
 import { useTranslation } from '@pierre/i18n';
@@ -34,16 +36,6 @@ const KIND_VARIANT: Record<MemoryFactRow['kind'], 'success' | 'info' | 'warning'
   medical: 'warning',
   other: 'secondary',
 };
-
-// Formatted in the locale the panel renders in, not the browser's: a French
-// athlete reads "1 sept. 2026, 16:28", not "9/1/2026, 4:28:23 PM".
-function formatUpdated(iso: string, language: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return iso;
-  }
-  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
 
 function factCount(t: (key: string, options: { count: number }) => string, count: number): string {
   return t(count === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', { count });
@@ -208,7 +200,7 @@ export default function MemoryPanel() {
                       <p data-testid="memory-fact-meta" className="mt-1 text-xs text-on-surface-variant">
                         {t('shell.memoryFactMeta', {
                           confidence: (fact.confidence * 100).toFixed(0),
-                          updated: formatUpdated(fact.updated_at, language),
+                          updated: formatDateTime(fact.updated_at, language),
                         })}
                         {/* The coach is named by title, never by its id — a UUID means nothing to the athlete. */}
                         {fact.coach_title ? ` · ${t('shell.memoryFactCoach', { name: fact.coach_title })}` : ''}

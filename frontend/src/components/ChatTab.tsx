@@ -11,11 +11,14 @@ import { holdIdleWhileBusy, idleSignal } from '../services/api/idleSignal';
 import { track } from '../services/analytics';
 import {
   avatarSlot,
+  COMMAND_FINISH_REASON,
   defaultConversationTitle,
   initialsFor,
   statusForProgress,
+  threadSubtitle,
   trustedActionUrl,
 } from '@pierre/chat-utils';
+import { MENTION_PREFIX } from '@pierre/shared-constants';
 import {
   MessageList,
   MessageInput,
@@ -105,9 +108,6 @@ interface ChatTabProps {
   /** Called once the action above has been drafted or dispatched. */
   onPendingComposerActionConsumed?: () => void;
 }
-
-/** The stamp the server puts on a slash-command turn, both rows of it. */
-const COMMAND_FINISH_REASON = 'command';
 
 export default function ChatTab({
   selectedConversation,
@@ -244,8 +244,9 @@ export default function ChatTab({
     return providersLoaded ? t('chat.noProviderStatus') : null;
   }, [connectedProviderNames, providersLoaded, t]);
   const headerSubtitle = useMemo<string | null>(() => {
-    if (activeConversation?.group_name) return t('chat.groupChatBadge');
-    if (activeConversation?.coach_handle) return `@${activeConversation.coach_handle}`;
+    const subtitle = threadSubtitle(activeConversation);
+    if (subtitle?.kind === 'group') return t('chat.groupChatBadge');
+    if (subtitle?.kind === 'handle') return `${MENTION_PREFIX}${subtitle.handle}`;
     return providerStatusLine;
   }, [activeConversation, providerStatusLine, t]);
 
@@ -836,11 +837,15 @@ export default function ChatTab({
     handleThreadGone();
   };
 
-  const banner = showConnectBanner ? (
-    <div className="px-4 pt-3 md:px-6">
-      <ConnectProviderBanner />
-    </div>
-  ) : null;
+  // The banner exists to send the athlete to the connections pane, so it is
+  // shown only where there is a router to send them with — never as a button
+  // that does nothing.
+  const banner =
+    showConnectBanner && onNavigate ? (
+      <div className="px-4 pt-3 md:px-6">
+        <ConnectProviderBanner onNavigate={onNavigate} />
+      </div>
+    ) : null;
 
   // The list's "+" knows which thread is open, so on a wide screen it offers
   // the same three ways in as the thread header's "+" beside it.

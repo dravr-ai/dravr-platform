@@ -4,11 +4,11 @@
 // ABOUTME: Wire-level tests for the stateless 2026-07-28 client against a scripted MCP endpoint
 // ABOUTME: Asserts per-request _meta and routing headers, JSON and SSE replies, and Tasks polling
 
-const http = require('http');
 const { buildSync } = require('esbuild');
 const { mkdtempSync, rmSync } = require('fs');
 const { join } = require('path');
 const { tmpdir } = require('os');
+const { complete, startEndpoint } = require('../helpers/modern-dravr.js');
 
 const SRC = join(__dirname, '..', '..', 'src', 'mcp-http-client.ts');
 const BUILD_DIR = mkdtempSync(join(tmpdir(), 'pierre-mcp-http-client-'));
@@ -72,61 +72,6 @@ const DISCOVERY = {
   cacheScope: 'public',
 };
 
-/**
- * A scripted MCP endpoint. `handle(request)` receives the parsed JSON-RPC request and the
- * raw HTTP request, and returns what to send: `{ status, headers, json }` for one JSON
- * object, or `{ sse: [message, ...] }` for an event stream carrying those messages.
- */
-function startEndpoint(handle) {
-  const seen = [];
-  const held = [];
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk;
-      });
-      req.on('end', () => {
-        const rpc = JSON.parse(body);
-        seen.push({ headers: req.headers, rpc, url: req.url });
-        const reply = handle(rpc, req) || {};
-        if (reply.hold) {
-          // Never answered: the reply stays open until the endpoint is closed.
-          held.push(res);
-          return;
-        }
-        if (reply.sse) {
-          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-          for (const message of reply.sse) {
-            res.write(`data: ${JSON.stringify(message)}\n\n`);
-          }
-          res.end();
-          return;
-        }
-        const status = reply.status ?? 200;
-        res.writeHead(status, { 'Content-Type': 'application/json', ...(reply.headers || {}) });
-        res.end(reply.json === undefined ? '' : JSON.stringify(reply.json));
-      });
-    });
-    server.listen(0, '127.0.0.1', () => {
-      resolve({
-        server,
-        seen,
-        url: `http://127.0.0.1:${server.address().port}/mcp`,
-        close: () =>
-          new Promise((done) => {
-            for (const res of held) {
-              res.destroy();
-            }
-            server.closeAllConnections();
-            server.close(done);
-          }),
-      });
-    });
-  });
-}
-
-const complete = (id, result) => ({ jsonrpc: '2.0', id, result: { resultType: 'complete', ...result } });
 
 /** The endpoint every test starts from: discovery served, tools listed, hello answered. */
 function pierreLike(overrides = {}) {

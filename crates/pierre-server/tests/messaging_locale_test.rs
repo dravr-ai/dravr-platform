@@ -23,7 +23,7 @@ use pierre_chat_pipeline::detect_turn_locale;
 use pierre_commands::status::StatusHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
     KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_GROUP_LIST_EMPTY,
     KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_SLASH_ANSWERED_PRIVATELY, KEY_STATUS_CHANNEL_LABEL,
     KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
@@ -32,6 +32,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::messaging_ingress::resolve_messaging_locale;
+use pierre_services::locale::resolve_user_locale;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
@@ -414,4 +415,50 @@ async fn resolve_locale_returns_default_when_nothing_set() {
     let resolved =
         resolve_messaging_locale(&resources, tenant_id, user_id, "telegram", "never-linked").await;
     assert_eq!(resolved, "fr");
+}
+
+/// The shared resolver answers "what language does this athlete read" for every
+/// surface — REST handlers, chat routes, store and memory tools, persona cards.
+///
+/// Ten call sites asked it by hand and only one of them treated a stored empty
+/// string as "no preference"; the other nine would have handed `""` to the
+/// string registry as though it were a locale. That case is the reason this
+/// lives in one place, so it is the case pinned here.
+#[tokio::test]
+async fn resolve_user_locale_reads_the_stored_preference_or_the_default() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, _tenant_id) = seed_user_and_tenant(&resources).await;
+    let users = resources.common.repos.users.as_ref();
+
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "en")
+        .await
+        .expect("update_locale ok");
+    assert_eq!(
+        resolve_user_locale(users, user_id).await,
+        "en",
+        "a stored preference is what the athlete reads"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "   ")
+        .await
+        .expect("update_locale ok");
+    assert_eq!(
+        resolve_user_locale(users, user_id).await,
+        DEFAULT_LOCALE,
+        "a blank stored locale means 'we do not know', not a locale named \"   \""
+    );
+
+    assert_eq!(
+        resolve_user_locale(users, Uuid::new_v4()).await,
+        DEFAULT_LOCALE,
+        "an unknown user reads the platform default rather than failing the caller"
+    );
 }

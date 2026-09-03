@@ -555,7 +555,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             if (id === 'chat') setSelectedConversation(null);
           }}
           onOpenSettings={() => setActiveTab('settings')}
-          settingsActive={activeTab === 'settings' || activeTab === 'data-providers'}
+          settingsActive={activeTab === 'settings'}
           userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
         />
       )}
@@ -827,7 +827,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           {/* Content */}
           {activeTab === 'discover' && (
             <div className="px-4 pt-4 md:px-6 md:pt-6 empty:hidden">
-              <ConnectProviderBanner />
+              <ConnectProviderBanner onNavigate={applyRoute} />
             </div>
           )}
         {/* Overview tab removed — admin lands directly on Users */}
@@ -978,26 +978,13 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
         {/* An athlete's settings are a menu beside the open section — the
             shape of every messenger's settings pane. A provider connection is
-            one of those sections; a hand-typed #data-providers opens it. Admins
-            are platform operators and keep the strip without that section. */}
+            one of those sections, reached at #settings/connections like any
+            other. Admins are platform operators and keep the strip without it. */}
         {activeTab === 'settings' && !isAdminUser && (
           <SettingsShell
             tab={settingsTab}
             onSelect={setSettingsTab}
             onBack={() => setSettingsTab(null)}
-          />
-        )}
-        {activeTab === 'data-providers' && !isAdminUser && (
-          <SettingsShell
-            tab="connections"
-            onSelect={(id) => {
-              setSettingsTab(id);
-              setActiveTab('settings');
-            }}
-            onBack={() => {
-              setSettingsTab(null);
-              setActiveTab('settings');
-            }}
           />
         )}
         {activeTab === 'notifications' && (

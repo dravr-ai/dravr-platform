@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/worktree.sh"
+
 usage() {
     echo "Usage: $0 <branch-name> [worktree-path]"
     echo ""
@@ -24,8 +26,8 @@ if [[ $# -lt 1 ]]; then
 fi
 
 BRANCH_NAME="$1"
-MAIN_WORKTREE="$(git rev-parse --show-toplevel)"
-WORKTREE_PATH="${2:-$(dirname "$MAIN_WORKTREE")/pierre_mcp_server-${BRANCH_NAME//\//-}}"
+MAIN_WORKTREE="$(main_worktree_root)"
+WORKTREE_PATH="${2:-$(feature_worktree_path "$BRANCH_NAME")}"
 
 echo "Creating worktree for branch: $BRANCH_NAME"
 echo "Worktree path: $WORKTREE_PATH"

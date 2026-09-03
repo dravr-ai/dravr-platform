@@ -10,7 +10,7 @@ import { initI18n } from '@pierre/i18n'
 import './index.css'
 import App from './App.tsx'
 import { persistLocale } from './i18n/localePersister'
-import { fetchBundle } from './i18n/fetchBundle'
+import { i18nApi } from './services/api'
 
 // One preference, two owners: i18next renders the chrome, `users.locale`
 // decides the language the coach answers in. Registering the writer here — the
@@ -18,7 +18,7 @@ import { fetchBundle } from './i18n/fetchBundle'
 // anywhere in the app reaches the server, instead of stopping at localStorage.
 // The fetcher is the other direction: the live catalogue overlays the embedded
 // copy, so a string fixed upstream reaches the app without a deploy.
-initI18n({ persistLocale, fetchBundle })
+initI18n({ persistLocale, fetchBundle: i18nApi.bundle })
 
 // Register Chart.js components globally
 import {

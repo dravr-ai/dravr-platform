@@ -18,19 +18,17 @@
 //! (a transient read error — left pending for the next tick).
 
 use std::env;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::periodic::spawn_periodic;
 use chrono::Utc;
-use futures_util::FutureExt as _;
 use pierre_core::models::{SportType, TenantId};
 use pierre_database::repositories::RecordedOutcome;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{judge, ChatProvider, LlmProvider};
 use pierre_memory::playbooks::{LabelSource, OutcomeLabel, OutcomeMetric, PendingAdvice};
 use serde::Deserialize;
-use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -449,25 +447,18 @@ pub fn spawn_outcome_evaluator(
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_OUTCOME_EVAL_INTERVAL_SECS);
-    tokio::spawn(async move {
-        debug!(interval_secs, "starting outcome evaluator");
-        // `.max(1)`: interval(0) panics, so a misconfigured `=0` env is clamped.
-        let mut ticker = interval(Duration::from_secs(interval_secs.max(1)));
-        ticker.tick().await; // consume the immediate first tick
-        loop {
-            ticker.tick().await;
-            // Catch a per-sweep panic so one bad tick logs and the daemon keeps
-            // running instead of the whole worker dying silently. The default
-            // panic hook has already printed the payload + location to stderr.
-            if AssertUnwindSafe(run_one_sweep(&repos, chat_provider.as_deref()))
-                .catch_unwind()
-                .await
-                .is_err()
-            {
-                error!("outcome evaluator sweep panicked; continuing (see stderr)");
+    spawn_periodic(
+        "outcome evaluator",
+        Duration::from_secs(interval_secs),
+        move || {
+            let repos = Arc::clone(&repos);
+            let chat_provider = chat_provider.clone();
+            async move {
+                run_one_sweep(&repos, chat_provider.as_deref()).await;
+                Ok(())
             }
-        }
-    });
+        },
+    );
 }
 
 /// One scan-and-label sweep over the currently-due advice.

@@ -5,21 +5,9 @@
 // ABOUTME: A kind without a label rendered as a raw enum ("North_star") beside translated chrome; this keeps the table closed
 
 import { describe, expect, it } from 'vitest';
-import { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import en from '../../../../packages/i18n/src/locales/en/translation.json';
-
-/** The nine `FactKind` serde strings `crates/pierre-memory/src/facts.rs` declares. */
-const SERVER_KINDS = [
-  'preference',
-  'physiology',
-  'injury',
-  'goal',
-  'schedule',
-  'equipment',
-  'north_star',
-  'medical',
-  'other',
-];
 
 function leaf(bundle: Record<string, unknown>, key: string): unknown {
   return key.split('.').reduce<unknown>((node, part) => {
@@ -28,8 +16,13 @@ function leaf(bundle: Record<string, unknown>, key: string): unknown {
 }
 
 describe('memory fact kinds', () => {
-  it('lists exactly the kinds the server can send', () => {
-    expect([...MEMORY_FACT_KINDS]).toEqual(SERVER_KINDS);
+  it('is the vocabulary the label table is keyed by, with no kind unlabelled', () => {
+    // The vocabulary and the label table used to be declared side by side in
+    // one package, and this test compared them to a third hand-written copy —
+    // so a kind added to the server could be missed by all three at once. The
+    // table is now typed by the vocabulary, and this pins that every entry is
+    // present rather than merely assignable.
+    expect(Object.keys(MEMORY_KIND_LABEL_KEY).sort()).toEqual([...MEMORY_FACT_KINDS].sort());
   });
 
   it('names a corpus key for every kind, and the corpus carries it', () => {

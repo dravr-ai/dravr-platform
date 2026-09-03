@@ -178,3 +178,38 @@ describe('mcp-types package exports', () => {
     expect(notification.read).toBe(false);
   });
 });
+
+describe('TOOL_NAMES roster', () => {
+  /**
+   * The roster is generated from a live server's `tools/list`, so it is the one
+   * answer to "which tools exist" that a runtime caller and the `ToolName` union
+   * can both read. The SDK used to keep a jest snapshot of the same names for
+   * this job, and CI regenerated that snapshot on every run — so a tool
+   * disappearing rewrote the expectation instead of failing it.
+   */
+  it('is sorted and free of duplicates', () => {
+    const names = [...tools.TOOL_NAMES];
+    expect(names).toEqual([...names].sort());
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('holds the tools every surface depends on', () => {
+    // A representative slice rather than all 110: the roster is generated, so
+    // restating it here would be the second copy this exists to remove.
+    for (const name of [
+      'get_activities',
+      'get_connection_status',
+      'analyze_training_load',
+      'search_coach_store',
+    ] as const) {
+      expect(tools.TOOL_NAMES).toContain(name);
+    }
+  });
+
+  it('is what ToolName is derived from', () => {
+    // Not a tautology: it fails to compile if the union is ever re-spelled as a
+    // literal list beside the roster instead of derived from it.
+    const first: tools.ToolName = tools.TOOL_NAMES[0];
+    expect(tools.TOOL_NAMES).toContain(first);
+  });
+});

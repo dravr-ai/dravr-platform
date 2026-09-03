@@ -7,6 +7,8 @@
 
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/worktree.sh"
+
 BRANCH_NAME="$(git branch --show-current)"
 MAIN_BRANCH="main"
 
@@ -55,9 +57,7 @@ echo "Pushing $BRANCH_NAME to origin..."
 git push --force-with-lease origin "$BRANCH_NAME"
 
 # Save the branch and worktree for merge-and-cleanup.sh, in the main worktree.
-WORKTREE_PATH="$(git rev-parse --show-toplevel)"
-MAIN_WORKTREE="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"
-echo "$BRANCH_NAME|$WORKTREE_PATH" > "$MAIN_WORKTREE/.claude/skills/.last-feature-branch"
+echo "$BRANCH_NAME|$(current_worktree_root)" > "$(last_branch_file)"
 
 cat <<STEPS
 

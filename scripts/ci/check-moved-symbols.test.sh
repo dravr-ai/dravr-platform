@@ -110,6 +110,38 @@ printf '' >"$dir/crates/demo/src/util.rs"
 commit_all "$dir" "drop the re-export"
 expect "removed re-export with a stranded importer fails" "$(run_gate "$dir")" 1
 
+# 7. A module whose leaf name is common (`coaches`, `types`, `user`) must not
+#    match another crate's module of the same name. This is the shape that made
+#    the gate cry wolf: a file importing `pierre_core::models::coaches::X` and
+#    separately naming the moved item was read as a stranded importer.
+dir="$(make_repo)"
+mkdir -p "$dir/crates/demo/src/coaches" "$dir/crates/other/src/models"
+printf 'pub mod coaches;\n' >"$dir/crates/demo/src/lib.rs"
+printf 'pub fn resolve_locale() -> String { String::new() }\n' >"$dir/crates/demo/src/coaches/mod.rs"
+printf 'pub mod models;\n' >"$dir/crates/other/src/lib.rs"
+printf 'pub mod coaches;\n' >"$dir/crates/other/src/models/mod.rs"
+printf 'pub struct Category;\n' >"$dir/crates/other/src/models/coaches.rs"
+# The innocent bystander: it uses another crate's `coaches` module and happens
+# to mention the moved name, because it now imports it from its new home.
+printf 'use other::models::coaches::Category;\nuse shared::resolve_locale;\nfn f(_c: Category) { let _ = resolve_locale(); }\n' \
+  >"$dir/crates/other/src/models/user.rs"
+commit_all "$dir" base
+printf '' >"$dir/crates/demo/src/coaches/mod.rs"
+commit_all "$dir" "move resolve_locale out of demo::coaches"
+expect "a same-named module in another crate is not a stranded importer" "$(run_gate "$dir")" 0
+
+# 8. The owning crate's own `crate::<module>::` importers are still caught.
+dir="$(make_repo)"
+mkdir -p "$dir/crates/demo/src/coaches"
+printf 'pub mod coaches;\npub mod caller;\n' >"$dir/crates/demo/src/lib.rs"
+printf 'pub fn resolve_locale() -> String { String::new() }\n' >"$dir/crates/demo/src/coaches/mod.rs"
+printf 'use crate::coaches::resolve_locale;\npub fn f() -> String { resolve_locale() }\n' \
+  >"$dir/crates/demo/src/caller.rs"
+commit_all "$dir" base
+printf '' >"$dir/crates/demo/src/coaches/mod.rs"
+commit_all "$dir" "move resolve_locale, stranding a crate:: importer"
+expect "an intra-crate crate:: importer is still caught" "$(run_gate "$dir")" 1
+
 echo ""
 if [ "$failures" -ne 0 ]; then
   echo "❌ $failures moved-symbols fixture case(s) failed"

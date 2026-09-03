@@ -34,11 +34,11 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use crate::periodic::spawn_periodic;
 use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::HarnessMemoryRepository;
 use pierre_memory::CoachFollowup;
-use tokio::time::interval;
 #[cfg(feature = "client-notifications")]
 use tracing::warn;
 use tracing::{debug, error, info};
@@ -254,69 +254,36 @@ async fn dispatch_notification(
     service.dispatch_with_tier(&request, PushTier::P2).await
 }
 
-/// Long-running loop that ticks the scheduler at [`DEFAULT_TICK_INTERVAL`].
-///
-/// Errors during a tick are logged but do not stop the loop — the next
-/// tick will retry. Stopping the loop requires aborting the spawned
-/// task (held by the caller).
-pub async fn run_loop<R>(
-    repo: Arc<R>,
-    #[cfg(feature = "client-notifications")] notification_service: Option<Arc<NotificationService>>,
-    interval_duration: StdDuration,
-    batch_size: i64,
-) where
-    R: HarnessMemoryRepository + ?Sized + 'static,
-{
-    let mut ticker = interval(interval_duration);
-    // Skip the immediate initial tick so a server restart doesn't slam
-    // the DB before warm-up completes.
-    ticker.tick().await;
-
-    info!(
-        interval_secs = interval_duration.as_secs(),
-        batch_size, "coach followup scheduler started"
-    );
-
-    loop {
-        ticker.tick().await;
-        let now = Utc::now();
-        let result = tick(
-            repo.as_ref(),
-            #[cfg(feature = "client-notifications")]
-            notification_service.as_deref(),
-            now,
-            batch_size,
-        )
-        .await;
-        if let Err(e) = result {
-            error!(error = %e, "coach followup scheduler tick errored — retrying next interval");
-        }
-    }
-}
-
 /// Spawn the followup scheduler as a background tokio task.
 ///
-/// Mirrors [`crate::messaging_outbound::start_outbound_worker`]
-/// — called once at server bootstrap from
-/// `bin/pierre-mcp-server.rs::spawn_background_workers`. The task runs
-/// for the server's lifetime; aborting it requires capturing the
-/// returned `JoinHandle`, which we currently discard since the scheduler
-/// is best-effort and a server restart re-arms it.
+/// Called once at server bootstrap from
+/// `bin/pierre-mcp-server.rs::spawn_background_workers`. The task runs for the
+/// server's lifetime; the [`AbortHandle`](tokio::task::AbortHandle) is
+/// discarded because the scheduler is best-effort and a restart re-arms it.
 pub fn start_followup_scheduler(
     repo: Arc<dyn HarnessMemoryRepository>,
     #[cfg(feature = "client-notifications")] notification_service: Option<
         Arc<pierre_notifications::NotificationService>,
     >,
 ) {
-    tokio::spawn(async move {
-        run_loop(
-            repo,
+    spawn_periodic(
+        "coach followup scheduler",
+        DEFAULT_TICK_INTERVAL,
+        move || {
+            let repo = Arc::clone(&repo);
             #[cfg(feature = "client-notifications")]
-            notification_service,
-            DEFAULT_TICK_INTERVAL,
-            DEFAULT_BATCH_SIZE,
-        )
-        .await;
-    });
-    info!("Coach followup scheduler spawned");
+            let notification_service = notification_service.clone();
+            async move {
+                tick(
+                    repo.as_ref(),
+                    #[cfg(feature = "client-notifications")]
+                    notification_service.as_deref(),
+                    Utc::now(),
+                    DEFAULT_BATCH_SIZE,
+                )
+                .await?;
+                Ok(())
+            }
+        },
+    );
 }

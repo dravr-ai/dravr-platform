@@ -283,6 +283,16 @@ pub trait SeederRepository: Send + Sync {
     async fn seed_list_catalogue_slugs(&self) -> AppResult<Vec<String>>;
 }
 
+/// What "catalogue-owned" means, as a SQL predicate.
+///
+/// `'contremaitre'` is the source the seeder stamps today and `'seed'` the one
+/// it claims from before that stamp existed; a row outside the pair is an
+/// operator's or an athlete's own coach and no seeder query may touch it.
+/// Every catalogue query spells the same pair, so it is spelled once — the
+/// engine-specific halves (`is_system = 1` vs `TRUE`, the `::uuid` cast) stay
+/// inline where they differ.
+pub const CATALOGUE_SOURCE_FILTER: &str = "source IN ('contremaitre', 'seed')";
+
 /// One `UPDATE` per athlete-side pointer onto `coaches.id`.
 ///
 /// Identical on both engines: `$1` is the successor, `$2` the retired coach.

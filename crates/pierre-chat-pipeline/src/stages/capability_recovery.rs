@@ -55,9 +55,7 @@ use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
-use pierre_tool_runtime::protocol::{
-    UniversalExecutor, UniversalRequest, META_AUTH_REQUIRED_PROVIDER,
-};
+use pierre_tool_runtime::protocol::{auth_required_provider, UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use pierre_tool_runtime::tool_results::format_tool_results_as_text;
 
@@ -527,12 +525,7 @@ pub(super) async fn run_verification_fetch(
                 .unwrap_or_else(|| json!({ "status": "success" })),
         ),
         Ok(response) => {
-            let auth_provider = response.metadata.as_ref().and_then(|m| {
-                m.get(META_AUTH_REQUIRED_PROVIDER)
-                    .and_then(serde_json::Value::as_str)
-                    .map(ToOwned::to_owned)
-            });
-            if let Some(provider_slug) = auth_provider {
+            if let Some(provider_slug) = auth_required_provider(&response) {
                 return VerificationOutcome::AuthRequired(provider_slug);
             }
             warn!(

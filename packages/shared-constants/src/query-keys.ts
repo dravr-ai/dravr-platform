@@ -74,6 +74,17 @@ export const QUERY_KEYS = {
     assignments: (coachId?: string) => ['coaches', 'coach-assignments', coachId] as const,
   },
 
+  // ==================== PERSONAS ====================
+  personas: {
+    all: ['personas'] as const,
+    /**
+     * The persona cards for one locale. Keyed by locale because the server
+     * renders every word on them — a language switch is a different list, not
+     * a re-translation of the one already cached.
+     */
+    list: (locale: string) => ['personas', locale] as const,
+  },
+
   // ==================== COACH STORE ====================
   store: {
     all: ['store'] as const,

@@ -18,23 +18,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { formatDateTime } from '@pierre/chat-utils';
+import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { spacing, borderRadius, fontSize, fontWeight, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
-
-// Formatted in the locale the screen renders in, not the device's: a French
-// athlete reads "1 sept. 2026, 16:28", not "9/1/2026, 4:28:23 PM".
-function formatUpdated(iso: string, language: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return iso;
-  }
-  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
 
 export function MemoryScreen(): React.JSX.Element {
   const { t, language } = useTranslation();
@@ -361,7 +353,7 @@ export function MemoryScreen(): React.JSX.Element {
                     >
                       {t('shell.memoryFactMeta', {
                         confidence: (fact.confidence * 100).toFixed(0),
-                        updated: formatUpdated(fact.updated_at, language),
+                        updated: formatDateTime(fact.updated_at, language),
                       })}
                       {/* The coach is named by title, never by its id — a UUID means nothing to the athlete. */}
                       {fact.coach_title ? ` · ${t('shell.memoryFactCoach', { name: fact.coach_title })}` : ''}

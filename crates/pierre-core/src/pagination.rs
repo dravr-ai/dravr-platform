@@ -381,3 +381,33 @@ impl StoreCursor {
         }
     }
 }
+
+/// Read a tool call's `limit`/`offset` arguments, clamped to a sane window.
+///
+/// Offset-paged tools all take the same two optional JSON numbers and all owe
+/// the same guarantees: a limit inside `1..=max_limit` (so a caller cannot ask
+/// for zero rows or the whole table), and an offset that defaults to the start.
+/// Written per call site, that clamp is one forgotten `.clamp()` away from an
+/// unbounded query, so it is read here once.
+///
+/// A missing, negative, non-numeric or over-large `limit` falls back to
+/// `default_limit` then clamps; the same shapes of `offset` fall back to 0.
+#[must_use]
+pub fn parse_limit_offset(
+    args: &serde_json::Value,
+    default_limit: usize,
+    max_limit: usize,
+) -> (usize, usize) {
+    let limit = args
+        .get("limit")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(default_limit)
+        .clamp(1, max_limit.max(1));
+    let offset = args
+        .get("offset")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(0);
+    (limit, offset)
+}

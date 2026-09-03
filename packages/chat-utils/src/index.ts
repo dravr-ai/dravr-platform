@@ -8,9 +8,10 @@ export { trustedActionUrl } from './action-url';
 export { quotaNoticeBanner } from './quota';
 export type { QuotaBanner } from './quota';
 
-// Persisted transcript row -> the ReplyBlock list a live turn arrives in, and
-// the command-reply normaliser both that read and the live turn path apply
-export { COMMAND_FINISH_REASON, commandReplyMarkdown, transcriptBlocks } from './blocks';
+// Persisted transcript row -> the ReplyBlock list a live turn arrives in.
+// The command-reply normaliser is private to that decoder: the live turn path
+// never called it, and an export nobody reads is a promise nobody keeps.
+export { COMMAND_FINISH_REASON, transcriptBlocks } from './blocks';
 
 // Activity list parsing (backward compat for old messages with baked-in content)
 export { splitActivityContent, countActivities } from './activity';
@@ -33,6 +34,7 @@ export type { MessageChannelOrigin } from './conversation';
 export {
   AVATAR_SLOTS,
   CONVERSATION_ROW_LABEL_KEYS,
+  conversationRowLabels,
   deriveKind,
   initialsFor,
   avatarSlot,
@@ -73,3 +75,11 @@ export {
   localDayKey,
 } from './message-time';
 export type { DayLabel } from './message-time';
+
+// One localized date-and-time stamp for everything a surface saved earlier —
+// memory facts, verdicts, admin tables.
+export { formatDateTime } from './date-format';
+
+// What a chat header says under the title, with one precedence for both clients
+export { threadSubtitle } from './thread-subtitle';
+export type { ThreadSubtitle } from './thread-subtitle';

@@ -30,22 +30,6 @@ export const CHANNEL_BRAND = {
 export type ChannelBrandId = keyof typeof CHANNEL_BRAND;
 
 /**
- * The display name of each coaching persona.
- *
- * Deliberately untranslated: this string is stored on the account, quoted back
- * inside the coach's own system prompt, and shown in the settings list. If the
- * settings list said "Décontracté" while the stored value was "Casual", the two
- * would stop matching and nobody would be able to tell which persona was
- * active. The tagline and description beside it ARE translated.
- */
-export const PERSONA_NAME = {
-  casual: 'Casual',
-  enthusiast: 'Enthusiast',
-  power_athlete: 'Power-athlete',
-  coach: 'Coach',
-} as const;
-
-/**
  * How Dravr writes its own name.
  *
  * A proper noun, so it is data rather than copy: the wordmark is identical in

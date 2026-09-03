@@ -1,14 +1,10 @@
 // ABOUTME: The clock and the day a message row shows — one rule for web and mobile, in the reader's locale
 // ABOUTME: A 24-hour time inside the bubble, a day pill between days, and the grouping window for consecutive rows
 
+import { clock24, dayDiff } from './date-buckets';
+
 /** Rows from the same author closer than this are drawn as one group. */
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function startOfDay(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
 
 /**
  * The time a bubble shows: `16:18`, on the same 24-hour clock the list row
@@ -18,11 +14,7 @@ function startOfDay(date: Date): number {
 export function formatMessageTime(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(date);
+  return clock24(date, locale);
 }
 
 /** The local calendar day a stamp falls on, `YYYY-MM-DD`; empty when unparseable. */
@@ -49,9 +41,9 @@ export type DayLabel =
 export function dayLabelFor(iso: string, locale: string, now: Date = new Date()): DayLabel {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return { kind: 'date', label: '' };
-  const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
-  if (dayDiff <= 0) return { kind: 'today' };
-  if (dayDiff === 1) return { kind: 'yesterday' };
+  const days = dayDiff(now, date);
+  if (days <= 0) return { kind: 'today' };
+  if (days === 1) return { kind: 'yesterday' };
   const label = new Intl.DateTimeFormat(
     locale,
     date.getFullYear() === now.getFullYear()

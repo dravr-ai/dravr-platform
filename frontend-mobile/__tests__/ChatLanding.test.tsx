@@ -119,6 +119,9 @@ jest.mock('../src/services/api', () => ({
   },
   coachesApi: { list: jest.fn().mockResolvedValue({ coaches: [] }) },
   notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
+  // The root layout hands this to initI18n at import time, so a mock of this
+  // barrel has to carry it — the live catalogue overlay is part of booting.
+  i18nApi: { bundle: jest.fn().mockResolvedValue({ status: 'unchanged' }) },
 }));
 
 import RootLayout from '../app/_layout';

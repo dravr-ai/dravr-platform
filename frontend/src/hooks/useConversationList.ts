@@ -14,10 +14,9 @@ import {
 } from '@tanstack/react-query';
 import {
   buildConversationRow,
-  CONVERSATION_ROW_LABEL_KEYS,
+  conversationRowLabels,
   filterRows,
   sortRowsByActivity,
-  type ConversationRowLabels,
   type ConversationRowModel,
 } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
@@ -131,15 +130,7 @@ export function useConversationList(query = ''): ConversationListState {
   // The words the shared row model cannot spell itself, in the viewer's
   // language — so the same key set feeds a row here and on mobile.
   const { t, language } = useTranslation();
-  const labels = useMemo<ConversationRowLabels>(
-    () => ({
-      locale: language,
-      you: t(CONVERSATION_ROW_LABEL_KEYS.you),
-      coach: t(CONVERSATION_ROW_LABEL_KEYS.coach),
-      untitled: t(CONVERSATION_ROW_LABEL_KEYS.untitled),
-    }),
-    [t, language],
-  );
+  const labels = useMemo(() => conversationRowLabels(t, language), [t, language]);
 
   const rows = useMemo(() => {
     const now = new Date();

@@ -81,7 +81,7 @@ export {
 export type { MentionDraft, MentionCandidate } from './mentions';
 
 // User-facing surface registry (what the product offers, and where per platform)
-export { USER_SURFACES, surfacesFor, webNavLabels } from './surfaces';
+export { USER_SURFACES, surfaceById, surfacesFor, webNavLabels, webRouteFor } from './surfaces';
 export type { UserSurface } from './surfaces';
 
 // Settings menu grouping (which panes, in what order, holding what)
@@ -122,8 +122,7 @@ export {
 export type { NotificationDestination, NotificationNavTarget } from './notification-routing';
 
 // Memory fact kinds (the server's FactKind wire values and their label keys)
-export { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from './memory';
-export type { MemoryFactKind } from './memory';
+export { MEMORY_KIND_LABEL_KEY } from './memory';
 
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)

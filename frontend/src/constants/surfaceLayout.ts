@@ -4,6 +4,8 @@
 // ABOUTME: Declares which dashboard routes receive the page gutter and which own their own chrome
 // ABOUTME: Page padding is a property of the surface, never of the viewer's role
 
+import { webRouteFor } from '@pierre/shared-constants';
+
 /**
  * How a dashboard route fills the content pane.
  *
@@ -40,7 +42,6 @@ const BLEED_ROUTES: ReadonlySet<string> = new Set([
   'discover', // StoreScreen — TabHeader over its own results scroller
   'notifications', // NotificationsPanel — sticky header over its own list scroller
   'settings', // SettingsShell — menu column beside the open section, own scrollers
-  'data-providers', // SettingsShell opened on the connections section
 ]);
 
 /** The gutter the shell applies to a `padded` route. */
@@ -65,3 +66,14 @@ export function pageGutterPxFor(viewportWidth: number): number {
 export function layoutForRoute(route: string): SurfaceLayout {
   return BLEED_ROUTES.has(route) ? 'bleed' : 'padded';
 }
+
+/**
+ * Where the provider-connection pane lives, read from the registry rather than
+ * spelled again here.
+ *
+ * It used to be reachable at two routes — a `#data-providers` tab and the
+ * `#settings/connections` section — with the tab's own handler rewriting the
+ * hash to the section on first interaction, so the URL a user ended up with
+ * depended on which door they came through.
+ */
+export const CONNECTIONS_ROUTE = webRouteFor('data-providers') ?? 'settings';

@@ -83,8 +83,9 @@ describe('client locale corpus', () => {
     // 2352 after the French rendering sweep read the settings panes: two keys
     // for literals the scanner had walked past (a group panel description, the
     // phone's empty conversation list), minus three that translated the
-    // coaching persona names while both clients render `PERSONA_NAME`
-    // untranslated on purpose — the stored value is quoted in the coach prompt.
+    // coaching persona names while both clients render the brand name
+    // untranslated on purpose — the stored value is quoted in the coach
+    // prompt. (That name is `display_name` on the server's card now.)
     //
     // 2352 until driving the app in French found what no gate could see: the
     // chat progress line ("generating response…") and the login divider
@@ -127,8 +128,20 @@ describe('client locale corpus', () => {
     // -4; the filtered-empty state the web panel was missing, the connected-app
     // screen-reader label and the two states a messaging list can be in that
     // are not "everything is linked" are +6.
+    //
+    // 2389 until the verdict drawer stopped scrubbing its own subline. It
+    // borrowed the chip's "{{count}} verdicts · {{qualifier}}" with an empty
+    // qualifier and stripped the dangling separator back off with a regex, so
+    // a locale that punctuated the chip differently kept its separator.
+    // `chat.verdictsCount` says the one thing the subline means.
+    //
+    // 2416 until the persona cards became the server's. Both clients held
+    // four hand-written options — a tagline, a blurb and up to two bullets
+    // each — describing contracts they could not see, while
+    // `GET /api/personas` rendered the same cards from the live contract
+    // registry and nobody read it. Eighteen `app.style*` keys left with them.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2397);
+    expect(reference).toHaveLength(2380);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

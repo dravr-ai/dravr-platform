@@ -1,64 +1,13 @@
 // ABOUTME: Unit tests for date and text formatting utilities
-// ABOUTME: Tests formatRelativeDate, formatDuration, formatDistance, formatPace, truncateText
+// ABOUTME: Tests formatDuration, formatDistance, formatPace, truncateText
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  formatRelativeDate,
-  formatFullDate,
   formatDuration,
   formatDistance,
   formatPace,
   truncateText,
 } from '../src/formatting';
-
-describe('formatRelativeDate', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2025-06-15T14:00:00Z'));
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('shows time for today', () => {
-    const result = formatRelativeDate('2025-06-15T10:30:00Z');
-    // Should contain hour and minute (format varies by locale)
-    expect(result).toBeTruthy();
-    expect(result).not.toBe('Yesterday');
-  });
-
-  it('shows Yesterday for yesterday', () => {
-    const result = formatRelativeDate('2025-06-14T10:00:00Z');
-    expect(result).toBe('Yesterday');
-  });
-
-  it('shows weekday for dates within last week', () => {
-    const result = formatRelativeDate('2025-06-12T10:00:00Z');
-    // 3 days ago = Thursday
-    expect(result).toMatch(/Thu/);
-  });
-
-  it('shows month and day for older dates', () => {
-    const result = formatRelativeDate('2025-05-01T10:00:00Z');
-    expect(result).toMatch(/May/);
-  });
-});
-
-describe('formatFullDate', () => {
-  it('formats date as full month day, year', () => {
-    const result = formatFullDate('2025-01-15T10:00:00Z');
-    expect(result).toContain('January');
-    expect(result).toContain('15');
-    expect(result).toContain('2025');
-  });
-
-  it('handles different months', () => {
-    const result = formatFullDate('2025-12-25T00:00:00Z');
-    expect(result).toContain('December');
-    expect(result).toContain('25');
-  });
-});
 
 describe('formatDuration', () => {
   it('formats hours, minutes, and seconds', () => {

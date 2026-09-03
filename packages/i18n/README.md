@@ -66,9 +66,8 @@ Each app registers its own writer once, at the root, before the first render.
 // frontend/src/main.tsx
 import { initI18n } from '@pierre/i18n';
 import { persistLocale } from './i18n/localePersister';
-import { fetchBundle } from './i18n/fetchBundle';
 
-initI18n({ persistLocale, fetchBundle });
+initI18n({ persistLocale, fetchBundle: i18nApi.bundle });
 ```
 
 ```ts
@@ -81,8 +80,8 @@ export const persistLocale: LocalePersister = async (language) => {
 };
 ```
 
-`fetchBundle` is the app's api-client `i18n.bundle` (`frontend/src/i18n/fetchBundle.ts`,
-`frontend-mobile/src/i18n/fetchBundle.ts`). It is optional and fail-open: init renders
+`fetchBundle` is the app's api-client `i18nApi.bundle`, passed straight from each app
+root — it needs no wrapper. It is optional and fail-open: init renders
 the embedded catalogue synchronously, the live overlay lands afterwards through
 `addResourceBundle` (mounted chrome repaints via `bindI18nStore: 'added'`), and a
 fetch that fails changes nothing on screen. The digest of each bundle applied goes

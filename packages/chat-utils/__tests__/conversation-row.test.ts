@@ -7,6 +7,8 @@ import {
   AVATAR_SLOTS,
   avatarSlot,
   buildConversationRow,
+  CONVERSATION_ROW_LABEL_KEYS,
+  conversationRowLabels,
   deriveKind,
   filterRows,
   formatListTimestamp,
@@ -299,5 +301,30 @@ describe('locale-aware formatting', () => {
     const mine = conversation({ last_message: { role: 'user', preview: 'Salut', created_at: NOW.toISOString() } });
     expect(previewFor(mine, fr)).toBe('Toi: Salut');
     expect(buildConversationRow(conversation({ title: '  ' }), fr, NOW).title).toBe('Discussion sans titre');
+  });
+});
+
+describe('conversationRowLabels', () => {
+  /**
+   * Both clients wrote this resolution themselves — ten identical lines each,
+   * comment included. The key set was already shared; which keys a row needs
+   * is the other half of the rule, and it lives here now.
+   */
+  it("resolves every key a row needs through the caller's translator", () => {
+    const seen: string[] = [];
+    const t = (key: string) => {
+      seen.push(key);
+      return `<${key}>`;
+    };
+
+    const labels = conversationRowLabels(t, 'fr');
+
+    expect(labels).toEqual({
+      locale: 'fr',
+      you: '<chat.previewYou>',
+      coach: '<chat.previewCoach>',
+      untitled: '<app.untitledChat>',
+    });
+    expect(seen.sort()).toEqual(Object.values(CONVERSATION_ROW_LABEL_KEYS).sort());
   });
 });

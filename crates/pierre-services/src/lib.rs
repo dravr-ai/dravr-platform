@@ -265,6 +265,12 @@ pub mod quota_policy;
 /// concrete pierre-server `SseManager`.
 pub mod provider_refresh;
 
+/// The language an athlete reads, resolved once for every surface
+pub mod locale;
+
+/// One tick loop for every background worker
+pub mod periodic;
+
 /// Recipe import/export and markdown conversion
 pub mod recipes;
 

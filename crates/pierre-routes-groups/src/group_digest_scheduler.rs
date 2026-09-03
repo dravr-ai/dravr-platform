@@ -41,9 +41,9 @@ use pierre_core::models::groups::{CoachingGroup, GroupMember};
 use pierre_core::models::TenantId;
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::periodic::spawn_periodic;
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -74,7 +74,8 @@ pub struct DigestTickOutcome {
 /// Run a single digest sweep across all tenants.
 ///
 /// Exposed (rather than only the loop) so integration tests can drive one
-/// sweep without `tokio::sleep`. Production callers wrap this in [`run_loop`].
+/// sweep without `tokio::sleep`. Production ticks it from
+/// [`start_digest_scheduler`].
 ///
 /// `notification_service` is borrowed as an `Option` because some build
 /// profiles compile out the notifications feature entirely.
@@ -279,66 +280,42 @@ async fn dispatch_digest(
     service.dispatch_with_tier(&request, PushTier::P3).await
 }
 
-/// Long-running loop that ticks the digest sweep at the given interval.
-///
-/// Errors during a tick are logged but never stop the loop — the next tick
-/// retries. Stopping requires aborting the returned task handle.
-async fn run_loop<C>(
-    ctx: Arc<C>,
-    interval_duration: StdDuration,
-    #[cfg(feature = "client-notifications")] notification_service: Option<Arc<NotificationService>>,
-) where
-    C: ToolRuntime + GroupsCtx + MiddlewareCtx,
-{
-    let mut ticker = interval(interval_duration);
-    // Skip the immediate initial tick so a server restart doesn't fan out a
-    // full cross-tenant snapshot sweep before warm-up completes.
-    ticker.tick().await;
-
-    info!(
-        interval_secs = interval_duration.as_secs(),
-        "group weekly-digest scheduler started"
-    );
-
-    let runtime: Arc<dyn ToolRuntime> = {
-        let cloned: Arc<C> = Arc::clone(&ctx);
-        cloned
-    };
-    loop {
-        ticker.tick().await;
-        let result = tick(
-            &ctx,
-            &runtime,
-            #[cfg(feature = "client-notifications")]
-            notification_service.as_deref(),
-        )
-        .await;
-        if let Err(e) = result {
-            error!(error = %e, "group weekly-digest sweep errored — retrying next interval");
-        }
-    }
-}
-
 /// Spawn the weekly-digest scheduler as a background tokio task.
 ///
-/// Mirrors [`pierre_services::coach_followup_scheduler::start_followup_scheduler`]
-/// — called once at server bootstrap from `spawn_background_workers`. The task
-/// runs for the server's lifetime; the spawned `JoinHandle` is discarded
-/// because the scheduler is best-effort and a server restart re-arms it.
+/// Called once at server bootstrap from `spawn_background_workers`. The task
+/// runs for the server's lifetime; the
+/// [`AbortHandle`](tokio::task::AbortHandle) is discarded because the scheduler
+/// is best-effort and a server restart re-arms it.
 pub fn start_digest_scheduler<C>(
     ctx: Arc<C>,
     #[cfg(feature = "client-notifications")] notification_service: Option<Arc<NotificationService>>,
 ) where
     C: ToolRuntime + GroupsCtx + MiddlewareCtx,
 {
-    tokio::spawn(async move {
-        run_loop(
-            ctx,
-            DEFAULT_TICK_INTERVAL,
+    // The same context, once as itself and once as the runtime trait object
+    // the tick signature takes; both are cloned per tick so the closure stays
+    // callable for the life of the worker.
+    let cloned: Arc<C> = Arc::clone(&ctx);
+    let runtime: Arc<dyn ToolRuntime> = cloned;
+
+    spawn_periodic(
+        "group weekly-digest scheduler",
+        DEFAULT_TICK_INTERVAL,
+        move || {
+            let ctx = Arc::clone(&ctx);
+            let runtime = Arc::clone(&runtime);
             #[cfg(feature = "client-notifications")]
-            notification_service,
-        )
-        .await;
-    });
-    info!("Group weekly-digest scheduler spawned");
+            let notification_service = notification_service.clone();
+            async move {
+                tick(
+                    &ctx,
+                    &runtime,
+                    #[cfg(feature = "client-notifications")]
+                    notification_service.as_deref(),
+                )
+                .await?;
+                Ok(())
+            }
+        },
+    );
 }

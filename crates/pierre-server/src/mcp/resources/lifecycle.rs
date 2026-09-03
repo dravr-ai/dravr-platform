@@ -64,13 +64,12 @@ use pierre_messaging::commands::CommandDefinition;
 #[cfg(feature = "client-messaging")]
 type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static str>);
 
-/// The locales the Telegram `/` menu is published in — the five the strings registry speaks.
-#[cfg(feature = "client-messaging")]
-const TELEGRAM_MENU_LOCALES: [&str; 5] = ["fr", "en", "es", "de", "pt"];
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
 use pierre_core::errors::{AppError, AppResult};
+#[cfg(feature = "client-messaging")]
+use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
@@ -341,7 +340,9 @@ impl ServerContext {
         if let Some(registry) = command_registry.as_ref() {
             let strings = Arc::clone(&contremaitre_messaging_strings_registry);
             let mut lists: Vec<TelegramMenuList> = Vec::new();
-            for locale in TELEGRAM_MENU_LOCALES {
+            // The `/` menu is published in every locale the platform speaks —
+            // the one list, not a copy of it.
+            for locale in SUPPORTED_LOCALES {
                 let describe = |d: &CommandDefinition| {
                     strings.command_description(&d.name, &d.description, locale)
                 };

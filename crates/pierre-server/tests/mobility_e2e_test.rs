@@ -8,76 +8,77 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_schema::McpRequest;
+use dravr_tronc::mcp::tool::ToolContext;
+use pierre_core::models::TenantId;
 use pierre_mcp_server::constants::tools::{
     GET_STRETCHING_EXERCISE, GET_YOGA_POSE, LIST_STRETCHING_EXERCISES, LIST_YOGA_POSES,
     SUGGEST_STRETCHES_FOR_ACTIVITY, SUGGEST_YOGA_SEQUENCE,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::Uuid;
 
 mod common;
 
 /// MCP handler for E2E mobility tool testing
 struct MobilityMcpHandler {
     resources: Arc<ServerContext>,
-    test_jwt_token: String,
+    user_id: Uuid,
+    tenant_id: TenantId,
 }
 
 impl MobilityMcpHandler {
     /// Create new handler with test resources
     async fn new() -> Result<Self> {
         let resources = common::create_test_server_resources().await?;
-        let (_user_id, user) = common::create_test_user(&resources.coach.database).await?;
-
-        // Create a proper JWT token
-        let jwt_token = resources
-            .auth
-            .auth_manager
-            .generate_token(&user, &resources.auth.jwks_manager)?;
+        let (user_id, _user) = common::create_test_user(&resources.coach.database).await?;
+        let tenants = resources.common.repos.tenants.get_all().await?;
+        let tenant = tenants
+            .iter()
+            .find(|t| t.owner_user_id == user_id)
+            .expect("a fresh user owns a tenant");
 
         Ok(Self {
             resources,
-            test_jwt_token: jwt_token,
+            user_id,
+            tenant_id: tenant.id,
         })
     }
 
-    /// Handle MCP tools/call request using actual tool handlers
+    /// Run a tools/call through the live post-auth dispatch — the same entry
+    /// the tronc auth hook reaches on `POST /mcp` — and wrap the tool's
+    /// [`dravr_tronc::mcp::schema::ToolResponse`] as the JSON-RPC result a
+    /// client sees. Tool failures arrive in-band as `isError`, never as a
+    /// JSON-RPC `error`.
     async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<Value> {
-        let request = McpRequest {
-            jsonrpc: "2.0".to_owned(),
-            method: "tools/call".to_owned(),
-            params: Some(json!({
-                "name": tool_name,
-                "arguments": arguments
-            })),
-            id: Some(json!(1)),
-            auth_token: Some(format!("Bearer {}", self.test_jwt_token)),
-            headers: Some(HashMap::new()),
-            metadata: HashMap::new(),
+        let state: Arc<dyn ToolRuntime> = Arc::clone(&self.resources) as Arc<dyn ToolRuntime>;
+        let tool_context = ToolContext {
+            user_id: Some(self.user_id.to_string()),
+            tenant_id: Some(self.tenant_id.to_string()),
+            auth_method: Some("jwt_bearer".to_owned()),
+            request_id: Some(json!(1)),
+            is_admin: false,
+            ..Default::default()
         };
+        let response = ToolHandlers::dispatch_tool_call(
+            &self.resources,
+            &state,
+            &tool_context,
+            self.user_id,
+            self.tenant_id,
+            tool_name,
+            arguments,
+        )
+        .await;
 
-        let response =
-            ToolHandlers::handle_tools_call_with_resources(request, &self.resources).await;
-
-        let json_response = if response.error.is_some() {
-            json!({
-                "jsonrpc": response.jsonrpc,
-                "id": response.id,
-                "error": response.error
-            })
-        } else {
-            json!({
-                "jsonrpc": response.jsonrpc,
-                "id": response.id,
-                "result": response.result
-            })
-        };
-
-        Ok(json_response)
+        Ok(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": serde_json::to_value(&response)?
+        }))
     }
 }
 

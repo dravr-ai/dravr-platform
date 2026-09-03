@@ -14,6 +14,7 @@ import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
 import { useTranslation } from '@pierre/i18n';
+import { defaultConversationTitle } from '@pierre/chat-utils';
 import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { useRouter } from 'expo-router';
 import { useConversations } from '../chat/useConversations';
@@ -30,7 +31,7 @@ import { threadHref } from '../../navigation/routes';
  * cache, which routes the user on to chat.
  */
 export function OnboardingCoachProposalScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { user } = useAuth();
   const { markSeen } = useCoachProposalSeen(user?.id);
   const [selecting, setSelecting] = useState<string | null>(null);
@@ -63,7 +64,11 @@ export function OnboardingCoachProposalScreen() {
     // the list. Marking the step first lets the layout leave onboarding.
     await markSeen();
     try {
-      const conversation = await createConversation({ coach_id: coachId, title: coachTitle });
+      const conversation = await createConversation({
+        coach_id: coachId,
+        title:
+          coachTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
+      });
       router.push(threadHref(conversation.id));
     } catch {
       // The list still opens; the "+" starts the thread.

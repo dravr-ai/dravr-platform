@@ -43,10 +43,10 @@ use pierre_commands::{
 };
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppError;
-use pierre_core::models::default_locale;
 use pierre_messaging::commands::CommandDefinition;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, CommandCtx, TenantMode};
+use pierre_services::locale::resolve_user_locale;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
@@ -182,15 +182,7 @@ pub async fn list_commands(
     // The athlete's stored preference, resolved the same way a chat turn
     // resolves it. Group lookups render their not-found text through it, and
     // every entry's description is read in it.
-    let locale = resources
-        .common
-        .repos
-        .users
-        .get_global(auth.user_id)
-        .await
-        .ok()
-        .flatten()
-        .map_or_else(default_locale, |user| user.locale);
+    let locale = resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
 
     // The conversation decides what kind of thread the palette is open in: a
     // thread bound to a group is a group conversation, anything else is

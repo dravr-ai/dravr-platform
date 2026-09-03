@@ -26,7 +26,8 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
-use pierre_core::models::{default_locale, ConversationTurnId, COMMAND_FINISH_REASON};
+use pierre_core::models::{ConversationTurnId, COMMAND_FINISH_REASON};
+use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{field, info, instrument, trace, warn, Span};
@@ -176,15 +177,8 @@ pub async fn send_message(
 
     // The athlete's stored preference is the turn service's starting point; it
     // refines it from the language of the message itself.
-    let stored_locale = resources
-        .common
-        .repos
-        .users
-        .get_global(auth.user_id)
-        .await
-        .ok()
-        .flatten()
-        .map_or_else(default_locale, |u| u.locale);
+    let stored_locale =
+        resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
 
     // The in-app surface: markdown prose, inline Scenes, a plan card, an
     // activity panel, and no transport ceiling. `transport: None` is what

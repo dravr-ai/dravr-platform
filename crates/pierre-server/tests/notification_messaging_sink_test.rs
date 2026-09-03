@@ -35,7 +35,7 @@ mod sink_tests {
     use pierre_database::backends::CreateChannelLinkParams;
     use pierre_notifications::models::{NotificationCategory, UpsertNotificationPreferenceParams};
     use pierre_notifications::{
-        DispatchOutcome, DispatchRequest, NotificationChannelSink, NotificationService,
+        DispatchOutcome, DispatchRequest, NotificationChannelSink, NotificationService, PushTier,
         SuppressionReason, TenantId as CommTenantId,
     };
     use pierre_services::messaging_broadcast::{resolve_linked_targets, LinkedChannelTarget};
@@ -111,11 +111,14 @@ mod sink_tests {
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
 
         let outcome = service
-            .dispatch(&request(
-                user.id,
-                CommTenantId(tenant.as_uuid()),
-                NotificationCategory::Coach,
-            ))
+            .dispatch_with_tier(
+                &request(
+                    user.id,
+                    CommTenantId(tenant.as_uuid()),
+                    NotificationCategory::Coach,
+                ),
+                PushTier::P1,
+            )
             .await
             .unwrap();
         assert!(
@@ -174,11 +177,14 @@ mod sink_tests {
             .unwrap();
 
         let outcome = service
-            .dispatch(&request(
-                user.id,
-                CommTenantId(tenant.as_uuid()),
-                NotificationCategory::Coach,
-            ))
+            .dispatch_with_tier(
+                &request(
+                    user.id,
+                    CommTenantId(tenant.as_uuid()),
+                    NotificationCategory::Coach,
+                ),
+                PushTier::P1,
+            )
             .await
             .unwrap();
         assert!(

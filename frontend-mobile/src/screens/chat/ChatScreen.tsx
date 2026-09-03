@@ -13,7 +13,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog } from '../../components/ui';
 import { trackMobile } from '../../services/analytics';
-import { trustedActionUrl } from '@pierre/chat-utils';
+import { defaultConversationTitle, trustedActionUrl } from '@pierre/chat-utils';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 
 import { ChatHeader } from './ChatHeader';
@@ -41,7 +41,7 @@ import { VerdictSheet } from './VerdictSheet';
 import { useTranslation } from '@pierre/i18n';
 
 export function ChatScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { isAuthenticated } = useAuth();
   const insets = useSafeAreaInsets();
   // One keyboard reading, shared by the composer and the list. They used to
@@ -240,8 +240,12 @@ export function ChatScreen() {
 
     let conversationId = conversations.currentConversation?.id;
     if (!conversationId) {
+      // Named for the moment it starts, in the athlete's language and on the
+      // same 24-hour clock the list row shows — the title web gives a new
+      // thread. The first line used to become the title, so a thread was
+      // named after whatever was typed into it and a rename had to undo that.
       const newConversation = await conversations.createConversation({
-        title: trimmed.slice(0, 50),
+        title: defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
       });
       if (!newConversation) return;
       conversationId = newConversation.id;
@@ -261,7 +265,7 @@ export function ChatScreen() {
     } finally {
       usageStatus.invalidate();
     }
-  }, [messagesHook, conversations, usageStatus, router]);
+  }, [messagesHook, conversations, usageStatus, router, t, language]);
 
   const handleSendMessage = useCallback(async () => {
     const messageText = inputText.trim();

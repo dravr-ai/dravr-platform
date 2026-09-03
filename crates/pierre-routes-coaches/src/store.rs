@@ -11,7 +11,6 @@
 
 use std::sync::Arc;
 
-use crate::coaches::resolve_user_locale;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -32,6 +31,7 @@ use pierre_services::coach_store::{
     browse_store, install_store_coach, search_store, translate_published_coach, BrowseStoreParams,
     StoreCoach, DEFAULT_STORE_PAGE_SIZE,
 };
+use pierre_services::locale::resolve_user_locale;
 use serde::{Deserialize, Serialize};
 use tracing::{field, info, Span};
 use uuid::Uuid;
@@ -213,7 +213,11 @@ async fn handle_browse<C: CoachesCtx + MiddlewareCtx>(
     };
     // The athlete reads the catalogue in their own language: the listing
     // rows carry the English coach and the overlay adds the translation.
-    let locale = resolve_user_locale(&ctx, auth.user_id, viewer_tenant).await;
+    let locale = resolve_user_locale(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        auth.user_id,
+    )
+    .await;
     let page = browse_store(&ctx.repos().coach_repos(), viewer_tenant, &params, &locale).await?;
 
     info!(
@@ -254,8 +258,14 @@ async fn handle_get_coach<C: CoachesCtx + MiddlewareCtx>(
         .get_published_coach(&coach_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
-    let viewer_tenant = get_user_tenant(&auth)?;
-    let locale = resolve_user_locale(&ctx, auth.user_id, viewer_tenant).await;
+    // A caller with no tenant has no business reading the store, so the
+    // membership check stays even though the locale no longer needs it.
+    get_user_tenant(&auth)?;
+    let locale = resolve_user_locale(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        auth.user_id,
+    )
+    .await;
     translate_published_coach(&ctx.repos().coach_repos(), &mut cwl, &locale).await?;
 
     info!(
@@ -333,8 +343,14 @@ async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
     let auth = auth.into_inner();
 
     // Search across all tenants (global Store), read in the athlete's language.
-    let viewer_tenant = get_user_tenant(&auth)?;
-    let locale = resolve_user_locale(&ctx, auth.user_id, viewer_tenant).await;
+    // A caller with no tenant has no business searching it, so the membership
+    // check stays even though the locale no longer needs it.
+    get_user_tenant(&auth)?;
+    let locale = resolve_user_locale(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        auth.user_id,
+    )
+    .await;
     let store_coaches =
         search_store(&ctx.repos().coach_repos(), &query.q, query.limit, &locale).await?;
 

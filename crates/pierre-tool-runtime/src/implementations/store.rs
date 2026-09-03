@@ -38,13 +38,14 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::{default_locale, TenantId};
+use pierre_core::models::TenantId;
 use pierre_core::pagination::StoreSortOrder;
 use pierre_mcp_schema::PropertySchema;
 use pierre_services::coach_store::{
     browse_store, install_store_coach, search_store, BrowseStoreParams, StoreCoach,
     DEFAULT_STORE_PAGE_SIZE, MAX_STORE_PAGE_SIZE,
 };
+use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
 use super::coaches_tool_shape::{
@@ -61,16 +62,11 @@ use crate::security::RuntimeTool;
 /// The language the athlete reads the catalogue in — their stored locale,
 /// or the platform default when the row does not say.
 async fn athlete_locale(context: &ToolExecutionContext) -> String {
-    context
-        .resources
-        .data()
-        .repos()
-        .users
-        .get_global(context.user_id)
-        .await
-        .ok()
-        .flatten()
-        .map_or_else(default_locale, |user| user.locale)
+    resolve_user_locale(
+        context.resources.data().repos().users.as_ref(),
+        context.user_id,
+    )
+    .await
 }
 
 /// Factory for the Coach Store tools, registered under the `store` category.
@@ -188,6 +184,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             let viewer_tenant = TenantId::from_uuid(context.require_tenant()?);
+            let locale = athlete_locale(&context).await;
             let repos = context.resources.data().repos().coach_repos();
 
             let cursor = args.get("cursor").and_then(Value::as_str);
@@ -204,7 +201,6 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
                 cursor,
             };
 
-            let locale = athlete_locale(&context).await;
             let page = browse_store(&repos, viewer_tenant, &params, &locale).await?;
             let coaches: Vec<Value> = page.coaches.iter().map(project).collect();
             let payload = json!({

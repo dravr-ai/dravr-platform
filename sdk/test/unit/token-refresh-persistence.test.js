@@ -4,7 +4,7 @@
 // ABOUTME: Tests that a token refresh persists the pair it minted, whoever triggered it
 // ABOUTME: Covers the direct validateAndRefreshToken call and the bridge's tool-call retry
 
-const { PierreMcpClient } = require('../../dist/index.js');
+const { PierreMcpClient, McpHttpError, McpRpcError } = require('../../dist/index.js');
 const {
   closeServer,
   makeProvider,
@@ -149,9 +149,12 @@ describe('tool-call recovery after an authentication error', () => {
         const tokens = await provider.tokens();
         bearers.push(tokens.access_token);
         if (bearers.length === 1) {
-          const authError = new Error('HTTP 401 Unauthorized');
-          authError.data = { authentication_failed: true };
-          throw authError;
+          // What the transport actually raises for a dead session: a 401
+          // carrying the RFC 9728 challenge.
+          throw new McpHttpError(401, 'Unauthorized', {
+            wwwAuthenticate:
+              'Bearer resource_metadata="http://dravr.test/.well-known/oauth-protected-resource"',
+          });
         }
         return {
           content: [{ type: 'text', text: `${name} ran as ${tokens.access_token}` }],
@@ -185,5 +188,106 @@ describe('tool-call recovery after an authentication error', () => {
       await bridge.mcpServer.close();
       await closeServer(pierre.server);
     }
+  });
+});
+
+describe('failures that are not a dead session', () => {
+  /**
+   * Build the bridge with a stub tool client that throws `failure` once, then
+   * succeeds, and report what the bridge did about it.
+   */
+  async function runToolCall(failure) {
+    // The stored session is live, so nothing rotates unless the bridge decides
+    // the session is dead — which is exactly what these tests are about.
+    const pierre = await startPierreStub({
+      '/oauth2/validate-and-refresh': () => ({
+        body: { status: 'valid', expires_in: 3600 },
+      }),
+    });
+
+    const provider = makeProvider({}, pierre.url);
+    const writes = [];
+    provider.secureStorage = recordingStorage(writes);
+    provider.allStoredTokens = storedSession();
+
+    const bridge = new PierreMcpClient({
+      mode: 'oauth',
+      pierreServerUrl: pierre.url,
+      oauthClientId: 'test-client',
+      oauthClientSecret: 'test-secret',
+    });
+    bridge.log = () => {};
+    await bridge.createMcpServer();
+    bridge.oauthProvider = provider;
+
+    const bearers = [];
+    bridge.pierreClient = {
+      callTool: async ({ name }) => {
+        const tokens = await provider.tokens();
+        bearers.push(tokens.access_token);
+        if (bearers.length === 1) {
+          throw failure;
+        }
+        return { content: [{ type: 'text', text: `${name} ran` }], isError: false };
+      },
+    };
+
+    try {
+      const handler = bridge.mcpServer._requestHandlers.get('tools/call');
+      const result = await handler(
+        { method: 'tools/call', params: { name: 'get_activities', arguments: {} } },
+        { signal: new AbortController().signal },
+      );
+      const refreshCalls = pierre.requests.filter(
+        (r) => r.url === '/oauth2/validate-and-refresh',
+      );
+      return { result, bearers, writes, refreshCalls };
+    } finally {
+      await bridge.mcpServer.close();
+      await closeServer(pierre.server);
+    }
+  }
+
+  /**
+   * A 500 whose text happens to say "authentication" is a broken backend, not a
+   * broken session. The bridge used to scan the message for that word and spend
+   * the athlete's refresh token on it — burning a single-use rotating token to
+   * recover from something a retry could never fix.
+   */
+  test('a 500 that merely mentions authentication does not refresh the session', async () => {
+    const { result, bearers, writes, refreshCalls } = await runToolCall(
+      new McpHttpError(500, 'authentication backend unavailable'),
+    );
+
+    expect(bearers).toEqual(['stale-access']);
+    // One validation, the routine one the handler runs before every tool call.
+    // A second would mean the failure was read as a dead session.
+    expect(refreshCalls).toHaveLength(1);
+    expect(writes).toHaveLength(0);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe(
+      'Tool execution failed: authentication backend unavailable',
+    );
+  });
+
+  /**
+   * `provider_auth_required` means the athlete must reconnect Strava, not that
+   * their Dravr session died. It arrives as a JSON-RPC -32603 — one of the two
+   * codes the old detector read as "auth error", which is what made a stale
+   * Strava token trigger a Dravr re-login.
+   */
+  test('a provider reconnect prompt is passed through, not treated as a dead session', async () => {
+    const { result, bearers, refreshCalls } = await runToolCall(
+      new McpRpcError(
+        -32603,
+        "Provider authentication required for 'strava'. Reconnect the provider and retry.",
+        { error_code: 'provider_auth_required', provider: 'strava' },
+      ),
+    );
+
+    expect(bearers).toEqual(['stale-access']);
+    expect(refreshCalls).toHaveLength(1);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('provider');
   });
 });

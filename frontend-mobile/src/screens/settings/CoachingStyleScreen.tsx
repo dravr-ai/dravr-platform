@@ -1,4 +1,4 @@
-// ABOUTME: Coaching-style picker screen — pick output format / cadence preference
+// ABOUTME: Coaching-style picker screen — the cards the server renders from the live contract registry
 // ABOUTME: Persona is orthogonal to the chosen coach — it shapes how every coach speaks
 
 import React, { useEffect, useState } from 'react';
@@ -13,69 +13,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import type { CoachingPersona } from '@pierre/shared-types';
+import { useQuery } from '@tanstack/react-query';
+import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { colors, spacing, glassCard } from '../../constants/theme';
-import { userApi } from '../../services/api';
+import { personasApi, userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
-import { PERSONA_NAME } from '@pierre/shared-constants';
-
-/**
- * A coaching-style card.
- *
- * The table below is module scope, so it cannot call t(). It carries corpus
- * KEYS and the render resolves them — the same shape SciotteLoginModal's
- * method table uses. `name` is the persona's own label and is deliberately not
- * translated: it is the value stored on the account and shown in the coach
- * prompt, so it has to read the same everywhere.
- */
-interface PersonaOption {
-  id: CoachingPersona;
-  name: string;
-  taglineKey: string;
-  descriptionKey: string;
-  bulletKeys: string[];
-}
-
-const PERSONA_OPTIONS: PersonaOption[] = [
-  {
-    id: 'casual',
-    name: PERSONA_NAME.casual,
-    taglineKey: 'app.styleCasualTag',
-    descriptionKey: 'app.styleCasualBlurb',
-    bulletKeys: [
-      'app.styleCasualBullet1',
-      'app.styleCasualBullet2',
-    ],
-  },
-  {
-    id: 'enthusiast',
-    name: PERSONA_NAME.enthusiast,
-    taglineKey: 'app.styleEnthusiastTag',
-    descriptionKey: 'app.styleEnthusiastBlurb',
-    bulletKeys: [
-      'app.styleEnthusiastBullet1',
-      'app.styleEnthusiastBullet2',
-    ],
-  },
-  {
-    id: 'power_athlete',
-    name: PERSONA_NAME.power_athlete,
-    taglineKey: 'app.stylePowerTag',
-    descriptionKey: 'app.stylePowerBlurb',
-    bulletKeys: [
-      'app.stylePowerBullet1',
-      'app.stylePowerBullet2',
-    ],
-  },
-  {
-    id: 'coach',
-    name: PERSONA_NAME.coach,
-    taglineKey: 'app.styleCoachTag',
-    descriptionKey: 'app.styleCoachBlurb',
-    bulletKeys: [],
-  },
-];
 
 const cardStyle: ViewStyle = {
   borderRadius: 16,
@@ -89,8 +33,18 @@ const cardSelectedStyle: ViewStyle = {
   borderWidth: 1,
 };
 
+/**
+ * The persona picker.
+ *
+ * Every word on a card is the server's. This screen used to hold four
+ * hand-written options — a tagline, a blurb and up to two bullets each, in
+ * five locales — describing contracts it could not see, while
+ * `GET /api/personas` rendered the same cards from the live contract registry
+ * and no client read it. Its confirmation line also said the raw slug where
+ * web said the brand name; both read `display_name` now.
+ */
 export function CoachingStyleScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const router = useRouter();
   const { user, updateUser } = useAuth();
   const [selected, setSelected] = useState<CoachingPersona>('casual');
@@ -103,6 +57,16 @@ export function CoachingStyleScreen() {
     }
   }, [user?.coaching_persona]);
 
+  const { data, isLoading, isError } = useQuery({
+    queryKey: QUERY_KEYS.personas.list(language),
+    queryFn: () => personasApi.list(language),
+  });
+  const personas: PersonaCard[] = data?.personas ?? [];
+
+  /** The card's own brand name, for a message about a persona. */
+  const nameOf = (slug: string) =>
+    personas.find((persona) => persona.slug === slug)?.display_name ?? slug;
+
   const handleSelect = async (persona: CoachingPersona) => {
     if (persona === selected || isPending) {
       return;
@@ -112,12 +76,18 @@ export function CoachingStyleScreen() {
     setIsPending(true);
     try {
       const result = await userApi.setCoachingPersona(persona);
-      setMessage({ type: 'success', text: t('app.coachingStyleUpdated', { style: result.persona }) });
+      setMessage({
+        type: 'success',
+        text: t('app.coachingStyleUpdated', { style: nameOf(result.persona) }),
+      });
       // Sync the AuthContext user so other screens see the new persona.
       await updateUser({ coaching_persona: result.persona });
     } catch {
       setSelected(previous);
-      setMessage({ type: 'error', text: t('app.coachingStyleUpdateFailed', { style: persona }) });
+      setMessage({
+        type: 'error',
+        text: t('app.coachingStyleUpdateFailed', { style: nameOf(persona) }),
+      });
     } finally {
       setIsPending(false);
       setTimeout(() => setMessage(null), 3000);
@@ -169,21 +139,34 @@ export function CoachingStyleScreen() {
           </View>
         )}
 
-        {PERSONA_OPTIONS.map((option) => {
-          const isSelected = selected === option.id;
+        {isLoading && (
+          <Text className="text-sm text-text-secondary" testID="persona-loading">
+            {t('common.loading')}
+          </Text>
+        )}
+        {isError && (
+          <Text className="text-sm text-error" testID="persona-error">
+            {t('common.error')}
+          </Text>
+        )}
+
+        {personas.map((persona) => {
+          const isSelected = selected === persona.slug;
           return (
             <TouchableOpacity
-              key={option.id}
+              key={persona.slug}
               accessibilityRole="radio"
               accessibilityState={{ selected: isSelected }}
-              testID={`persona-card-${option.id}`}
-              onPress={() => handleSelect(option.id)}
+              testID={`persona-card-${persona.slug}`}
+              onPress={() => handleSelect(persona.slug as CoachingPersona)}
               disabled={isPending}
               activeOpacity={0.85}
               style={[cardStyle, isSelected ? cardSelectedStyle : null]}
             >
               <View className="flex-row items-center justify-between mb-1.5">
-                <Text className="text-base font-semibold text-text-primary">{option.name}</Text>
+                <Text className="text-base font-semibold text-text-primary">
+                  {persona.display_name}
+                </Text>
                 {isSelected && (
                   <View className="flex-row items-center">
                     {isPending ? (
@@ -199,18 +182,12 @@ export function CoachingStyleScreen() {
                   </View>
                 )}
               </View>
-              <Text
-                className="text-sm mb-2"
-                style={{ color: colors.pierre.violet }}
-              >
-                {t(option.taglineKey)}
-              </Text>
               <Text className="text-sm text-text-secondary leading-relaxed mb-3">
-                {t(option.descriptionKey)}
+                {persona.summary}
               </Text>
-              <View>
-                {option.bulletKeys.map((bulletKey) => (
-                  <View key={bulletKey} className="flex-row mb-1.5">
+              <View className="mb-3">
+                {persona.rules.map((rule) => (
+                  <View key={rule.key} className="flex-row mb-1.5">
                     <Text
                       className="text-sm mr-2 mt-0.5"
                       style={{ color: colors.pierre.violet }}
@@ -218,10 +195,27 @@ export function CoachingStyleScreen() {
                       ›
                     </Text>
                     <Text className="text-xs text-text-tertiary flex-1 leading-relaxed">
-                      {t(bulletKey)}
+                      {rule.text}
                     </Text>
                   </View>
                 ))}
+              </View>
+              {/* Whether the contract is enforced on every reply or only
+                  logged — the one thing about a persona the athlete cannot
+                  infer from how it reads. */}
+              <View
+                className={`self-start rounded-full px-2 py-0.5 ${
+                  persona.enforcement === 'verified' ? 'bg-success/15' : 'bg-background-tertiary'
+                }`}
+                testID={`persona-enforcement-${persona.enforcement}`}
+              >
+                <Text
+                  className={`text-[11px] font-medium ${
+                    persona.enforcement === 'verified' ? 'text-success' : 'text-text-tertiary'
+                  }`}
+                >
+                  {persona.enforcement_label}
+                </Text>
               </View>
             </TouchableOpacity>
           );

@@ -112,6 +112,25 @@ describe('OnboardingCoachProposalScreen', () => {
     mockCreateConversation.mockResolvedValue({ id: 'conv-9', title: 'Trail Coach', coach_id: 'coach-trail' });
   });
 
+  // A coach the store shipped without a title used to open a thread named "",
+  // which the list then drew as an untitled row. Web has fallen back to the
+  // clock-shaped default since the messenger cutover; mobile does now too.
+  it('names the thread by the clock when the coach has no title', async () => {
+    mockGetProposal.mockResolvedValue({
+      ...PROPOSAL,
+      coaches: [{ ...PROPOSAL.coaches[0], coach: { ...PROPOSAL.coaches[0].coach, title: '' } }],
+    });
+
+    const { findByText } = renderScreen();
+    fireEvent.press(await findByText('Start'));
+
+    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
+    expect(mockCreateConversation.mock.calls[0][0]).toEqual({
+      coach_id: 'coach-trail',
+      title: expect.stringMatching(/^Chat .+ \d{2}:\d{2}$/),
+    });
+  });
+
   it('« Start » records the choice, completes the step, then lands the athlete in a thread bound to the coach', async () => {
     const { findByText } = renderScreen();
 

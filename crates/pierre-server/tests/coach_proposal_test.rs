@@ -17,8 +17,10 @@ use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::CreateChannelLinkParams;
+use pierre_services::activity_sports::{sport_label, MessagingStringsRegistry};
 use pierre_services::coaches::{
-    build_rerank_user_prompt, parse_rerank_response, ProposalCandidate,
+    build_rerank_user_prompt, fallback_reason_for_sport, parse_rerank_response, sport_code,
+    ProposalCandidate,
 };
 
 mod common;
@@ -397,5 +399,65 @@ async fn backfill_stamps_only_links_predating_the_feature() {
         proposal_sent_at(&database, "old-already-stamped").await,
         Some(at("2026-06-06T09:00:00Z")),
         "an already-stamped link must keep its original timestamp"
+    );
+}
+
+/// The wire carries sport **codes**; only prose the server renders itself
+/// carries labels.
+///
+/// The proposal used to prettify both, so `SportShare.sport` arrived at the
+/// clients as `"Trail Running"` — a translation they could not undo, which is
+/// why `@pierre/shared-constants` grew a 15-row alias table and a case-folding
+/// normaliser whose entire job was turning the server's English back into the
+/// code it started as.
+#[test]
+fn sport_code_unwraps_the_debug_form_and_keeps_the_code() {
+    assert_eq!(sport_code("trail_running"), "trail_running");
+    assert_eq!(
+        sport_code("Other(\"alpine_ski\")"),
+        "alpine_ski",
+        "an uncatalogued sport reaches the wire as its code, not as Rust Debug output"
+    );
+    assert_eq!(sport_code("run"), "run");
+}
+
+/// Prose the server renders reads the athlete's own word for the sport, from
+/// the vocabulary the clients share — not an English title-casing of the code.
+///
+/// This crate briefly carried its own `prettify_sport_label` for that job. It
+/// only ever produced English, which is the defect `activity_sports` exists to
+/// fix: a French athlete asking on Telegram now reads the French word, exactly
+/// as the web onboarding step spells it.
+#[test]
+fn server_prose_reads_the_shared_sport_vocabulary() {
+    let strings = MessagingStringsRegistry::new();
+
+    let english = sport_label(&strings, "trail_running", "en");
+    let french = sport_label(&strings, "trail_running", "fr");
+
+    assert!(
+        !english.contains('_'),
+        "a raw code reached prose: {english}"
+    );
+    assert_ne!(
+        english, french,
+        "the label must follow the locale; identical strings mean the lookup fell back"
+    );
+}
+
+/// The fallback rationale is athlete-facing prose in five locales, and it
+/// interpolates whatever sport word it is handed.
+#[test]
+fn the_fallback_rationale_reads_a_label_not_a_code() {
+    let strings = MessagingStringsRegistry::new();
+    let reason = fallback_reason_for_sport(&sport_label(&strings, "trail_running", "en"), "en");
+
+    assert!(
+        reason.starts_with("Matches your "),
+        "unexpected rationale shape: {reason}"
+    );
+    assert!(
+        !reason.contains('_'),
+        "a sport code leaked into athlete-facing prose: {reason}"
     );
 }

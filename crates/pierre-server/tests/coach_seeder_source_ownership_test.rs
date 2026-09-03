@@ -130,3 +130,72 @@ async fn an_unchanged_legacy_row_is_claimed_by_the_next_seed() {
         "the drift gate's roster lists the claimed row"
     );
 }
+
+/// Put the row into a state the catalogue does not own, the way an operator's
+/// own coach sits in the table.
+async fn stamp_source(db: &Database, slug: &str, source: &str) {
+    match db {
+        Database::SQLite(sqlite) => {
+            sqlx::query("UPDATE coaches SET source = $1 WHERE slug = $2")
+                .bind(source)
+                .bind(slug)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            sqlx::query("UPDATE coaches SET source = $1 WHERE slug = $2")
+                .bind(source)
+                .bind(slug)
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// The drift gate's roster lists catalogue-owned rows and nothing else.
+///
+/// "Catalogue-owned" is the `source IN ('contremaitre', 'seed')` pair, spelled
+/// in four queries across two engines and now shared as one constant. A row
+/// outside the pair belongs to an operator, and listing it would have the gate
+/// report a coach it does not manage as an orphan every morning.
+#[tokio::test]
+async fn the_catalogue_roster_excludes_a_row_it_does_not_own() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    bootstrap::run(
+        BootstrapArgs {
+            admin_email: "roster@dravr.ai".to_owned(),
+            admin_password: "OperatorPass123!".to_owned(),
+        },
+        &repos,
+    )
+    .await
+    .unwrap();
+    let checkout = TempDir::new().unwrap();
+    write_coach(checkout.path(), SLUG);
+    seed(&repos, checkout.path(), false).await;
+
+    assert!(
+        repos
+            .seeder
+            .seed_list_catalogue_slugs()
+            .await
+            .unwrap()
+            .contains(&SLUG.to_owned()),
+        "a freshly seeded row is catalogue-owned"
+    );
+
+    stamp_source(&db, SLUG, "custom").await;
+    assert!(
+        !repos
+            .seeder
+            .seed_list_catalogue_slugs()
+            .await
+            .unwrap()
+            .contains(&SLUG.to_owned()),
+        "source='custom' is an operator's coach; the catalogue roster must not claim it"
+    );
+}

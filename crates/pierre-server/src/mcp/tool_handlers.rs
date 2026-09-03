@@ -1,5 +1,5 @@
 // ABOUTME: Tool execution handlers for MCP server tool calls and provider routing
-// ABOUTME: Handles tool call routing, execution, authentication, and provider-specific operations
+// ABOUTME: Runs the post-auth flow — enablement, quota, routing, usage — for an identified caller
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,8 +9,7 @@ use super::resources::ServerContext;
 use crate::constants::{
     errors::{
         ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND,
-        ERROR_RATE_LIMIT_EXCEEDED, ERROR_TOKEN_EXPIRED, ERROR_TOKEN_INVALID, ERROR_TOKEN_MALFORMED,
-        ERROR_UNAUTHORIZED, MSG_TOKEN_EXPIRED, MSG_TOKEN_INVALID, MSG_TOKEN_MALFORMED,
+        ERROR_RATE_LIMIT_EXCEEDED,
     },
     protocol::JSONRPC_VERSION,
     tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES, GET_CONNECTION_STATUS},
@@ -18,8 +17,6 @@ use crate::constants::{
 use crate::mcp::audit::record_tool_call;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
-use pierre_auth::auth::AuthMethod as AuthResultMethod;
-use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
@@ -27,12 +24,11 @@ use pierre_core::models::{ConversationTurnId, UserTier};
 use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_database::backends::NotificationRepository;
 use pierre_mcp_schema::json_schemas;
-use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
+use pierre_mcp_schema::{McpError, McpResponse};
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
 use pierre_services::usage_counter::{increment_counter, UsageCounterService};
-use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::guardian::{self, DenyReason, GateOutcome, TurnKey};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
@@ -43,7 +39,7 @@ use serde_json::{json, Value};
 use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::field::{display, Empty};
+use tracing::field::Empty;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -84,159 +80,6 @@ pub struct ToolRoutingContext<'a> {
 pub struct ToolHandlers;
 
 impl ToolHandlers {
-    /// Handle tools/call request with authentication from resources
-    #[tracing::instrument(
-        skip(request, resources),
-        fields(
-            method = %request.method,
-            request_id = Empty,
-            tool_name = Empty,
-            user_id = Empty,
-            tenant_id = Empty,
-            success = Empty,
-            duration_ms = Empty,
-        )
-    )]
-    pub async fn handle_tools_call_with_resources(
-        request: McpRequest,
-        resources: &Arc<ServerContext>,
-    ) -> McpResponse {
-        // Record the JSON-RPC id as its inner value's Display (e.g. `3`) rather
-        // than the Debug of the Option<Value> (`Some(Number(3))`) so notify
-        // events inheriting this span render a clean request_id.
-        if let Some(id) = &request.id {
-            tracing::Span::current().record("request_id", display(id));
-        }
-
-        // Extract auth token from either HTTP Authorization header or MCP params
-        let auth_token_string = request
-            .params
-            .as_ref()
-            .and_then(|params| params.get("token"))
-            .and_then(|token| token.as_str())
-            .map(|mcp_token| format!("Bearer {mcp_token}"));
-
-        let auth_token = request
-            .auth_token
-            .as_deref()
-            .or(auth_token_string.as_deref());
-
-        debug!(
-            "MCP tool call authentication attempt for method: {} (token source: {})",
-            request.method,
-            if request.auth_token.is_some() {
-                "HTTP header"
-            } else {
-                "MCP params"
-            }
-        );
-
-        match resources
-            .auth
-            .auth_middleware
-            .authenticate_request(auth_token)
-            .await
-        {
-            Ok(auth_result) => {
-                // Record authentication success in span (tenant_id recorded after extraction)
-                tracing::Span::current().record("user_id", auth_result.user_id.to_string());
-
-                info!(
-                    "MCP tool call authentication successful for user: {} (method: {})",
-                    auth_result.user_id,
-                    auth_result.auth_method.display_name()
-                );
-
-                // Update user's last active timestamp
-                if let Err(e) = resources
-                    .common
-                    .repos
-                    .users
-                    .update_last_active(auth_result.user_id)
-                    .await
-                {
-                    warn!(
-                        user_id = %auth_result.user_id,
-                        error = %e,
-                        "Failed to update user last active timestamp (activity tracking impacted)"
-                    );
-                }
-
-                // Extract tenant context from request and auth result
-                // Tenant context is REQUIRED for tool execution to ensure tenant isolation
-                // Priority: JWT active_tenant_id > user's default tenant
-                let tenant_context = match extract_tenant_context_internal(
-                    &resources.common.repos,
-                    Some(auth_result.user_id),
-                    auth_result.active_tenant_id.map(TenantId::from_uuid), // Pass active_tenant_id from JWT claims
-                    None, // MCP transport headers not applicable here
-                )
-                .await
-                {
-                    // Carry the JWT `jti` as the Guardian turn token so headless
-                    // `/mcp` tool calls in one chat turn share a taint bucket.
-                    Ok(Some(ctx)) => ctx.with_session_id(auth_result.session_id.clone()),
-                    Ok(None) => {
-                        // User has no tenant membership - cannot execute tools
-                        warn!(
-                            user_id = %auth_result.user_id,
-                            "User has no tenant membership - rejecting tool execution"
-                        );
-                        return McpResponse::error_with_data(
-                            request.id,
-                            ERROR_UNAUTHORIZED,
-                            "User must be assigned to a tenant to execute tools".to_owned(),
-                            serde_json::json!({
-                                "error_type": "tenant_required",
-                                "user_id": auth_result.user_id.to_string()
-                            }),
-                        );
-                    }
-                    Err(e) => {
-                        // Tenant extraction failed - cannot proceed safely
-                        error!(
-                            user_id = %auth_result.user_id,
-                            error = %e,
-                            "Tenant context extraction failed - rejecting tool execution"
-                        );
-                        return McpResponse::error_with_data(
-                            request.id,
-                            ERROR_INTERNAL_ERROR,
-                            "Failed to extract tenant context".to_owned(),
-                            serde_json::json!({
-                                "error_type": "tenant_extraction_failed",
-                                "detailed_error": e.to_string()
-                            }),
-                        );
-                    }
-                };
-
-                // Record tenant context in span now that we have it
-                tracing::Span::current().record("tenant_id", tenant_context.tenant_id.to_string());
-
-                // Pre-execution quota check: shared budget with chat route
-                if let Some(quota_error) = Self::check_tool_quota(
-                    resources,
-                    &tenant_context,
-                    auth_result.user_id,
-                    request.id.clone(),
-                )
-                .await
-                {
-                    return quota_error;
-                }
-
-                // Use the provided ServerContext directly
-                Self::handle_tool_execution_direct(request, auth_result, tenant_context, resources)
-                    .await
-            }
-            Err(e) => {
-                tracing::Span::current().record("success", false);
-                Self::handle_authentication_error(request, &e)
-            }
-        }
-    }
-
     /// Execute a tool call for an already-authenticated caller (tronc HTTP path).
     ///
     /// The tronc auth hook has resolved the caller's identity into `tool_context`
@@ -245,6 +88,20 @@ impl ToolHandlers {
     /// OAuth-notification augmentation, and usage recording. Failures (quota,
     /// disabled tool, unknown tool) are reported in-band as an error
     /// [`ToolResponse`], per the MCP `tools/call` model.
+    ///
+    /// The audit fields are declared here because this is where a tool call
+    /// actually arrives. `record_tool_call` used to be called one layer up, in
+    /// a dispatcher no production caller reached, so the fingerprint it wrote
+    /// was never recorded for a real call.
+    #[tracing::instrument(
+        skip(resources, _state, tool_context, args),
+        fields(
+            tool_name = Empty,
+            arguments_hash = Empty,
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+        )
+    )]
     pub async fn dispatch_tool_call(
         resources: &Arc<ServerContext>,
         _state: &Arc<dyn ToolRuntime>,
@@ -254,6 +111,8 @@ impl ToolHandlers {
         tool_name: &str,
         args: Value,
     ) -> ToolResponse {
+        record_tool_call(tool_name, &args);
+
         let tenant_context = match extract_tenant_context_internal(
             &resources.common.repos,
             Some(user_id),
@@ -421,202 +280,6 @@ impl ToolHandlers {
                 None
             }
         }
-    }
-
-    /// Handle tool execution directly using provided `ServerContext`
-    ///
-    /// Tenant context is now required for all tool executions to ensure proper
-    /// tenant isolation and tool enablement policy enforcement.
-    #[tracing::instrument(
-        skip(request, auth_result, tenant_context, resources),
-        fields(
-            tool_name = Empty, arguments_hash = Empty,
-            user_id = %auth_result.user_id,
-            tenant_id = %tenant_context.tenant_id,
-            success = Empty,
-            duration_ms = Empty,
-        )
-    )]
-    async fn handle_tool_execution_direct(
-        request: McpRequest,
-        auth_result: AuthResult,
-        tenant_context: TenantContext,
-        resources: &Arc<ServerContext>,
-    ) -> McpResponse {
-        let Some(params) = request.params else {
-            error!("Missing request parameters in tools/call");
-            return McpResponse {
-                jsonrpc: "2.0".to_owned(),
-                id: request.id,
-                result: None,
-                error: Some(McpError {
-                    code: ERROR_INVALID_PARAMS,
-                    message: "Invalid params: Missing request parameters".to_owned(),
-                    data: None,
-                }),
-            };
-        };
-
-        // Parse tool call parameters with type safety
-        let tool_params = match serde_json::from_value::<json_schemas::ToolCallParams>(params) {
-            Ok(p) => p,
-            Err(e) => {
-                error!("Failed to parse tool call parameters: {}", e);
-                return McpResponse {
-                    jsonrpc: "2.0".to_owned(),
-                    id: request.id,
-                    result: None,
-                    error: Some(McpError {
-                        code: ERROR_INVALID_PARAMS,
-                        message: format!("Invalid tool call parameters: {e}"),
-                        data: None,
-                    }),
-                };
-            }
-        };
-
-        let tool_name = &tool_params.name;
-        let args = &tool_params.arguments;
-        let user_id = auth_result.user_id;
-
-        record_tool_call(tool_name, args);
-
-        // Check if tool is enabled for this user in this tenant
-        if let Some(error_response) = Self::check_tool_enabled(
-            resources,
-            &tenant_context,
-            user_id,
-            tool_name,
-            request.id.clone(),
-        )
-        .await
-        {
-            return error_response;
-        }
-
-        // Activity-specific quota check (separate from general tool_calls budget)
-        if let Some(error_response) = Self::check_activity_quota(
-            resources,
-            &tenant_context,
-            auth_result.user_id,
-            tool_name,
-            args,
-            request.id.clone(),
-        )
-        .await
-        {
-            return error_response;
-        }
-
-        let start_time = Instant::now();
-
-        info!(
-            "Executing tool call: {} for user: {} using {} authentication",
-            tool_name,
-            user_id,
-            auth_result.auth_method.display_name()
-        );
-
-        // Use the provided ServerContext directly - no fake resource creation!
-        let tool_context =
-            Self::build_tool_context(user_id, request.id.clone(), &tenant_context, &auth_result);
-        let routing_context = ToolRoutingContext {
-            resources,
-            tenant_context: &tenant_context,
-            tool_context: &tool_context,
-        };
-
-        let result = Self::route_tool_call(
-            tool_name,
-            args,
-            request.id.unwrap_or_else(default_request_id),
-            user_id,
-            &routing_context,
-        )
-        .await;
-
-        // Automatically append unread OAuth notifications to successful responses
-        debug!(
-            "About to check for OAuth notifications for user {} after {} tool call",
-            user_id, tool_name
-        );
-        let result = Self::append_oauth_notifications_to_response(
-            result,
-            user_id,
-            tool_name,
-            routing_context
-                .resources
-                .common
-                .repos
-                .notifications
-                .as_ref(),
-        )
-        .await;
-
-        // Record completion metrics in span
-        let duration = start_time.elapsed();
-        let duration_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
-        let success = result.error.is_none();
-
-        tracing::Span::current()
-            .record("duration_ms", duration_ms)
-            .record("success", success);
-
-        if success {
-            info!(
-                "Tool call completed successfully: {} for user: {} in {}ms",
-                tool_name, user_id, duration_ms
-            );
-
-            // Fire-and-forget: increment usage counters and record llm_usage
-            Self::record_mcp_tool_usage(
-                resources,
-                &tenant_context,
-                user_id,
-                tool_name,
-                duration_ms,
-            )
-            .await;
-
-            // Increment activity-specific counters after successful get_activities
-            if tool_name == GET_ACTIVITIES {
-                Self::increment_activity_counters(resources, &tenant_context, user_id, args).await;
-            }
-        } else {
-            warn!(
-                "Tool call failed: {} for user: {} in {}ms - {:?}",
-                tool_name, user_id, duration_ms, result.error
-            );
-        }
-
-        result
-    }
-
-    /// Handle authentication error
-    fn handle_authentication_error(request: McpRequest, e: &AppError) -> McpResponse {
-        warn!("MCP tool call authentication failed: {}", e);
-
-        // Determine specific error code based on error message
-        let error_message = e.to_string();
-        let (error_code, error_msg) = if error_message.contains("JWT token expired") {
-            (ERROR_TOKEN_EXPIRED, MSG_TOKEN_EXPIRED)
-        } else if error_message.contains("JWT token signature is invalid") {
-            (ERROR_TOKEN_INVALID, MSG_TOKEN_INVALID)
-        } else if error_message.contains("JWT token is malformed") {
-            (ERROR_TOKEN_MALFORMED, MSG_TOKEN_MALFORMED)
-        } else {
-            (ERROR_UNAUTHORIZED, "Authentication required")
-        };
-
-        McpResponse::error_with_data(
-            request.id,
-            error_code,
-            error_msg.to_owned(),
-            serde_json::json!({
-                "detailed_error": error_message,
-                "authentication_failed": true
-            }),
-        )
     }
 
     /// Increment usage counters and record `llm_usage` after a successful MCP tool call
@@ -953,39 +616,6 @@ impl ToolHandlers {
             user_id = %user_id_str,
             "Activity access counters incremented"
         );
-    }
-
-    /// Build the per-call [`ToolContext`] handed to the tool registry.
-    ///
-    /// The admin flag is resolved from the tenant context — the same signal that
-    /// gates which tools `tools/list` advertises — so execution and discovery
-    /// agree on what an admin caller may invoke. Used by the SSE entry path; the
-    /// HTTP path's context is built by the tronc auth hook.
-    fn build_tool_context(
-        user_id: Uuid,
-        request_id: Option<Value>,
-        tenant_context: &TenantContext,
-        auth_result: &AuthResult,
-    ) -> ToolContext {
-        // Map AuthResult auth_method to the host-agnostic label.
-        let auth_method = match &auth_result.auth_method {
-            AuthResultMethod::JwtToken { .. } => AuthMethod::JwtBearer,
-            AuthResultMethod::ApiKey { .. } => AuthMethod::ApiKey,
-            AuthResultMethod::ChannelLink { .. } => AuthMethod::ChannelLink,
-        };
-
-        let mut tool_ctx = ToolContext::new()
-            .with_user(user_id.to_string())
-            .with_tenant(tenant_context.tenant_id.to_string())
-            .with_auth_method(auth_method.as_str())
-            .as_admin(tenant_context.is_admin());
-
-        // Add request ID if available
-        if let Some(req_id) = request_id {
-            tool_ctx = tool_ctx.with_request_id(req_id);
-        }
-
-        tool_ctx
     }
 
     /// Convert a tool's [`ToolResponse`] to an `McpResponse`.

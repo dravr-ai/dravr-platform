@@ -16,7 +16,7 @@
  */
 
 import { Command } from 'commander';
-import { PierreMcpClient, BridgeConfig } from './bridge';
+import { PierreMcpClient, BridgeConfig } from './mcp-bridge';
 import { version as packageVersion } from '../package.json';
 
 /**

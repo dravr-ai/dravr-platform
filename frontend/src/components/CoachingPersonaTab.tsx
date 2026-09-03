@@ -1,70 +1,31 @@
-// ABOUTME: Coaching-persona settings tab — pick output format / cadence preference
+// ABOUTME: Coaching-persona settings tab — the cards the server renders from the live contract registry
 // ABOUTME: Persona is orthogonal to the chosen coach — it shapes how every coach speaks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { CoachingPersona } from '@pierre/shared-types';
-import { userApi } from '../services/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
+import { QUERY_KEYS } from '@pierre/shared-constants';
+import { personasApi, userApi } from '../services/api';
 import { Card } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
-import { PERSONA_NAME } from '@pierre/shared-constants';
 
-interface PersonaOption {
-  id: CoachingPersona;
-  /** The persona's own label. Stored on the account and quoted back inside the
-   *  coach's system prompt, so it is deliberately not translated. */
-  name: string;
-  taglineKey: string;
-  descriptionKey: string;
-  bulletKeys: string[];
-}
-
-const PERSONA_OPTIONS: PersonaOption[] = [
-  {
-    id: 'casual',
-    name: PERSONA_NAME.casual,
-    taglineKey: 'app.styleCasualTag',
-    descriptionKey: 'app.styleCasualBlurb',
-    bulletKeys: [
-      'app.styleCasualBullet1',
-      'app.styleCasualBullet2',
-    ],
-  },
-  {
-    id: 'enthusiast',
-    name: PERSONA_NAME.enthusiast,
-    taglineKey: 'app.styleEnthusiastTag',
-    descriptionKey: 'app.styleEnthusiastBlurb',
-    bulletKeys: [
-      'app.styleEnthusiastBullet1',
-      'app.styleEnthusiastBullet2',
-    ],
-  },
-  {
-    id: 'power_athlete',
-    name: PERSONA_NAME.power_athlete,
-    taglineKey: 'app.stylePowerTagWeb',
-    descriptionKey: 'app.stylePowerBlurb',
-    bulletKeys: [
-      'app.stylePowerBullet1',
-      'app.stylePowerBullet2Web',
-    ],
-  },
-  {
-    id: 'coach',
-    name: PERSONA_NAME.coach,
-    taglineKey: 'app.styleCoachTagWeb',
-    descriptionKey: 'app.styleCoachBlurbWeb',
-    bulletKeys: [],
-  },
-];
-
+/**
+ * The persona picker.
+ *
+ * Every word on a card is the server's. This tab used to hold four
+ * hand-written options — a tagline, a blurb and up to two bullets each, in
+ * five locales — describing contracts it could not see, while
+ * `GET /api/personas` rendered the same cards from the live contract registry
+ * and no client read it. When a contract changed, the cards went on saying
+ * whatever they had said before; the enforcement badge, which says whether the
+ * contract is actually enforced or only logged, had nowhere to appear at all.
+ */
 export default function CoachingPersonaTab() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<CoachingPersona>('casual');
@@ -76,12 +37,22 @@ export default function CoachingPersonaTab() {
     }
   }, [user?.coaching_persona]);
 
+  const { data, isLoading, isError } = useQuery({
+    queryKey: QUERY_KEYS.personas.list(language),
+    queryFn: () => personasApi.list(language),
+  });
+  const personas: PersonaCard[] = data?.personas ?? [];
+
+  /** The card's own brand name, for a message about a persona. */
+  const nameOf = (slug: string) =>
+    personas.find((persona) => persona.slug === slug)?.display_name ?? slug;
+
   const mutation = useMutation({
     mutationFn: (persona: CoachingPersona) => userApi.setCoachingPersona(persona),
-    onSuccess: (data) => {
+    onSuccess: (result) => {
       setMessage({
         type: 'success',
-        text: t('app.coachingStyleUpdated', { style: PERSONA_NAME[data.persona] ?? data.persona }),
+        text: t('app.coachingStyleUpdated', { style: nameOf(result.persona) }),
       });
       void queryClient.invalidateQueries({ queryKey: ['user'] });
       setTimeout(() => setMessage(null), 3000);
@@ -93,7 +64,7 @@ export default function CoachingPersonaTab() {
       }
       setMessage({
         type: 'error',
-        text: t('app.coachingStyleUpdateFailed', { style: PERSONA_NAME[attempted] ?? attempted }),
+        text: t('app.coachingStyleUpdateFailed', { style: nameOf(attempted) }),
       });
       setTimeout(() => setMessage(null), 3000);
     },
@@ -112,22 +83,34 @@ export default function CoachingPersonaTab() {
       <h2 className="text-lg font-semibold text-on-surface mb-2">{t('app.coachingStyleLower')}</h2>
       <p className="text-sm text-on-surface-variant mb-6">{t('app.coachingStyleIntro')}</p>
 
+      {isLoading && (
+        <p className="text-sm text-on-surface-variant" data-testid="persona-loading">
+          {t('common.loading')}
+        </p>
+      )}
+      {isError && (
+        <p className="text-sm text-error" role="alert" data-testid="persona-error">
+          {t('common.error')}
+        </p>
+      )}
+
       <div
         role="radiogroup"
         aria-label={t('app.coachingStyleLower')}
         className="grid grid-cols-1 md:grid-cols-2 gap-3"
       >
-        {PERSONA_OPTIONS.map((option) => {
-          const isSelected = selected === option.id;
+        {personas.map((persona) => {
+          const isSelected = selected === persona.slug;
           return (
             <button
-              key={option.id}
+              key={persona.slug}
               type="button"
               role="radio"
               aria-checked={isSelected}
-              data-persona={option.id}
-              data-testid={`persona-card-${option.id}`}
-              onClick={() => handleSelect(option.id)}
+              data-persona={persona.slug}
+              data-enforcement={persona.enforcement}
+              data-testid={`persona-card-${persona.slug}`}
+              onClick={() => handleSelect(persona.slug as CoachingPersona)}
               disabled={mutation.isPending}
               className={`text-left p-4 rounded-xl border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary ${
                 isSelected
@@ -136,28 +119,39 @@ export default function CoachingPersonaTab() {
               } ${mutation.isPending ? 'opacity-70 cursor-wait' : ''}`}
             >
               <div className="flex items-center justify-between gap-3 mb-2">
-                <h3 className="text-base font-semibold text-on-surface">{option.name}</h3>
+                <h3 className="text-base font-semibold text-on-surface">{persona.display_name}</h3>
                 {isSelected && (
                   <span className="text-xs font-medium text-primary uppercase tracking-wide">
                     {t('common.active')}
                   </span>
                 )}
               </div>
-              <p className="text-sm text-primary/90 mb-2">{t(option.taglineKey)}</p>
               <p className="text-sm text-on-surface-variant mb-3 leading-relaxed">
-                {t(option.descriptionKey)}
+                {persona.summary}
               </p>
-              <ul className="space-y-1.5">
-                {option.bulletKeys.map((bulletKey) => (
+              <ul className="space-y-1.5 mb-3">
+                {persona.rules.map((rule) => (
                   <li
-                    key={bulletKey}
+                    key={rule.key}
                     className="text-xs text-on-surface-variant/90 flex items-start gap-2"
                   >
                     <span className="text-primary/70 mt-0.5">›</span>
-                    <span>{t(bulletKey)}</span>
+                    <span>{rule.text}</span>
                   </li>
                 ))}
               </ul>
+              {/* Whether the contract is enforced on every reply or only
+                  logged — the one thing about a persona the athlete cannot
+                  infer from how it reads. */}
+              <span
+                className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  persona.enforcement === 'verified'
+                    ? 'bg-success/15 text-on-success-container'
+                    : 'bg-surface-container-high text-on-surface-variant'
+                }`}
+              >
+                {persona.enforcement_label}
+              </span>
             </button>
           );
         })}

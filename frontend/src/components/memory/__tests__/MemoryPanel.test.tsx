@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MEMORY_FACT_KINDS } from '@pierre/shared-constants';
+import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import MemoryPanel from '../MemoryPanel';
 import type { MemoryFactRow } from '@pierre/api-client';
 

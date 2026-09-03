@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 import { Compass, Link2, Slash } from 'lucide-react';
 import { SLASH_HINT_KEY } from '@pierre/shared-constants';
+import { CONNECTIONS_ROUTE } from '../../constants/surfaceLayout';
 import { DravrLogo } from '../DravrLogo';
 import { useTranslation } from '@pierre/i18n';
 
@@ -106,7 +107,7 @@ export default function ChatEmptyState({
             <QuickAction
               icon={<Link2 className="h-5 w-5" aria-hidden="true" />}
               label={t('chat.quickConnectProvider')}
-              onClick={() => onNavigate('data-providers')}
+              onClick={() => onNavigate(CONNECTIONS_ROUTE)}
               testId="chat-empty-connect"
             />
           </>

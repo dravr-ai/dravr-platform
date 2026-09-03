@@ -29,7 +29,6 @@
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use pierre_coach_parser::SUPPORTED_LOCALES;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PERSONA_ENFORCEMENT_ADVISORY, KEY_PERSONA_ENFORCEMENT_VERIFIED,
     KEY_PERSONA_RULE_ACRONYMS_GLOSSED, KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION,
@@ -42,6 +41,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_contremaitre::persona_contracts::{PersonaContract, PersonaContractsSnapshot};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::SUPPORTED_LOCALES;
 
 /// Terminal locale fallback when neither the query parameter nor the
 /// user's stored locale is a supported product locale.
@@ -117,10 +117,10 @@ pub fn resolve_persona_locale(query: Option<&str>, stored: Option<&str>) -> Stri
 
 /// Canonical untranslated display name for a persona.
 ///
-/// Mirrors the client-side `PERSONA_NAME` map in
-/// `packages/shared-constants/src/brands.ts`: these are brand names,
-/// stored on the account and quoted inside the coach's system prompt,
-/// so they are deliberately identical in every locale.
+/// The one definition: these are brand names, stored on the account and quoted
+/// inside the coach's system prompt, so they are deliberately identical in
+/// every locale and the clients render whatever `GET /api/personas` hands them
+/// rather than keeping a map of their own.
 #[must_use]
 pub const fn persona_display_name(persona: CoachingPersona) -> &'static str {
     match persona {

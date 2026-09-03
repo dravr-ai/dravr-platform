@@ -21,7 +21,7 @@ export const COMMAND_FINISH_REASON = 'command';
  * paragraph, so each one becomes a hard break. A blank line still separates
  * paragraphs, and a hard break at the end of a list item is inert.
  */
-export function commandReplyMarkdown(text: string): string {
+function commandReplyMarkdown(text: string): string {
   return text
     .split('\n')
     .map((line) => (line.trim().length === 0 ? '' : `${line.trimEnd()}  `))

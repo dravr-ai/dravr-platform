@@ -364,7 +364,7 @@ git push
 
 ### Test gates
 
-`cargo test` runs everything in `crates/pierre-server/tests/` by default. Five env vars opt-in to tests that hit live external services (Copilot CLI, local Ollama/vLLM, OpenWeather, USDA): `PIERRE_PROBE_COPILOT`, `RUN_LOCAL_LLM_TESTS`, `RUN_VLLM_TESTS`, `RUN_NETWORK_TESTS`, `USDA_API_KEY`. See [`book/src/environment.md#test-gates`](book/src/environment.md#test-gates) for the full table and per-test commands. There are no `#[ignore]` attributes — every other test runs every time.
+`cargo test` runs everything in `crates/pierre-server/tests/` by default. Four env vars opt-in to tests that hit live external services (local Ollama/vLLM, OpenWeather, USDA): `RUN_LOCAL_LLM_TESTS`, `RUN_VLLM_TESTS`, `RUN_NETWORK_TESTS`, `USDA_API_KEY`. See [`book/src/environment.md#test-gates`](book/src/environment.md#test-gates) for the full table and per-test commands. There are no `#[ignore]` attributes — every other test runs every time.
 
 ### Architectural CI gates
 

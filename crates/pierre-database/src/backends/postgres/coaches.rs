@@ -1396,9 +1396,8 @@ impl CoachesRepository for PostgresDatabase {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachRuntimeContext>> {
-        // Column order matches `CoachesManager::get_coach_runtime_context`
-        // in `coaches/versions.rs` and the SQLite `RepositoryRegistry` impl
-        // in `direct_impls.rs` — keep all three in lock-step.
+        // Column order matches the SQLite impl in
+        // `database/repositories/coaches_impl.rs` — keep both in lock-step.
         type Row = (
             Option<String>,
             String,

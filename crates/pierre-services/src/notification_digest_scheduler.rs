@@ -37,6 +37,7 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use crate::periodic::spawn_periodic;
 use chrono::{Duration, Utc};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
@@ -49,7 +50,6 @@ use pierre_notifications::{
     PersonaPolicyGate, PushTier, TenantId as CommTenantId, PERSONA_GATED_DATA_KEY,
 };
 use serde_json::{json, Map, Value};
-use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
 use crate::notification_text::NotificationTextRenderer;
@@ -258,53 +258,30 @@ fn to_app_error_result<T>(result: Result<T, pierre_notifications::CommereError>)
     result.map_err(to_app_error)
 }
 
-/// Long-running loop that ticks the digest sweep at the given interval.
-///
-/// Errors during a tick are logged but never stop the loop — the next tick
-/// retries; "already digested" is derived from the persisted rows, so a retry
-/// or restart re-sends nothing.
-async fn run_loop(
-    repos: Arc<RepositoryRegistry>,
-    gate: Arc<dyn PersonaPolicyGate>,
-    service: Arc<NotificationService>,
-    strings: Arc<MessagingStringsRegistry>,
-    interval_duration: StdDuration,
-) {
-    let mut ticker = interval(interval_duration);
-    // Skip the immediate initial tick so a server restart doesn't fan out a
-    // full cross-tenant sweep before warm-up completes.
-    ticker.tick().await;
-
-    info!(
-        interval_secs = interval_duration.as_secs(),
-        "persona notification digest scheduler started"
-    );
-
-    loop {
-        ticker.tick().await;
-        if let Err(e) = tick(&repos, &gate, &service, &strings).await {
-            error!(error = %e, "persona digest sweep errored — retrying next interval");
-        }
-    }
-}
-
 /// Spawn the weekly persona-digest scheduler as a background tokio task.
 ///
-/// Called once at server bootstrap beside the group digest spawn. The spawned
-/// `JoinHandle` is discarded because the scheduler is best-effort and a
-/// restart re-arms the timer.
+/// Called once at server bootstrap beside the group digest spawn. The
+/// [`AbortHandle`](tokio::task::AbortHandle) is discarded because the scheduler
+/// is best-effort and a restart re-arms the timer; "already digested" is
+/// derived from the persisted rows, so a retry or restart re-sends nothing.
 pub fn start_persona_digest_scheduler(
     repos: Arc<RepositoryRegistry>,
     gate: Arc<dyn PersonaPolicyGate>,
     service: Arc<NotificationService>,
     strings: Arc<MessagingStringsRegistry>,
 ) {
-    tokio::spawn(run_loop(
-        repos,
-        gate,
-        service,
-        strings,
+    spawn_periodic(
+        "persona notification digest scheduler",
         DEFAULT_TICK_INTERVAL,
-    ));
-    info!("Persona notification digest scheduler spawned");
+        move || {
+            let repos = Arc::clone(&repos);
+            let gate = Arc::clone(&gate);
+            let service = Arc::clone(&service);
+            let strings = Arc::clone(&strings);
+            async move {
+                tick(&repos, &gate, &service, &strings).await?;
+                Ok(())
+            }
+        },
+    );
 }

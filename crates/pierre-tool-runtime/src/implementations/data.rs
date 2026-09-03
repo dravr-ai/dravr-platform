@@ -60,7 +60,7 @@ use crate::implementations::stored_data::{
     GetHealthSnapshotsTool, GetRecoveryMetricsTool, GetSleepSessionsTool, ListDataSourcesTool,
 };
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
-use crate::protocol::{UniversalExecutor, META_AUTH_REQUIRED_PROVIDER};
+use crate::protocol::{auth_required_provider, UniversalExecutor};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -794,13 +794,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // reconnect link. A plain error payload here strands
                         // the athlete with a generic failure the model can
                         // only apologise about (live incident 2026-08-11).
-                        let dead = response
-                            .metadata
-                            .as_ref()
-                            .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER))
-                            .and_then(Value::as_str)
-                            .map(str::to_owned);
-                        let Some(dead) = dead else {
+                        let Some(dead) = auth_required_provider(&response) else {
                             let fallback_error = response.error.clone().unwrap_or_else(|| {
                                 "get_activities authentication failed".to_owned()
                             });

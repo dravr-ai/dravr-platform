@@ -13,7 +13,9 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use super::Database;
-use crate::repositories::{SeedTable, SeederRepository, COACH_POINTER_REWRITES};
+use crate::repositories::{
+    SeedTable, SeederRepository, CATALOGUE_SOURCE_FILTER, COACH_POINTER_REWRITES,
+};
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedCoach, SeedCoachAuthor,
     SeedCoachRelation, SeedCoachTranslation, SeedDemoUser, SeedLlmUsageRecord,
@@ -672,12 +674,12 @@ impl SeederRepository for Database {
         &self,
         tenant_id: &str,
     ) -> AppResult<Vec<(String, String)>> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&format!(
             "SELECT id, slug FROM coaches \
              WHERE tenant_id = $1 AND is_system = 1 AND slug IS NOT NULL \
-               AND source IN ('contremaitre', 'seed') \
-             ORDER BY slug",
-        )
+               AND {CATALOGUE_SOURCE_FILTER} \
+             ORDER BY slug"
+        ))
         .bind(tenant_id)
         .fetch_all(&self.pool)
         .await
@@ -738,12 +740,12 @@ impl SeederRepository for Database {
     }
 
     async fn seed_list_catalogue_slugs(&self) -> AppResult<Vec<String>> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&format!(
             "SELECT DISTINCT slug FROM coaches \
              WHERE is_system = 1 AND slug IS NOT NULL \
-               AND source IN ('contremaitre', 'seed') \
-             ORDER BY slug",
-        )
+               AND {CATALOGUE_SOURCE_FILTER} \
+             ORDER BY slug"
+        ))
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list catalogue slugs: {e}")))?;

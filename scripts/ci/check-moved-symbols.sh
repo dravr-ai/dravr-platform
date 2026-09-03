@@ -43,6 +43,11 @@ if [[ ${#changed_src[@]} -eq 0 ]]; then
 fi
 
 # Module path suffix for a source file, for import-path matching.
+#
+# Qualified with the crate module, because a leaf name alone is not a path: a
+# dozen crates here have a `coaches` or a `types` module, and grepping for
+# `coaches::` matched `pierre_core::models::coaches::` in files that had never
+# heard of the item that moved.
 module_suffix() {
     local f="$1"
     local rel="${f#crates/*/src/}"
@@ -51,8 +56,8 @@ module_suffix() {
     local crate_mod="${crate_dir//-/_}"
     case "$rel" in
         lib.rs) echo "$crate_mod" ;;
-        */mod.rs) echo "${rel%/mod.rs}" | tr '/' ':' | sed 's/:/::/g' ;;
-        *) echo "${rel%.rs}" | tr '/' ':' | sed 's/:/::/g' ;;
+        */mod.rs) echo "${crate_mod}::$(echo "${rel%/mod.rs}" | tr '/' ':' | sed 's/:/::/g')" ;;
+        *) echo "${crate_mod}::$(echo "${rel%.rs}" | tr '/' ':' | sed 's/:/::/g')" ;;
     esac
 }
 
@@ -89,6 +94,12 @@ for f in "${changed_src[@]}"; do
     suffix="$(module_suffix "$f")"
     [[ -z "$suffix" ]] && continue
 
+    # The crate that owns the file, and the module path inside it (empty for a
+    # crate root, which has no `crate::<inner>` spelling of its own).
+    crate_dir="$(echo "$f" | sed -E 's|^crates/([^/]+)/src/.*|\1|')"
+    inner="${suffix#*::}"
+    [[ "$inner" == "$suffix" ]] && inner=""
+
     while IFS= read -r name; do
         [[ -z "$name" ]] && continue
         # Re-added in the same file (an in-place refactor, not a move)?
@@ -103,7 +114,16 @@ for f in "${changed_src[@]}"; do
         # Files still importing the old module path AND naming the item.
         # The changed file itself is excluded — its own references are the
         # compiler's job, and on a deleted file they no longer exist.
-        hits="$(grep -rln --include='*.rs' "${suffix}::" crates/ 2>/dev/null \
+        #
+        # Two spellings reach one module: another crate writes the fully
+        # qualified path, the owning crate writes `crate::`. The second is
+        # searched only inside the owning crate, where it means that module.
+        hits="$({
+            grep -rln --include='*.rs' "${suffix}::" crates/ 2>/dev/null || true
+            if [[ -n "$inner" ]]; then
+                grep -rln --include='*.rs' "crate::${inner}::" "crates/${crate_dir}/" 2>/dev/null || true
+            fi
+          } | sort -u \
             | grep -v -F "$f" \
             | while IFS= read -r candidate; do
                 if grep -Eq "(^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|$)" "$candidate"; then
