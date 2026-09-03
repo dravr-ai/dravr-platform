@@ -6,6 +6,7 @@
 
 use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
+use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
     ConversationParticipant, ParticipantRole, PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
 };
@@ -100,13 +101,19 @@ const PREVIEW_CHARS: usize = 120;
 
 /// Shape the newest row's content into a one-line preview.
 ///
-/// Visual markers go (a `⟦viz:0⟧` is a bug in a list row), whitespace runs
-/// collapse to one space so a markdown reply reads as one line, and the
-/// result is cut at [`PREVIEW_CHARS`] characters — a boundary that never
-/// splits a multi-byte character.
+/// Visual markers go (a `⟦viz:0⟧` is a bug in a list row), inline formatting
+/// is read and dropped, whitespace runs collapse to one space so a markdown
+/// reply reads as one line, and the result is cut at [`PREVIEW_CHARS`]
+/// characters — a boundary that never splits a multi-byte character.
+///
+/// The formatting has to go rather than survive: a list row is drawn as plain
+/// text on both clients, with no markdown renderer behind it, so a `**bold**`
+/// heading in a reply reached the athlete as visible asterisks. Read with
+/// canot's own markdown parser and rendered with its plain-text renderer, so
+/// this is the same grammar every channel already speaks.
 #[must_use]
 pub fn preview_text(content_head: &str) -> String {
-    let stripped = strip_markers(content_head);
+    let stripped = render_plain(&parse_markdown(&strip_markers(content_head)));
     let mut preview = String::with_capacity(stripped.len().min(PREVIEW_CHARS * 4));
     for word in stripped.split_whitespace() {
         if !preview.is_empty() {

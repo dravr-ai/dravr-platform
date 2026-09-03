@@ -5,13 +5,17 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use pierre_contremaitre::messaging_strings::{KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED};
+use chrono::Utc;
+use pierre_contremaitre::messaging_strings::{
+    KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
+};
 use pierre_core::errors::AppError;
 use pierre_core::models::OnboardingState;
 use pierre_messaging::commands::CommandResponse;
 use pierre_services::coach_selection::CoachSelectionSource;
 use pierre_services::conversation_forge::{
-    forge_conversation, repoint_messaging_session, ForgeCoach, ForgeParams,
+    forge_conversation, in_app_title, messaging_title, repoint_messaging_session, ForgeCoach,
+    ForgeParams,
 };
 use tracing::{info, warn};
 
@@ -54,6 +58,20 @@ impl CommandHandler for ResetHandler {
         let interrupted_walk =
             OnboardingState::from_column(previous.onboarding_state.as_deref()).is_some();
 
+        // The fresh thread names itself. Carrying the old title forward left
+        // the list with rows an athlete could not tell apart, and on a
+        // messaging channel the thread has only ever been named after its
+        // channel.
+        let in_app = matches!(ctx.channel_type.as_str(), "web" | "mobile");
+        let title = if in_app {
+            in_app_title(
+                &reg.render(KEY_NEW_CONVERSATION_TITLE_PREFIX, locale, &[]),
+                Utc::now(),
+            )
+        } else {
+            messaging_title(&ctx.channel_type)
+        };
+
         let new_id = forge_conversation(
             repos,
             ForgeParams {
@@ -63,7 +81,7 @@ impl CommandHandler for ResetHandler {
                 // caller's would leave every later turn reading an empty
                 // thread.
                 tenant_id: ctx.conversation_tenant_id,
-                title: &previous.title,
+                title: &title,
                 model: Some(&previous.model),
                 // The thread being replaced already names the coach the
                 // athlete was talking to; a reset changes the thread, not who
@@ -71,7 +89,7 @@ impl CommandHandler for ResetHandler {
                 coach: ForgeCoach::Explicit(previous.coach_id.as_deref()),
                 group_id: previous.group_id.as_deref(),
                 channel_type: &ctx.channel_type,
-                selection_source: if ctx.channel_type == "web" || ctx.channel_type == "mobile" {
+                selection_source: if in_app {
                     CoachSelectionSource::ChatConversation
                 } else {
                     CoachSelectionSource::MessagingSession

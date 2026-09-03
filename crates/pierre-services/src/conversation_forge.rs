@@ -16,6 +16,7 @@
 //! Everything here is a repository call, which is why it can live below both
 //! callers rather than in either one.
 
+use chrono::{DateTime, Utc};
 use pierre_config::environment::LlmProviderType;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CoverageMap, GuidedFlow, OnboardingState, TenantId};
@@ -342,4 +343,18 @@ pub async fn repoint_messaging_session(
 #[must_use]
 pub fn messaging_title(channel_type: &str) -> String {
     format!("Messaging: {channel_type}")
+}
+
+/// The title a freshly forged in-app conversation carries.
+///
+/// The moment it started, in the reader's language — the same shape the "+"
+/// button stamps client-side (`defaultConversationTitle`: the localized
+/// prefix, the short date, the 24-hour time). A server-forged thread needs
+/// its own because it never passes through that button, and it must not
+/// inherit the title of the thread it replaced: `/reset` three times would
+/// otherwise leave three identically named rows in the list with nothing to
+/// tell them apart.
+#[must_use]
+pub fn in_app_title(prefix: &str, now: DateTime<Utc>) -> String {
+    format!("{prefix} {}", now.format("%b %-d %H:%M"))
 }

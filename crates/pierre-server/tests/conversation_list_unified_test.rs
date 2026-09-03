@@ -731,3 +731,36 @@ async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
         "both rows are new to the other participant"
     );
 }
+
+/// A list row is drawn as plain text on both clients — there is no markdown
+/// renderer behind it — so the preview must carry words, not syntax.
+///
+/// Regression: `/help` replies opened with a `**Compte**` heading and the
+/// sidebar showed the asterisks (observed on dev, 2026-09-02). The reply
+/// itself renders correctly in the transcript; only the row was raw.
+#[test]
+fn a_list_preview_drops_the_formatting_a_row_cannot_render() {
+    use pierre_mcp_server::routes::chat::preview_text;
+
+    let preview = preview_text(
+        "Commandes disponibles : **Compte**\n- /logout — Délier ce compte\n- `/privacy on`",
+    );
+
+    assert_eq!(
+        preview, "Commandes disponibles : Compte - /logout — Délier ce compte - /privacy on",
+        "the row must read as words: no asterisks, no backticks, one line"
+    );
+}
+
+/// The markers a reply carries for the client's own renderer never belong in
+/// a row either, and an athlete's stray asterisk is not formatting.
+#[test]
+fn a_list_preview_keeps_prose_the_athlete_typed() {
+    use pierre_mcp_server::routes::chat::preview_text;
+
+    assert_eq!(
+        preview_text("⟦viz:0⟧ 5 x 400m* at threshold"),
+        "5 x 400m* at threshold",
+        "an unclosed marker is the athlete's own text and survives; the viz marker does not"
+    );
+}

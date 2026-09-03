@@ -508,6 +508,12 @@ pub const KEY_SLASH_ANSWERED_PRIVATELY: &str = "commands.answered_privately";
 pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
 /// Key: `/reset` note appended when the reset ended an in-progress profile walk.
 pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";
+/// Key: the word a freshly opened conversation is named after.
+///
+/// Sits before its date and time. Shared with the clients' own "+" button,
+/// which stamps the same shape; the server needs it for a thread it forges
+/// itself.
+pub const KEY_NEW_CONVERSATION_TITLE_PREFIX: &str = "chat.newConversationTitlePrefix";
 
 // ── memory fact sentences ──────────────────────────────────────────────────
 // One key per `PredicateCode`; `{0}` is the athlete's own words (the object).

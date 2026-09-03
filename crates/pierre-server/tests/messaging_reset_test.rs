@@ -249,6 +249,23 @@ mod reset_locale {
             .await
             .expect("the primed session names its conversation");
 
+        // Rename the thread being left, so the title assertion below can tell
+        // "named itself" from "inherited what it replaced" — a fresh messaging
+        // thread is titled after its channel, which is what the primed one was
+        // already called.
+        e2e.resources
+            .common
+            .repos
+            .chat
+            .update_conversation_title(
+                &before,
+                &member.user_id.to_string(),
+                member.home_tenant,
+                "Ancienne discussion",
+            )
+            .await
+            .unwrap();
+
         let _ = reset_bodies(&e2e, &member, &session, baseline).await;
 
         let after = e2e
@@ -284,6 +301,18 @@ mod reset_locale {
         assert_eq!(
             fresh.coach_id, previous.coach_id,
             "a reset changes the thread, not the coach the athlete trains with"
+        );
+        // The fresh thread names itself. Inheriting the old title left the
+        // list with rows an athlete could not tell apart (observed on dev,
+        // 2026-09-02); on a channel the thread has only ever been named after
+        // the channel it arrived on.
+        assert_eq!(
+            previous.title, "Ancienne discussion",
+            "the archived thread keeps the name it had"
+        );
+        assert_eq!(
+            fresh.title, "Messaging: telegram",
+            "a channel thread names itself after its channel; it must not inherit the title it replaced"
         );
     }
 }
