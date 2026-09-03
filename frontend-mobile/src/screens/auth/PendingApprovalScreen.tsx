@@ -21,7 +21,12 @@ import { authApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
 
 // Logo style (pixel-specific dimensions)
-const logoStyle: ImageStyle = { width: 100, height: 100, marginBottom: spacing.md };
+const logoStyle: ImageStyle = {
+  width: 100,
+  height: 100,
+  borderRadius: 25,
+  marginBottom: spacing.md,
+};
 
 // Glassmorphism card style
 const cardStyle: ViewStyle = {
@@ -92,7 +97,7 @@ export function PendingApprovalScreen() {
             {/* Pierre Logo */}
             <View className="items-center">
               <Image
-                source={require('../../../assets/dravr-logo.png')}
+                source={require('../../../assets/icon.png')}
                 style={logoStyle}
                 resizeMode="contain"
               />

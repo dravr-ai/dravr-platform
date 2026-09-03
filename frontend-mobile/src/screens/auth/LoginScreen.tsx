@@ -157,7 +157,9 @@ export function LoginScreen() {
   };
 
   // Logo style (pixel-specific dimensions)
-  const logoStyle: ImageStyle = { width: 48, height: 48 };
+  // The boreal badge carries its own near-white ground, so it needs the app
+  // icon's corner radius to read as a badge on the deep-forest hero field.
+  const logoStyle: ImageStyle = { width: 48, height: 48, borderRadius: 12 };
 
   // Elevated card surface — sits above the forest backdrop
   const cardStyle: ViewStyle = {
@@ -196,7 +198,7 @@ export function LoginScreen() {
           <View style={{ marginTop: spacing.md, marginBottom: spacing.xl }}>
             <View className="flex-row items-center" style={{ gap: spacing.sm, marginBottom: spacing.lg }}>
               <Image
-                source={require('../../../assets/dravr-logo.png')}
+                source={require('../../../assets/icon.png')}
                 style={logoStyle}
                 resizeMode="contain"
               />

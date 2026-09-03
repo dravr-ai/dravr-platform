@@ -12,6 +12,13 @@ import { spacing, useThemeColors } from '../../constants/theme';
 /** Tracking is defined as a ratio of the type size (`0.15em`); RN wants px. */
 const BRAND_TRACKING_RATIO = 0.15;
 
+/**
+ * The badge's corner radius as a ratio of its size, so the square icon reads as
+ * the rounded app badge at any `size`. `icon.png` is a flat square — iOS masks
+ * it on the home screen and nothing masks it here.
+ */
+const BADGE_RADIUS_RATIO = 0.25;
+
 interface BrandLockupProps {
   /** Height and width of the badge mark. The wordmark is set to match. */
   size?: number;
@@ -23,11 +30,16 @@ interface BrandLockupProps {
 /**
  * Mark plus name, together, the way the brand is written down.
  *
- * The mark is self-contained — it brings its own deep-forest badge, so it
- * holds on the near-white canvas (14.9:1 at its darkest) and on the near-black
- * one (9.5:1 at its lightest ripple). The wordmark is Space Grotesk SemiBold
- * at `0.15em`, in the `brand` ink, which is the one green legible at text
- * sizes in both schemes: `primary` is `#00241a` in light and reads as black.
+ * The mark is the boreal-ripple badge the phone already wears everywhere else
+ * — the home-screen icon and the launch screen — so the header names the app
+ * with the same mark the athlete tapped to open it. `icon.png` is the flattened
+ * variant: the ink sits on its own `#f9f9f6` ground, which is what lets a
+ * forest-ink mark hold on the near-black canvas. `splash-icon.png` is the same
+ * artwork with an alpha channel and would sink into that canvas.
+ *
+ * The wordmark is Space Grotesk SemiBold at `0.15em`, in the `brand` ink, which
+ * is the one green legible at text sizes in both schemes: `primary` is
+ * `#00241a` in light and reads as black.
  */
 export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityLabel }: BrandLockupProps) {
   const colors = useThemeColors();
@@ -49,8 +61,8 @@ export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityL
       testID={testID}
     >
       <Image
-        source={require('../../../assets/dravr-logo.png')}
-        style={{ width: size, height: size }}
+        source={require('../../../assets/icon.png')}
+        style={{ width: size, height: size, borderRadius: size * BADGE_RADIUS_RATIO }}
         resizeMode="contain"
         testID={`${testID}-mark`}
       />

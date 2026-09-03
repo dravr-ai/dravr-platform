@@ -783,7 +783,7 @@ export function MessageList({
     >
       <View className="w-8 h-8 rounded-full mr-3 overflow-hidden">
         <Image
-          source={require('../../../assets/dravr-logo.png')}
+          source={require('../../../assets/icon.png')}
           className="w-8 h-8"
           resizeMode="cover"
         />

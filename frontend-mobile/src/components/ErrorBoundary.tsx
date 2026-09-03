@@ -31,8 +31,8 @@ function ErrorFallback({ errorText, onReload }: { errorText?: string; onReload: 
         className="flex-1 bg-background-primary items-center justify-center px-8"
       >
         <Image
-          source={require('../../assets/dravr-logo.png')}
-          className="w-20 h-20 mb-8"
+          source={require('../../assets/icon.png')}
+          className="w-20 h-20 mb-8 rounded-[20px]"
           resizeMode="contain"
         />
         <Text className="text-2xl font-bold text-text-primary text-center mb-3">
