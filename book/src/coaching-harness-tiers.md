@@ -100,7 +100,7 @@ Two strategies layered:
 | `window_tokens` | 1_000_000 | > 0 |
 | `warn_threshold` | 0.0896 | `(0.0, 1.0]` |
 | `emergency_threshold` | 0.1216 | `(0.0, 1.0]`, strictly > `warn_threshold` |
-| `summarize_oldest_n` | 6 | > 0 |
+| `summarize_oldest_n` | 12 | > 0 |
 | `sliding_drop_n` | 4 | > 0 |
 
 `validate_document` in `harness_config.rs` enforces these invariants

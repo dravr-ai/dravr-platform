@@ -78,7 +78,11 @@ impl Default for HarnessCompactionConfig {
             window_tokens: 1_000_000,
             warn_threshold: 0.0896,
             emergency_threshold: 0.1216,
-            summarize_oldest_n: 6,
+            // Mirrors `CompactionConfig::default`, which carries the
+            // reasoning. The two are separate structs — this one is the
+            // persisted admin document, that one the runtime projection — so
+            // they have to be changed together.
+            summarize_oldest_n: 12,
             sliding_drop_n: 4,
             max_messages: default_compaction_max_messages(),
         }

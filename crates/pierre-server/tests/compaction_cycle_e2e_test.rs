@@ -138,15 +138,20 @@ async fn seed_user_and_tenant(db: &Database) -> (String, TenantId) {
 /// 1. A 50-message conversation exceeds the default `max_messages` cap (40) while
 ///    staying well under the token thresholds, forcing the over-message →
 ///    Summarize path.
-/// 2. `compact_if_needed` summarizes the oldest `summarize_oldest_n` (6) turns
-///    via the LLM, persists a `CompactionBlock`, and replaces those turns in the
-///    outgoing message vector with a single User summary message (shrinks by 5).
+/// 2. `compact_if_needed` summarizes the oldest `summarize_oldest_n` turns via
+///    the LLM, persists a `CompactionBlock`, and replaces those turns in the
+///    outgoing message vector with a single User summary message.
 /// 3. The persisted block carries the stub's fixed summary and is anchored to the
-///    first/last of the six oldest real history rows.
+///    first/last of those oldest real history rows.
 /// 4. On a later turn, `build_llm_messages_with_blocks` reconstructs that block:
-///    the six covered rows are replaced by exactly one User message carrying
-///    the summary (no UI marker), with rows after the window rendering normally —
-///    versus `build_llm_messages` (no blocks), which would keep all 51 entries.
+///    the covered rows are replaced by exactly one User message carrying the
+///    summary (no UI marker), with rows after the window rendering normally —
+///    versus `build_llm_messages` (no blocks), which keeps all 51 entries.
+///
+/// Every count is read from `CompactionConfig::default()` rather than written
+/// out. It used to spell "6" and "-5" in eight places, so retuning
+/// `summarize_oldest_n` meant editing assertions that were only ever restating
+/// the config back to itself.
 #[tokio::test]
 async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     let db = create_test_db().await.expect("test db should initialize");
@@ -244,8 +249,13 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         "an over-message under-token thread must summarize, got: {outcome:?}"
     );
 
+    // How many rows a block covers, and the net shrink when they collapse into
+    // one summary message. Read, not written.
+    let covered = CompactionConfig::default().summarize_oldest_n;
+    let net_shrink = covered - 1;
+
     // --- Assert (2): exactly one block persisted, carrying the stub's summary,
-    //     anchored to the oldest six real history rows. ---
+    //     anchored to the oldest real history rows the window covers. ---
     let blocks = repos
         .memory
         .list_compaction_blocks(&conversation.id, tenant_id)
@@ -266,18 +276,20 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         "block first_message_id must anchor to the oldest summarized row"
     );
     assert_eq!(
-        block.last_message_id, history[5].id,
-        "block last_message_id must anchor to the 6th-oldest summarized row (summarize_oldest_n = 6)"
+        block.last_message_id,
+        history[covered - 1].id,
+        "block last_message_id must anchor to the last summarized row \
+         (summarize_oldest_n = {covered})"
     );
 
-    // --- Assert: the in-flight prompt vector shrank by 5 — the six oldest turns
+    // --- Assert: the in-flight prompt vector shrank — the oldest turns
     //     collapsed into a single User summary message carrying the shared
     //     framing prefix. (System would be dropped by the live provider, which
     //     keeps only the first system message.) ---
     assert_eq!(
         llm_messages.len(),
-        (MESSAGE_COUNT + 1) - 5,
-        "six oldest turns collapse to one summary message: net -5"
+        (MESSAGE_COUNT + 1) - net_shrink,
+        "{covered} oldest turns collapse to one summary message: net -{net_shrink}"
     );
     let summary_msgs: Vec<&pierre_llm::ChatMessage> = llm_messages
         .iter()
@@ -304,16 +316,16 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
 
     // --- Assert (3): read-side reconstruction on a later turn. Rebuilding the
     //     prompt from the SAME raw history plus the persisted block must re-inject
-    //     the summary in place of the six covered rows. ---
+    //     the summary in place of the covered rows. ---
     let (reconstructed, recon_source_ids) =
         build_llm_messages_with_blocks(Some(system_prompt), &history, from_ref(&block));
 
-    // The six covered raw rows must be absent.
-    for covered in history.iter().take(6) {
+    // The covered raw rows must be absent.
+    for row in history.iter().take(covered) {
         assert!(
-            !recon_source_ids.contains(&Some(covered.id.clone())),
+            !recon_source_ids.contains(&Some(row.id.clone())),
             "covered row {} must be absent from the reconstructed prompt",
-            covered.id
+            row.id
         );
     }
     // Exactly one User message carries the block summary, framed as recovered
@@ -343,7 +355,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     );
 
     // Rows after the compaction window (history[6..]) must still render normally.
-    for after in history.iter().skip(6) {
+    for after in history.iter().skip(covered) {
         assert!(
             recon_source_ids.contains(&Some(after.id.clone())),
             "row {} after the window must render raw in the reconstructed prompt",
@@ -351,11 +363,12 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         );
     }
 
-    // Reconstruction collapses six rows into one summary: net -5 versus raw.
+    // Reconstruction collapses the covered rows into one summary.
     assert_eq!(
         reconstructed.len(),
-        (MESSAGE_COUNT + 1) - 5,
-        "reconstruction collapses six covered rows into one summary message: net -5"
+        (MESSAGE_COUNT + 1) - net_shrink,
+        "reconstruction collapses {covered} covered rows into one summary \
+         message: net -{net_shrink}"
     );
 
     // --- Contrast: with NO blocks, the rebuild keeps every raw row (51 total),

@@ -70,7 +70,18 @@ impl Default for CompactionConfig {
             window_tokens: 1_000_000,
             warn_threshold: 0.0896,
             emergency_threshold: 0.1216,
-            summarize_oldest_n: 6,
+            // 12, not 6. The message cap is 40 and a jammed thread arrives at
+            // ~90 messages, so at 6 per turn it takes ~9 turns of the athlete
+            // talking to get back under — each one paying a summarization call
+            // — before the prompt is the size it is supposed to be. 12 halves
+            // that.
+            //
+            // Not higher: a block covers `summarize_oldest_n` emitted rows, and
+            // everything it covers reaches later turns as a summary rather than
+            // as the athlete's own words. On 2026-09-02 what kept falling out
+            // of the window was his corrections, so the chunk stays small
+            // enough that one block cannot swallow a whole exchange.
+            summarize_oldest_n: 12,
             sliding_drop_n: 4,
             max_messages: 40,
         }

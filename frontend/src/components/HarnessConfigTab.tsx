@@ -40,7 +40,7 @@ function defaultDocument(): HarnessConfigDocument {
       window_tokens: 128_000,
       warn_threshold: 0.7,
       emergency_threshold: 0.95,
-      summarize_oldest_n: 6,
+      summarize_oldest_n: 12,
       sliding_drop_n: 4,
     },
     guardrails: {
