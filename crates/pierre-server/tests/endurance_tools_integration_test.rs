@@ -439,6 +439,25 @@ async fn test_get_training_history_empty() -> Result<()> {
             .len(),
         0
     );
+
+    // This is the tool the endurance coach prompt says to call first, and it
+    // used to answer with bare ctl/atl/tsb floats. The interpretation key ships
+    // even on an empty window, because the coach reads it to know what the
+    // numbers mean before it has any (registre#199).
+    let method = result["interpretation"]["method"]
+        .as_str()
+        .expect("get_training_history must carry the method that produced its numbers");
+    assert!(
+        method.contains("CTL - ATL"),
+        "the formula must reach the coach: {method}"
+    );
+    assert!(
+        result["interpretation"]["tsb"]
+            .as_str()
+            .is_some_and(|t| t.contains("interpret via tsb_pct_of_ctl")),
+        "and the instruction not to read the raw number: {}",
+        result["interpretation"]
+    );
     Ok(())
 }
 

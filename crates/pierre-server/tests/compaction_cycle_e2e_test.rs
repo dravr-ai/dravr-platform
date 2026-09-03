@@ -18,6 +18,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{AddMessageParams, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
+use pierre_database::repositories::InsertCompactionBlockParams;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
@@ -364,5 +365,231 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         raw_rebuild.len(),
         MESSAGE_COUNT + 1,
         "without a block, the rebuild keeps the system prompt + all {MESSAGE_COUNT} raw rows"
+    );
+}
+
+/// The shape that jammed in production, reproduced.
+///
+/// The history window is `max_messages * 4` rows and it slides, so the oldest
+/// blocks fall out of it before the rows they cover do. Under the old rules a
+/// block whose `first_message_id` had scrolled out was dropped whole, its
+/// surviving rows rendered raw at the head, and the *next* accepted block's
+/// summary — carrying `source_id = None` — landed inside the first
+/// `summarize_oldest_n` slots. `pick_range`'s contiguity guard aborted on that
+/// `None`, `try_summarize` returned `NoOp`, and the `over_messages` backstop
+/// raw-dropped the history with no block written.
+///
+/// The head reads `[None(system), Some x 4, None(summary), Some…]` — and it
+/// never stops reading that way, because the block that produced it is not
+/// coming back into the window. Compaction succeeded once per conversation and
+/// then jammed for good: live conversation `c2af0dcb-…`, 2026-08-13 →
+/// 2026-09-02, 27 sliding-window fallbacks and **zero** successful compactions.
+/// ~51 of 91 messages were dropped every turn and rebuilt from raw history the
+/// next, so the athlete's corrections fell out of the window a few turns after
+/// he made them and he corrected the same facts four times before leaving
+/// (registre#198).
+#[tokio::test]
+async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
+    let db = create_test_db().await.expect("test db should initialize");
+    let repos = db.repositories();
+    let (user_id, tenant_id) = seed_user_and_tenant(&db).await;
+    let user_id = user_id.as_str();
+
+    let conversation = repos
+        .chat
+        .create_conversation(
+            user_id,
+            tenant_id,
+            "jammed compaction shape",
+            "stub-model",
+            None,
+            None,
+        )
+        .await
+        .expect("conversation should be created");
+
+    for i in 0..MESSAGE_COUNT {
+        let role = if i % 2 == 0 { "user" } else { "assistant" };
+        repos
+            .chat
+            .add_message(&AddMessageParams {
+                tenant_id,
+                conversation_id: &conversation.id,
+                user_id,
+                role,
+                content: &format!("msg-{i:02} short coaching turn about the training week"),
+                token_count: None,
+                finish_reason: None,
+                prompt_tokens: None,
+                model: Some("stub-model"),
+                content_blocks: None,
+            })
+            .await
+            .expect("message should be added");
+    }
+    let history = repos
+        .chat
+        .get_messages(&conversation.id, user_id, tenant_id)
+        .await
+        .expect("messages should load");
+
+    // Block A: the older block, whose first row is about to scroll out.
+    // Block B: still fully inside the window, so it is accepted and contributes
+    // the `None` that used to sit inside the guard's range.
+    for (first, last) in [(0usize, 3usize), (6usize, 11usize)] {
+        repos
+            .memory
+            .insert_compaction_block(&InsertCompactionBlockParams {
+                tenant_id,
+                conversation_id: &conversation.id,
+                summary: STUB_SUMMARY,
+                summary_tokens: 12,
+                original_tokens: 40,
+                first_message_id: &history[first].id,
+                last_message_id: &history[last].id,
+            })
+            .await
+            .expect("block should insert");
+    }
+    let blocks = repos
+        .memory
+        .list_compaction_blocks(&conversation.id, tenant_id)
+        .await
+        .expect("blocks should load");
+    assert_eq!(blocks.len(), 2);
+
+    // The window has advanced past history[0], so block A straddles its edge —
+    // the state the sliding window reaches on its own every time.
+    let window = &history[1..];
+    let system_prompt = "system prompt";
+    let (mut llm_messages, source_ids) =
+        build_llm_messages_with_blocks(Some(system_prompt), window, &blocks);
+
+    let provider = ChatProvider::Custom(Arc::new(StubSummarizer));
+    let outcome = ConversationCompactor::new(CompactionConfig::default())
+        .compact_if_needed(CompactionContext {
+            repo: repos.memory.as_ref(),
+            provider: &provider,
+            tenant_id,
+            conversation_id: &conversation.id,
+            source_ids: &source_ids,
+            llm_messages: &mut llm_messages,
+        })
+        .await
+        .expect("compaction should succeed");
+
+    assert!(
+        matches!(outcome, CompactionOutcome::Summarized { .. }),
+        "a thread carrying a straddling block must still summarize. A \
+         SlidingWindow outcome here IS the production jam: history dropped with \
+         nothing written to recover it. Got: {outcome:?}"
+    );
+
+    let after = repos
+        .memory
+        .list_compaction_blocks(&conversation.id, tenant_id)
+        .await
+        .expect("blocks should load");
+    assert_eq!(
+        after.len(),
+        3,
+        "the turn must persist its own block; with only the two we seeded, the \
+         history this turn removed is deleted rather than summarized"
+    );
+}
+
+/// A block whose first row has scrolled out of the history window is clamped to
+/// the window, not discarded.
+///
+/// The window is `max_messages * 4` rows and slides, so a block always leaves it
+/// before the rows it covers do. Discarding such a block re-expanded
+/// already-summarized history back into the prompt on every turn and stranded a
+/// `None` in the head — the jam's other half.
+#[tokio::test]
+async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
+    let db = create_test_db().await.expect("test db should initialize");
+    let repos = db.repositories();
+    let (user_id, tenant_id) = seed_user_and_tenant(&db).await;
+    let user_id = user_id.as_str();
+
+    let conversation = repos
+        .chat
+        .create_conversation(
+            user_id,
+            tenant_id,
+            "scrolled-out block",
+            "stub-model",
+            None,
+            None,
+        )
+        .await
+        .expect("conversation should be created");
+
+    for i in 0..10 {
+        let role = if i % 2 == 0 { "user" } else { "assistant" };
+        repos
+            .chat
+            .add_message(&AddMessageParams {
+                tenant_id,
+                conversation_id: &conversation.id,
+                user_id,
+                role,
+                content: &format!("msg-{i:02}"),
+                token_count: None,
+                finish_reason: None,
+                prompt_tokens: None,
+                model: Some("stub-model"),
+                content_blocks: None,
+            })
+            .await
+            .expect("message should be added");
+    }
+    let history = repos
+        .chat
+        .get_messages(&conversation.id, user_id, tenant_id)
+        .await
+        .expect("messages should load");
+
+    // A block covering rows 0..=3, then a window that has already scrolled past
+    // row 0 — exactly what the sliding history window produces.
+    repos
+        .memory
+        .insert_compaction_block(&InsertCompactionBlockParams {
+            tenant_id,
+            conversation_id: &conversation.id,
+            summary: STUB_SUMMARY,
+            summary_tokens: 12,
+            original_tokens: 40,
+            first_message_id: &history[0].id,
+            last_message_id: &history[3].id,
+        })
+        .await
+        .expect("block should insert");
+    let blocks = repos
+        .memory
+        .list_compaction_blocks(&conversation.id, tenant_id)
+        .await
+        .expect("blocks should load");
+
+    let window = &history[1..];
+    let (messages, source_ids) = build_llm_messages_with_blocks(Some("system"), window, &blocks);
+
+    assert!(
+        messages.iter().any(|m| m.content.contains(STUB_SUMMARY)),
+        "the block still describes rows 1..=3, so its summary must be spliced \
+         rather than dropped: {messages:?}"
+    );
+    for covered in &history[1..=3] {
+        assert!(
+            !source_ids.contains(&Some(covered.id.clone())),
+            "row {} is covered by the clamped block and must not also render \
+             raw — re-expanding summarized history is what filled the prompt \
+             and jammed the compactor",
+            covered.id
+        );
+    }
+    assert!(
+        source_ids.contains(&Some(history[4].id.clone())),
+        "the first row after the block must still render raw"
     );
 }

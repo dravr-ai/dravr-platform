@@ -255,16 +255,65 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
                 "lactate threshold pace",
                 "threshold",
                 "tempo",
+                // fr
+                "allure seuil",
+                "allure au seuil",
+                "allure tempo",
+                "seuil",
+                // es
+                "ritmo umbral",
+                "ritmo de umbral",
+                "umbral",
+                // de
+                "schwellentempo",
+                "schwellenpace",
+                "schwelle",
+                // pt
+                "ritmo limiar",
+                "ritmo de limiar",
+                "limiar",
             ],
             m.threshold_pace_range,
             "threshold",
         ),
         (
-            &["easy pace", "recovery pace", "easy run"],
+            &[
+                "easy pace",
+                "recovery pace",
+                "easy run",
+                // fr
+                "allure facile",
+                "allure endurance",
+                "allure de récupération",
+                "endurance fondamentale",
+                // es
+                "ritmo fácil",
+                "ritmo suave",
+                "ritmo de recuperación",
+                // de
+                "lockeres tempo",
+                "grundlagentempo",
+                "regenerationstempo",
+                // pt
+                "ritmo fácil",
+                "ritmo leve",
+                "ritmo de recuperação",
+            ],
             m.easy_pace_range,
             "easy",
         ),
-        (&["marathon pace"], m.marathon_pace_range, "marathon"),
+        (
+            &[
+                "marathon pace",
+                // fr / es / de / pt
+                "allure marathon",
+                "ritmo maratón",
+                "marathontempo",
+                "ritmo maratona",
+            ],
+            m.marathon_pace_range,
+            "marathon",
+        ),
         (
             &[
                 "interval pace",
@@ -273,6 +322,18 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
                 "5k pace",
                 "rep pace",
                 "repetition pace",
+                // fr
+                "allure intervalle",
+                "allure vo2max",
+                "allure 5 km",
+                // es
+                "ritmo intervalo",
+                "ritmo de intervalo",
+                // de
+                "intervalltempo",
+                // pt
+                "ritmo intervalo",
+                "ritmo de intervalo",
             ],
             m.interval_pace_range,
             "interval",
@@ -300,7 +361,12 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
         }
     }
     if let Some(vo2) = m.vo2max {
-        for kw in ["vo2max", "vo2 max"] {
+        for kw in [
+            "vo2max",
+            "vo2 max",
+            "vo₂max",
+            "consommation maximale d'oxygène",
+        ] {
             if let Some(v) = extract_number_near(text, kw) {
                 return verdict_for(
                     ctx,
@@ -312,7 +378,23 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
         }
     }
     if let Some(ftp) = m.ftp_watts {
-        for kw in ["ftp", "functional threshold power", "threshold power"] {
+        for kw in [
+            "ftp",
+            "functional threshold power",
+            "threshold power",
+            // fr
+            "seuil de puissance",
+            "puissance au seuil",
+            "puissance seuil",
+            // es
+            "potencia umbral",
+            "potencia de umbral",
+            // de
+            "schwellenleistung",
+            // pt
+            "potência limiar",
+            "potência de limiar",
+        ] {
             if let Some(v) = extract_number_near(text, kw) {
                 // FTP test-retest reliability is ~±3%.
                 return verdict_for(
@@ -325,7 +407,27 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
         }
     }
     if let Some(mhr) = m.max_hr {
-        for kw in ["max heart rate", "maximum heart rate", "max hr", "hrmax"] {
+        for kw in [
+            "max heart rate",
+            "maximum heart rate",
+            "max hr",
+            "hrmax",
+            // fr
+            "fréquence cardiaque maximale",
+            "fréquence cardiaque max",
+            "fc max",
+            "fcmax",
+            // es
+            "frecuencia cardíaca máxima",
+            "fc máx",
+            // de
+            "maximale herzfrequenz",
+            "maximalpuls",
+            "hfmax",
+            // pt
+            "frequência cardíaca máxima",
+            "fc máx",
+        ] {
             if let Some(v) = extract_number_near(text, kw) {
                 return verdict_for(
                     ctx,
@@ -337,10 +439,31 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
         }
     }
     if let Some(tsb) = m.recent_tsb {
-        // LIMITATION(registre#204): these `recent_tsb` probe anchors are English-only, as are
-        // every other probe's in this function, so a reply in any of the four other shipped
-        // locales carries its numeric claims past this layer unchecked.
-        for kw in ["tsb", "training stress balance", "current form"] {
+        for kw in [
+            "tsb",
+            "training stress balance",
+            "current form",
+            // fr. "indice de fatigue" is here because the coach invented it
+            // live on 2026-09-02 and then repeated it for fifteen turns — a
+            // label the model actually uses is worth probing whether or not
+            // anybody chose it (registre#204).
+            "forme actuelle",
+            "équilibre de charge",
+            "indice de fatigue",
+            "indice de forme",
+            // es
+            "forma actual",
+            "balance de carga",
+            "índice de fatiga",
+            // de
+            "aktuelle form",
+            "formwert",
+            "ermüdungsindex",
+            // pt
+            "forma atual",
+            "equilíbrio de carga",
+            "índice de fadiga",
+        ] {
             if let Some(v) = extract_number_near(text, kw) {
                 return verdict_for(ctx, (tsb - 5.0, tsb + 5.0), v, &point_descr("TSB", tsb, v));
             }

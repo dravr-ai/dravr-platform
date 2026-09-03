@@ -14,10 +14,11 @@
 //!
 //! ## Whose clock this is
 //!
-//! The athlete's. Every timestamp here renders in their timezone, in the same
-//! `%Y-%m-%d %H:%M` shape that
+//! The athlete's. Every timestamp here renders in their timezone, through
+//! [`pierre_core::civil_time::format_local_stamp`] — the same helper
 //! `pierre_chat_pipeline::stages::prompt_assembly::format_current_date` uses for
-//! `{{CURRENT_DATE}}`. That agreement is the point, and it is load-bearing.
+//! `{{CURRENT_DATE}}`, so both carry the same `%Y-%m-%d <weekday> %H:%M` shape.
+//! That agreement is the point, and it is load-bearing.
 //!
 //! Rendering the rows in UTC while the prompt anchor said local put two
 //! calendars in one prompt. On 2026-08-28 an athlete in `America/Toronto` was
@@ -37,6 +38,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::hash::BuildHasher;
 
+use pierre_core::civil_time::{format_local_stamp, resolve_zone};
 use pierre_core::models::Activity;
 use pierre_providers::deduplication::FragmentReport;
 
@@ -70,9 +72,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
     // back to UTC exactly as `format_current_date` does, so the list and the
     // prompt's date anchor stay in one frame even when the athlete has no
     // timezone on file.
-    let zone = user_timezone
-        .and_then(|tz| tz.parse::<chrono_tz::Tz>().ok())
-        .unwrap_or(chrono_tz::UTC);
+    let zone = resolve_zone(user_timezone);
 
     let mut lines = Vec::with_capacity(activities.len() + 6);
     lines.push("Your Activities:".to_owned());
@@ -112,14 +112,11 @@ pub fn format_activities_as_list<S: BuildHasher>(
     // by the requested `sort_by` before the display limit). Re-sorting here
     // would override "longest to shortest" / "oldest first" back to date order.
     for (i, activity) in activities.iter().enumerate() {
-        // LIMITATION(registre#200): this `date` format carries no weekday name, so the model
-        // derives weekdays from the bare date by calendar arithmetic — the error class the epoch
-        // table in `prompt_assembly` exists to remove for epochs.
-        let date = activity
-            .start_date()
-            .with_timezone(&zone)
-            .format("%Y-%m-%d %H:%M")
-            .to_string();
+        // The weekday is named, not left to the model. Deriving it from a bare
+        // date is calendar arithmetic, the same error class the epoch table in
+        // `prompt_assembly` exists to remove — and on 2026-09-02 it cost an
+        // athlete three rounds of corrections before he left the conversation.
+        let date = format_local_stamp(activity.start_date(), zone, locale);
         // Render the sport with its localized short label (fr "trail"/"rando",
         // not the English "trail run") so the list reads natively in the user's
         // chat language; `Other` keeps its provider-supplied label, unknown

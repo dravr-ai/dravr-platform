@@ -18,7 +18,9 @@ use crate::ChatPipelineContext;
 
 use pierre_contremaitre::messaging_strings::{KEY_EMPTY_REPLY, KEY_REPLY_WITHHELD};
 use pierre_contremaitre::persona_contracts::PersonaContractsSnapshot;
-use pierre_core::narration::{scrub_internal_narration, IdentityLeakMatch};
+use pierre_core::narration::{
+    scrub_internal_narration, scrub_ungrounded_data_appeals, IdentityLeakMatch,
+};
 
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
@@ -91,6 +93,13 @@ pub(crate) struct PostProcessInputs<'a> {
     /// a `source_tool` outside this set is rejected, which is what makes the
     /// attribution verified rather than asserted.
     pub tools_called: &'a [String],
+    /// Whether this turn stands on evidence gathered for it — a tool ran, or
+    /// the prefetch injected an activity block.
+    ///
+    /// `false` means the reply was produced from conversation history alone, and
+    /// the appeal scrub applies: the coach may still answer, it just cannot cite
+    /// a lookup it did not perform (registre#202).
+    pub turn_was_grounded: bool,
     /// The model this turn actually ran on.
     ///
     /// Needed because the persona repair re-prompts the SAME provider. Without
@@ -318,6 +327,37 @@ async fn lift_viz_blocks(
     }
 }
 
+/// Drop sentences that cite fetched data on a turn where nothing was fetched.
+///
+/// Live 2026-09-02, on a zero-tool turn and immediately after the athlete had
+/// corrected it for the third time: «Roster data confirme: Date ride était bien
+/// lundi». The coach turned the athlete's own correction into evidence against
+/// him. On a grounded turn the same sentence is true, so this returns the reply
+/// untouched (registre#202).
+///
+/// A reply that was *nothing but* appeals is left alone rather than emptied:
+/// the narration scrub downstream owns the withhold-and-replace path, and two
+/// stages competing for it is how a reply goes silently blank.
+fn drop_ungrounded_data_appeals(
+    raw_content: String,
+    turn_was_grounded: bool,
+    input: &TurnInput,
+) -> String {
+    if turn_was_grounded {
+        return raw_content;
+    }
+    let appeal = scrub_ungrounded_data_appeals(&raw_content);
+    if !appeal.fired() || appeal.cleaned.is_empty() {
+        return raw_content;
+    }
+    tracing::warn!(
+        tenant_id = %input.conversation_tenant_id,
+        sentences_removed = appeal.removed,
+        "appeal to fetched data scrubbed from a turn that fetched nothing"
+    );
+    appeal.cleaned
+}
+
 /// Run post-LLM content processing over the raw assistant reply.
 ///
 /// Owns pipeline stages 15 through 18: canary scan, text guardrails,
@@ -340,6 +380,7 @@ pub(crate) async fn post_process_assistant_reply(
         prompt_guard,
         profile,
         tools_called,
+        turn_was_grounded,
         active_model,
     } = inputs;
     // Stage 15: Scan for verbatim system-prompt leaks / canary hits. A canary
@@ -443,6 +484,9 @@ pub(crate) async fn post_process_assistant_reply(
     // is card JSON, not prose. A reply that was pure narration is withheld
     // and replaced like a canary hit; a mixed reply continues with the
     // narration removed, so persist/extraction/outbound all see clean text.
+    // Stage 15.55b: an ungrounded turn may not appeal to data as its authority.
+    let raw_content = drop_ungrounded_data_appeals(raw_content, turn_was_grounded, input);
+
     let scrub = scrub_internal_narration(&raw_content);
     if scrub.fired() {
         tracing::warn!(

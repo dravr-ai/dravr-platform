@@ -201,6 +201,7 @@ mod inject_tests {
             recent_activities: vec![],
             needs_reauth_providers: vec![],
             served_stale: false,
+            timezone: None,
             computed_at: Utc::now(),
         }
     }

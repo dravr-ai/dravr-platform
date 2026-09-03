@@ -162,6 +162,12 @@ pub struct ExtractionRequest<'a> {
     /// When set, override the extractor's kind on every captured fact (used by
     /// the onboarding flow to force `NorthStar` when probing the North Star).
     pub force_kind: Option<FactKind>,
+    /// Whether `save_training_plan` actually ran on the turn being extracted.
+    ///
+    /// The coach-prescription filter drops schedule facts *because* plans are
+    /// supposed to persist through that tool. When it did not run, the drop
+    /// deletes the only copy — see [`is_coach_prescription`].
+    pub plan_was_saved: bool,
 }
 
 /// Outcome of a single extraction run.
@@ -246,12 +252,33 @@ impl ExtractionOutcome {
 /// because the base-rate cost of a stored prescription (stale plan beliefs
 /// replayed for weeks) far exceeds the cost of missing one constraint the
 /// user can restate.
-fn is_coach_prescription(kind: FactKind, stated_by: Option<&str>, source: FactSource) -> bool {
+///
+/// `plan_was_saved` is what makes the drop safe. The whole justification is
+/// that plans persist through `save_training_plan` — so when that tool did not
+/// run, dropping the fact deletes the only copy there is.
+///
+/// Live 2026-09-02: the athlete asked for a dated plan to a goal race
+/// (*"je fais une course avec beaucoup de dénivelé le 11 octobre. Sors moi un
+/// plan journalier jusqu'à la course"*). The coach produced a week-by-week
+/// build-up in prose, this filter logged three drops, and `save_training_plan`
+/// was never called — `PostHog` shows zero `training_plan.saved` that day. The
+/// plan existed only in a conversation whose history was being raw-dropped
+/// every turn, and by the end of the session it was unrecoverable from either
+/// store (registre#203).
+fn is_coach_prescription(
+    kind: FactKind,
+    stated_by: Option<&str>,
+    source: FactSource,
+    plan_was_saved: bool,
+) -> bool {
     // Case-insensitive / whitespace-tolerant: the extractor is an LLM and may
     // emit "User"/"USER". A stricter match would silently drop a genuine
     // user-stated constraint on that drift.
     let user_stated = stated_by.is_some_and(|s| s.trim().eq_ignore_ascii_case("user"));
-    source == FactSource::Conversation && kind == FactKind::Schedule && !user_stated
+    plan_was_saved
+        && source == FactSource::Conversation
+        && kind == FactKind::Schedule
+        && !user_stated
 }
 
 /// Gate one raw fact: confidence floor + coach-prescription filter. Returns
@@ -271,16 +298,37 @@ fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f
     let kind = req
         .force_kind
         .unwrap_or_else(|| FactKind::parse_lenient(&fact.kind));
-    // LIMITATION(registre#203): `is_coach_prescription` drops the fact on the assumption that
-    // `save_training_plan` ran, without checking that it did; when the tool is not called the
-    // prescription is persisted nowhere.
-    if is_coach_prescription(kind, fact.stated_by.as_deref(), req.source) {
+    if is_coach_prescription(
+        kind,
+        fact.stated_by.as_deref(),
+        req.source,
+        req.plan_was_saved,
+    ) {
         info!(
             kind = kind.as_str(),
             stated_by = fact.stated_by.as_deref().unwrap_or("<absent>"),
-            "dropping coach-prescription schedule fact — plans persist via save_training_plan"
+            "dropping coach-prescription schedule fact — save_training_plan ran, so the plan is stored"
         );
         return None;
+    }
+    // The same fact on a turn where the tool did NOT run: retained, because
+    // nothing else holds it. WARN rather than INFO — a coach that prescribed a
+    // schedule without persisting it is a gap worth seeing in the logs, not
+    // just a fact worth keeping.
+    if !req.plan_was_saved
+        && req.source == FactSource::Conversation
+        && kind == FactKind::Schedule
+        && !fact
+            .stated_by
+            .as_deref()
+            .is_some_and(|s| s.trim().eq_ignore_ascii_case("user"))
+    {
+        tracing::warn!(
+            kind = kind.as_str(),
+            stated_by = fact.stated_by.as_deref().unwrap_or("<absent>"),
+            "retaining coach-prescription schedule fact — save_training_plan did not run this turn, \
+             so nothing else persists it"
+        );
     }
     Some((kind, clamped_confidence))
 }
@@ -620,6 +668,8 @@ pub struct SpawnedExtractionRequest {
     /// by the onboarding flow when probing the North Star so the answer is
     /// stored as `FactKind::NorthStar` regardless of how the extractor labels it.
     pub force_kind: Option<FactKind>,
+    /// Whether `save_training_plan` ran on the turn being extracted.
+    pub plan_was_saved: bool,
 }
 
 /// Fire-and-forget memory extraction.
@@ -677,6 +727,7 @@ pub fn spawn_extract_for_turn(
             pillar: req.pillar,
             source: req.source,
             force_kind: req.force_kind,
+            plan_was_saved: req.plan_was_saved,
         };
         match extract_and_persist(
             memory_repo.as_ref(),
@@ -794,29 +845,38 @@ mod tests {
     }
 
     #[test]
-    fn schedule_gate_drops_coach_prescriptions_from_conversation() {
+    fn schedule_gate_drops_coach_prescriptions_once_the_plan_is_stored() {
         // The 1b6199d8 shape: a schedule fact the extractor did not attribute
-        // to the user. Absent stated_by is treated as coach-stated.
+        // to the user. Absent stated_by is treated as coach-stated. Dropped
+        // only because `save_training_plan` ran and holds the plan.
         assert!(is_coach_prescription(
             FactKind::Schedule,
             None,
-            FactSource::Conversation
+            FactSource::Conversation,
+            true
         ));
         assert!(is_coach_prescription(
             FactKind::Schedule,
             Some("coach"),
-            FactSource::Conversation
+            FactSource::Conversation,
+            true
         ));
         // User-stated availability constraints still persist.
         assert!(!is_coach_prescription(
             FactKind::Schedule,
             Some("user"),
-            FactSource::Conversation
+            FactSource::Conversation,
+            true
         ));
         // …including when the extractor drifts the casing/spacing of "user".
         for variant in ["User", "USER", " user ", "User "] {
             assert!(
-                !is_coach_prescription(FactKind::Schedule, Some(variant), FactSource::Conversation),
+                !is_coach_prescription(
+                    FactKind::Schedule,
+                    Some(variant),
+                    FactSource::Conversation,
+                    true
+                ),
                 "user-stated fact dropped on casing variant {variant:?}"
             );
         }
@@ -825,15 +885,45 @@ mod tests {
         assert!(!is_coach_prescription(
             FactKind::Goal,
             Some("coach"),
-            FactSource::Conversation
+            FactSource::Conversation,
+            true
         ));
         // The guided onboarding walk records the user's own answers even
         // when the extractor forgets the provenance field.
         assert!(!is_coach_prescription(
             FactKind::Schedule,
             None,
-            FactSource::Onboarding
+            FactSource::Onboarding,
+            true
         ));
+    }
+
+    /// The whole justification for the drop is that the plan store has the
+    /// plan. Without the tool call it does not, and the drop deletes the only
+    /// copy.
+    ///
+    /// Live 2026-09-02: the athlete asked for a dated plan to a 3 700 m race on
+    /// 11 October. The coach wrote a week-by-week build-up in prose, this gate
+    /// logged three drops, and `save_training_plan` was never called — zero
+    /// `training_plan.saved` events that day. The plan survived only in a
+    /// conversation whose history was being raw-dropped every turn, and was
+    /// unrecoverable by the end of the session (registre#203).
+    #[test]
+    fn a_prescription_is_retained_when_save_training_plan_did_not_run() {
+        assert!(
+            !is_coach_prescription(FactKind::Schedule, None, FactSource::Conversation, false),
+            "with no plan stored, the fact is the only record of the prescription"
+        );
+        assert!(
+            !is_coach_prescription(
+                FactKind::Schedule,
+                Some("coach"),
+                FactSource::Conversation,
+                false
+            ),
+            "an explicitly coach-stated schedule is exactly the one worth keeping \
+             when nothing else holds it"
+        );
     }
 
     #[test]

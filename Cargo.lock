@@ -3709,6 +3709,7 @@ dependencies = [
  "bcrypt",
  "bitflags 2.11.1",
  "chrono",
+ "chrono-tz",
  "dravr-cageux",
  "dravr-canot",
  "dravr-equilibre",

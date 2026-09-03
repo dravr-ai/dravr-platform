@@ -134,12 +134,25 @@ fn overlapping_blocks_apply_only_the_earlier_created() {
     assert_eq!(source_ids[4].as_deref(), Some("m6"));
 }
 
+/// A block whose HEAD has scrolled out is clamped to the window; a block whose
+/// TAIL has is skipped.
+///
+/// The two cases are not symmetric, and treating them as one was the defect.
+/// The history window slides forward, so a block always loses its
+/// `first_message_id` first — while every row it still covers is present. That
+/// block continues to describe those rows, so dropping it re-expanded
+/// already-summarized history into the prompt and, worse, stranded the next
+/// accepted block's `None` inside `pick_range`'s contiguity guard. One
+/// successful compaction was then enough to jam the compactor for the life of
+/// the conversation (registre#198).
+///
+/// A missing `last_message_id` is the opposite: every row the block covered is
+/// out of the window, so there is nothing left to splice and skipping is right.
 #[test]
-fn block_with_boundary_id_outside_window_is_skipped() {
+fn a_block_is_clamped_at_the_head_and_skipped_at_the_tail() {
     let history = six_row_history();
-    // first_message_id "m0" is not in the loaded window (the cap dropped it) —
-    // the block straddles outside, so it is skipped entirely and m1..m6 render
-    // raw. Also covers a last_id absence via the symmetric case below.
+    // b_straddle: "m0" has scrolled out, but m1..m3 are all still here.
+    // b_tail_missing: "m99" was never in this window, so nothing is covered.
     let blocks = vec![
         block("b_straddle", "m0", "m3", "straddling summary", 0),
         block("b_tail_missing", "m4", "m99", "tail-missing summary", 1),
@@ -147,17 +160,34 @@ fn block_with_boundary_id_outside_window_is_skipped() {
 
     let (messages, source_ids) = build_llm_messages_with_blocks(Some("sys"), &history, &blocks);
 
-    // No summary spliced: system + 6 raw rows = 7.
-    assert_eq!(messages.len(), 7);
-    assert_eq!(source_ids.len(), messages.len());
     assert!(
-        !messages.iter().any(|m| m.content.contains("summary")),
-        "blocks with out-of-window boundary ids must be skipped"
+        messages
+            .iter()
+            .any(|m| m.content.ends_with("straddling summary")),
+        "the straddling block still describes m1..m3 and must be spliced: {messages:?}"
     );
-    // Every history row renders raw, in order.
-    for (i, row) in history.iter().enumerate() {
-        assert_eq!(source_ids[i + 1].as_deref(), Some(row.id.as_str()));
-        assert_eq!(messages[i + 1].content, row.content);
+    assert!(
+        !messages
+            .iter()
+            .any(|m| m.content.ends_with("tail-missing summary")),
+        "a block covering no surviving row has nothing to splice: {messages:?}"
+    );
+
+    // system + summary(m1..m3) + m4 + m5 + m6 = 5.
+    assert_eq!(messages.len(), 5);
+    assert_eq!(source_ids.len(), messages.len());
+
+    // The covered rows must NOT also render raw — re-expanding them alongside
+    // their own summary is what filled the prompt on every turn.
+    for covered in ["m1", "m2", "m3"] {
+        assert!(
+            !source_ids.contains(&Some(covered.to_owned())),
+            "{covered} is covered by the clamped block and must not render raw too"
+        );
+    }
+    // And the rows after it still render normally, in order.
+    for (i, id) in ["m4", "m5", "m6"].iter().enumerate() {
+        assert_eq!(source_ids[i + 2].as_deref(), Some(*id));
     }
 }
 

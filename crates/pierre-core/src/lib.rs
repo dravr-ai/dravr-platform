@@ -100,3 +100,6 @@ pub mod http_client;
 /// Outbound W3C trace-context propagation middleware for the shared HTTP clients
 #[cfg(feature = "telemetry")]
 pub mod trace_propagation;
+
+/// The athlete's civil clock — local-zone rendering and localized weekday names
+pub mod civil_time;

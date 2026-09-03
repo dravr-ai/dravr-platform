@@ -71,6 +71,48 @@ fn parse_data_requirements(coach_ctx: &CoachRuntimeContext) -> Option<DataRequir
     }
 }
 
+/// The activity window a turn gets when no coach is bound.
+///
+/// Both grounding gates used to require a coach, so a conversation with
+/// `coach_id = none` received no deterministic prefetch on turn 1 and no
+/// re-grounding on any later turn. Grounding degraded to whatever the model
+/// chose to fetch for itself, plus the best-effort Guardian repair pass.
+///
+/// On a shared Telegram room that is the normal case, not an edge one. Live
+/// 2026-09-02: fifteen turns, `coach_id="none"`, **zero** model-initiated tool
+/// calls. The only athlete data in the prompt was a ~420-token group roster
+/// card, and the coach reconstructed a training week from it — inventing the
+/// weekdays, the sport of one activity, and which rides counted as long, each
+/// of which the athlete corrected by hand.
+///
+/// The window is deliberately the shape a general "how was my week" question
+/// needs: four weeks, summary detail, token-efficient format. A coach that
+/// declares its own requirements still wins — this only fills the hole where
+/// there was nothing.
+#[must_use]
+pub fn coachless_activity_window() -> DataRequirements {
+    DataRequirements {
+        activities: Some(ActivityDataRequirements {
+            count: COACHLESS_ACTIVITY_COUNT,
+            time_frame: Some(COACHLESS_TIME_FRAME.to_owned()),
+            mode: ActivityDataRequirements::default_mode(),
+            format: ActivityDataRequirements::default_format(),
+            analysis_type: ActivityDataRequirements::default_analysis_type(),
+        }),
+        athlete_profile: false,
+    }
+}
+
+/// Activities fetched for a coachless turn.
+///
+/// Four weeks of training for a typical athlete. Large enough to answer "how
+/// was my week" and "what did I do Tuesday" — the questions that actually get
+/// asked in a room — without the cost of a coach's full 12-week analysis window.
+const COACHLESS_ACTIVITY_COUNT: u32 = 30;
+
+/// Lookback for a coachless turn, matching [`COACHLESS_ACTIVITY_COUNT`].
+const COACHLESS_TIME_FRAME: &str = "4w";
+
 /// Decide whether the turn should run the first-turn startup prefetch.
 ///
 /// Returns `Some((query, data_requirements))` when:
@@ -98,7 +140,13 @@ pub fn get_startup_context_if_applicable(
         return None;
     }
 
-    let ctx = coach_ctx?;
+    // No coach is not a reason to leave the athlete's own data out of the
+    // prompt (registre#201). A coach's declared requirements still win; this is
+    // the floor beneath them.
+    let Some(ctx) = coach_ctx else {
+        info!("No coach bound; grounding the first turn on the default activity window");
+        return Some((None, Some(coachless_activity_window())));
+    };
 
     let query = ctx.startup_query.clone();
     let data_reqs = parse_data_requirements(ctx);
@@ -350,11 +398,12 @@ pub fn should_refresh_activity_context(
     if history_len <= 1 || guided_flow_active {
         return false;
     }
-    // LIMITATION(registre#201): `should_refresh_activity_context` requires a bound coach, as does
-    // `get_startup_context_if_applicable`, so a conversation with no coach receives no
-    // deterministic activity prefetch on any turn.
+    // A coachless conversation re-grounds on the default window rather than on
+    // nothing. The guarantee is that an athlete turn stands on the athlete's
+    // data; making it contingent on coach binding is what let a shared room run
+    // fifteen ungrounded turns (registre#201).
     let Some(coach) = coach_ctx else {
-        return false;
+        return true;
     };
     let Some(data_reqs) = parse_data_requirements(coach) else {
         return false;
@@ -509,12 +558,13 @@ pub async fn maybe_refresh_activity_context(
         return false;
     }
 
-    // The gate above guaranteed a coach with a parseable activity window; this
-    // re-extracts it for the fetch parameters (a deterministic re-parse, not a
-    // second decision — the gate remains the single decision authority).
-    let Some(data_reqs) = coach_ctx.and_then(parse_data_requirements) else {
-        return false;
-    };
+    // The gate above guaranteed a window: either the bound coach's declared one
+    // or, with no coach bound, the default. This re-extracts it for the fetch
+    // parameters (a deterministic re-parse, not a second decision — the gate
+    // remains the single decision authority).
+    let data_reqs = coach_ctx
+        .and_then(parse_data_requirements)
+        .unwrap_or_else(coachless_activity_window);
 
     let Some(activity_context) =
         prefetch_activity_context(executor, user_id, tenant_id, &data_reqs).await

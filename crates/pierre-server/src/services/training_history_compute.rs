@@ -93,12 +93,23 @@ pub async fn compute_and_persist_history(
             weight_kg: p.weight,
         });
 
+    // The daily rollup buckets on the athlete's civil day. Persisting UTC-day
+    // buckets shifted the whole CTL/ATL/TSB series against their own calendar
+    // for anyone training in the evening (registre#200).
+    let user_timezone = resources
+        .repos()
+        .users
+        .get_global(user_id)
+        .await?
+        .and_then(|u| u.timezone);
+
     let states = compute_training_history(
         &activities,
         inputs,
         from,
         to,
         &resources.cageux_config().algorithms,
+        user_timezone.as_deref(),
     );
     if states.is_empty() {
         return Ok(0);

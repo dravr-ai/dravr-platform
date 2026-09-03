@@ -559,9 +559,15 @@ async fn a_saved_ftp_changes_the_training_load_the_engine_computes() -> Result<(
     let from = to - Duration::days(13);
     let config = AlgorithmConfig::default();
 
-    let with_physiology = compute_training_history(&activities, inputs, from, to, &config);
-    let without =
-        compute_training_history(&activities, AthleteInputs::default(), from, to, &config);
+    let with_physiology = compute_training_history(&activities, inputs, from, to, &config, None);
+    let without = compute_training_history(
+        &activities,
+        AthleteInputs::default(),
+        from,
+        to,
+        &config,
+        None,
+    );
 
     let ctl_with = with_physiology.last().expect("a final day").ctl;
     let ctl_without = without.last().expect("a final day").ctl;

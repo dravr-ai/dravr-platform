@@ -9,12 +9,21 @@ use std::fmt::Write;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use pierre_core::models::FormBand;
+use pierre_core::civil_time::{format_local_day, resolve_zone};
+use pierre_core::models::{FormBand, FormReading};
 
 use pierre_core::models::groups::{
     GroupSummaryBlock, MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, OvertrainingRiskLevel,
     SummaryDetailLevel,
 };
+
+/// Locale the roster card's weekday names render in.
+///
+/// The card is an internal English context block end to end — `activities`,
+/// `h active`, `Sources:`, `{sport:?}` — and the model renders the athlete's
+/// own locale from it. Naming the weekday at all is the fix (registre#200);
+/// which language names it is not what the athlete was correcting.
+const ROSTER_LOCALE: &str = "en";
 
 /// Number of seconds in one hour, used by the weekly-duration formatter.
 const SECONDS_PER_HOUR: f64 = 3_600.0;
@@ -136,13 +145,16 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
         if let Some(ctl) = snapshot.ctl {
             let _ = write!(text, ": CTL {ctl:.0}");
         }
+        // Through the one shared reading: the percentage AND the band's own
+        // wording travel with the raw number, so the model cannot supply its
+        // own reading of a bare `-77` (registre#199).
         if let Some(tsb) = snapshot.tsb {
-            let _ = write!(text, " TSB {tsb:+.0}");
-            // Form as % of CTL so the LLM reads TSB relative to this
-            // athlete's own chronic load, not against absolute bands.
-            if let Some(pct) = snapshot.ctl.and_then(|ctl| FormBand::form_pct(tsb, ctl)) {
-                let _ = write!(text, " ({pct:.0}% of CTL)");
-            }
+            let reading = FormReading::new(
+                snapshot.ctl.unwrap_or(0.0),
+                snapshot.atl.unwrap_or(0.0),
+                tsb,
+            );
+            let _ = write!(text, " {}", reading.inline());
         }
         // Render duration alongside distance so HR/duration-only sources
         // (WHOOP, indoor trainers) don't collapse to a misleading "0km/wk".
@@ -229,19 +241,16 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
             let _ = writeln!(text, "  Sources: {freshness}");
         }
         if let (Some(ctl), Some(atl), Some(tsb)) = (snapshot.ctl, snapshot.atl, snapshot.tsb) {
-            // Form as % of CTL keeps the LLM from reading one athlete's
-            // normal training block as another athlete's emergency.
-            if let Some(pct) = FormBand::form_pct(tsb, ctl) {
-                let _ = writeln!(
-                    text,
-                    "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0} ({pct:.0}% of CTL)"
-                );
-            } else {
-                // LIMITATION(registre#199): this `TSB` field ships as a bare absolute number —
-                // no `tsb_pct_of_ctl` and no `FormBand` label, both of which are computed a few
-                // lines away for the health flags and which `analyze_training_load` returns.
-                let _ = writeln!(text, "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0}");
-            }
+            // Form as % of CTL keeps the LLM from reading one athlete's normal
+            // training block as another athlete's emergency — and when there is
+            // no chronic base to divide by, the row says so instead of falling
+            // back to the bare absolute number.
+            let reading = FormReading::new(ctl, atl, tsb);
+            let _ = writeln!(
+                text,
+                "  CTL: {ctl:.0} | ATL: {atl:.0} | {}",
+                reading.inline()
+            );
         }
         if let Some(vdot) = snapshot.vdot {
             let _ = writeln!(text, "  VDOT: {vdot:.1}");
@@ -251,11 +260,19 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
         // week") without inventing per-day numbers. Newest-first.
         if !snapshot.recent_activities.is_empty() {
             text.push_str("  Recent:\n");
+            // Resolved once per card, not per row. The weekday only means
+            // something on the member's own civil clock: rendering `act.start`
+            // (UTC) directly printed the next day's name for any session after
+            // 20:00 America/Toronto, on the very rows whose stated purpose is
+            // answering "Saturday vs Sunday" without inventing per-day numbers.
+            let zone = resolve_zone(snapshot.timezone.as_deref());
             for act in &snapshot.recent_activities {
-                // LIMITATION(registre#200): `act.start` is `DateTime<Utc>` and is never converted
-                // to the athlete's zone, so this `%a` weekday is the UTC one — an activity after
-                // 20:00 America/Toronto prints the following day's name.
-                let date = act.start.format("%Y-%m-%d %a").to_string();
+                // English weekday: this card is an internal English context
+                // block end to end ("activities", "h active", "Sources:",
+                // `{sport:?}`), and the model renders the athlete's locale from
+                // it. What matters here is that the weekday is stated and
+                // correct, not which language states it.
+                let date = format_local_day(act.start, zone, ROSTER_LOCALE);
                 let dur_h = format_recent_duration_hours(act.duration_minutes);
                 let dist = match act.distance_km {
                     Some(km) if km > 0.0 => format!(" {km:.1}km"),

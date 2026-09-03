@@ -56,7 +56,7 @@ fn athlete_with_lthr() -> AthleteInputs {
 fn empty_window_returns_dense_zero_rows() {
     let from = day(0);
     let to = day(6);
-    let rows = compute_training_history(&[], AthleteInputs::default(), from, to, &algos());
+    let rows = compute_training_history(&[], AthleteInputs::default(), from, to, &algos(), None);
     assert_eq!(rows.len(), 7);
     for row in &rows {
         assert!(row.daily_load.abs() < f64::EPSILON);
@@ -68,7 +68,14 @@ fn empty_window_returns_dense_zero_rows() {
 
 #[test]
 fn inverted_window_returns_no_rows() {
-    let rows = compute_training_history(&[], AthleteInputs::default(), day(10), day(1), &algos());
+    let rows = compute_training_history(
+        &[],
+        AthleteInputs::default(),
+        day(10),
+        day(1),
+        &algos(),
+        None,
+    );
     assert!(rows.is_empty());
 }
 
@@ -76,7 +83,7 @@ fn inverted_window_returns_no_rows() {
 fn oversize_window_returns_no_rows() {
     let from = day(0);
     let to = from + Duration::days(MAX_BACKFILL_DAYS + 1);
-    let rows = compute_training_history(&[], AthleteInputs::default(), from, to, &algos());
+    let rows = compute_training_history(&[], AthleteInputs::default(), from, to, &algos(), None);
     assert!(rows.is_empty());
 }
 
@@ -84,8 +91,14 @@ fn oversize_window_returns_no_rows() {
 fn ctl_atl_tsb_monotonically_track_load() {
     // 30 consecutive days of identical hard effort.
     let activities: Vec<Activity> = (0..30).map(|i| run_at(i, 3600, 165)).collect();
-    let rows =
-        compute_training_history(&activities, athlete_with_lthr(), day(0), day(29), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(29),
+        &algos(),
+        None,
+    );
     assert_eq!(rows.len(), 30);
     // CTL should be strictly increasing while we're loading consistently.
     let mut prev_ctl = -1.0_f64;
@@ -108,8 +121,14 @@ fn rest_days_drop_atl_and_lift_tsb() {
     // 14 days of effort, then 14 days of rest.
     let mut activities: Vec<Activity> = (0..14).map(|i| run_at(i, 3600, 165)).collect();
     activities.extend((14..28).map(|i| run_at(i, 0, 0))); // zero-duration acts ignored
-    let rows =
-        compute_training_history(&activities, athlete_with_lthr(), day(0), day(27), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(27),
+        &algos(),
+        None,
+    );
     let last_load_day = &rows[13];
     let last_rest_day = &rows[27];
     assert!(
@@ -129,8 +148,14 @@ fn rest_days_drop_atl_and_lift_tsb() {
 #[test]
 fn acwr_unset_for_short_history() {
     let activities: Vec<Activity> = (0..14).map(|i| run_at(i, 3600, 165)).collect();
-    let rows =
-        compute_training_history(&activities, athlete_with_lthr(), day(0), day(13), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(13),
+        &algos(),
+        None,
+    );
     // First 27 days must have ACWR == None; we have 14 days here, so all None.
     for row in &rows {
         assert!(row.acwr.is_none());
@@ -140,8 +165,14 @@ fn acwr_unset_for_short_history() {
 #[test]
 fn acwr_present_after_28_days_of_history() {
     let activities: Vec<Activity> = (0..40).map(|i| run_at(i, 3600, 160)).collect();
-    let rows =
-        compute_training_history(&activities, athlete_with_lthr(), day(0), day(39), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(39),
+        &algos(),
+        None,
+    );
     // Index 27 is the first day where 28 days of history are available.
     assert!(
         rows[27].acwr.is_some(),
@@ -158,7 +189,14 @@ fn acwr_present_after_28_days_of_history() {
 #[test]
 fn monotony_and_strain_unset_until_seven_days_of_load() {
     let activities: Vec<Activity> = (0..6).map(|i| run_at(i, 3600, 165)).collect();
-    let rows = compute_training_history(&activities, athlete_with_lthr(), day(0), day(5), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(5),
+        &algos(),
+        None,
+    );
     for row in &rows {
         assert!(row.monotony.is_none());
         assert!(row.strain.is_none());
@@ -175,8 +213,14 @@ fn monotony_strain_present_after_one_full_week() {
             run_at(i, dur, 165)
         })
         .collect();
-    let rows =
-        compute_training_history(&activities, athlete_with_lthr(), day(0), day(13), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(13),
+        &algos(),
+        None,
+    );
     assert!(rows[6].monotony.is_some());
     assert!(rows[6].strain.is_some());
 }
@@ -184,7 +228,14 @@ fn monotony_strain_present_after_one_full_week() {
 #[test]
 fn ramp_rate_unset_for_short_history() {
     let activities: Vec<Activity> = (0..6).map(|i| run_at(i, 3600, 165)).collect();
-    let rows = compute_training_history(&activities, athlete_with_lthr(), day(0), day(5), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(5),
+        &algos(),
+        None,
+    );
     for row in &rows {
         assert!(row.ramp_rate.is_none());
     }
@@ -199,8 +250,14 @@ fn ramp_rate_positive_under_progressive_load() {
             run_at(i, dur, 165)
         })
         .collect();
-    let rows =
-        compute_training_history(&activities, athlete_with_lthr(), day(0), day(20), &algos());
+    let rows = compute_training_history(
+        &activities,
+        athlete_with_lthr(),
+        day(0),
+        day(20),
+        &algos(),
+        None,
+    );
     let ramp = rows[15].ramp_rate.expect("ramp_rate after warmup");
     assert!(
         ramp >= 0.0,

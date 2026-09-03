@@ -447,6 +447,63 @@ pub(super) static FOLDED_PEER_DENIAL: LazyLock<Vec<String>> = LazyLock::new(|| {
         .collect()
 });
 
+/// Sentences that cite fetched data as the authority for a claim.
+///
+/// Scrubbed **only** on a turn where no fetch occurred. On a grounded turn
+/// "les données confirment" is simply true and must survive.
+///
+/// Live 2026-09-02: after the athlete corrected the coach's weekday ordering
+/// for the third time, the coach replied *"Roster data confirme: Date ride
+/// était bien lundi"* — an appeal to data as authority, on a turn where no tool
+/// ran, restating what the athlete had just told it. Claiming confirmation
+/// without a fetch is worse than abstaining: it converts the athlete's own
+/// correction into evidence against them (registre#202).
+pub(super) const UNGROUNDED_APPEAL_PATTERNS: &[&str] = &[
+    // fr
+    "les données confirment",
+    "les donnees confirment",
+    "mes données confirment",
+    "mes donnees confirment",
+    "les données montrent",
+    "les donnees montrent",
+    "d'après mes données",
+    "d'apres mes donnees",
+    "selon mes données",
+    "selon mes donnees",
+    "roster data confirme",
+    "les données le confirment",
+    "les donnees le confirment",
+    "j'ai vérifié dans tes données",
+    "j'ai verifie dans tes donnees",
+    // en
+    "the data confirms",
+    "my data confirms",
+    "roster data confirms",
+    "the data shows",
+    "according to my data",
+    "i verified in your data",
+    "i checked your data",
+    // es
+    "los datos confirman",
+    "según mis datos",
+    "segun mis datos",
+    // de
+    "die daten bestätigen",
+    "die daten bestatigen",
+    "laut meinen daten",
+    // pt
+    "os dados confirmam",
+    "de acordo com os meus dados",
+];
+
+/// Separator-folded copy of [`UNGROUNDED_APPEAL_PATTERNS`], built once.
+pub(super) static FOLDED_UNGROUNDED_APPEAL: LazyLock<Vec<String>> = LazyLock::new(|| {
+    UNGROUNDED_APPEAL_PATTERNS
+        .iter()
+        .map(|p| fold_separators(p))
+        .collect()
+});
+
 /// Separator-folded copy of [`INTERNAL_NARRATION_PATTERNS`], built once.
 pub(super) static FOLDED_INTERNAL: LazyLock<Vec<String>> = LazyLock::new(|| {
     INTERNAL_NARRATION_PATTERNS

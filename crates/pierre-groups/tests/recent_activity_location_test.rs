@@ -41,6 +41,7 @@ fn snapshot_with_recent(recent: Vec<RosterActivity>) -> MemberFitnessSnapshot {
         recent_activities: recent,
         needs_reauth_providers: Vec::new(),
         served_stale: false,
+        timezone: None,
         computed_at: Utc::now(),
     }
 }

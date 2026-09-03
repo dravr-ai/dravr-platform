@@ -11,7 +11,7 @@ use crate::protocols::ProtocolError;
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
 use pierre_core::models::Activity;
-use pierre_core::models::FormBand;
+use pierre_core::models::{FormBand, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
 #[cfg(feature = "client-notifications")]
@@ -197,6 +197,11 @@ pub fn analyze_detailed_training_load(
         });
     };
 
+    // The configured EMA windows travel into the interpretation key so the
+    // coach can answer "how do you calculate this" from the payload.
+    let ctl_days = algorithm_config.params.training_load_ctl_days;
+    let atl_days = algorithm_config.params.training_load_atl_days;
+
     let ctl = training_load.ctl;
     let atl = training_load.atl;
     let tsb = training_load.tsb;
@@ -244,13 +249,9 @@ pub fn analyze_detailed_training_load(
         "training_zones": classify_training_load(ctl),
         "recommendations": generate_load_recommendations(ctl, band, form_pct),
         "activities_analyzed": training_load.tss_history.len(),
-        "interpretation": {
-            "ctl": "Chronic Training Load - fitness level (42-day average TSS)",
-            "atl": "Acute Training Load - fatigue level (7-day average TSS)",
-            "tsb": "Training Stress Balance - form (CTL - ATL); interpret via tsb_pct_of_ctl, not the raw number",
-            "tsb_pct_of_ctl": "Form relative to this athlete's own fitness. null when there is no chronic base to normalize against, in which case form cannot be judged at all",
-            "form_band": "The band tsb_pct_of_ctl falls in: insufficient_history when tsb_pct_of_ctl is null, deep_fatigue below -30%, heavy_block -30% to -20%, productive -20% to -10%, balanced -10% to +5%, fresh +5% to +20%, detraining above +20%. Describes fatigue relative to fitness; it is not an injury prediction",
-        },
+        // The one shared key, so this surface and `get_training_history` cannot
+        // describe the same number two different ways (registre#199).
+        "interpretation": FormReading::interpretation(ctl_days, atl_days),
     })
 }
 

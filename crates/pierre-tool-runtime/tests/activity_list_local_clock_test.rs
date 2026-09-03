@@ -47,7 +47,7 @@ fn an_evening_activity_keeps_the_athletes_date_not_the_utc_one() {
         format_activities_as_list(&night_hike(), &temps, None, "fr", Some("America/Toronto"));
 
     assert!(
-        rendered.contains("2026-08-27 22:59"),
+        rendered.contains("2026-08-27 jeu 22:59"),
         "the athlete started this at 22:59 on the 27th in his own timezone; the \
          list must say so: {rendered}"
     );
@@ -69,7 +69,7 @@ fn without_a_timezone_the_list_stays_on_utc() {
     let rendered = format_activities_as_list(&night_hike(), &temps, None, "fr", None);
 
     assert!(
-        rendered.contains("2026-08-28 02:59"),
+        rendered.contains("2026-08-28 ven 02:59"),
         "with no zone on file the list stays on UTC: {rendered}"
     );
 }
@@ -82,7 +82,7 @@ fn an_unparseable_timezone_falls_back_rather_than_failing() {
         format_activities_as_list(&night_hike(), &temps, None, "fr", Some("Mars/Olympus_Mons"));
 
     assert!(
-        rendered.contains("2026-08-28 02:59"),
+        rendered.contains("2026-08-28 ven 02:59"),
         "a zone that does not exist must degrade to UTC: {rendered}"
     );
 }
@@ -108,8 +108,61 @@ fn the_row_carries_the_time_of_day() {
         format_activities_as_list(&activities, &temps, None, "fr", Some("America/Toronto"));
 
     assert!(
-        rendered.contains("2026-08-28 06:15"),
+        rendered.contains("2026-08-28 ven 06:15"),
         "10:15 UTC is 06:15 in Toronto, and the coach cannot tell morning from \
          evening without it: {rendered}"
     );
+}
+
+/// The weekday is stated, and it is the athlete's weekday.
+///
+/// Production Telegram, 2026-09-02: no surface in the prompt named a weekday.
+/// The rows carried a bare `%Y-%m-%d` and the model derived "dimanche" /
+/// "mardi" / "jeudi" from them by calendar arithmetic — the same class of error
+/// the epoch table in `prompt_assembly` exists to remove. It got them wrong,
+/// reassigned the same five activities three times across the conversation
+/// (*"road 2 aus etait hier, mardi. T'es melé big"*, *"date ride etait lundi.
+/// Ca va pas les dates"*), and the athlete left over it.
+///
+/// The 22:59-local instant makes the two halves inseparable: a UTC weekday here
+/// would read `ven`, a whole day off, so this fails both if the weekday goes
+/// missing and if it is derived in the wrong zone.
+#[test]
+fn the_row_names_the_athletes_weekday_not_the_utc_one() {
+    let temps = HashMap::new();
+    let rendered =
+        format_activities_as_list(&night_hike(), &temps, None, "fr", Some("America/Toronto"));
+
+    assert!(
+        rendered.contains("2026-08-27 jeu"),
+        "2026-08-27 was a Thursday in Toronto and the row must say so rather \
+         than leaving the model to work it out: {rendered}"
+    );
+    assert!(
+        !rendered.contains("ven"),
+        "UTC would make this Friday — the weekday must follow the athlete's \
+         zone, not the server's: {rendered}"
+    );
+}
+
+/// The weekday renders in the athlete's language, like every other label on the
+/// row. An English `Thu` inside a French list is the kind of seam the model
+/// paraphrases rather than copies.
+#[test]
+fn the_weekday_follows_the_chat_locale() {
+    let temps = HashMap::new();
+    for (locale, expected) in [
+        ("fr", "jeu"),
+        ("en", "Thu"),
+        ("es", "jue"),
+        ("de", "Do"),
+        ("pt", "qui"),
+    ] {
+        let rendered =
+            format_activities_as_list(&night_hike(), &temps, None, locale, Some("America/Toronto"));
+        assert!(
+            rendered.contains(&format!("2026-08-27 {expected}")),
+            "locale {locale} must render the weekday as {expected}: {rendered}"
+        );
+    }
 }

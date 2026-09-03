@@ -23,6 +23,7 @@
 //! false, so the personalized layer stays silent.
 
 use chrono::{Duration, Utc};
+use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_evals::AthleteMetrics;
@@ -46,6 +47,20 @@ const DEFAULT_MAX_HR: u16 = 190;
 const DEFAULT_LACTATE_THRESHOLD: f64 = 0.85;
 /// Sport-efficiency factor (1.0 = running baseline).
 const DEFAULT_SPORT_EFFICIENCY: f64 = 1.0;
+
+/// The athlete's stored IANA timezone, or `None` when it cannot be read.
+///
+/// A failure here is not worth failing the snapshot over: every caller degrades
+/// to UTC, which is what an athlete with no zone on file already gets.
+async fn load_user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> Option<String> {
+    match repos.users.get_global(user_id).await {
+        Ok(user) => user.and_then(|u| u.timezone),
+        Err(e) => {
+            tracing::warn!(error = %e, "personalized verification: user timezone load failed");
+            None
+        }
+    }
+}
 
 /// Assemble the [`AthleteMetrics`] snapshot for one athlete.
 ///
@@ -95,6 +110,11 @@ pub async fn build_athlete_metrics(
         }
     }
 
+    // The athlete's own zone: every calendar-day boundary below is theirs, not
+    // the server's. A 21:00 America/Toronto session belongs to the day they
+    // trained (registre#200).
+    let user_timezone = load_user_timezone(repos, user_id).await;
+
     let now = Utc::now();
     let activities = match repos
         .activity_cache
@@ -117,9 +137,10 @@ pub async fn build_athlete_metrics(
 
     // data_days = distinct calendar days with an activity — the density signal
     // gating whether the personalized layer trusts the snapshot enough to contradict a coach.
+    let zone = resolve_zone(user_timezone.as_deref());
     let mut activity_days: Vec<_> = activities
         .iter()
-        .map(|a| a.start_date().date_naive())
+        .map(|a| local_date(a.start_date(), zone))
         .collect();
     activity_days.sort_unstable();
     activity_days.dedup();
@@ -144,6 +165,7 @@ pub async fn build_athlete_metrics(
             today - Duration::days(TSB_COMPUTE_DAYS),
             today,
             algorithm_config,
+            user_timezone.as_deref(),
         );
         metrics.recent_tsb = states.last().map(|s| s.tsb);
     }

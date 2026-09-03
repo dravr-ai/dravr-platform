@@ -52,6 +52,7 @@ fn member(name: &str) -> MemberFitnessSnapshot {
         recent_activities: Vec::new(),
         needs_reauth_providers: Vec::new(),
         served_stale: false,
+        timezone: None,
         computed_at: Utc::now(),
     }
 }

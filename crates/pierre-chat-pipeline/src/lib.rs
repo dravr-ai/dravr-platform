@@ -337,6 +337,14 @@ async fn assemble_prompt_stage(
 /// `answered` is the guided topic the athlete's inbound message replies to (see
 /// [`stages::onboarding::answered_target`]), which is what extraction reads —
 /// never the topic this turn goes on to ask.
+/// The tool that persists a training plan.
+///
+/// Named here because the memory extractor's coach-prescription filter is
+/// justified entirely by this tool having run: it drops schedule facts on the
+/// grounds that plans live in the plan store instead. When it did not run, the
+/// drop deletes the only copy (registre#203).
+const SAVE_TRAINING_PLAN_TOOL: &str = "save_training_plan";
+
 fn spawn_turn_extraction(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -344,6 +352,7 @@ fn spawn_turn_extraction(
     assistant_reply: &str,
     assistant_message_id: &str,
     answered: Option<stages::onboarding::GuidedTarget>,
+    plan_was_saved: bool,
 ) {
     let (pillar, source, force_kind) = stages::onboarding::extraction_params_or_default(answered);
     // A guided answer is stamped under the TOOL tenant — the athlete's own,
@@ -382,6 +391,7 @@ fn spawn_turn_extraction(
             pillar,
             source,
             force_kind,
+            plan_was_saved,
         },
     );
 }
@@ -439,14 +449,19 @@ fn spawn_turn_advice_capture(
 /// Owning the `leak_replaced` branch here keeps `run_turn` itself branch-free
 /// over this concern.
 fn spawn_turn_background_learning(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    conv: &ConversationRecord,
-    assistant_reply: &str,
-    assistant_message_id: &str,
+    inputs: &FinishTurnInputs<'_>,
     answered: Option<stages::onboarding::GuidedTarget>,
-    leak_replaced: bool,
 ) {
+    let FinishTurnInputs {
+        ctx,
+        input,
+        conv,
+        assistant_reply,
+        assistant_message_id,
+        leak_replaced,
+        plan_was_saved,
+        ..
+    } = *inputs;
     if leak_replaced {
         spawn_turn_extraction(
             ctx,
@@ -455,6 +470,7 @@ fn spawn_turn_background_learning(
             WITHHELD_REPLY_TRANSCRIPT_MARKER,
             assistant_message_id,
             answered,
+            plan_was_saved,
         );
         return;
     }
@@ -465,6 +481,7 @@ fn spawn_turn_background_learning(
         assistant_reply,
         assistant_message_id,
         answered,
+        plan_was_saved,
     );
     spawn_turn_advice_capture(ctx, input, conv, assistant_reply, assistant_message_id);
 }
@@ -518,6 +535,7 @@ async fn persist_verdicts_for_turn(
 }
 
 /// Inputs for [`finish_turn_follow_through`].
+#[derive(Clone, Copy)]
 struct FinishTurnInputs<'a> {
     ctx: &'a ChatPipelineContext,
     input: &'a TurnInput,
@@ -526,6 +544,10 @@ struct FinishTurnInputs<'a> {
     assistant_message_id: &'a str,
     onboarding: Option<&'a stages::onboarding::OnboardingTurn>,
     leak_replaced: bool,
+    /// Whether `save_training_plan` ran on this turn. Decides whether the
+    /// memory extractor may drop a coach-prescription schedule fact on the
+    /// grounds that the plan is stored elsewhere (registre#203).
+    plan_was_saved: bool,
 }
 
 /// Everything the turn still owes once its reply is persisted: Tier 2 memory
@@ -540,25 +562,16 @@ async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
         ctx,
         input,
         conv,
-        assistant_reply,
-        assistant_message_id,
         onboarding,
         leak_replaced,
+        ..
     } = inputs;
     // The message being extracted answers the probe the PREVIOUS turn delivered
     // — `onboarding.target` is the question this turn asks, one topic further
     // on. Stamping with it filed every guided answer under the next topic's
     // pillar and forced kind.
     let answered = onboarding.and_then(|turn| stages::onboarding::answered_target(&turn.state));
-    spawn_turn_background_learning(
-        ctx,
-        input,
-        conv,
-        assistant_reply,
-        assistant_message_id,
-        answered,
-        leak_replaced,
-    );
+    spawn_turn_background_learning(&inputs, answered);
     record_guided_flow_probe(
         ctx,
         conv,
@@ -999,6 +1012,10 @@ async fn run_turn(
         assistant_message_id: &assistant_message.id,
         onboarding: onboarding_turn.as_ref(),
         leak_replaced,
+        plan_was_saved: result
+            .tools_called
+            .iter()
+            .any(|t| t == SAVE_TRAINING_PLAN_TOOL),
     })
     .await;
 
@@ -1163,6 +1180,9 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
                 PLATFORM_REPLY_TRANSCRIPT_MARKER,
                 &result.assistant.message.id,
                 answered,
+                // A guided calibration turn skips the LLM entirely, so no tool
+                // ran and no plan was stored.
+                false,
             );
             Ok(GuidedOutcome::Answered(Box::new(result)))
         }

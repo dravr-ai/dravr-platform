@@ -469,6 +469,16 @@ pub struct MemberFitnessSnapshot {
     /// recent training) and "broken" ([`Self::needs_reauth_providers`]).
     #[serde(default)]
     pub served_stale: bool,
+    /// IANA timezone of the member's own user row, `None` when unset.
+    ///
+    /// The roster card names weekdays, and a weekday only means something on
+    /// somebody's civil clock. Rendering `act.start` — a `DateTime<Utc>` — with
+    /// no conversion printed the UTC weekday, so any session after 20:00
+    /// `America/Toronto` was attributed to the following day (registre#200).
+    /// Each member carries their own zone because a room's members need not
+    /// share one.
+    #[serde(default)]
+    pub timezone: Option<String>,
     /// When this snapshot was computed
     pub computed_at: DateTime<Utc>,
 }

@@ -309,6 +309,10 @@ pub async fn run_recovery_and_post_process(
             prompt_guard,
             profile,
             tools_called: &tools_called,
+            // A tool ran, or the prefetch put an activity block in the prompt.
+            // Either way the reply has evidence behind it and may cite it.
+            turn_was_grounded: !tools_called.is_empty()
+                || stages::capability_recovery::turn_carries_activity_block(llm_messages),
             active_model,
         },
         mem::take(&mut result.content),

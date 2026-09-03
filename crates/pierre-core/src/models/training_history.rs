@@ -25,7 +25,11 @@ use uuid::Uuid;
 /// derived state: never substitute zero for "insufficient history".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DailyTrainingState {
-    /// Calendar date this row covers (UTC).
+    /// Calendar date this row covers, on the athlete's own civil clock.
+    ///
+    /// Their zone, not the server's: a 21:00 America/Toronto session belongs
+    /// to the day they trained. Bucketing on the UTC day shifted the whole
+    /// series against their calendar (registre#200).
     pub date: NaiveDate,
     /// Chronic Training Load (42-day EMA of TSS) — proxy for fitness.
     pub ctl: f64,

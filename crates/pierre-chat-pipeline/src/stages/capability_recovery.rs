@@ -53,7 +53,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::MemberFitnessSnapshot;
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse};
+use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse, MessageRole};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::protocol::{auth_required_provider, UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
@@ -70,10 +70,18 @@ use pierre_tool_runtime::tool_results::format_tool_results_as_text;
 /// confident denial of peer access that three earlier turns had exercised).
 pub(super) const VERIFICATION_TOOL: &str = "get_activities";
 
-/// How many activities the verification fetch asks for — enough for the
-/// model to answer "propose a session from my recent training" without
-/// blowing up the re-ask prompt.
-const VERIFICATION_LIMIT: u32 = 5;
+/// How many activities the verification fetch asks for.
+///
+/// Was 5, which could not answer the questions this pass actually gets. Live
+/// 2026-09-02: seven recovery fetches, every one `requested_limit: 5`, against
+/// an athlete asking about a six-activity week — so the repair pass re-grounded
+/// the model on a window too small to contain the answer, and on the no-coach
+/// path it was the only fetch of the whole conversation (registre#201).
+///
+/// Twenty covers a month of training for a typical athlete: enough for "how was
+/// my week", "which ride was longest", and "propose a session from my recent
+/// training", while staying well inside the re-ask prompt budget.
+const VERIFICATION_LIMIT: u32 = 20;
 
 /// Appended after the fetched data on the re-ask. English on purpose: the
 /// platform's system corpus is English.
@@ -268,6 +276,22 @@ enum RecoveryTrigger {
     /// true record sitting in its own context — so every such reply is
     /// checked against this turn's evidence by the claim verifier.
     UnverifiedPeerClaim,
+    /// The previous assistant turn asserted concrete facts about the athlete's
+    /// own training, and this turn answered with no fetch behind it.
+    ///
+    /// Purely structural — it reads no vocabulary at all, which is the point.
+    /// `DATA_ASK_TERMS` fired on 7 of 15 turns live on 2026-09-02 and on **none
+    /// of the last five**, which were exactly the turns where the athlete was
+    /// disputing facts about his own data:
+    ///
+    /// - *"300km de dimanche? Tu parles de quoi?"*
+    /// - *"road 2 aus etait hier, mardi. T'es melé big"*
+    /// - *"date ride etait lundi. Ca va pas les dates"*
+    ///
+    /// A correction is not phrased like a question, so it never looks like a
+    /// data ask — yet it is the strongest available signal that the model's
+    /// grounding is wrong and needs re-fetching (registre#202).
+    DisputedClaims,
 }
 
 impl RecoveryTrigger {
@@ -278,6 +302,7 @@ impl RecoveryTrigger {
             Self::UngroundedDataAsk => "ungrounded_data_ask",
             Self::DegenerateReply => "degenerate_reply",
             Self::UnverifiedPeerClaim => "unverified_peer_claim",
+            Self::DisputedClaims => "disputed_claims",
         }
     }
 }
@@ -416,10 +441,63 @@ fn recovery_trigger(
     {
         return Some(RecoveryTrigger::UnverifiedPeerClaim);
     }
-    let ungrounded = looks_like_a_data_ask(&input.content)
-        && result.tool_calls_count == 0
-        && !turn_carries_activity_block(deps.llm_messages);
-    ungrounded.then_some(RecoveryTrigger::UngroundedDataAsk)
+    // Nothing was fetched and nothing was injected: whatever this reply says,
+    // it stands on no evidence from this turn.
+    let ungrounded_turn =
+        result.tool_calls_count == 0 && !turn_carries_activity_block(deps.llm_messages);
+    if ungrounded_turn && looks_like_a_data_ask(&input.content) {
+        return Some(RecoveryTrigger::UngroundedDataAsk);
+    }
+    // The structural arm: no vocabulary, so no phrasing can slip past it. If
+    // the coach just asserted numbers about the athlete's training and this
+    // turn adds nothing fresh, re-ground — whether the athlete asked a
+    // question, corrected a fact, or simply pushed back (registre#202).
+    if ungrounded_turn && previous_reply_asserted_athlete_facts(deps.llm_messages) {
+        return Some(RecoveryTrigger::DisputedClaims);
+    }
+    None
+}
+
+/// How many separate numbers a reply must carry before it counts as having
+/// asserted concrete facts about the athlete's training.
+///
+/// Three, because that is the shape of the replies that got corrected: *"161
+/// km, 2391 m de dénivelé, 6,2h"*. One number is a passing remark and two is a
+/// comparison; three is a reconstruction, and a reconstruction built on nothing
+/// is what the athlete pushed back on. Social replies («Bravo 💪», «On se
+/// reparle demain») carry none.
+const CLAIM_DENSITY_THRESHOLD: usize = 3;
+
+/// Whether the most recent assistant turn asserted concrete facts about the
+/// athlete's own training.
+///
+/// Counts runs of digits rather than matching words, so it holds in every
+/// locale and survives any rephrasing. Reads the last assistant message in the
+/// assembled turn, which is the reply the athlete is responding to.
+///
+/// Pure and `pub` for the same reason `should_refresh_activity_context` is: the
+/// decision is worth pinning without standing up an executor.
+#[must_use]
+pub fn previous_reply_asserted_athlete_facts(llm_messages: &[ChatMessage]) -> bool {
+    llm_messages
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, MessageRole::Assistant))
+        .is_some_and(|m| {
+            let mut runs = 0usize;
+            let mut in_run = false;
+            for c in m.content.chars() {
+                if c.is_ascii_digit() {
+                    if !in_run {
+                        runs += 1;
+                        in_run = true;
+                    }
+                } else {
+                    in_run = false;
+                }
+            }
+            runs >= CLAIM_DENSITY_THRESHOLD
+        })
 }
 
 /// Whether the reply denies access to a roster peer's data — «je n'ai jamais
@@ -459,7 +537,7 @@ pub(super) fn peers_named_in_reply(
 /// needed to learn what it decided. When a block is present the model HAS the
 /// data and is told to answer from it without re-fetching — a zero-tool turn
 /// is then correct, not ungrounded.
-fn turn_carries_activity_block(llm_messages: &[ChatMessage]) -> bool {
+pub(crate) fn turn_carries_activity_block(llm_messages: &[ChatMessage]) -> bool {
     llm_messages.iter().any(|m| {
         m.content.contains(STARTUP_GROUNDING_LEAD) || m.content.contains(REFRESH_GROUNDING_LEAD)
     })

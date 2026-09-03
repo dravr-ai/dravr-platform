@@ -45,15 +45,28 @@ pub struct ActivityDataRequirements {
 }
 
 impl ActivityDataRequirements {
-    fn default_mode() -> String {
+    /// Detail level a coach gets when its frontmatter omits `mode`.
+    ///
+    /// `pub` because the coachless default window in
+    /// `pierre_chat_pipeline::stages::prefetch` builds a requirement struct
+    /// directly rather than through serde, and must land on the same value a
+    /// coach would — two spellings of "summary" is one too many.
+    #[must_use]
+    pub fn default_mode() -> String {
         "summary".to_owned()
     }
 
-    fn default_format() -> String {
+    /// Wire format a coach gets when its frontmatter omits `format`.
+    /// `pub` for the reason given on [`Self::default_mode`].
+    #[must_use]
+    pub fn default_format() -> String {
         "toon".to_owned()
     }
 
-    fn default_analysis_type() -> String {
+    /// Analysis type a coach gets when its frontmatter omits `analysis_type`.
+    /// `pub` for the reason given on [`Self::default_mode`].
+    #[must_use]
+    pub fn default_analysis_type() -> String {
         "general_overview".to_owned()
     }
 

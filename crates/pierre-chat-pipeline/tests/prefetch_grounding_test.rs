@@ -82,10 +82,13 @@ fn refresh_gate_fires_on_any_later_turn_with_an_activity_window() {
         "a guided flow owns its turn"
     );
 
-    // No coach bound → nothing to ground against.
+    // No coach bound is NOT a reason to answer ungrounded. It used to return
+    // false here, and on a shared Telegram room — where nothing binds a coach —
+    // that meant fifteen consecutive turns with no deterministic prefetch on
+    // any of them (registre#201).
     assert!(
-        !should_refresh_activity_context(3, None, false),
-        "no coach context → no refresh"
+        should_refresh_activity_context(3, None, false),
+        "a coachless turn re-grounds on the default window, not on nothing"
     );
 
     // A coach with no activity window (e.g. a profile-only coach).
@@ -466,5 +469,77 @@ fn an_unbounded_window_still_carries_no_sport_key() {
         keys,
         vec!["analysis_type", "format", "limit", "mode"],
         "an absent time_frame must drop the range, not acquire anything else: {params}"
+    );
+}
+
+// ============================================================================
+// The coachless path — registre#201
+// ============================================================================
+
+/// Live 2026-09-02, Telegram room: `coach_id="none"` on all fifteen turns, and
+/// both grounding gates required a bound coach. The model made zero tool calls
+/// of its own across the whole conversation, so on 8 of 15 turns it answered
+/// with no activity data at all. It reconstructed a training week from a
+/// ~420-token roster card and got the weekdays, one activity's sport, and the
+/// "long ride" classification wrong — each corrected by hand.
+#[test]
+fn a_coachless_first_turn_is_grounded_on_the_default_window() {
+    let context = get_startup_context_if_applicable(1, None, false)
+        .expect("a coachless first turn must still be grounded");
+
+    let (query, data_reqs) = context;
+    assert!(
+        query.is_none(),
+        "there is no coach, so there is no startup query to inject"
+    );
+    let activities = data_reqs
+        .expect("the default window must carry an activity requirement")
+        .activities
+        .expect("and that requirement must be an activity one");
+    assert!(
+        activities.count >= 20,
+        "the window has to be able to answer 'how was my week': got {}",
+        activities.count
+    );
+    assert_eq!(activities.time_frame.as_deref(), Some("4w"));
+}
+
+/// A guided flow still owns its turn — the coachless default must not smuggle
+/// an activity dump into a profile interview.
+#[test]
+fn the_coachless_default_still_yields_to_a_guided_flow() {
+    assert!(
+        get_startup_context_if_applicable(1, None, true).is_none(),
+        "a guided flow owns its turn whether or not a coach is bound"
+    );
+    assert!(
+        !should_refresh_activity_context(3, None, true),
+        "and owns its later turns too"
+    );
+}
+
+/// Turn 1 stays with `inject_startup_context` on the coachless path too, or
+/// both stages would fetch for the same turn.
+#[test]
+fn the_coachless_refresh_still_leaves_turn_one_alone() {
+    assert!(
+        !should_refresh_activity_context(1, None, false),
+        "turn 1 belongs to inject_startup_context, coach or no coach"
+    );
+}
+
+/// The default window is the floor, not a ceiling: a coach that declares its
+/// own requirements still wins.
+#[test]
+fn a_declared_coach_window_still_takes_precedence() {
+    let with_activities = coach(Some(WITH_ACTIVITIES));
+    let (_, data_reqs) =
+        get_startup_context_if_applicable(1, Some(&with_activities), false).unwrap();
+
+    let activities = data_reqs.unwrap().activities.unwrap();
+    assert_eq!(
+        activities.time_frame.as_deref(),
+        Some("12w"),
+        "the coach declared 12 weeks and must get 12 weeks, not the 4w default"
     );
 }

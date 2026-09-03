@@ -15,6 +15,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL, KEY_TURN_LANGUAGE,
 };
 use pierre_contremaitre::PromptRegistry;
+use pierre_core::civil_time::{format_local_stamp, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::{
@@ -362,7 +363,7 @@ fn interpolate_prompt_placeholders(
             } else {
                 prompt_registry.coaching_persona_prompt(persona, locale)
             };
-            let current_date = format_current_date(user_timezone);
+            let current_date = format_current_date(user_timezone, locale);
             prompt
                 .replace("{{SCOPE_REFUSAL}}", &scope)
                 .replace("{{CAPABILITY_REFUSAL}}", &capability)
@@ -395,22 +396,24 @@ const _: () = assert!(NOW_QUANTUM_SECS > 0);
 
 /// Resolve `{{CURRENT_DATE}}` to a single line for the LLM prompt.
 ///
-/// Output shape: `YYYY-MM-DD HH:MM (Continent/City)` when the user has a valid
-/// IANA timezone, e.g. `2026-05-21 14:30 (America/Toronto)`. Falls back to
-/// `YYYY-MM-DD HH:MM (UTC)` when the timezone is `None` (no client has reported
-/// yet) or fails to parse (e.g. a malformed string somehow landed in the
-/// column). Both date and time are *local* to the user's tz, not the server's
-/// UTC clock — that's the whole point of the anchor: when the user says "today"
-/// at 23:30 EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the
-/// server clock has already rolled over to. The wall-clock time lets the coach
-/// reason about time of day (morning/evening) without asking.
+/// Output shape: `YYYY-MM-DD <weekday> HH:MM (Continent/City)` when the user has
+/// a valid IANA timezone, e.g. `2026-05-21 jeu 14:30 (America/Toronto)`. Falls
+/// back to `(UTC)` when the timezone is `None` (no client has reported yet) or
+/// fails to parse (e.g. a malformed string somehow landed in the column). Both
+/// date and time are *local* to the user's tz, not the server's UTC clock —
+/// that's the whole point of the anchor: when the user says "today" at 23:30
+/// EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the server
+/// clock has already rolled over to. The wall-clock time lets the coach reason
+/// about time of day (morning/evening) without asking.
+///
+/// The weekday is named in `locale` for the same reason the epoch table below
+/// precomputes every window boundary: the model gets calendar arithmetic wrong,
+/// and a wrong weekday is the failure an athlete actually notices.
 #[must_use]
-pub fn format_current_date(user_timezone: Option<&str>) -> String {
+pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String {
     use chrono::{Datelike, Duration, TimeZone, Utc};
     let now_utc = Utc::now();
-    let tz: chrono_tz::Tz = user_timezone
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(chrono_tz::UTC);
+    let tz = resolve_zone(user_timezone);
     let local = now_utc.with_timezone(&tz);
     let label = tz.name();
 
@@ -433,9 +436,13 @@ pub fn format_current_date(user_timezone: Option<&str>) -> String {
     // the model to pass NO bounds for a freshness fetch — `now` is only ever a
     // `before` for a window question (today / this week / this month).
     let quantized_epoch = (now_utc.timestamp() / NOW_QUANTUM_SECS) * NOW_QUANTUM_SECS;
+    // The weekday is named here, never left to the model. Deriving "mercredi"
+    // from 2026-09-02 is calendar arithmetic, which the epoch table below
+    // already refuses to ask of the model for epochs; on 2026-09-02 an athlete
+    // left the conversation after correcting weekday claims three times.
     let datetime_str = Utc.timestamp_opt(quantized_epoch, 0).single().map_or_else(
-        || local.format("%Y-%m-%d %H:%M").to_string(),
-        |q| q.with_timezone(&tz).format("%Y-%m-%d %H:%M").to_string(),
+        || format_local_stamp(local.with_timezone(&Utc), tz, locale),
+        |q| format_local_stamp(q, tz, locale),
     );
     let now_epoch = quantized_epoch;
 

@@ -167,7 +167,10 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
 
 use fold::fold_separators;
 
-use vocab::{FOLDED_CAPABILITY, FOLDED_IDENTITY, FOLDED_INTERNAL, FOLDED_PEER_DENIAL};
+use vocab::{
+    FOLDED_CAPABILITY, FOLDED_IDENTITY, FOLDED_INTERNAL, FOLDED_PEER_DENIAL,
+    FOLDED_UNGROUNDED_APPEAL,
+};
 
 mod fold;
 mod identity;
@@ -225,6 +228,14 @@ fn matches_capability(folded: &str) -> bool {
         .iter()
         .any(|p| folded.contains(p.as_str()))
         || GLOBAL_NARRATION_VOCAB.matches(folded, |s| &s.capability)
+}
+
+/// `true` when the already-folded sentence cites data as the authority for a
+/// claim — scrubbed only on a turn where nothing was fetched.
+fn matches_ungrounded_appeal(folded: &str) -> bool {
+    FOLDED_UNGROUNDED_APPEAL
+        .iter()
+        .any(|p| folded.contains(p.as_str()))
 }
 
 /// `true` when the already-folded sentence carries peer-access-denial
@@ -425,6 +436,27 @@ pub fn scrub_internal_narration(text: &str) -> NarrationScrub {
 #[must_use]
 pub fn scrub_replayed_narration(text: &str) -> NarrationScrub {
     scrub_with(text, is_replayed_narration)
+}
+
+/// Remove appeals to fetched data from a reply produced without a fetch.
+///
+/// Callers apply this **only** when the turn ran no tool and carried no
+/// injected activity block. On a grounded turn the same sentence is true and
+/// passes through untouched — this is about the claim outrunning the evidence,
+/// not about the words.
+///
+/// Live 2026-09-02: *"Roster data confirme: Date ride était bien lundi"*, said
+/// on a zero-tool turn, restating the correction the athlete had just made and
+/// attributing it to data. The coach can still answer; it just cannot cite a
+/// lookup it did not perform (registre#202).
+#[must_use]
+pub fn scrub_ungrounded_data_appeals(text: &str) -> NarrationScrub {
+    scrub_with(text, is_ungrounded_appeal)
+}
+
+/// Predicate for [`scrub_ungrounded_data_appeals`].
+fn is_ungrounded_appeal(sentence: &str) -> bool {
+    matches_ungrounded_appeal(&fold_separators(sentence))
 }
 
 #[cfg(test)]

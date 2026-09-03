@@ -203,7 +203,7 @@ pub async fn fetch_member_snapshots(
 // The member display-name rule lives in `crate::athlete_display_name`, which
 // every build compiles: the snapshot roster, the peer-fetch tool and the plan
 // tools' `athlete=` resolution all render a member by that one function.
-use crate::athlete_display_name::fetch_user_display_name;
+use crate::athlete_display_name::fetch_athlete_identity;
 
 /// Compute training load metrics from a list of activities.
 ///
@@ -477,7 +477,9 @@ async fn fetch_single_member_snapshot(
 ) -> MemberFitnessSnapshot {
     let now = Utc::now();
     let data = runtime.data();
-    let display_name = fetch_user_display_name(&data, user_id).await;
+    let identity = fetch_athlete_identity(&data, user_id).await;
+    let display_name = identity.display_name.clone();
+    let timezone = identity.timezone.clone();
 
     // Cross-tenant lookup: a member's connections live under their own tenant,
     // which may differ from the requester/group-host tenant. See
@@ -518,11 +520,12 @@ async fn fetch_single_member_snapshot(
         );
     }
     let mut snapshot = if activities.is_empty() {
-        empty_snapshot(user_id, display_name, now)
+        empty_snapshot(user_id, display_name, timezone, now)
     } else {
         build_snapshot_from_activities(
             user_id,
             display_name,
+            timezone,
             &activities,
             now,
             &runtime.cageux_config().algorithms,
@@ -547,6 +550,7 @@ async fn fetch_single_member_snapshot(
 fn build_snapshot_from_activities(
     user_id: Uuid,
     display_name: String,
+    timezone: Option<String>,
     activities: &[Activity],
     now: DateTime<Utc>,
     algorithm_config: &AlgorithmConfig,
@@ -580,6 +584,7 @@ fn build_snapshot_from_activities(
         // Also populated by the caller — freshness is a property of how the
         // activities were fetched, which this pure computation never sees.
         served_stale: false,
+        timezone,
         computed_at: now,
     }
 }
@@ -651,6 +656,7 @@ fn compute_last_activity_per_provider(activities: &[Activity]) -> HashMap<String
 fn empty_snapshot(
     user_id: Uuid,
     display_name: String,
+    timezone: Option<String>,
     computed_at: DateTime<Utc>,
 ) -> MemberFitnessSnapshot {
     MemberFitnessSnapshot {
@@ -671,6 +677,7 @@ fn empty_snapshot(
         recent_activities: Vec::new(),
         needs_reauth_providers: Vec::new(),
         served_stale: false,
+        timezone,
         computed_at,
     }
 }

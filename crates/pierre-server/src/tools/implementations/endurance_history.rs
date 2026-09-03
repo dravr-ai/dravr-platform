@@ -10,7 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::TenantId;
+use pierre_core::models::{FormReading, TenantId};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use serde_json::{json, Value};
 
@@ -218,13 +218,37 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             let (from, to) = resolve_window(&args)?;
             let rows =
                 fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
-            // LIMITATION(registre#199): these `days` rows serialize bare ctl/atl/tsb floats with
-            // no tsb_pct_of_ctl, form_band or interpretation key, unlike `analyze_training_load`,
-            // so the coach reads an absolute TSB it cannot normalize or explain.
+
+            // Every row carries its own form reading, and the payload carries
+            // the method that produced it. This is the tool the endurance coach
+            // prompt says to call first; shipping bare ctl/atl/tsb floats is how
+            // a raw `-77` reached an athlete as a diagnosis nobody could explain
+            // (registre#199).
+            let params = &context.resources.cageux_config().algorithms.params;
+            let days: Vec<Value> = rows
+                .iter()
+                .map(|row| {
+                    let mut value = serde_json::to_value(row).unwrap_or_else(|_| json!({}));
+                    let reading = FormReading::new(row.ctl, row.atl, row.tsb);
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert(
+                            "tsb_pct_of_ctl".to_owned(),
+                            json!(reading.form_pct.map(f64::round)),
+                        );
+                        obj.insert("form_band".to_owned(), json!(reading.band));
+                    }
+                    value
+                })
+                .collect();
+
             Ok(ToolResult::ok(json!({
                 "from": from.format("%Y-%m-%d").to_string(),
                 "to": to.format("%Y-%m-%d").to_string(),
-                "days": rows,
+                "days": days,
+                "interpretation": FormReading::interpretation(
+                    params.training_load_ctl_days,
+                    params.training_load_atl_days,
+                ),
             })))
         }
         .await;

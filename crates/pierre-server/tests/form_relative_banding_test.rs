@@ -43,6 +43,7 @@ fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
         recent_activities: Vec::new(),
         needs_reauth_providers: Vec::new(),
         served_stale: false,
+        timezone: None,
         computed_at: Utc::now(),
     }
 }
@@ -70,7 +71,7 @@ fn form_pct_math_and_min_ctl_guard() {
 fn weekly_digest_card_renders_form_pct_next_to_tsb() {
     let card = WeeklyDigestSummarizer.summarize_member(&snapshot(85.0, 151.0, -66.0));
     assert!(
-        card.summary_text.contains("TSB: -66 (-78% of CTL)"),
+        card.summary_text.contains("TSB -66 (-78% of CTL"),
         "card should carry form % so the LLM reads TSB relative to the athlete: {}",
         card.summary_text
     );
@@ -80,20 +81,58 @@ fn weekly_digest_card_renders_form_pct_next_to_tsb() {
 fn roster_card_renders_form_pct_next_to_tsb() {
     let card = RosterCardSummarizer.summarize_member(&snapshot(120.0, 150.0, -30.0));
     assert!(
-        card.summary_text.contains("TSB -30 (-25% of CTL)"),
+        card.summary_text.contains("TSB -30 (-25% of CTL"),
         "roster card should carry form %: {}",
         card.summary_text
     );
 }
 
+/// The band's own wording travels with the number, on both cards.
+///
+/// The percentage alone was not enough. On 2026-09-02 the roster handed the
+/// coach `TSB: -77` and a `[DEEP FATIGUE]` flag, and the coach supplied its own
+/// reading — *"zone de surentraînement profond"*, a diagnosis — then anchored
+/// fifteen turns of advice on it for an athlete who was deliberately peaking.
+/// `FormBand::label` is written to be quotable: it describes fatigue relative to
+/// fitness and never reaches for risk language (registre#199).
 #[test]
-fn card_omits_form_pct_without_chronic_base() {
+fn both_cards_carry_the_bands_own_reading_not_just_the_number() {
+    for text in [
+        WeeklyDigestSummarizer
+            .summarize_member(&snapshot(120.0, 197.0, -77.0))
+            .summary_text,
+        RosterCardSummarizer
+            .summarize_member(&snapshot(120.0, 197.0, -77.0))
+            .summary_text,
+    ] {
+        assert!(
+            text.contains("deep fatigue - form far below this athlete's own fitness"),
+            "the card must carry the band's reading so the model does not invent \
+             one: {text}"
+        );
+        assert!(
+            !text.contains("overtrain") && !text.contains("risk"),
+            "the reading describes fatigue relative to fitness, never a \
+             diagnosis: {text}"
+        );
+    }
+}
+
+#[test]
+fn card_says_why_rather_than_shipping_a_bare_tsb_without_a_chronic_base() {
     let mut snap = snapshot(0.5, 20.0, -19.7);
     snap.ctl = Some(0.5);
     let card = WeeklyDigestSummarizer.summarize_member(&snap);
     assert!(
-        card.summary_text.contains("TSB: -20") && !card.summary_text.contains("% of CTL"),
+        !card.summary_text.contains("% of CTL"),
         "no form % without a chronic base to normalize against: {}",
+        card.summary_text
+    );
+    assert!(
+        card.summary_text
+            .contains("no chronic base - form not interpretable"),
+        "an un-normalizable TSB must say so; a bare absolute number is the \
+         shape that gets read as a verdict: {}",
         card.summary_text
     );
 }

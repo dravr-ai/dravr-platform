@@ -179,15 +179,29 @@ pub fn build_llm_messages_with_blocks(
         .collect();
     let mut accepted: Vec<AcceptedBlock<'_>> = Vec::new();
     for block in blocks {
-        // LIMITATION(registre#198): a block whose `first_message_id` has scrolled out of the
-        // history window is dropped whole rather than clamped to `last_index`, so its surviving
-        // rows render raw ahead of the next accepted summary and strand a `None` in the head.
-        let (Some(&first_index), Some(&last_index)) = (
-            id_to_index.get(block.first_message_id.as_str()),
-            id_to_index.get(block.last_message_id.as_str()),
-        ) else {
+        // A block is CLAMPED to the window, not dropped by it.
+        //
+        // The history window is `max_messages * 4` rows and it slides, so the
+        // oldest blocks fall out of it first — and a block always leaves before
+        // the rows it covers do. Dropping such a block whole re-expanded
+        // already-summarized history into the prompt AND stranded a `None`
+        // source id in the head, which is the guard `pick_range` aborts on. One
+        // successful compaction was therefore enough to jam the compactor
+        // permanently: 27 sliding-window fallbacks and zero successful
+        // compactions across three weeks of one live conversation (registre#198).
+        //
+        // When only `first_message_id` has scrolled out, the block still
+        // describes every surviving row up to `last_index`, so it starts at 0 —
+        // the window's own head — and covers them. When `last_message_id` has
+        // gone too, every row it covered is out of the window and there is
+        // nothing left to splice.
+        let Some(&last_index) = id_to_index.get(block.last_message_id.as_str()) else {
             continue;
         };
+        let first_index = id_to_index
+            .get(block.first_message_id.as_str())
+            .copied()
+            .unwrap_or(0);
         if first_index > last_index {
             continue;
         }

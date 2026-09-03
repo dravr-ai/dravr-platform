@@ -33,6 +33,7 @@ use chrono::{Duration, NaiveDate};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::models::activity::Activity;
+use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::models::DailyTrainingState;
 
 /// Default chronic window (Coggan).
@@ -81,6 +82,7 @@ pub fn compute_training_history(
     from: NaiveDate,
     to: NaiveDate,
     algorithm_config: &AlgorithmConfig,
+    user_timezone: Option<&str>,
 ) -> Vec<DailyTrainingState> {
     if to < from {
         return Vec::new();
@@ -97,15 +99,20 @@ pub fn compute_training_history(
 
     // Anchor the warm-up window so CTL/ATL EMAs converge before `from`.
     let warmup = from - Duration::days(ctl_window_days + 30);
+    // Bucket on the athlete's civil day, not the server's. A 21:00
+    // America/Toronto session lands on the next UTC date, which shifted the
+    // whole per-day series one day against the athlete's own calendar and made
+    // every "what did I do Tuesday" answer disagree with them (registre#200).
+    let zone = resolve_zone(user_timezone);
     let activity_dates: Vec<(NaiveDate, f64)> = activities
         .iter()
         .filter(|a| {
-            let d = a.start_date().date_naive();
+            let d = local_date(a.start_date(), zone);
             d >= warmup && d <= to
         })
         .map(|a| {
             (
-                a.start_date().date_naive(),
+                local_date(a.start_date(), zone),
                 tss_for(a, inputs, algorithm_config),
             )
         })

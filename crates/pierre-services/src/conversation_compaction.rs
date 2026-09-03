@@ -46,6 +46,27 @@ use pierre_llm::ChatProvider;
 /// "earlier conversation summary" callouts.
 pub const COMPACTION_MARKER: &str = "[pierre:compaction]\n";
 
+/// Which bound sent the thread to the sliding-window drop.
+///
+/// Only the log distinguishes these, and that is the point: one shared message
+/// reporting `tokens`/`window` on all three sent operators looking at the token
+/// cliff while the message cap was what actually breached (registre#198).
+#[derive(Debug, Clone, Copy)]
+enum SlideReason {
+    /// The prompt crossed the emergency token threshold.
+    TokenCliff,
+    /// Over `max_messages` and nothing could be summarized.
+    MessageCapBackstop,
+    /// A summary was attempted and did not come back usable.
+    SummarizationFailed,
+}
+
+/// Fewest real turns worth summarizing into a block.
+///
+/// A user turn and its reply. Below that there is no exchange — a lone turn
+/// summarized on its own costs an LLM call to say what the row already said.
+const MIN_COMPACTABLE_RUN: usize = 2;
+
 /// Framing prefix carried by a compaction summary on the wire.
 ///
 /// Summaries ride in a `User` message rather than a `System` one — see the
@@ -178,7 +199,9 @@ impl ConversationCompactor {
             self.config.warn_tokens(),
             self.config.emergency_tokens(),
         ) {
-            CompactionAction::Slide => Ok(self.run_emergency_sliding(ctx.llm_messages, before)),
+            CompactionAction::Slide => {
+                Ok(self.run_emergency_sliding(ctx.llm_messages, before, SlideReason::TokenCliff))
+            }
             CompactionAction::NoOp => Ok(CompactionOutcome::NoOp {
                 estimated_tokens: before,
             }),
@@ -191,11 +214,17 @@ impl ConversationCompactor {
                 // the message cap, slide as the backstop so the cap is never
                 // violated.
                 let outcome = self.try_summarize(&mut ctx, before).await?;
-                // LIMITATION(registre#198): this `over_messages` backstop is the live path on a
-                // cap-only thread — `plan_summary` returns `NoOp` and the history is raw-dropped
-                // with no `CompactionBlock` persisted, inverting the intent documented above.
+                // The backstop still exists — the cap must never be violated —
+                // but it is now genuinely a last resort rather than the live
+                // path. `pick_range` truncates a short run instead of aborting
+                // on it, so `NoOp` here means there really was nothing to
+                // summarize, and the log says so.
                 if over_messages && matches!(outcome, CompactionOutcome::NoOp { .. }) {
-                    Ok(self.run_emergency_sliding(ctx.llm_messages, before))
+                    Ok(self.run_emergency_sliding(
+                        ctx.llm_messages,
+                        before,
+                        SlideReason::MessageCapBackstop,
+                    ))
                 } else {
                     Ok(outcome)
                 }
@@ -209,12 +238,33 @@ impl ConversationCompactor {
         &self,
         llm_messages: &mut Vec<ChatMessage>,
         before: u32,
+        reason: SlideReason,
     ) -> CompactionOutcome {
-        warn!(
-            tokens = before,
-            window = self.config.window_tokens,
-            "Conversation above emergency threshold — sliding window fallback"
-        );
+        // The bound that actually breached, named. This warned "above emergency
+        // threshold" with `tokens` and `window` on every path, including the
+        // message-cap backstop — so an operator reading `tokens=25118,
+        // window=1000000` on a jammed thread saw compaction misfiring on a
+        // prompt at 2.5% of its window and had no way to reach the real cause
+        // (registre#198).
+        match reason {
+            SlideReason::TokenCliff => warn!(
+                tokens = before,
+                window = self.config.window_tokens,
+                "Conversation above the emergency token threshold — sliding window fallback"
+            ),
+            SlideReason::MessageCapBackstop => warn!(
+                non_system_count = non_system_count(llm_messages),
+                max_messages = self.config.max_messages,
+                tokens = before,
+                "Over the message cap and nothing could be summarized — sliding window backstop; \
+                 history is dropped without a compaction block"
+            ),
+            SlideReason::SummarizationFailed => warn!(
+                non_system_count = non_system_count(llm_messages),
+                tokens = before,
+                "Summarization did not produce a usable block — sliding window fallback"
+            ),
+        }
         let dropped = self.sliding_window(llm_messages);
         let after = estimate_messages_tokens(llm_messages);
         CompactionOutcome::SlidingWindow {
@@ -241,7 +291,11 @@ impl ConversationCompactor {
             Ok(s) => s,
             Err(e) => {
                 warn!(error = %e, "Summarization failed; falling back to sliding window");
-                return Ok(self.run_emergency_sliding(ctx.llm_messages, before));
+                return Ok(self.run_emergency_sliding(
+                    ctx.llm_messages,
+                    before,
+                    SlideReason::SummarizationFailed,
+                ));
             }
         };
         // A summary that scrubbed to empty (pure capability-failure/narration
@@ -250,7 +304,11 @@ impl ConversationCompactor {
         // summarization instead.
         if summary.is_empty() {
             warn!("Summary empty after narration scrub; falling back to sliding window");
-            return Ok(self.run_emergency_sliding(ctx.llm_messages, before));
+            return Ok(self.run_emergency_sliding(
+                ctx.llm_messages,
+                before,
+                SlideReason::SummarizationFailed,
+            ));
         }
 
         self.apply_summary(ctx, plan, &summary, before).await
@@ -352,13 +410,27 @@ impl ConversationCompactor {
     /// — never re-summarizes an already-injected summary (those carry `None`,
     /// so they fall outside the range).
     ///
-    /// `start` is the first real turn. We then require the
-    /// `summarize_oldest_n` entries starting there to be *contiguously* real
-    /// (a defensive guard: an unexpected summary interspersed among the oldest
-    /// turns means our window assumptions no longer hold, so we skip
-    /// compaction this turn) and at least two more real turns to survive after
-    /// the window, so the most recent user+assistant pair stays for the LLM to
-    /// reply to.
+    /// `start` is the first real turn. The window then extends over the
+    /// *contiguous* run of real turns beginning there, up to
+    /// `summarize_oldest_n` of them, and at least two more real turns must
+    /// survive after it so the most recent user+assistant pair stays for the
+    /// LLM to reply to.
+    ///
+    /// The run is truncated, never rejected. This used to abort outright when
+    /// an injected summary's `None` fell inside the first `n` slots — and that
+    /// is a state the pipeline reaches on its own and never leaves. A block
+    /// covers exactly `n` emitted rows, so once its `first_message_id` scrolls
+    /// out of the history window the head becomes `[None(system), Some x 1..n-1,
+    /// None(summary), Some…]` and the `None` sits permanently inside the guard's
+    /// range. Compaction succeeded once per conversation, created a block, and
+    /// the block then jammed the compactor for good: 27 sliding-window
+    /// fallbacks and zero successful compactions over three weeks of one live
+    /// thread, with the athlete's corrections falling out of the window a few
+    /// turns after he made them (registre#198).
+    ///
+    /// Compacting a short run is strictly better than compacting nothing: the
+    /// alternative is `run_emergency_sliding`, which drops the same rows with
+    /// no summary written at all.
     fn pick_range(&self, source_ids: &[Option<String>]) -> Option<CompactRange> {
         let n = self.config.summarize_oldest_n;
 
@@ -366,17 +438,19 @@ impl ConversationCompactor {
         // summaries (all `None`).
         let start = source_ids.iter().position(Option::is_some)?;
 
-        // The `n` entries to compact must all be real turns. An interspersed
-        // injected summary (`None`) inside the window aborts compaction.
-        let window_end = start.checked_add(n)?;
-        if window_end > source_ids.len() {
+        // The contiguous run of real turns from `start`, capped at `n`.
+        let run_len = source_ids[start..]
+            .iter()
+            .take(n)
+            .take_while(|id| id.is_some())
+            .count();
+        // Two real turns is the floor: a user turn and its reply. Below that
+        // there is no exchange to summarize.
+        if run_len < MIN_COMPACTABLE_RUN {
             return None;
         }
-        // LIMITATION(registre#198): this contiguity guard is what jams `pick_range` in
-        // production — once an injected summary's `None` lands within the first
-        // `summarize_oldest_n` slots it never leaves, so the conversation can never
-        // summarize again and falls to the raw sliding drop on every turn.
-        if source_ids[start..window_end].iter().any(Option::is_none) {
+        let window_end = start.checked_add(run_len)?;
+        if window_end > source_ids.len() {
             return None;
         }
 

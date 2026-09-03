@@ -72,6 +72,11 @@ mod capability_recovery {
         "Parfait — basé sur tes 5 dernières sorties: 45 min de vélo facile ce soir, bol de riz \
          au tofu après.";
 
+    /// The two lead sentences the prefetch prepends to an injected activity
+    /// block. Seeing either in the request proves the athlete's data reached
+    /// the model before it answered, rather than after.
+    use pierre_chat_pipeline::stages::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+
     /// A substring of the stage's re-ask instruction; seeing it in the request
     /// proves the verification data actually reached the wire.
     const REASK_MARKER: &str = "fetched successfully on your behalf";
@@ -533,10 +538,17 @@ mod capability_recovery {
         );
     }
 
-    /// Deterministic provider that never says it is broken — it just answers a
-    /// data question with no data behind it. This is the failure the lexical
-    /// detector structurally cannot see, and the reason the trigger stopped
-    /// depending on the model's choice of words.
+    /// Deterministic provider that never says it is broken — it answers a data
+    /// question with data when it has any, and with generic filler when it does
+    /// not. The filler carries zero capability-failure vocabulary in any locale,
+    /// which is the failure the lexical detector structurally cannot see.
+    ///
+    /// It answers off EITHER grounding path: the prefetch's injected activity
+    /// block, or the Guardian re-ask's fetched payload. That is what a real
+    /// coach does, and keeping it to only the re-ask made the mock assert the
+    /// mechanism rather than the outcome — so it went red when registre#201
+    /// started grounding a coachless turn up front instead of repairing it
+    /// afterwards.
     struct UngroundedThenGroundedMockProvider;
 
     /// Generic filler with zero capability-failure vocabulary in any locale.
@@ -563,11 +575,12 @@ mod capability_recovery {
         }
 
         async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-            let is_reask = request
-                .messages
-                .iter()
-                .any(|m| m.content.contains(REASK_MARKER));
-            let content = if is_reask {
+            let grounded = request.messages.iter().any(|m| {
+                m.content.contains(REASK_MARKER)
+                    || m.content.contains(STARTUP_GROUNDING_LEAD)
+                    || m.content.contains(REFRESH_GROUNDING_LEAD)
+            });
+            let content = if grounded {
                 CLEAN_REPLY
             } else {
                 UNGROUNDED_REPLY
@@ -596,6 +609,17 @@ mod capability_recovery {
         }
     }
 
+    /// A coachless data ask reaches the athlete grounded — by whichever path
+    /// gets there.
+    ///
+    /// It used to be the Guardian repair pass, because nothing else grounded a
+    /// conversation with no coach bound. registre#201 gave that turn a default
+    /// activity window, so the data is now in the prompt before the model
+    /// answers rather than fetched after it does — and the repair pass stays as
+    /// the net for a turn the prefetch could not fill.
+    ///
+    /// The assertion is unchanged and is the one that matters: the ungrounded
+    /// filler must not be what the athlete ends up reading.
     #[tokio::test]
     #[serial]
     async fn an_ungrounded_data_answer_is_regrounded_without_any_refusal_wording() {

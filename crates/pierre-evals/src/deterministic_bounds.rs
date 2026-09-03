@@ -139,13 +139,28 @@ fn extract_number_near_lowercased(lower: &str, keyword: &str) -> Option<f64> {
     let mut best: Option<(f64, usize)> = None;
     let mut buf = String::new();
     let mut token_start: Option<usize> = None;
+    // The character before the one being examined, so a `-` can be told apart
+    // from a hyphen inside a range.
+    let mut prev: Option<char> = None;
 
     for (offset, ch) in window.char_indices() {
-        if (ch.is_ascii_digit() || ch == '.') && !kw_span_in_window.contains(&offset) {
+        // A leading sign, and only a leading one. TSB is the metric that is
+        // routinely negative, and without this the scanner read «ton TSB est à
+        // -77» as a claim of +77 — so a coach stating the athlete's true form
+        // was scored Contradicted and earned a warning banner on a correct
+        // sentence, while a coach stating +77 scored identically. Requiring the
+        // previous character not to be a digit keeps a range ("5-15", "zone
+        // 2-3", "5:00-5:15/km") from being read as a negative number.
+        let is_sign = matches!(ch, '-' | '\u{2212}')
+            && buf.is_empty()
+            && !prev.is_some_and(|c| c.is_ascii_digit());
+        prev = Some(ch);
+        if (ch.is_ascii_digit() || ch == '.' || is_sign) && !kw_span_in_window.contains(&offset) {
             if buf.is_empty() {
                 token_start = Some(offset);
             }
-            buf.push(ch);
+            // Normalize the Unicode minus so `parse::<f64>` accepts it.
+            buf.push(if ch == '\u{2212}' { '-' } else { ch });
         } else if !buf.is_empty() {
             if let (Ok(v), Some(start)) = (buf.parse::<f64>(), token_start) {
                 let distance = start.abs_diff(kw_center_in_window);
