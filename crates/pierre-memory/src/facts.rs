@@ -350,8 +350,7 @@ impl PredicateCode {
 /// A structured claim the harness has extracted about a user.
 ///
 /// Facts are the unit of semantic memory. They are tenant-scoped, have
-/// provenance back to a source message, carry a confidence score, and
-/// optionally carry an embedding for vector recall.
+/// provenance back to a source message, and carry a confidence score.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserFact {
     /// Stable identifier for this fact.
