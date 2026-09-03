@@ -177,7 +177,7 @@ describe('chat-first landing', () => {
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-    const { findByTestId, getByTestId, getByText } = render(
+    const { findByTestId, getByTestId, queryByTestId, getByText } = render(
       <QueryClientProvider client={client}>
         <ChatIndexRoute />
       </QueryClientProvider>,
@@ -186,7 +186,9 @@ describe('chat-first landing', () => {
     expect(await findByTestId('conversation-row-conv-1')).toBeTruthy();
     expect(getByText('Tempo Tuesday')).toBeTruthy();
     expect(getByTestId('conversations-screen')).toBeTruthy();
-    expect(getByTestId('chat-plus-button')).toBeTruthy();
+    // The header carries no "+": starting something is the tab bar's job, and
+    // this screen used to offer the same sheet twice (carnet#213).
+    expect(queryByTestId('chat-plus-button')).toBeNull();
     expect(mockGetConversations).toHaveBeenCalledTimes(1);
   });
 

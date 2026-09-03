@@ -17,7 +17,8 @@ appId: ai.dravr.app
     timeout: 15000
 - assertVisible:
     id: "conversations-title"
-- assertVisible:
+# Starting something belongs to the tab bar's "+", never the header's.
+- assertNotVisible:
     id: "chat-plus-button"
 - assertVisible:
     id: "conversations-list"

@@ -78,10 +78,13 @@ describe('the chat "+"', () => {
     mockListParticipants.mockResolvedValue([]);
   });
 
+  // The list header's "+" is gone — the tab bar's is the app's one entry point
+  // for starting something (carnet#213). On an empty list the call-to-action
+  // "+" opens the same sheet, which is what these tests are about.
   it('offers exactly new chat and new group chat from the conversation list', async () => {
     const { findByTestId, getByTestId, queryByTestId, getByText } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('chat-plus-button'));
+    fireEvent.press(await findByTestId('conversations-empty-plus'));
 
     expect(getByTestId('chat-plus-sheet')).toBeTruthy();
     expect(getByText('New chat')).toBeTruthy();
@@ -95,7 +98,7 @@ describe('the chat "+"', () => {
   it('new chat opens an empty thread', async () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('chat-plus-button'));
+    fireEvent.press(await findByTestId('conversations-empty-plus'));
     fireEvent.press(getByTestId('chat-plus-action-new-chat'));
 
     expect(mockRouter.push).toHaveBeenCalledWith({
@@ -110,7 +113,7 @@ describe('the chat "+"', () => {
   it('new group chat asks for a name and sends /group create in a fresh thread', async () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('chat-plus-button'));
+    fireEvent.press(await findByTestId('conversations-empty-plus'));
     fireEvent.press(getByTestId('chat-plus-action-new-group-chat'));
 
     const dialog = await findByTestId('new-group-name-dialog-input');
@@ -130,7 +133,7 @@ describe('the chat "+"', () => {
   it('an empty name creates nothing', async () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('chat-plus-button'));
+    fireEvent.press(await findByTestId('conversations-empty-plus'));
     fireEvent.press(getByTestId('chat-plus-action-new-group-chat'));
 
     fireEvent.changeText(await findByTestId('new-group-name-dialog-input'), '   ');

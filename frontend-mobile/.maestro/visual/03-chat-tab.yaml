@@ -21,7 +21,8 @@ appId: ai.dravr.app
     visible:
       id: "conversations-screen"
     timeout: 5000
-- assertVisible:
+# The one "+" lives in the tab bar, not the header.
+- assertNotVisible:
     id: "chat-plus-button"
 
 # Test: chat - a new thread carries the composer

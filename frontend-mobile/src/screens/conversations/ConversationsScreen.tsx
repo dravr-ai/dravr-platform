@@ -202,15 +202,6 @@ export function ConversationsScreen() {
         </View>
         <AppearanceToggleButton size={20} color={colors.text.secondary} />
         <NotificationBellButton size={20} color={colors.text.secondary} />
-        <TouchableOpacity
-          className="w-10 h-10 items-center justify-center"
-          onPress={() => setPlusVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel={t('app.convNewAria')}
-          testID="chat-plus-button"
-        >
-          <Feather name="plus" size={24} color={colors.pierre.violet} />
-        </TouchableOpacity>
       </View>
 
       {errorMessage && (

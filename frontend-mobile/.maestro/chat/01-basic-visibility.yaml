@@ -15,7 +15,11 @@ appId: ai.dravr.app
     id: "conversations-screen"
 - assertVisible:
     id: "conversations-title"
-- assertVisible:
+
+# The list header carries no "+" either. The tab bar's is the app's one entry
+# point for starting something, and a second copy in the header offers it twice
+# in the place hardest to reach (carnet#213).
+- assertNotVisible:
     id: "chat-plus-button"
 
 # Test: a new chat opens a thread over the list

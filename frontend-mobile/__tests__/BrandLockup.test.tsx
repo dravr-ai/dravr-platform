@@ -103,6 +103,19 @@ describe('the Dravr lockup on the phone', () => {
       expect(screen.getByTestId('conversations-title').props.accessibilityRole).toBe('header');
     });
 
+    it('carries no "+" of its own — the tab bar holds the only one', async () => {
+      const screen = renderInTheme(<ConversationsScreen />);
+      await waitFor(() => expect(screen.getByTestId('conversations-title')).toBeTruthy());
+
+      // carnet#213 took the "+" out of the THREAD header; the list header kept
+      // one, so the same sheet was still offered twice on this screen — once
+      // here and once in the tab bar under it, which is the reachable one.
+      expect(screen.queryByTestId('chat-plus-button')).toBeNull();
+
+      // The empty state's own "+" is a call to action, not chrome, and stays.
+      expect(screen.getByTestId('conversations-empty-plus')).toBeTruthy();
+    });
+
     it('draws the mark from the shipped badge asset', async () => {
       const screen = renderInTheme(<ConversationsScreen />);
       await waitFor(() => expect(screen.getByTestId('conversations-title-mark')).toBeTruthy());
