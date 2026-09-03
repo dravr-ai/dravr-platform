@@ -15,6 +15,7 @@ use crate::constants::{
     protocol::JSONRPC_VERSION,
     tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES, GET_CONNECTION_STATUS},
 };
+use crate::mcp::audit::record_tool_call;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_auth::auth::AuthMethod as AuthResultMethod;
@@ -429,7 +430,7 @@ impl ToolHandlers {
     #[tracing::instrument(
         skip(request, auth_result, tenant_context, resources),
         fields(
-            tool_name = Empty,
+            tool_name = Empty, arguments_hash = Empty,
             user_id = %auth_result.user_id,
             tenant_id = %tenant_context.tenant_id,
             success = Empty,
@@ -478,8 +479,7 @@ impl ToolHandlers {
         let args = &tool_params.arguments;
         let user_id = auth_result.user_id;
 
-        // Record tool name in span
-        tracing::Span::current().record("tool_name", tool_name.as_str());
+        record_tool_call(tool_name, args);
 
         // Check if tool is enabled for this user in this tenant
         if let Some(error_response) = Self::check_tool_enabled(

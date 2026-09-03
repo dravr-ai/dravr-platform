@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 /// Platform host seams (auth/dispatch/method) wiring onto the tronc MCP engine
+pub mod audit;
 pub mod host_seams;
 /// Tenant-aware tool helpers + Axum server orchestration
 pub mod multitenant;
