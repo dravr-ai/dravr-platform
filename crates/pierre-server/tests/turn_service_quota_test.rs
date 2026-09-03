@@ -42,7 +42,7 @@ mod turn_service_quota_tests {
     use futures_util::stream;
     use pierre_chat_pipeline::{
         CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
-        TurnRequest,
+        TurnOrigin, TurnRequest,
     };
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
@@ -385,6 +385,7 @@ mod turn_service_quota_tests {
         let served = pierre_chat_pipeline::execute(
             &ctx,
             TurnRequest {
+                origin: TurnOrigin::Athlete,
                 conversation_id: conversation.id.clone(),
                 user_id: athlete_id,
                 conversation_tenant_id: athlete_tenant,

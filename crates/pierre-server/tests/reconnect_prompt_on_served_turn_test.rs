@@ -49,7 +49,7 @@ use pierre_chat_pipeline::stages::auth_recovery::{
 };
 use pierre_chat_pipeline::{
     build_envelope, PipelineHooks, QuotaState, ReplyBlock, SurfaceId, SurfaceProfile,
-    SurfaceRequest, TurnInput, TurnState, TurnTelemetry,
+    SurfaceRequest, TurnInput, TurnOrigin, TurnState, TurnTelemetry,
 };
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
@@ -108,6 +108,7 @@ fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoopResult {
 
 fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
     TurnInput {
+        origin: TurnOrigin::Athlete,
         conversation_id: Uuid::new_v4().to_string(),
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,

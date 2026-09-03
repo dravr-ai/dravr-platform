@@ -77,7 +77,7 @@ pub use usage_counters::{
 // messaging ingress) can attach the same per-call recorder the chat
 // pipeline uses.
 pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
-pub use turn::{CreateConversationResult, TurnInput, UserMessageResult};
+pub use turn::{CreateConversationResult, TurnInput, TurnOrigin, UserMessageResult};
 
 use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::sync::Arc;
@@ -123,7 +123,8 @@ use tracing::{info, warn};
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
 use stages::followups::{ensure_coach_session_attached, finalize_session_state};
 use stages::persistence::{
-    get_conversation_history, persist_assistant_response, persist_user_message,
+    append_platform_prompt, get_conversation_history, persist_assistant_response,
+    resolve_turn_prompt,
 };
 #[cfg(feature = "tools-verification")]
 use stages::verification::persist_pending_verdicts;
@@ -808,16 +809,10 @@ async fn run_turn(
 
     let database = ctx.repos.chat.as_ref();
 
-    // Stage 2: Persist user message.
-    let msg_result = persist_user_message(
-        database,
-        ctx.repos.groups.as_ref(),
-        &input.conversation_id,
-        &input.user_id,
-        input.conversation_tenant_id,
-        &input.content,
-    )
-    .await?;
+    // Stage 2: Resolve the prompt this turn answers. Persisted as the
+    // athlete's message when they sent it, and deliberately not when the
+    // platform composed it — see `resolve_turn_prompt`.
+    let msg_result = resolve_turn_prompt(database, ctx.repos.groups.as_ref(), &input).await?;
     let user_message = msg_result.message;
     let conv = msg_result.conversation;
 
@@ -839,18 +834,28 @@ async fn run_turn(
     // at Stage 21.
     // A finished calibration interview answers deterministically and skips the
     // LLM entirely (see `resolve_guided_or_answer`).
-    let onboarding_turn = match resolve_guided_or_answer(GuidedStageInputs {
-        ctx,
-        input: &input,
-        profile,
-        active_model: &active_model,
-        user_message: &user_message,
-        conv: &conv,
-    })
-    .await?
-    {
-        GuidedOutcome::Answered(result) => return Ok(*result),
-        GuidedOutcome::Continue(turn) => turn,
+    // A platform-composed prompt is not the athlete answering the probe, so it
+    // never drives the guided flow. Left in, a finished calibration would
+    // answer this turn with its wrap-up (`GuidedOutcome::Answered` returns
+    // outright) and the athlete would get an interview summary where their
+    // history was supposed to arrive — the same impersonation as the `user`
+    // row above, one table over.
+    let onboarding_turn = if input.origin.persists_user_row() {
+        match resolve_guided_or_answer(GuidedStageInputs {
+            ctx,
+            input: &input,
+            profile,
+            active_model: &active_model,
+            user_message: &user_message,
+            conv: &conv,
+        })
+        .await?
+        {
+            GuidedOutcome::Answered(result) => return Ok(*result),
+            GuidedOutcome::Continue(turn) => turn,
+        }
+    } else {
+        None
     };
 
     // Stage 5: Load conversation history for LLM context. Bound the load to a
@@ -876,6 +881,8 @@ async fn run_turn(
         history_load_limit,
     )
     .await?;
+
+    append_platform_prompt(&mut history, &user_message, input.origin);
 
     stages::coach_mention::apply_prompt_text(&mut history, &user_message.id, &input);
 

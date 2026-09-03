@@ -18,6 +18,36 @@ pub struct CreateConversationResult {
     pub conversation: ConversationRecord,
 }
 
+/// Who authored the message a turn answers.
+///
+/// The pipeline's second stage writes the turn's prompt to `chat_messages` as
+/// a `user` row before it answers, and every later turn reads that row back as
+/// history. That is right for a message an athlete typed and wrong for one the
+/// platform composed on their behalf: the row is attributed to them, appears
+/// in their own thread as something they said, advances their read marker and
+/// fans out to a group room they never posted in.
+///
+/// A proactive turn therefore declares itself here, and the prompt reaches the
+/// model through the in-memory history instead of through a row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnOrigin {
+    /// The athlete sent this message. It is persisted as their turn.
+    Athlete,
+    /// The platform composed this prompt — a completed backfill re-asking the
+    /// athlete's own earlier question, say. Nothing is written as the
+    /// athlete's; only the reply is persisted, because the reply is real.
+    Platform,
+}
+
+impl TurnOrigin {
+    /// Whether this turn's prompt is written to the transcript as an athlete
+    /// message.
+    #[must_use]
+    pub const fn persists_user_row(self) -> bool {
+        matches!(self, Self::Athlete)
+    }
+}
+
 /// Result of persisting a user message and resolving the parent conversation.
 pub struct UserMessageResult {
     /// The persisted user message.
@@ -52,6 +82,10 @@ pub struct TurnInput {
     pub is_direct_message: bool,
     /// Raw user message content.
     pub content: String,
+    /// Whether the athlete sent [`Self::content`], or the platform composed it.
+    ///
+    /// Drives whether the turn writes a `user` row at all; see [`TurnOrigin`].
+    pub origin: TurnOrigin,
     /// Conversation-turn correlation identifier generated at the inbound
     /// boundary (web chat handler, messaging ingress, CLI entry). Threaded
     /// through every downstream LLM call and the persisted LLM usage row so

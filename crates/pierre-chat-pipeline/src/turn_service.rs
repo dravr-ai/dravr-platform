@@ -52,7 +52,7 @@ use crate::stages::command_persistence::{
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
 use crate::surface_profile::SurfaceProfile;
-use crate::turn::TurnInput;
+use crate::turn::{TurnInput, TurnOrigin};
 use crate::usage_counters::{
     increment_usage_counters_scoped, tokens_from_envelope, UsageIncrementScope,
 };
@@ -77,8 +77,15 @@ pub struct TurnRequest<'a> {
     /// usage invisible to every quota read (registre#9).
     pub tool_tenant_id: TenantId,
     /// The athlete's message, already sanitized by the ingress that received
-    /// it.
+    /// it — or, when [`Self::origin`] says so, a prompt the platform composed.
     pub content: String,
+    /// Who authored [`Self::content`].
+    ///
+    /// Every inbound surface sends [`TurnOrigin::Athlete`]. A background job
+    /// re-entering the pipeline to answer on its own initiative sends
+    /// [`TurnOrigin::Platform`], which keeps the prompt out of the athlete's
+    /// transcript and out of their guided flow.
+    pub origin: TurnOrigin,
     /// Correlation id minted at the inbound boundary.
     pub turn_id: ConversationTurnId,
     /// Pre-rendered room transcript for a group turn; `None` for a DM or an
@@ -292,6 +299,7 @@ pub async fn execute(
         tool_tenant_id: request.tool_tenant_id,
         is_direct_message: request.is_direct_message,
         content: request.content.clone(),
+        origin: request.origin,
         turn_id: request.turn_id,
         ambient_context: request.ambient_context,
         quota,

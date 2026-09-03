@@ -19,7 +19,9 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::scene_publisher::MessagingScenePublisher;
-use pierre_chat_pipeline::{self, CommandPersistence, PipelineHooks, ServedTurn, TurnRequest};
+use pierre_chat_pipeline::{
+    self, CommandPersistence, PipelineHooks, ServedTurn, TurnOrigin, TurnRequest,
+};
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER,
     KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
@@ -838,6 +840,8 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         None
     };
     let request = TurnRequest {
+        // The athlete sent this on a messaging channel.
+        origin: TurnOrigin::Athlete,
         conversation_id: dispatch.session.conversation.clone(),
         user_id: dispatch.auth_result.user_id,
         // The conversation lives under the session tenant (the athlete's own

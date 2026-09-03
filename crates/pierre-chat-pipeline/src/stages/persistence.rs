@@ -21,6 +21,9 @@
 //!    token usage and model metadata, then re-reads the conversation
 //!    record so the caller can access updated `updated_at` / `summary`
 //!    fields.
+//! 5. Resolve a platform-composed turn — the same ownership check with no
+//!    write at all, for a prompt the athlete did not send. See
+//!    [`resolve_platform_turn`] and [`crate::turn::TurnOrigin`].
 //!
 //! Both message writers also fan the row out to the group's shared room
 //! transcript (`group_transcript_entries`) when the conversation is
@@ -34,13 +37,15 @@ use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::CoachingGroupRepository;
 
-use crate::turn::{CreateConversationResult, UserMessageResult};
+use crate::turn::{CreateConversationResult, TurnInput, TurnOrigin, UserMessageResult};
+use chrono::Utc;
 use pierre_config::environment::LlmProviderType;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
 use tracing::warn;
+use uuid::Uuid;
 
 /// Advance the participant's read marker past a row they just wrote or were
 /// just shown. Best-effort: the row is already durable, and a marker that
@@ -195,6 +200,114 @@ pub async fn persist_user_message(
         &message.id,
     )
     .await?;
+
+    Ok(UserMessageResult {
+        message,
+        conversation,
+    })
+}
+
+/// Resolve the prompt a turn answers, persisting it only when the athlete sent it.
+///
+/// An athlete's message is written before dispatch, so a crash mid-turn still
+/// leaves their question on the thread. A platform-composed prompt is not
+/// theirs to write: the row would be attributed to them in their own thread,
+/// advance their read marker past a message they never saw, and fan out to a
+/// group room they never posted in. It reaches the model through the history
+/// instead — see [`append_platform_prompt`] — and only the reply is persisted,
+/// because only the reply is real.
+///
+/// # Errors
+///
+/// Returns `AppError::NotFound` when the conversation does not exist or the
+/// user is not a participant, on both paths, and database errors on a failed
+/// write.
+pub async fn resolve_turn_prompt(
+    database: &dyn ChatRepository,
+    groups: &dyn CoachingGroupRepository,
+    input: &TurnInput,
+) -> AppResult<UserMessageResult> {
+    let conversation_id = input.conversation_id.as_str();
+    let user_id = input.user_id.as_str();
+    let tenant_id = input.conversation_tenant_id;
+    let content = input.content.as_str();
+    if input.origin.persists_user_row() {
+        persist_user_message(
+            database,
+            groups,
+            conversation_id,
+            user_id,
+            tenant_id,
+            content,
+        )
+        .await
+    } else {
+        resolve_platform_turn(database, conversation_id, user_id, tenant_id, content).await
+    }
+}
+
+/// Put a platform-composed prompt in front of the model.
+///
+/// An athlete's message is already the last row of the loaded history, having
+/// been written before the load. A platform-composed one was deliberately not
+/// written, so it is appended here: the model has to read the question to
+/// answer it, and this copy lives only for the length of the turn. A no-op on
+/// an athlete turn, whose prompt is already there.
+pub fn append_platform_prompt(
+    history: &mut Vec<MessageRecord>,
+    prompt: &MessageRecord,
+    origin: TurnOrigin,
+) {
+    if !origin.persists_user_row() {
+        history.push(prompt.clone());
+    }
+}
+
+/// Resolve the conversation for a turn the platform composed, writing nothing.
+///
+/// The athlete-authored path ([`persist_user_message`]) writes the prompt as a
+/// `user` row and returns it. A platform-authored turn must not: the row would
+/// be attributed to the athlete in their own thread, advance their read marker
+/// past a message they never saw, and fan out to a group room they never
+/// posted in. So this performs the same ownership check and hands back an
+/// unpersisted [`MessageRecord`] carrying the prompt, which the caller appends
+/// to the loaded history so the model still reads the question.
+///
+/// The returned record's `id` is a fresh UUID that matches no row on purpose.
+/// Nothing on the turn path writes it: the assistant reply, the verdicts and
+/// the background learning all key on the ASSISTANT message id, and the
+/// `@handle` rewrite that does read a user-message id is inert here, because a
+/// platform-composed prompt never carries a mention.
+///
+/// # Errors
+///
+/// Returns `AppError::NotFound` when the conversation does not exist or the
+/// user is not a participant — the same refusal the athlete path gives, so a
+/// proactive turn cannot answer into a thread its subject cannot read.
+pub async fn resolve_platform_turn(
+    database: &dyn ChatRepository,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    content: &str,
+) -> AppResult<UserMessageResult> {
+    let conversation = database
+        .get_conversation(conversation_id, user_id, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+
+    let message = MessageRecord {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: conversation_id.to_owned(),
+        role: "user".to_owned(),
+        content: content.to_owned(),
+        token_count: None,
+        prompt_tokens: None,
+        model: None,
+        finish_reason: None,
+        content_blocks: None,
+        created_at: Utc::now().to_rfc3339(),
+    };
 
     Ok(UserMessageResult {
         message,

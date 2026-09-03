@@ -31,7 +31,7 @@ use helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
 use pierre_chat_pipeline::stages::coach_mention::{mention_candidates, strip_mention};
 use pierre_chat_pipeline::{
     CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
-    TurnRequest,
+    TurnOrigin, TurnRequest,
 };
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -319,6 +319,7 @@ async fn web_turn(
     let served = pierre_chat_pipeline::execute(
         &ctx,
         TurnRequest {
+            origin: TurnOrigin::Athlete,
             conversation_id: conversation_id.to_owned(),
             user_id,
             conversation_tenant_id: tenant_id,

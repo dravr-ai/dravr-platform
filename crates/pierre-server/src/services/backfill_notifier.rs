@@ -40,7 +40,9 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use async_trait::async_trait;
 use chrono::{Duration, TimeZone, Utc};
-use pierre_chat_pipeline::{CommandPersistence, PipelineHooks, ServedTurn, TurnRequest};
+use pierre_chat_pipeline::{
+    CommandPersistence, PipelineHooks, ServedTurn, TurnOrigin, TurnRequest,
+};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
     KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
@@ -264,6 +266,10 @@ impl ChatReentry for PipelineChatReentry {
         let ctx = resources.chat_pipeline_context();
         let channel_slug = req.channel_type.to_string();
         let request = TurnRequest {
+            // The platform re-asks the athlete's own earlier question once their
+            // history has loaded. They did not send it a second time, so it is
+            // never written to their transcript as though they had — carnet#246.
+            origin: TurnOrigin::Platform,
             conversation_id: req.conversation_id.to_owned(),
             user_id: req.user_id,
             conversation_tenant_id: req.tenant_id,

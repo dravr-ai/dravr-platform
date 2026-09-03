@@ -256,6 +256,8 @@ impl TurnEgress {
         hooks: pipeline::PipelineHooks<'a>,
     ) -> pipeline::TurnRequest<'a> {
         pipeline::TurnRequest {
+            // The athlete typed this into the app.
+            origin: pipeline::TurnOrigin::Athlete,
             conversation_id: self.conversation.id.clone(),
             user_id: self.user_id,
             // Web and mobile conversations are per-user by construction: the
