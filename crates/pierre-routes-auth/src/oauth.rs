@@ -25,6 +25,7 @@ use pierre_auth::tenant::TenantContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
+use pierre_providers::backend_resolver;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, OAuthService,
@@ -280,6 +281,28 @@ pub async fn handle_providers_status(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
+/// Is this card's provider connected, counting either backend that serves it?
+///
+/// The Strava and Garmin cards are named for their MIRROR backends (`sciotte`,
+/// `sciotte_garmin`) because the scrape is the supported way in, and the raw
+/// `strava` / `garmin` cards are withheld — `garmin` is skipped outright below,
+/// and both clients filter `strava` out. But a connection made through OAuth is
+/// stored under the user-facing name. One athlete and one provider therefore
+/// have two possible row names, so a card lights up when EITHER is present.
+///
+/// Both clients used to do this themselves, and only for Strava: each carried a
+/// copy of "if a connected `strava` row exists, mark the `sciotte` card
+/// connected". Garmin had no such copy, so an athlete with a `garmin` row was
+/// told no provider was connected — by the connect screen, the connect banner
+/// and the chat header alike, while `/mcp` said connected (carnet#255). Deciding
+/// it here means the two clients cannot disagree with each other or with the
+/// server, and Garmin is covered by the same rule rather than a third copy.
+fn card_is_connected(card: &str, rows: &HashSet<String>) -> bool {
+    rows.contains(card)
+        || rows.contains(backend_resolver::user_facing_name(card))
+        || backend_resolver::mirror_backend_for(card).is_some_and(|mirror| rows.contains(mirror))
+}
+
 /// Compute the provider catalogue + connection status for a user.
 ///
 /// Shared by the JWT-gated `/api/providers` handler and the channel-initiated
@@ -343,12 +366,13 @@ pub async fn compute_providers_status(
             let caps = descriptor.capabilities();
             let requires_oauth = caps.requires_oauth();
 
-            // Determine connection status from the provider_connections table
-            let connected = connected_providers.contains(provider_name);
+            // Determine connection status from the provider_connections table,
+            // coalescing the card's two possible backends (see `card_is_connected`).
+            let connected = card_is_connected(provider_name, &connected_providers);
             // A connected provider whose session died (dead scrape / failed OAuth
             // refresh) is flagged so the UI prompts a reconnect instead of showing
             // a healthy "Connected". Only meaningful while `connected` is true.
-            let needs_reauth = connected && reauth_providers.contains(provider_name);
+            let needs_reauth = connected && card_is_connected(provider_name, &reauth_providers);
 
             // Always show all providers regardless of connection status.
             // Non-OAuth providers (like synthetic) appear with connected=false

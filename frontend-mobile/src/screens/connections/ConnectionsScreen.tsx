@@ -5,8 +5,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -18,7 +16,7 @@ import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, glassCard, gradients, useThemeColors } from '../../constants/theme';
 import { Modal } from 'react-native';
-import { Card, DragIndicator } from '../../components/ui';
+import { Card, DragIndicator, PaneScrollView } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
@@ -332,7 +330,7 @@ export function ConnectionsScreen() {
         <View className="w-10" />
       </View>
 
-      <ScrollView
+      <PaneScrollView
         contentContainerStyle={{ padding: spacing.lg }}
         showsVerticalScrollIndicator={false}
       >
@@ -369,16 +367,10 @@ export function ConnectionsScreen() {
                 `connected` state onto the Sciotte card so the badge appears in
                 the right place. Mirrors frontend/src/components/ProviderConnectionCards.tsx. */}
             {(() => {
-              const stravaConnected = providers.find(
-                (p) => p.provider === 'strava' && p.connected,
-              );
-              const visible = providers
-                .filter((p) => p.provider !== 'strava')
-                .map((p) =>
-                  p.provider === 'sciotte' && stravaConnected && !p.connected
-                    ? { ...p, connected: true }
-                    : p,
-                );
+              // `connected` already counts either backend behind a card — the
+              // server coalesces it (carnet#255), so this only hides the raw
+              // `strava` entry the Sciotte card stands in for.
+              const visible = providers.filter((p) => p.provider !== 'strava');
               return visible.map(renderProvider);
             })()}
           </View>
@@ -399,7 +391,7 @@ export function ConnectionsScreen() {
             </Text>
           </View>
         </View>
-      </ScrollView>
+      </PaneScrollView>
 
       <SciotteLoginModal
         visible={sciotteTarget !== null}
