@@ -135,7 +135,7 @@ export function GroupInsightsSection({
 
       <View className="p-4 mb-4" style={sectionCardStyle}>
         <Text className="text-text-primary text-base font-bold mb-2">
-          Health flags ({flags.length})
+          {t('groups.healthFlagsCount', { n: flags.length })}
         </Text>
         {flags.length === 0 ? (
           <Text className="text-text-tertiary text-sm" testID="group-health-flags-empty">

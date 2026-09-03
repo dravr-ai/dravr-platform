@@ -192,7 +192,7 @@ export default function BillingPage() {
               </div>
             </div>
             <div>
-              <div className="text-on-surface-variant">Billing Customer ({sub.provider})</div>
+              <div className="text-on-surface-variant">{t('shell.billingCustomer', { provider: sub.provider })}</div>
               <div className="font-mono text-xs text-on-surface">{sub.provider_customer_id}</div>
             </div>
             <div>

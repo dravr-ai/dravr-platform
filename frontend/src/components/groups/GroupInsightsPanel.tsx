@@ -153,7 +153,7 @@ export default function GroupInsightsPanel({
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle className="w-4 h-4 text-warning" />
           <h4 className="text-sm font-semibold text-on-surface">
-            Health flags ({flags.length})
+            {t('groups.healthFlagsCount', { n: flags.length })}
           </h4>
         </div>
         {flags.length === 0 ? (

@@ -128,7 +128,7 @@ describe('client locale corpus', () => {
     // screen-reader label and the two states a messaging list can be in that
     // are not "everything is linked" are +6.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2389);
+    expect(reference).toHaveLength(2397);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

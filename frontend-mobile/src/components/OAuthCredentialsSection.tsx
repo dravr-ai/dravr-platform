@@ -277,7 +277,7 @@ export function OAuthCredentialsSection() {
 
                 {/* Redirect URI - read-only, shown for user to configure in OAuth app */}
                 <Text className="text-sm font-medium text-text-secondary mb-1">
-                  Redirect URI (use this in your OAuth app)
+                  {t('app.redirectUriHint')}
                 </Text>
                 <View className="bg-background-tertiary rounded-lg p-3 mb-3 border border-border-subtle">
                   <Text className="text-sm text-text-secondary font-mono" selectable>

@@ -221,7 +221,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {activeInvites.length > 0 && (
         <div>
           <h4 className="text-sm font-semibold text-on-surface-variant mb-3">
-            Active Invites ({activeInvites.length})
+            {t('groups.activeInvitesCount', { n: activeInvites.length })}
           </h4>
           <div className="space-y-2">
             {activeInvites.map((invite) => (
@@ -286,7 +286,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {inactiveInvites.length > 0 && (
         <div>
           <h4 className="text-sm font-semibold text-on-surface-variant mb-3">
-            Expired / Used ({inactiveInvites.length})
+            {t('groups.expiredInvitesCount', { n: inactiveInvites.length })}
           </h4>
           <div className="space-y-2">
             {inactiveInvites.map((invite) => (

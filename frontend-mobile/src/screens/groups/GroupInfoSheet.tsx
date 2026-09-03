@@ -505,7 +505,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     ? stats.avg_weekly_volume_km.toFixed(1)
                     : '--'}
               </Text>
-              <Text className="text-xs text-text-tertiary mt-0.5">Avg Vol (km)</Text>
+              <Text className="text-xs text-text-tertiary mt-0.5">{t('groups.avgVolumeKm')}</Text>
             </View>
           </View>
           <GroupInsightsSection groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />

@@ -291,7 +291,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
         {/* Capabilities */}
         <div>
           <label className="block text-sm font-medium text-on-surface mb-2">
-            Capabilities * (Select at least one)
+            {t('a2a.capabilitiesLabel')}
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {AVAILABLE_CAPABILITIES.map((capability) => (
@@ -325,7 +325,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
         {/* Redirect URIs */}
         <div>
           <label className="block text-sm font-medium text-on-surface mb-2">
-            Redirect URIs (Optional)
+            {t('a2a.redirectUrisOptional')}
           </label>
           <div className="space-y-2">
             <div className="flex items-end gap-2">

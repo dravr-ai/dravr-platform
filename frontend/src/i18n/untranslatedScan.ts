@@ -160,11 +160,19 @@ const NOT_PROSE = /^(?:https?:|\/|#|[A-Z_]+$)|^[A-Z][a-z]+[A-Z]|\{|\}|=>|\.tsx?$
  * copy does not have. Entities are resolved first: `&apos;` carries a
  * semicolon, and testing before decoding rejected seven real sentences.
  *
- * A closing bracket counts as much as an opening one: a type annotation
- * `(key: string, opts?: Record<string, unknown>) => string` puts `=>` and
- * `Record<` on the page, and the pair between them read as a text node.
+ * A closing SQUARE bracket counts as much as an opening one: a type annotation
+ * `(key: string, opts?: Record<string, unknown>) => string` puts `=>` on the
+ * page, and the pair between them read as a text node.
+ *
+ * Round brackets are the exception, and they are matched as a CALL rather than
+ * as a character. Copy contains parentheses — "Redirect URIs (Optional)",
+ * "Avg Vol (km)", "Health flags (", "(for example Claude Desktop)" — and
+ * rejecting the character kept eight athlete-facing labels invisible behind a
+ * ceiling that read 0. Code contains `name(`, not ` (`. The `Array.from(
+ * aside.querySelectorAll` capture this rule was written for is still rejected,
+ * by the call opener and by `=>`.
  */
-const CODE_SHAPE = /[()[\]]|=>|\w\.\w|\?\.|\$\{|`/;
+const CODE_SHAPE = /\w\(|\(\s*\)|[[\]]|=>|\w\.\w|\?\.|\$\{|`/;
 
 const ENTITIES: Record<string, string> = {
   '&apos;': "'", '&quot;': '"', '&amp;': '&',
@@ -550,10 +558,9 @@ function collect(input: string): string[] {
    * Captures whose SYNTAX already proves they are copy — the key names them
    * (`text:`, `helpText=`). CODE_SHAPE is not applied to these.
    *
-   * `{ text: 'Member (athlete)' }` is a dialog button label that stayed English
-   * because CODE_SHAPE rejects anything containing a parenthesis. That filter
-   * exists to throw out loose JSX-text captures that are really code; a value
-   * sitting behind `text:` is not a guess, and real copy contains brackets.
+   * `{ text: 'Member (athlete)' }` is a dialog button label, and a value sitting
+   * behind `text:` is not a guess the way a loose JSX capture is — so it skips
+   * the filter entirely rather than having to survive it.
    */
   //
   // A `return` capture joins them: `return \`calling ${tool}…\`` is the shape

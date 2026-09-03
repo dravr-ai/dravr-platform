@@ -103,6 +103,17 @@ describe('the scanner sees every shape it claims to', () => {
     expect(hits.some((h) => h.includes('from the group'))).toBe(true);
   });
 
+  it('prose with a parenthesis in it — a label, a unit, a count', () => {
+    // CODE_SHAPE used to reject any loose capture containing a bracket of any
+    // kind, so eight athlete-facing labels sat behind a green ceiling of 0: a
+    // connected-apps paragraph naming "(for example Claude Desktop)", a
+    // "Redirect URIs (Optional)" field label, "Avg Vol (km)", and five counted
+    // headings. Copy contains parentheses; code contains CALLS.
+    expect(scan('<p>Redirect URIs (Optional)</p>')).toContain('Redirect URIs (Optional)');
+    expect(scan('<p>Avg Vol (km)</p>')).toContain('Avg Vol (km)');
+    expect(scan('<h4>Health flags ({flags.length})</h4>')).toContain('Health flags (');
+  });
+
   it('both arms of a ternary', () => {
     const hits = scan("const s = busy ? 'Signing in now' : 'Sign in please';");
     expect(hits).toContain('Signing in now');
@@ -131,6 +142,18 @@ describe('the scanner does NOT flag things that are not copy', () => {
 
   it('a font family', () => {
     expect(scan("const s = { fontFamily: 'Menlo' };")).not.toContain('Menlo');
+  });
+
+  it('a call, an empty pair, and a generic — the shapes the bracket rule was for', () => {
+    // Narrowing CODE_SHAPE from "any bracket" to "a call opener" must not let
+    // the capture back in that the rule was written for: widening the text
+    // pattern across newlines made `=>` and a `<HTMLElement>` generic read as a
+    // `>...<` pair, and `Array.from( aside.querySelectorAll` was captured,
+    // translated and wired, breaking the file it was in.
+    expect(scan('const n = Array.from( aside.querySelectorAll<HTMLElement>(sel) );')).not.toContain(
+      'Array.from( aside.querySelectorAll',
+    );
+    expect(scan('const f = () => go();')).not.toContain('() => go()');
   });
 
   it('an argument to .includes(), which is matched rather than shown', () => {
