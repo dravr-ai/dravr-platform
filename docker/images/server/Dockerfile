@@ -99,7 +99,15 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # one source package (chromium, chromium-common). Gated the dev deploy on
 # 2026-08-31 on a commit that touched no Docker and no dependency — the cached
 # apt layer was still serving 151.0.7922.169.
-ARG APT_SECURITY_EPOCH=2026-08-31
+# chromium 152.0.7977.75-1~deb13u1 closes CVE-2026-84349 (use after free),
+# CVE-2026-84351 (buffer overflow in GPU) and CVE-2026-84357 (improper input
+# validation). SIX HIGH findings, the same three CVEs counted once per source
+# package (chromium, chromium-common). Gated the dev deploy on 2026-09-03 on a
+# chat-pipeline commit that touched no Docker and no dependency — the cached
+# apt layer was still serving 151.0.7922.173, exactly the shape of the
+# 2026-08-31 entry above. The nightly trivy DB refresh is what changes; the
+# image does not, until this line does.
+ARG APT_SECURITY_EPOCH=2026-09-03
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
