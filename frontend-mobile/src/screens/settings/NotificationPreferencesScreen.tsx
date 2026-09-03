@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   type ViewStyle,
 } from 'react-native';
+import { PaneScrollView } from '../../components/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -152,7 +153,7 @@ export function NotificationPreferencesScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
+        <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
           <Text style={{ fontSize: 14, color: colors.text.tertiary, lineHeight: 20 }}>
             {t('notifPrefs.intro')}
           </Text>
@@ -366,7 +367,7 @@ export function NotificationPreferencesScreen() {
               );
             })}
           </View>
-        </ScrollView>
+        </PaneScrollView>
       )}
     </SafeAreaView>
   );

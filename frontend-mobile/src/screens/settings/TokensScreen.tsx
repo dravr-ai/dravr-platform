@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -17,7 +16,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
 import { spacing, borderRadius, useThemeColors } from '../../constants/theme';
-import { Input } from '../../components/ui';
+import { Input, PaneScrollView } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { McpToken } from '../../types';
@@ -140,7 +139,7 @@ export function TokensScreen() {
         <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('app.mcpTokens')}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
+      <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
         <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.mcpTokenBlurb')}</Text>
 
         {loadError && (
@@ -220,7 +219,7 @@ export function TokensScreen() {
             {t('app.newToken')}
           </Text>
         </TouchableOpacity>
-      </ScrollView>
+      </PaneScrollView>
 
       <Modal
         visible={showCreateToken}

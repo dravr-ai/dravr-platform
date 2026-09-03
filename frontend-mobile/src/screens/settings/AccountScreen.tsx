@@ -5,7 +5,6 @@ import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -18,7 +17,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
 import { settingsPaneSections } from '@pierre/shared-constants';
 import { spacing, borderRadius, useThemeColors } from '../../constants/theme';
-import { Input } from '../../components/ui';
+import { Input, PaneScrollView } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
@@ -360,9 +359,9 @@ export function AccountScreen() {
         <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('app.account')}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
+      <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
         {settingsPaneSections('account').map(renderSection)}
-      </ScrollView>
+      </PaneScrollView>
 
       <Modal
         visible={showChangePassword}

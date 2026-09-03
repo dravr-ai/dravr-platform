@@ -5,11 +5,11 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   type ViewStyle,
 } from 'react-native';
+import { PaneScrollView } from '../../components/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -111,7 +111,7 @@ export function CoachingStyleScreen() {
         <Text className="flex-1 text-lg font-bold text-text-primary">{t('app.coachingStyleLower')}</Text>
       </View>
 
-      <ScrollView
+      <PaneScrollView
         className="flex-1 px-4"
         contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl }}
         showsVerticalScrollIndicator={false}
@@ -220,7 +220,7 @@ export function CoachingStyleScreen() {
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </PaneScrollView>
     </SafeAreaView>
   );
 }

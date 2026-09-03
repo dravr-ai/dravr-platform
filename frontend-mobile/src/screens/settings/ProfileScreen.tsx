@@ -5,7 +5,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -16,7 +15,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { spacing, useThemeColors, useTheme } from '../../constants/theme';
 import type { AppearancePref } from '../../hooks/useAppearancePref';
-import { Input } from '../../components/ui';
+import { Input, PaneScrollView } from '../../components/ui';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -86,7 +85,7 @@ export function ProfileScreen() {
         <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('common.profile')}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
+      <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
         <View style={{ alignItems: 'center', gap: 8 }}>
           <View
             style={{
@@ -238,7 +237,7 @@ export function ProfileScreen() {
             </Text>
           )}
         </TouchableOpacity>
-      </ScrollView>
+      </PaneScrollView>
     </SafeAreaView>
   );
 }

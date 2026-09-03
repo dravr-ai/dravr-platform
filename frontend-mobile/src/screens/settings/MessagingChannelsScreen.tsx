@@ -5,13 +5,13 @@ import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
   Linking,
   type ViewStyle,
 } from 'react-native';
+import { PaneScrollView } from '../../components/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -161,7 +161,7 @@ export function MessagingChannelsScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
+        <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
           <View>
             <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.linked')}</Text>
             <View style={cardStyle}>
@@ -253,7 +253,7 @@ export function MessagingChannelsScreen() {
               ) : null}
             </View>
           </View>
-        </ScrollView>
+        </PaneScrollView>
       )}
     </SafeAreaView>
   );

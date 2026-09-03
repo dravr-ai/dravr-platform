@@ -5,12 +5,12 @@ import React from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   Alert,
   Linking,
   type ViewStyle,
 } from 'react-native';
+import { PaneScrollView } from '../../components/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -186,9 +186,9 @@ export function AboutScreen() {
         <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('about.title')}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md }}>
+      <PaneScrollView contentContainerStyle={{ padding: spacing.md }}>
         <View style={cardStyle}>{sections.map(renderSection)}</View>
-      </ScrollView>
+      </PaneScrollView>
     </SafeAreaView>
   );
 }

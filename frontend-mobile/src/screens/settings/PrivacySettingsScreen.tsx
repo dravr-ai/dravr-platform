@@ -7,12 +7,12 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   Switch,
   Alert,
   type ViewStyle,
 } from 'react-native';
+import { PaneScrollView } from '../../components/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
@@ -92,7 +92,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
         <Text className="flex-1 text-lg font-bold text-text-primary">{t('app.privacyAndData')}</Text>
       </View>
 
-      <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
+      <PaneScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Analytics consent */}
         <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
           {t('app.usageAnalytics')}
@@ -148,7 +148,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
         </View>
 
         <View className="h-6" />
-      </ScrollView>
+      </PaneScrollView>
     </SafeAreaView>
   );
 }
