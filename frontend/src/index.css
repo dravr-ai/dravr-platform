@@ -92,13 +92,13 @@
      from /10 to /25 over every surface tone in the scheme. The system already
      had this pattern for primary, tertiary and error — the pillars simply never
      got their half of it. */
-  --color-on-activity-container: 12 98 81;
-  --color-on-nutrition-container: 117 87 25;
-  --color-on-recovery-container: 51 93 107;
-  --color-on-mobility-container: 134 60 88;
-  --color-on-info-container: 51 93 107;
-  --color-on-success-container: 36 98 71;
-  --color-on-warning-container: 117 87 25;
+  --color-on-activity-container: 11 87 72;
+  --color-on-nutrition-container: 102 76 22;
+  --color-on-recovery-container: 45 82 94;
+  --color-on-mobility-container: 119 53 78;
+  --color-on-info-container: 45 82 94;
+  --color-on-success-container: 32 87 63;
+  --color-on-warning-container: 102 76 22;
 
   --color-outline: 82 90 85;
   --color-outline-variant: 192 200 195;

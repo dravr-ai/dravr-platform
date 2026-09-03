@@ -61,6 +61,40 @@ function designMdHex(token: string): string {
   return (row as RegExpExecArray)[1];
 }
 
+/** Composite `fg` at `alpha` over `bg`, the way a `bg-token/15` tint resolves. */
+function composite(fg: string, alpha: number, bg: string): string {
+  const parse = (hex: string) =>
+    [0, 2, 4].map((i) => parseInt(hex.replace('#', '').slice(i, i + 2), 16));
+  const [fr, fg_, fb] = parse(fg);
+  const [br, bg_, bb] = parse(bg);
+  return `#${[
+    [fr, br],
+    [fg_, bg_],
+    [fb, bb],
+  ]
+    .map(([f, b]) => Math.round(alpha * f + (1 - alpha) * b))
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+/**
+ * The avatar palette of the conversation list, and the pillar badges, paint
+ * their ground as `bg-<pillar>/15` — an ALPHA over whatever surface the row
+ * sits on, not an opaque container. So the ink's contrast is a function of the
+ * surface underneath, and darkening the light ladder moved all six composites
+ * at once. Two of these dropped below AA and only axe saw it, on the two slots
+ * an e2e run happened to render.
+ */
+const TINTED_SLOTS: ReadonlyArray<readonly [string, string]> = [
+  ['activity', 'on-activity-container'],
+  ['nutrition', 'on-nutrition-container'],
+  ['recovery', 'on-recovery-container'],
+  ['mobility', 'on-mobility-container'],
+  ['info', 'on-info-container'],
+];
+
+const TINT_ALPHA = 0.15;
+
 /** The light ladder, lightest first — the order a surface stacks in. */
 const LIGHT_LADDER: ReadonlyArray<readonly [string, string]> = [
   ['surface-container-lowest', BOREAL_LIGHT.surfaceContainerLowest],
@@ -69,6 +103,16 @@ const LIGHT_LADDER: ReadonlyArray<readonly [string, string]> = [
   ['surface-container', BOREAL_LIGHT.surfaceContainer],
   ['surface-container-high', BOREAL_LIGHT.surfaceContainerHigh],
   ['surface-container-highest', BOREAL_LIGHT.surfaceContainerHighest],
+];
+
+/** The same ladder in the dark scheme, so a tinted chip is checked in both. */
+const DARK_LADDER: ReadonlyArray<readonly [string, string]> = [
+  ['surface-container-lowest', BOREAL_DARK.surfaceContainerLowest],
+  ['surface', BOREAL_DARK.surface],
+  ['surface-container-low', BOREAL_DARK.surfaceContainerLow],
+  ['surface-container', BOREAL_DARK.surfaceContainer],
+  ['surface-container-high', BOREAL_DARK.surfaceContainerHigh],
+  ['surface-container-highest', BOREAL_DARK.surfaceContainerHighest],
 ];
 
 describe('the contrast helper agrees with WCAG', () => {
@@ -218,4 +262,32 @@ describe('DESIGN.md §5 states one shell rule per client', () => {
     expect(regionTable).toContain('72px column');
     expect(regionTable).toContain('The phone has no rail');
   });
+});
+
+describe('a tinted chip clears AA on every tier it can sit on', () => {
+  for (const [tint, ink] of TINTED_SLOTS) {
+    it(`${ink} on ${tint}/15, over the whole light ladder`, () => {
+      const tintHex = cssToken(WEB_CSS, tint, 1);
+      const inkHex = cssToken(WEB_CSS, ink, 1);
+      for (const [name, surface] of LIGHT_LADDER) {
+        const ground = composite(tintHex, TINT_ALPHA, surface);
+        expect(
+          contrast(inkHex, ground),
+          `${ink} on ${tint}/15 over ${name} (${ground})`,
+        ).toBeGreaterThanOrEqual(AA_TEXT);
+      }
+    });
+
+    it(`${ink} on ${tint}/15, over the whole dark ladder`, () => {
+      const tintHex = cssToken(WEB_CSS, tint, 2);
+      const inkHex = cssToken(WEB_CSS, ink, 2);
+      for (const [name, surface] of DARK_LADDER) {
+        const ground = composite(tintHex, TINT_ALPHA, surface);
+        expect(
+          contrast(inkHex, ground),
+          `${ink} on ${tint}/15 over ${name} (${ground})`,
+        ).toBeGreaterThanOrEqual(AA_TEXT);
+      }
+    });
+  }
 });
