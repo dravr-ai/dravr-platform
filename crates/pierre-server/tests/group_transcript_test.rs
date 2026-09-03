@@ -216,6 +216,11 @@ mod group_transcript_tests {
         /// holds every message they would have delivered.
         adapters: Arc<OfflineSendAdapters>,
         group_id: Uuid,
+        /// The channel/bot tenant every group room is stored under.
+        bot_tenant: TenantId,
+        /// Alice's OWN tenant, which is not the bot's — the shape that hid
+        /// every group room from web and mobile (carnet#248).
+        alice_tenant: TenantId,
         tg_secret: &'static str,
         alice_id: Uuid,
         bob_id: Uuid,
@@ -235,7 +240,7 @@ mod group_transcript_tests {
 
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let (alice_id, _alice_tenant) =
+        let (alice_id, alice_tenant) =
             create_user_with_own_tenant(&resources, "transcript_alice@example.com", "Alice").await;
         let (bob_id, _bob_tenant) =
             create_user_with_own_tenant(&resources, "transcript_bob@example.com", "Bob").await;
@@ -390,6 +395,8 @@ mod group_transcript_tests {
         Scenario {
             resources,
             group_id,
+            bot_tenant,
+            alice_tenant,
             tg_secret,
             alice_id,
             bob_id,
@@ -669,6 +676,98 @@ mod group_transcript_tests {
         assert!(
             captured.contains(BOB_MESSAGE),
             "bob's web message must appear in alice's messaging prompt context"
+        );
+    }
+
+    /// A room reaches the list and the thread of a member whose own tenant is
+    /// not the one the room is stored under.
+    ///
+    /// Group sessions live on the channel/bot tenant on purpose — a room's
+    /// members may span tenants and its `coaching_group` must resolve to one
+    /// row for all of them. Every chat read then filtered on the CALLER's
+    /// tenant, so the room was invisible to the very members it belongs to:
+    /// measured on deployed dev, all 14 group conversations sat in the bot
+    /// tenant and five of their six owners were not members of it (carnet#248).
+    #[tokio::test]
+    #[serial]
+    async fn a_room_reaches_a_member_whose_own_tenant_is_not_the_rooms() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+
+        let mock = Arc::new(CapturingLlm::new(COACH_REPLY));
+        let calls = mock.call_counter();
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let scenario = build_scenario(Arc::clone(&resources)).await;
+
+        post_group_message(&scenario, 7501, addressed_message(95, 42, ALICE_MESSAGE)).await;
+        assert!(
+            wait_for_llm_calls(&calls, 1).await,
+            "the group turn must run"
+        );
+
+        let chat = scenario.resources.common.repos.chat.as_ref();
+        let alice = scenario.alice_id.to_string();
+
+        // The room is stored under the bot tenant, which is NOT alice's.
+        assert_ne!(
+            scenario.alice_tenant, scenario.bot_tenant,
+            "the fixture must reproduce the split tenancy this test is about"
+        );
+
+        // Alice's app resolves HER tenant, and must still find the room.
+        let page = chat
+            .list_conversations(&alice, scenario.alice_tenant, 50, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            page.items.len(),
+            1,
+            "the room must reach the list of a member whose tenant is not the room's"
+        );
+        let room = &page.items[0];
+        assert!(room.group_id.is_some(), "and it must arrive as a group row");
+        assert_eq!(
+            chat.count_participating_conversations(&alice, scenario.alice_tenant)
+                .await
+                .unwrap(),
+            1,
+            "the count the list pages against must agree with it"
+        );
+
+        // Opening it must work too — a row you cannot read is not visible.
+        assert!(
+            chat.get_conversation(&room.id, &alice, scenario.alice_tenant)
+                .await
+                .unwrap()
+                .is_some(),
+            "the member must be able to open the room from their own tenant"
+        );
+        let messages = chat
+            .get_messages(&room.id, &alice, scenario.alice_tenant)
+            .await
+            .unwrap();
+        assert!(
+            messages.iter().any(|m| m.content.contains(ALICE_MESSAGE)),
+            "and read what was said in it"
+        );
+
+        // The carve-out is groups only, and participation still gates it:
+        // bob is in the room's group but has never spoken in the chat, so he
+        // has no participant row and must see nothing.
+        let bob = scenario.bob_id.to_string();
+        let bob_page = chat
+            .list_conversations(&bob, scenario.alice_tenant, 50, 0)
+            .await
+            .unwrap();
+        assert!(
+            bob_page.items.iter().all(|c| c.id != room.id),
+            "a non-participant must not reach the room, whatever tenant they ask from"
+        );
+        assert!(
+            chat.get_conversation(&room.id, &bob, scenario.bot_tenant)
+                .await
+                .unwrap()
+                .is_none(),
+            "not even from the room's own tenant"
         );
     }
 }

@@ -32,6 +32,25 @@ const CONTENT_HEAD_CHARS: i64 = 512;
 /// `p` is the caller's own participant row, which is where their read marker
 /// lives: "unread" is a question about one participant, so it is answered
 /// from that row and never from the conversation.
+///
+/// ## Why a group row is not filtered on the caller's tenant
+///
+/// Every other query in this codebase gates on the CALLER's tenant, and a 1:1
+/// thread still does here. A channel group cannot: its session and its
+/// conversation are stored under the channel/bot tenant on purpose, because a
+/// room's members may span tenants and its `coaching_group` must resolve to ONE
+/// row for all of them (`messaging_ingress/session.rs`, shipped 543c4c32f).
+///
+/// Measured on deployed dev 2026-09-03: all 14 group conversations sit in the
+/// bot tenant and five of their six owners are not members of it, so every one
+/// of those rooms was invisible in web and mobile while working in Telegram.
+///
+/// So for a GROUP row the authorization is the participant row itself, which is
+/// the stronger statement anyway — it names this person on this thread, where a
+/// shared tenant only says they are in the same building. `p.tenant_id =
+/// c.tenant_id` keeps a stray cross-tenant membership from granting anything,
+/// and a non-participant still matches nothing at all. Writes are unchanged and
+/// still require the caller's tenant.
 const PAGE_SQL: &str = r"
     SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type,
            c.created_at, c.updated_at, c.group_id,
@@ -54,7 +73,9 @@ const PAGE_SQL: &str = r"
     JOIN conversation_participants p ON p.conversation_id = c.id
     LEFT JOIN coaching_groups g ON g.id = c.group_id
     LEFT JOIN coaches co ON co.id = c.coach_id
-    WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
+    WHERE p.user_id = $1
+      AND p.tenant_id = c.tenant_id
+      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
     ORDER BY c.updated_at DESC, c.id DESC
     LIMIT $3 OFFSET $4
 ";
@@ -64,7 +85,9 @@ const TOTAL_SQL: &str = r"
     SELECT COUNT(*) AS count
     FROM chat_conversations c
     JOIN conversation_participants p ON p.conversation_id = c.id
-    WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
+    WHERE p.user_id = $1
+      AND p.tenant_id = c.tenant_id
+      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
 ";
 
 /// Map one page row. The three `last_*` columns are all `NULL` or all set —

@@ -169,10 +169,12 @@ impl ChatRepository for PostgresDatabase {
                    c.total_tokens, c.created_at, c.updated_at, c.group_id::TEXT AS group_id,
                    c.channel_type, c.onboarding_state
             FROM chat_conversations c
-            WHERE c.id = $1 AND c.tenant_id = $3
+            WHERE c.id = $1
+              AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
               AND EXISTS (
                 SELECT 1 FROM conversation_participants p
-                WHERE p.conversation_id = c.id AND p.user_id = $2 AND p.tenant_id = $3
+                WHERE p.conversation_id = c.id AND p.user_id = $2
+                  AND p.tenant_id = c.tenant_id
               )
             ",
         )
@@ -448,7 +450,9 @@ impl ChatRepository for PostgresDatabase {
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             JOIN conversation_participants p ON p.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
+            WHERE m.conversation_id = $1 AND p.user_id = $2
+              AND p.tenant_id = c.tenant_id
+              AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
             ORDER BY m.created_at ASC
             ",
         )
@@ -495,7 +499,9 @@ impl ChatRepository for PostgresDatabase {
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             JOIN conversation_participants p ON p.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
+            WHERE m.conversation_id = $1 AND p.user_id = $2
+              AND p.tenant_id = c.tenant_id
+              AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
             ORDER BY m.created_at DESC, m.id DESC
             LIMIT $4
             ",
@@ -545,7 +551,9 @@ impl ChatRepository for PostgresDatabase {
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             JOIN conversation_participants p ON p.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
+            WHERE m.conversation_id = $1 AND p.user_id = $2
+              AND p.tenant_id = c.tenant_id
+              AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
             ",
         )
         .bind(conversation_id)
