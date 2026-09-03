@@ -46,7 +46,6 @@ async fn seed(
             source,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
     Ok(())

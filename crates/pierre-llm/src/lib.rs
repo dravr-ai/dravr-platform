@@ -40,8 +40,6 @@ mod cohere;
 mod cohere_errors;
 /// LLM configuration types (provider selection, model settings)
 pub mod config;
-/// Embedding provider abstraction for the coaching harness memory pipeline
-pub mod embeddings;
 mod fallback_policy;
 /// Google Gemini LLM provider implementation
 mod gemini;

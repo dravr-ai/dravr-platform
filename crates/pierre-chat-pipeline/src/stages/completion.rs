@@ -215,7 +215,6 @@ mod tests {
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
             created_at: ts,
             updated_at: ts,
         }

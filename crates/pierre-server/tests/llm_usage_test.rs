@@ -15,7 +15,6 @@
 use std::collections::HashMap;
 
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
-use pierre_core::models::usage::InsertEmbeddingUsage;
 use pierre_core::models::{ConversationTurnId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::llm_usage::InsertLlmUsage;
@@ -387,35 +386,6 @@ async fn test_known_priced_provider_resolves_to_its_price() {
 }
 
 #[tokio::test]
-async fn test_embedding_usage_insert() {
-    // Phase 1 — embedding_usage rows persist independently of llm_usage
-    // so embedding volume never inflates chat-token billing aggregates.
-    let db = create_test_db().await.unwrap();
-    let repos = db.repositories();
-    let params = InsertEmbeddingUsage {
-        tenant_id: "tenant-emb",
-        user_id: "user-emb",
-        provider: "gemini",
-        model: "text-embedding-004",
-        input_tokens: 64,
-        cost_usd: 0.000_4,
-    };
-    let record = repos
-        .llm_usage
-        .insert_embedding_usage(&params)
-        .await
-        .unwrap();
-    assert_eq!(record.tenant_id, "tenant-emb");
-    assert_eq!(record.user_id, "user-emb");
-    assert_eq!(record.provider, "gemini");
-    assert_eq!(record.model, "text-embedding-004");
-    assert_eq!(record.input_tokens, 64);
-    assert!((record.cost_usd - 0.000_4).abs() < 1e-9);
-    assert!(!record.id.is_empty());
-    assert!(!record.created_at.is_empty());
-}
-
-#[tokio::test]
 async fn test_admin_pricing_override() {
     // Phase 1 — PricingRegistry global override layer wins over the
     // compile-time PRICING_TABLE for the same (provider, model_prefix).
@@ -505,83 +475,6 @@ async fn test_admin_pricing_loader_round_trip() {
     );
 }
 
-#[tokio::test]
-async fn test_embedding_sink_injection_records_via_instrumented_provider() {
-    // Phase 1+3 — build an InstrumentedEmbeddingProvider over a stub inner
-    // provider + the RepositoryEmbeddingSink and verify embed_for() persists
-    // a row into embedding_usage.
-    use async_trait::async_trait;
-    use pierre_core::errors::AppResult;
-    use pierre_llm::embeddings::{
-        EmbeddingDim, EmbeddingProvider, EmbeddingUsageSink, InstrumentedEmbeddingProvider,
-    };
-    use pierre_services::embedding_sink::RepositoryEmbeddingSink;
-    use std::sync::Arc;
-
-    struct StubProvider;
-
-    #[async_trait]
-    impl EmbeddingProvider for StubProvider {
-        fn name(&self) -> &'static str {
-            "gemini"
-        }
-        fn model(&self) -> &'static str {
-            "text-embedding-004"
-        }
-        fn dimensions(&self) -> EmbeddingDim {
-            8
-        }
-        async fn embed(&self, _text: &str) -> AppResult<Vec<f32>> {
-            Ok(vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
-        }
-    }
-
-    let db = create_test_db().await.unwrap();
-    let repos = db.repositories();
-    let sink: Arc<dyn EmbeddingUsageSink> =
-        Arc::new(RepositoryEmbeddingSink::new(Arc::clone(&repos.llm_usage)));
-    let provider = InstrumentedEmbeddingProvider::new(Box::new(StubProvider), sink);
-
-    let v = provider
-        .embed_for("tenant-emb-x", "user-emb-x", "the quick brown fox")
-        .await
-        .unwrap();
-    assert_eq!(v.len(), 8);
-
-    // The sink wrote a row — we don't have a list-by-tenant query, but a
-    // direct count on whichever backend the test database is confirms
-    // persistence.
-    const COUNT_ROWS: &str =
-        "SELECT COUNT(*) FROM embedding_usage WHERE tenant_id = $1 AND user_id = $2";
-    let count: i64 = match &db {
-        Database::SQLite(sqlite) => sqlx::query_scalar(COUNT_ROWS)
-            .bind("tenant-emb-x")
-            .bind("user-emb-x")
-            .fetch_one(sqlite.pool())
-            .await
-            .unwrap(),
-        #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_scalar(COUNT_ROWS)
-            .bind("tenant-emb-x")
-            .bind("user-emb-x")
-            .fetch_one(pg.pool())
-            .await
-            .unwrap(),
-    };
-    assert_eq!(count, 1);
-}
-
-// Outbound-queue user_id round-trip lives in
-// `messaging_repository_test.rs::test_enqueue_outbound_round_trips_user_id`
-// — it reuses that file's existing FK-chain fixture (tenant + user +
-// session + message) instead of hand-rolling another one here.
-
-/// The two counts embacle 0.22.0 added must survive a write and a read.
-///
-/// `insert_llm_usage` builds its return value from the params it was handed,
-/// so asserting on that record proves nothing about persistence — it would
-/// pass with the columns missing entirely. This reads the row back out of the
-/// database through the admin query path instead.
 #[tokio::test]
 async fn cache_write_and_reasoning_counts_survive_a_round_trip() {
     let db = create_test_db().await.unwrap();

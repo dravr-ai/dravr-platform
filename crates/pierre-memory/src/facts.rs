@@ -384,10 +384,6 @@ pub struct UserFact {
     pub valid_until: Option<DateTime<Utc>>,
     /// ID of the message the fact was extracted from, for provenance.
     pub source_msg_id: Option<String>,
-    /// Optional embedding vector for semantic recall. Stored as `Vec<f32>` at
-    /// the DB boundary; both `SQLite` (BLOB) and `Postgres` (pgvector) translate
-    /// transparently in the repository layer.
-    pub embedding: Option<Vec<f32>>,
     /// When the fact was first recorded.
     pub created_at: DateTime<Utc>,
     /// When the fact was last touched (updated / merged / confidence decayed).
@@ -511,7 +507,6 @@ mod tests {
             source: FactSource::Conversation,
             valid_until: None,
             source_msg_id: Some("m1".into()),
-            embedding: None,
             created_at: now,
             updated_at: now,
         };

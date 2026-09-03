@@ -128,7 +128,6 @@ async fn seed_fact(
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
     Ok(())

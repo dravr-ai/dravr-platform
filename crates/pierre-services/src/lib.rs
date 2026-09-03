@@ -102,10 +102,6 @@ pub mod conversation_compaction;
 /// and `/reset` both run.
 pub mod conversation_forge;
 
-/// Bridge adapter so `pierre_llm::InstrumentedEmbeddingProvider` can persist
-/// every embedding call into `embedding_usage` via the shared repository.
-pub mod embedding_sink;
-
 /// Admin browser over pierre-evals golden fixtures
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;

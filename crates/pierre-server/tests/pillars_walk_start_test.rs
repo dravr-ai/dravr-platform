@@ -176,7 +176,6 @@ async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> 
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
 

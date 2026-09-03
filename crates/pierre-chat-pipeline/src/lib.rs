@@ -99,7 +99,6 @@ use pierre_core::models::{
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
-use pierre_llm::embeddings::InstrumentedEmbeddingProvider;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::{ChatMessage, ChatProvider, LlmProvider};
 use pierre_messaging::commands::CommandRegistry;
@@ -198,9 +197,6 @@ pub struct ChatPipelineContext {
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Hot-reloadable harness config (compaction + Tier 6 guardrails).
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
-    /// Embedding provider for fact de-duplication, when one is configured.
-    /// `None` leaves de-duplication on its exact-key layer.
-    pub embedding_provider: Option<Arc<InstrumentedEmbeddingProvider>>,
     /// Hot-reloadable per-persona output-format conformance contracts.
     pub persona_contract_registry: Arc<PersonaContractRegistry>,
     /// SSE manager — publishes refresh-status events to web/mobile clients.
@@ -374,10 +370,7 @@ fn spawn_turn_extraction(
     spawn_extract_for_turn(
         Arc::clone(&ctx.repos.memory),
         ctx.chat_provider.as_ref().map(Arc::clone),
-        ctx.embedding_provider.as_ref().map(Arc::clone),
         DedupConfig {
-            similarity_enabled: memory_config.dedup_similarity_enabled,
-            similarity_threshold: memory_config.dedup_similarity_threshold,
             candidate_limit: memory_config.dedup_candidate_limit as usize,
         },
         ctx.memory_extraction_prompt.clone(),

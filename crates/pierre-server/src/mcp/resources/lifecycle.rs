@@ -79,9 +79,6 @@ use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
 };
-use pierre_llm::embeddings::{
-    EmbeddingProvider, EmbeddingUsageSink, GeminiEmbeddingProvider, InstrumentedEmbeddingProvider,
-};
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 #[cfg(feature = "client-messaging")]
@@ -97,7 +94,6 @@ use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
-use pierre_services::embedding_sink::RepositoryEmbeddingSink;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
 #[cfg(feature = "client-messaging")]
@@ -445,18 +441,6 @@ impl ServerContext {
         // remains the safe fallback when no overrides exist.
         pricing_loader::load_pricing_overrides(repos.llm_credentials.as_ref()).await;
 
-        // Phase 1 closer: build the instrumented embedding provider so any
-        // future memory/harness consumer takes the wrapped form (which
-        // writes an embedding_usage row per call) instead of constructing
-        // a raw GeminiEmbeddingProvider. Skipped when GEMINI_API_KEY is
-        // unset — embedding-driven features are best-effort.
-        let embedding_provider = env::var("GEMINI_API_KEY").ok().map(|key| {
-            let inner: Box<dyn EmbeddingProvider> = Box::new(GeminiEmbeddingProvider::new(key));
-            let sink: Arc<dyn EmbeddingUsageSink> =
-                Arc::new(RepositoryEmbeddingSink::new(Arc::clone(&repos.llm_usage)));
-            Arc::new(InstrumentedEmbeddingProvider::new(inner, sink))
-        });
-
         // Precompute view-struct projections from the master registry once;
         // each is an Arc-clone-only operation. The full registry continues
         // to live in `CommonSlice.repos` as the single source of truth.
@@ -483,7 +467,6 @@ impl ServerContext {
             chat_provider,
             tenant_chat_providers: TenantChatProviderCache::new(),
             llm_health: Arc::new(LlmHealthState::new()),
-            embedding_provider,
             #[cfg(feature = "client-messaging")]
             messaging_registry: Arc::new(ChannelRegistry::new()),
             #[cfg(feature = "client-notifications")]

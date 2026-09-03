@@ -18,7 +18,7 @@
 //!   `repos() -> &Arc<RepositoryRegistry>` surface) plus shared/cross-cutting
 //!   handles: cache, config, redaction config, email service, LLM provider
 //!   pair, LLM health, messaging registry, notification service, group service,
-//!   scheduler abort handles, embedding provider, slash command registries.
+//!   scheduler abort handles, slash command registries.
 //! - `AuthSlice` — authentication + authorization + per-tenant OAuth: auth
 //!   manager, JWKS manager, auth middleware, CSRF manager, Firebase auth,
 //!   `OAuth2` rate limiter, admin JWT secret, tenant OAuth client, OAuth
@@ -82,7 +82,6 @@ use pierre_database::views::{AuthRepos, CoachRepos, FitnessRepos, UsageRepos};
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_intelligence::ActivityIntelligence;
-use pierre_llm::embeddings::InstrumentedEmbeddingProvider;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
@@ -161,9 +160,6 @@ pub struct CommonSlice {
     pub tenant_chat_providers: TenantChatProviderCache,
     /// Shared LLM startup-probe state — read by `/ready` and `/health/llm`.
     pub llm_health: Arc<LlmHealthState>,
-    /// Embedding provider wrapped for usage instrumentation. `None` when no
-    /// embedding provider key is configured.
-    pub embedding_provider: Option<Arc<InstrumentedEmbeddingProvider>>,
     /// Multi-channel messaging registry for webhook routing.
     #[cfg(feature = "client-messaging")]
     pub messaging_registry: Arc<ChannelRegistry>,

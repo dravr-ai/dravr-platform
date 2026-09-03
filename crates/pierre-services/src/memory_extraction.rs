@@ -30,8 +30,7 @@ use serde::Deserialize;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
-use crate::memory_dedup::{decide, Candidate, DedupConfig, FactWrite};
-use pierre_llm::embeddings::InstrumentedEmbeddingProvider;
+use crate::memory_dedup::{anchor_of, decide, normalize_object, Candidate, DedupConfig, FactWrite};
 use pierre_llm::ChatProvider;
 
 /// Minimum confidence for an extracted fact to be persisted.
@@ -76,6 +75,15 @@ struct RawFact {
     /// from a stale prompt; the schedule gate treats absent as not-user.
     #[serde(default)]
     stated_by: Option<String>,
+    /// The 1-based number of the existing fact this one restates, from the
+    /// list the prompt showed (see [`MERGE_ADDENDUM`]).
+    ///
+    /// Absent means "nothing here says this", which is also what a stale
+    /// prompt with no such field produces — so a mixed rollout degrades to
+    /// insert-only rather than to a wrong merge. A number naming nothing in
+    /// the list is discarded for the same reason.
+    #[serde(default)]
+    same_as: Option<usize>,
 }
 
 /// Platform-appended provenance instruction for the extraction prompt.
@@ -107,6 +115,26 @@ const EXTRACTABLE_KINDS: [FactKind; 7] = [
     FactKind::Equipment,
     FactKind::Other,
 ];
+
+/// Platform-appended merge instruction for the extraction prompt.
+///
+/// An athlete states one goal and every later turn re-derives it in its own
+/// words. Catching that needs a reader, not a distance: measured on two
+/// vendors' embedding models, two different race goals score higher against
+/// each other than one goal restated in another language scores against
+/// itself, so no cosine threshold separates them. The model that is already
+/// reading the turn can tell them apart, and it costs no second call.
+///
+/// The list it answers against is rendered by [`existing_facts_block`]; a
+/// number outside that list is discarded rather than guessed at.
+const MERGE_ADDENDUM: &str = r#"
+
+## Restatements (required)
+
+The user payload may carry an "Existing facts" list, numbered from 1. Before returning a fact, check whether it is one of those facts said again — in other words, in another language, or with detail added or dropped.
+
+If it is, add "same_as": <number> to that fact object, naming the line it restates. If it is not, omit the field. Never guess a number that is not in the list, and never use it for a fact that CHANGES what a listed fact says: a different race, a different distance, a different date or a reversal is a new fact, not a restatement. When unsure, omit the field — a duplicate is cheaper than a lost fact.
+"#;
 
 /// Platform-appended vocabulary for the `predicate_code` field.
 ///
@@ -191,17 +219,34 @@ pub async fn extract_and_persist<R>(
     provider: &ChatProvider,
     system_prompt: &str,
     req: &ExtractionRequest<'_>,
-    embedder: Option<&InstrumentedEmbeddingProvider>,
     dedup: DedupConfig,
 ) -> AppResult<ExtractionOutcome>
 where
     R: HarnessMemoryRepository + ?Sized,
 {
+    // Read once, before the call: the same list the extractor answers against
+    // is the list the write is decided against, so the model can never name a
+    // fact this run would not have considered.
+    let existing = repo
+        .list_user_facts(
+            req.tenant_id,
+            req.user_id,
+            req.coach_id,
+            None,
+            i64::from(dedup.candidate_limit_i64()),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "could not read existing facts; extracting without them");
+            Vec::new()
+        });
+
     let raw = match run_llm_extraction(
         provider,
         system_prompt,
         req.user_message,
         req.assistant_reply,
+        &existing,
     )
     .await
     {
@@ -218,7 +263,7 @@ where
     }
 
     let raw_count = raw.len();
-    let persisted = persist_facts(repo, req, raw, embedder, dedup).await;
+    let persisted = persist_facts(repo, req, raw, &existing, dedup).await;
 
     info!(
         raw = raw_count,
@@ -411,27 +456,6 @@ fn fold_legacy_sentence(fact: &RawFact, phrase: &str) -> String {
 }
 
 /// Persist each fact that survives [`gate_fact`], dropping the rest.
-/// Embed `text`, or `None` when there is no provider or the call fails.
-///
-/// De-duplication degrades to its exact-key layer without an embedding rather
-/// than failing the extraction: a missed merge is one duplicate row, while a
-/// failed extraction loses the fact entirely.
-async fn embed_candidate(
-    embedder: Option<&InstrumentedEmbeddingProvider>,
-    tenant_id: &str,
-    user_id: &str,
-    text: &str,
-) -> Option<Vec<f32>> {
-    let embedder = embedder?;
-    match embedder.embed_for(tenant_id, user_id, text).await {
-        Ok(vector) => Some(vector),
-        Err(e) => {
-            warn!(error = %e, "fact embedding failed; falling back to exact-key dedup only");
-            None
-        }
-    }
-}
-
 /// Fold a restatement into the fact it restates.
 ///
 /// `None` means the caller should insert instead: either the anchor vanished
@@ -443,14 +467,12 @@ async fn merge_restatement<R: HarnessMemoryRepository + ?Sized>(
     fact_id: &str,
     kind: FactKind,
     confidence: f32,
-    embedding: Option<&[f32]>,
 ) -> Option<UserFact> {
     let params = MergeUserFactParams {
         tenant_id: req.tenant_id,
         fact_id,
         source_msg_id: req.source_msg_id,
         confidence,
-        embedding,
     };
     match repo.merge_user_fact(&params).await {
         Ok(Some(row)) => {
@@ -473,57 +495,39 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
     repo: &R,
     req: &ExtractionRequest<'_>,
     facts: Vec<RawFact>,
-    embedder: Option<&InstrumentedEmbeddingProvider>,
+    existing: &[UserFact],
     dedup: DedupConfig,
 ) -> Vec<UserFact> {
     let mut out = Vec::with_capacity(facts.len());
     for fact in facts {
+        let same_as = fact.same_as;
         let Some((kind, clamped_confidence)) = gate_fact(&fact, req) else {
             continue;
         };
         let (predicate_code, object) = resolve_predicate(&fact, kind);
 
-        // What the athlete already has of this kind decides whether this is a
-        // new fact or the same one said again.
-        let existing = repo
-            .list_user_facts(
-                req.tenant_id,
-                req.user_id,
-                req.coach_id,
-                Some(kind),
-                i64::from(dedup.candidate_limit_i64()),
-            )
-            .await
-            .unwrap_or_else(|e| {
-                warn!(error = %e, "could not read existing facts; writing without dedup");
-                Vec::new()
-            });
-        // Nothing to compare against means nothing to pay an embedding for.
-        let embedding = if existing.is_empty() {
-            None
-        } else {
-            embed_candidate(embedder, &req.tenant_id.to_string(), req.user_id, &object).await
-        };
+        // The certain layer: the same sentence again, decided by comparison.
         let write = decide(
-            &existing,
+            existing,
             &Candidate {
                 kind,
                 predicate_code,
                 object: &object,
-                embedding: embedding.as_deref(),
             },
             dedup,
         );
-        if let FactWrite::MergeInto(fact_id) = write {
-            if let Some(row) = merge_restatement(
-                repo,
-                req,
-                &fact_id,
-                kind,
-                clamped_confidence,
-                embedding.as_deref(),
-            )
-            .await
+        // Then the extractor's own answer, for a paraphrase no comparison
+        // sees. It merges into the anchor of the named fact's group, so a
+        // model naming any member cannot pick a different row than a literal
+        // repeat naming the group.
+        let target = match write {
+            FactWrite::MergeInto(id) => Some(id),
+            FactWrite::Insert => restated_fact_id(existing, same_as, kind),
+        };
+
+        if let Some(fact_id) = target {
+            if let Some(row) =
+                merge_restatement(repo, req, &fact_id, kind, clamped_confidence).await
             {
                 out.push(row);
                 continue;
@@ -543,8 +547,6 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             source: req.source,
             valid_until: None,
             source_msg_id: req.source_msg_id,
-            // Stored so the next restatement has something to match against.
-            embedding: embedding.as_deref(),
         };
         match repo.upsert_user_fact(&params).await {
             Ok(row) => out.push(row),
@@ -554,6 +556,41 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
         }
     }
     out
+}
+
+/// The row the extractor's `same_as` names, when it names one honestly.
+///
+/// Three ways to answer nothing, all of which insert rather than guess: no
+/// field at all (a stale prompt, or the model saw no restatement), a number
+/// outside the list it was shown, and a number naming a fact of a different
+/// kind than the one being written — a goal does not restate an injury, and a
+/// model that says so has lost the thread rather than found a duplicate.
+fn restated_fact_id(
+    existing: &[UserFact],
+    same_as: Option<usize>,
+    kind: FactKind,
+) -> Option<String> {
+    let index = same_as?.checked_sub(1)?;
+    let named = existing.get(index)?;
+    if named.kind != kind {
+        warn!(
+            named_kind = ?named.kind,
+            candidate_kind = ?kind,
+            "extractor named a restatement of a different kind; writing a new fact instead"
+        );
+        return None;
+    }
+    // The whole group the named fact belongs to, so the anchor rule decides
+    // the row rather than whichever member the model happened to point at.
+    let group: Vec<&UserFact> = existing
+        .iter()
+        .filter(|fact| {
+            fact.kind == named.kind
+                && fact.predicate_code == named.predicate_code
+                && normalize_object(&fact.object) == normalize_object(&named.object)
+        })
+        .collect();
+    anchor_of(&group).map(|row| row.id.clone())
 }
 
 /// Call the extraction LLM and parse the response into [`RawFact`] records.
@@ -570,17 +607,44 @@ pub const WITHHELD_REPLY_TRANSCRIPT_MARKER: &str =
     "(withheld — the coach's reply for this turn is unavailable; \
      extract only from the user turn above)";
 
+/// The athlete's existing facts, numbered for the extractor to answer against.
+///
+/// Empty when they have none, so a first turn carries no list and the merge
+/// instruction has nothing to act on. Each line is what the fact says and
+/// nothing else — no id, no confidence, no date: the model's job is to
+/// recognise a restatement, and a uuid on the line is a token it might echo
+/// back instead of a number.
+fn existing_facts_block(existing: &[UserFact]) -> String {
+    if existing.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("\n\nExisting facts:");
+    for (index, fact) in existing.iter().enumerate() {
+        // Writing into a String cannot fail; the Result is the trait's shape.
+        let _ = write!(
+            out,
+            "\n{}. [{}] {}",
+            index + 1,
+            fact.kind.as_str(),
+            fact.object
+        );
+    }
+    out
+}
+
 async fn run_llm_extraction(
     provider: &ChatProvider,
     system_prompt: &str,
     user_message: &str,
     assistant_reply: &str,
+    existing: &[UserFact],
 ) -> AppResult<Vec<RawFact>> {
     let user_payload = format!(
-        "User turn:\n{user_message}\n\nCoach reply:\n{assistant_reply}\n\nReturn the JSON array only."
+        "User turn:\n{user_message}\n\nCoach reply:\n{assistant_reply}{}\n\nReturn the JSON array only.",
+        existing_facts_block(existing)
     );
     let system_prompt = format!(
-        "{system_prompt}{}{PROVENANCE_ADDENDUM}",
+        "{system_prompt}{}{PROVENANCE_ADDENDUM}{MERGE_ADDENDUM}",
         PREDICATE_CODES_ADDENDUM.as_str()
     );
 
@@ -688,7 +752,6 @@ pub struct SpawnedExtractionRequest {
 pub fn spawn_extract_for_turn(
     memory_repo: Arc<dyn HarnessMemoryRepository>,
     chat_provider: Option<Arc<pierre_llm::ChatProvider>>,
-    embedder: Option<Arc<InstrumentedEmbeddingProvider>>,
     dedup: DedupConfig,
     system_prompt: String,
     req: SpawnedExtractionRequest,
@@ -734,7 +797,6 @@ pub fn spawn_extract_for_turn(
             provider,
             &system_prompt,
             &request,
-            embedder.as_deref(),
             dedup,
         )
         .await
@@ -772,6 +834,7 @@ mod tests {
             object: object.to_owned(),
             confidence: 0.9,
             stated_by: Some("user".to_owned()),
+            same_as: None,
         }
     }
 

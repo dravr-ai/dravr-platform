@@ -118,7 +118,6 @@ where
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
         written += 1;
@@ -140,7 +139,6 @@ where
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
         written += 1;
@@ -162,7 +160,6 @@ where
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
         written += 1;

@@ -2,20 +2,18 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins fact de-duplication on the case that filed it — one goal stored three times
-// ABOUTME: Exact repeats merge without embeddings, paraphrases merge on similarity, and the athlete's own words stay the anchor
+// ABOUTME: An exact repeat merges, a different goal does not, and the athlete's own words stay the anchor
 
 //! Tests for de-duplicating an extracted fact against the athlete's existing ones.
 
 use chrono::{Duration, Utc};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 use pierre_services::memory_dedup::{
-    cosine_similarity, decide, normalize_object, Candidate, DedupConfig, FactWrite,
+    anchor_of, decide, normalize_object, Candidate, DedupConfig, FactWrite,
 };
 
 fn config() -> DedupConfig {
     DedupConfig {
-        similarity_enabled: true,
-        similarity_threshold: 0.86,
         candidate_limit: 50,
     }
 }
@@ -31,7 +29,6 @@ struct Stored {
     source: FactSource,
     /// Larger is older, so the anchor tie-break is explicit in each fixture.
     age_minutes: i64,
-    embedding: Option<Vec<f32>>,
 }
 
 impl Stored {
@@ -44,7 +41,6 @@ impl Stored {
             confidence: 1.0,
             source: FactSource::Conversation,
             age_minutes: 10,
-            embedding: None,
         }
     }
 
@@ -69,11 +65,6 @@ impl Stored {
         self
     }
 
-    fn embedded(mut self, embedding: &[f32]) -> Self {
-        self.embedding = Some(embedding.to_vec());
-        self
-    }
-
     fn build(self) -> UserFact {
         let created = Utc::now() - Duration::minutes(self.age_minutes);
         UserFact {
@@ -90,7 +81,6 @@ impl Stored {
             source: self.source,
             valid_until: None,
             source_msg_id: None,
-            embedding: self.embedding,
             created_at: created,
             updated_at: created,
         }
@@ -106,7 +96,6 @@ fn an_athlete_with_no_facts_gets_a_new_row() {
                 kind: FactKind::Goal,
                 predicate_code: PredicateCode::WorkingToward,
                 object: "Un ultra de 26 km au Mont Albert",
-                embedding: Some(&[1.0, 0.0]),
             },
             config()
         ),
@@ -115,7 +104,7 @@ fn an_athlete_with_no_facts_gets_a_new_row() {
 }
 
 #[test]
-fn the_same_sentence_again_merges_without_any_embedding() {
+fn the_same_sentence_again_merges_into_the_athletes_own_words() {
     // The cheap layer: no model call, and it cannot produce a false merge.
     let existing = vec![
         Stored::goal("anchor", "Un ultra de 26 km au Mont Albert en Gaspésie")
@@ -130,7 +119,6 @@ fn the_same_sentence_again_merges_without_any_embedding() {
             predicate_code: PredicateCode::WorkingToward,
             // Same words, different case and trailing punctuation.
             object: "  un ultra de 26 KM au Mont Albert en Gaspésie.  ",
-            embedding: None,
         },
         config(),
     );
@@ -138,61 +126,26 @@ fn the_same_sentence_again_merges_without_any_embedding() {
 }
 
 #[test]
-fn a_paraphrase_merges_into_the_athletes_own_words() {
-    // The case that filed carnet#194: the onboarding answer at 100%, then two
-    // model rewordings. All three must land on the onboarding row.
-    let onboarding = Stored::goal("onboarding", "Un ultra de 26 km au Mont Albert en Gaspésie")
-        .onboarded()
-        .aged(30)
-        .embedded(&[1.0, 0.0, 0.0])
-        .build();
-    let first_rewording = Stored::goal("rewording", "a 26 km ultra at Mont Albert in Gaspésie")
-        .kind(FactKind::Goal, PredicateCode::TrainingFor)
-        .confidence(0.7)
-        .aged(20)
-        .embedded(&[0.99, 0.14, 0.0])
-        .build();
-    let existing = vec![first_rewording, onboarding];
-
-    // The third arrival — "a 26 km trail outing at Mont Albert", the lossy one.
-    let write = decide(
-        &existing,
-        &Candidate {
-            kind: FactKind::Goal,
-            predicate_code: PredicateCode::TrainingFor,
-            object: "a 26 km trail outing at Mont Albert",
-            embedding: Some(&[0.98, 0.2, 0.0]),
-        },
-        config(),
-    );
-    assert_eq!(
-        write,
-        FactWrite::MergeInto("onboarding".into()),
-        "an onboarding row is the anchor even when a closer rewording exists"
-    );
-}
-
-#[test]
 fn without_an_onboarding_row_the_oldest_is_the_anchor() {
+    // Same sentence stored twice, neither typed at onboarding: the older row
+    // is the one later restatements fold into, so the anchor does not drift
+    // as more arrive.
     let older = Stored::goal("older", "morning sessions")
         .kind(FactKind::Preference, PredicateCode::Prefer)
         .confidence(0.6)
         .aged(60)
-        .embedded(&[1.0, 0.0])
         .build();
-    let newer = Stored::goal("newer", "training early in the day")
+    let newer = Stored::goal("newer", "Morning sessions.")
         .kind(FactKind::Preference, PredicateCode::Prefer)
         .confidence(0.9)
         .aged(10)
-        .embedded(&[0.99, 0.1])
         .build();
     let write = decide(
         &[newer, older],
         &Candidate {
             kind: FactKind::Preference,
             predicate_code: PredicateCode::Prefer,
-            object: "runs before work",
-            embedding: Some(&[0.995, 0.05]),
+            object: "  MORNING SESSIONS  ",
         },
         config(),
     );
@@ -205,7 +158,6 @@ fn a_different_goal_is_not_merged() {
     let existing = vec![Stored::goal("marathon", "sub-3 marathon")
         .onboarded()
         .aged(30)
-        .embedded(&[1.0, 0.0, 0.0])
         .build()];
     let write = decide(
         &existing,
@@ -213,7 +165,6 @@ fn a_different_goal_is_not_merged() {
             kind: FactKind::Goal,
             predicate_code: PredicateCode::WorkingToward,
             object: "swim 2 km without stopping",
-            embedding: Some(&[0.1, 0.99, 0.0]),
         },
         config(),
     );
@@ -226,7 +177,6 @@ fn facts_of_another_kind_are_never_compared() {
         .kind(FactKind::Injury, PredicateCode::RecoveringFrom)
         .onboarded()
         .aged(30)
-        .embedded(&[1.0, 0.0, 0.0])
         .build()];
     let write = decide(
         &existing,
@@ -234,75 +184,10 @@ fn facts_of_another_kind_are_never_compared() {
             kind: FactKind::Goal,
             predicate_code: PredicateCode::WorkingToward,
             object: "a 26 km ultra at Mont Albert",
-            embedding: Some(&[1.0, 0.0, 0.0]),
         },
         config(),
     );
     assert_eq!(write, FactWrite::Insert, "an injury is not a goal");
-}
-
-#[test]
-fn similarity_off_keeps_only_the_exact_layer() {
-    let cfg = DedupConfig {
-        similarity_enabled: false,
-        ..config()
-    };
-    let existing = vec![Stored::goal("anchor", "a 26 km ultra at Mont Albert")
-        .onboarded()
-        .aged(30)
-        .embedded(&[1.0, 0.0])
-        .build()];
-
-    // A paraphrase now inserts...
-    assert_eq!(
-        decide(
-            &existing,
-            &Candidate {
-                kind: FactKind::Goal,
-                predicate_code: PredicateCode::WorkingToward,
-                object: "a 26 km trail race at Mont Albert",
-                embedding: Some(&[0.999, 0.01]),
-            },
-            cfg
-        ),
-        FactWrite::Insert
-    );
-    // ...but the same sentence still merges, because that layer never turns off.
-    assert_eq!(
-        decide(
-            &existing,
-            &Candidate {
-                kind: FactKind::Goal,
-                predicate_code: PredicateCode::WorkingToward,
-                object: "A 26 km ultra at Mont Albert",
-                embedding: None,
-            },
-            cfg
-        ),
-        FactWrite::MergeInto("anchor".into())
-    );
-}
-
-#[test]
-fn a_fact_with_no_embedding_is_never_merged_by_similarity() {
-    // A row stored before embeddings existed must not match everything.
-    let existing = vec![Stored::goal("legacy", "a 26 km ultra at Mont Albert")
-        .onboarded()
-        .aged(30)
-        .build()];
-    assert_eq!(
-        decide(
-            &existing,
-            &Candidate {
-                kind: FactKind::Goal,
-                predicate_code: PredicateCode::WorkingToward,
-                object: "a 26 km trail race at Mont Albert",
-                embedding: Some(&[1.0, 0.0]),
-            },
-            config()
-        ),
-        FactWrite::Insert
-    );
 }
 
 #[test]
@@ -313,18 +198,51 @@ fn normalization_folds_only_what_it_should() {
     assert_ne!(normalize_object("côte"), normalize_object("cote"));
 }
 
+/// The anchor rule is shared with the extractor's paraphrase answer, so a
+/// model naming any member of a group cannot pick a row that a literal repeat
+/// naming the same group would not.
 #[test]
-fn cosine_is_undefined_rather_than_wrong() {
-    assert_eq!(cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]), Some(1.0));
-    assert_eq!(cosine_similarity(&[], &[]), None, "no vector, no score");
+fn the_anchor_is_the_athletes_own_words_whichever_member_is_named() {
+    let onboarding = Stored::goal("f-onboarding", "Un ultra de 26 km au Mont Albert")
+        .onboarded()
+        .aged(500)
+        .build();
+    let restated = Stored::goal("f-restated", "un ultra de 26 km au mont albert")
+        .aged(100)
+        .build();
+    let group: Vec<&UserFact> = vec![&restated, &onboarding];
+
     assert_eq!(
-        cosine_similarity(&[1.0, 0.0], &[1.0, 0.0, 0.0]),
-        None,
-        "two providers' widths never compare"
+        anchor_of(&group).map(|f| f.id.as_str()),
+        Some("f-onboarding"),
+        "the row the athlete typed wins, whatever order the group arrives in"
     );
     assert_eq!(
-        cosine_similarity(&[0.0, 0.0], &[1.0, 0.0]),
+        anchor_of(&[]).map(|f| f.id.as_str()),
         None,
-        "a zero vector has no direction"
+        "an empty group names no anchor"
+    );
+}
+
+/// The case a cosine threshold could not get right, and the reason this layer
+/// is the certain one: two goals a month apart embed closer to each other than
+/// one goal restated in another language embeds to itself. A comparison of
+/// words keeps them apart because the words differ.
+#[test]
+fn two_goals_on_one_template_are_never_merged_here() {
+    let stored = Stored::goal("f-marathon", "a marathon in October").build();
+
+    assert_eq!(
+        decide(
+            &[stored],
+            &Candidate {
+                kind: FactKind::Goal,
+                predicate_code: PredicateCode::WorkingToward,
+                object: "a half marathon in October",
+            },
+            config(),
+        ),
+        FactWrite::Insert,
+        "a different distance is a different goal, however close the wording"
     );
 }

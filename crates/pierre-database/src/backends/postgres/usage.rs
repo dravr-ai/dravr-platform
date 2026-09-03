@@ -10,10 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::usage::{
-    EmbeddingUsageRecord, InsertEmbeddingUsage, InsertLlmUsage, LlmUsageAggregateRow,
-    LlmUsageDailyRow,
-};
+use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats};
 use pierre_core::models::{
     ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, TenantId, ToolUsage,
@@ -581,42 +578,6 @@ impl LlmUsageRepository for PostgresDatabase {
             execution_time_ms: params.execution_time_ms,
             cost_usd: params.cost_usd,
             call_sequence: params.call_sequence,
-            created_at: now.to_rfc3339(),
-        })
-    }
-
-    async fn insert_embedding_usage(
-        &self,
-        params: &InsertEmbeddingUsage<'_>,
-    ) -> AppResult<EmbeddingUsageRecord> {
-        let id = Uuid::new_v4();
-        let now = Utc::now();
-        sqlx::query(
-            r"
-            INSERT INTO embedding_usage (id, tenant_id, user_id, provider, model, input_tokens, cost_usd, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ",
-        )
-        .bind(id)
-        .bind(params.tenant_id)
-        .bind(params.user_id)
-        .bind(params.provider)
-        .bind(params.model)
-        .bind(params.input_tokens)
-        .bind(params.cost_usd)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to insert embedding usage: {e}")))?;
-
-        Ok(EmbeddingUsageRecord {
-            id: id.to_string(),
-            tenant_id: params.tenant_id.to_owned(),
-            user_id: params.user_id.to_owned(),
-            provider: params.provider.to_owned(),
-            model: params.model.to_owned(),
-            input_tokens: params.input_tokens,
-            cost_usd: params.cost_usd,
             created_at: now.to_rfc3339(),
         })
     }

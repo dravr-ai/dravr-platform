@@ -111,7 +111,6 @@ fn row_to_user_fact(row: &PgRow) -> AppResult<UserFact> {
         source: FactSource::parse_lenient(&source_str),
         valid_until: row.get("valid_until"),
         source_msg_id: row.get("source_msg_id"),
-        embedding: optional_embedding(row)?,
         created_at,
         updated_at,
     })
@@ -256,16 +255,15 @@ impl HarnessMemoryRepository for PostgresDatabase {
     async fn upsert_user_fact(&self, params: &UpsertUserFactParams<'_>) -> AppResult<UserFact> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
-        let embedding_bytes = params.embedding.map(embedding_to_bytes);
 
         sqlx::query(
             r"
             INSERT INTO user_facts (
                 id, tenant_id, user_id, coach_id, scope, kind, pillar,
                 predicate_code, object, confidence, source, valid_until,
-                source_msg_id, embedding, created_at, updated_at
+                source_msg_id, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
             ",
         )
         .bind(&id)
@@ -281,7 +279,6 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(params.source.as_str())
         .bind(params.valid_until)
         .bind(params.source_msg_id)
-        .bind(embedding_bytes)
         .bind(now)
         .execute(&self.pool)
         .await
@@ -301,7 +298,6 @@ impl HarnessMemoryRepository for PostgresDatabase {
             source: params.source,
             valid_until: params.valid_until,
             source_msg_id: params.source_msg_id.map(ToOwned::to_owned),
-            embedding: params.embedding.map(<[f32]>::to_vec),
             created_at: now,
             updated_at: now,
         })
@@ -314,7 +310,6 @@ impl HarnessMemoryRepository for PostgresDatabase {
         // Bound as a timestamp, not a string: on PostgreSQL updated_at is
         // `timestamptz`, and the RFC3339 text SQLite stores is rejected here.
         let now = Utc::now();
-        let embedding_bytes = params.embedding.map(embedding_to_bytes);
 
         // COALESCE keeps the anchor's own words and its embedding when it
         // already has one; GREATEST keeps the higher confidence, so a
@@ -333,7 +328,6 @@ impl HarnessMemoryRepository for PostgresDatabase {
         )
         .bind(params.confidence)
         .bind(params.source_msg_id)
-        .bind(embedding_bytes)
         .bind(now)
         .bind(params.fact_id)
         .bind(params.tenant_id.to_string())

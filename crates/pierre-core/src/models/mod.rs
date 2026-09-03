@@ -212,9 +212,9 @@ pub use tier_quota::{TierQuotaConfig, ENTERPRISE, PROFESSIONAL, STARTER};
 pub mod subscription;
 pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
-    ConversationTurnLlmCall, ConversationTurnSummary, EmbeddingUsageRecord, InsertEmbeddingUsage,
-    InsertLlmUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog,
-    ToolUsage, UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
+    ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtUsage,
+    LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog, ToolUsage,
+    UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// Coach (AI persona) data types for custom AI coaching personas

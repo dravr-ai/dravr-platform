@@ -141,33 +141,15 @@ impl Default for HarnessVerificationConfig {
 /// An athlete states one goal and every later extraction re-derives it in its
 /// own words; without these the restatements pile up as separate facts. The
 /// exact-key layer is not configurable — it costs a string comparison and
-/// cannot merge two different facts — so only the similarity layer is tuned
-/// here.
+/// cannot merge two different facts. A paraphrase is decided by the extractor,
+/// which is shown the athlete's facts and answers which one a new fact
+/// restates, so the only thing tuned here is how many it is shown.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct HarnessMemoryConfig {
-    /// Whether similarity matching runs. Off leaves the exact-key layer alone.
-    #[serde(default = "default_memory_similarity_enabled")]
-    pub dedup_similarity_enabled: bool,
-    /// Cosine score at or above which two facts of one kind are the same fact.
-    ///
-    /// Higher merges less and leaves duplicates; lower risks collapsing two
-    /// real goals into one, which loses athlete data — so the default sits
-    /// deliberately on the conservative side.
-    #[serde(default = "default_memory_similarity_threshold")]
-    pub dedup_similarity_threshold: f32,
-    /// How many of the athlete's facts of that kind are compared.
+    /// How many of the athlete's facts are compared, and how many the
+    /// extractor is shown.
     #[serde(default = "default_memory_candidate_limit")]
     pub dedup_candidate_limit: u32,
-}
-
-/// Default for [`HarnessMemoryConfig::dedup_similarity_enabled`].
-fn default_memory_similarity_enabled() -> bool {
-    true
-}
-
-/// Default for [`HarnessMemoryConfig::dedup_similarity_threshold`].
-fn default_memory_similarity_threshold() -> f32 {
-    0.86
 }
 
 /// Default for [`HarnessMemoryConfig::dedup_candidate_limit`].
@@ -178,8 +160,6 @@ fn default_memory_candidate_limit() -> u32 {
 impl Default for HarnessMemoryConfig {
     fn default() -> Self {
         Self {
-            dedup_similarity_enabled: default_memory_similarity_enabled(),
-            dedup_similarity_threshold: default_memory_similarity_threshold(),
             dedup_candidate_limit: default_memory_candidate_limit(),
         }
     }
@@ -280,16 +260,10 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
         }
     }
 
-    // A threshold outside (0, 1] is not a mistuning, it is a switch: at or
-    // below 0 every fact of a kind merges into one row and the athlete loses
-    // data; above 1 nothing ever matches and the setting reads as enabled
-    // while doing nothing.
+    // Zero is not a mistuning, it is a switch: the extractor is shown nothing
+    // and no comparison has anything to compare against, so every restatement
+    // becomes a new row while the setting reads as configured.
     let m = &doc.memory;
-    if m.dedup_similarity_threshold <= 0.0 || m.dedup_similarity_threshold > 1.0 {
-        return Err(AppError::invalid_input(
-            "dedup_similarity_threshold must be in (0, 1]",
-        ));
-    }
     if m.dedup_candidate_limit == 0 {
         return Err(AppError::invalid_input("dedup_candidate_limit must be > 0"));
     }

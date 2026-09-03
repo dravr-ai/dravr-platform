@@ -50,7 +50,6 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: Some("m-onboarding"),
-            embedding: Some(&[1.0, 0.0, 0.0]),
         })
         .await
         .expect("anchor stored");
@@ -63,7 +62,6 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
             fact_id: &anchor.id,
             source_msg_id: Some("m-later"),
             confidence: 0.6,
-            embedding: Some(&[0.98, 0.2, 0.0]),
         })
         .await
         .expect("merge succeeds")
@@ -82,11 +80,6 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
         merged.source_msg_id.as_deref(),
         Some("m-later"),
         "the anchor points at the message that last stated it"
-    );
-    assert_eq!(
-        merged.embedding.as_deref(),
-        Some(&[1.0, 0.0, 0.0][..]),
-        "an anchor that already had an embedding keeps it"
     );
     assert!(merged.updated_at >= anchor.updated_at);
 
@@ -133,7 +126,6 @@ async fn a_merge_raises_confidence_and_backfills_a_missing_embedding() {
             source: FactSource::Conversation,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await
         .expect("anchor stored");
@@ -144,7 +136,6 @@ async fn a_merge_raises_confidence_and_backfills_a_missing_embedding() {
             fact_id: &anchor.id,
             source_msg_id: Some("m-2"),
             confidence: 0.9,
-            embedding: Some(&[0.5, 0.5]),
         })
         .await
         .expect("merge succeeds")
@@ -154,11 +145,6 @@ async fn a_merge_raises_confidence_and_backfills_a_missing_embedding() {
         (merged.confidence - 0.9).abs() < f32::EPSILON,
         "saying it again is evidence: {}",
         merged.confidence
-    );
-    assert_eq!(
-        merged.embedding.as_deref(),
-        Some(&[0.5, 0.5][..]),
-        "a row with no embedding becomes matchable after its first restatement"
     );
 }
 
@@ -196,7 +182,6 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await
         .expect("anchor stored");
@@ -211,7 +196,6 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
             fact_id: &anchor.id,
             source_msg_id: Some("m-x"),
             confidence: 1.0,
-            embedding: None,
         })
         .await
         .expect("the call itself succeeds");

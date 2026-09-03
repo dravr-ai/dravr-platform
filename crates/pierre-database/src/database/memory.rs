@@ -132,7 +132,6 @@ fn row_to_user_fact(row: &SqliteRow) -> AppResult<UserFact> {
         source: FactSource::parse_lenient(&source_str),
         valid_until: optional_datetime(row, "valid_until")?,
         source_msg_id: row.get("source_msg_id"),
-        embedding: optional_embedding(row)?,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
     })
@@ -279,7 +278,6 @@ impl HarnessMemoryRepository for Database {
     async fn upsert_user_fact(&self, params: &UpsertUserFactParams<'_>) -> AppResult<UserFact> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
-        let embedding_bytes = params.embedding.map(embedding_to_bytes);
         let valid_until_str = params.valid_until.map(|d| d.to_rfc3339());
 
         sqlx::query(
@@ -287,9 +285,9 @@ impl HarnessMemoryRepository for Database {
             INSERT INTO user_facts (
                 id, tenant_id, user_id, coach_id, scope, kind, pillar,
                 predicate_code, object, confidence, source, valid_until,
-                source_msg_id, embedding, created_at, updated_at
+                source_msg_id, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
             ",
         )
         .bind(&id)
@@ -305,7 +303,6 @@ impl HarnessMemoryRepository for Database {
         .bind(params.source.as_str())
         .bind(valid_until_str)
         .bind(params.source_msg_id)
-        .bind(embedding_bytes)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -325,7 +322,6 @@ impl HarnessMemoryRepository for Database {
             source: params.source,
             valid_until: params.valid_until,
             source_msg_id: params.source_msg_id.map(ToOwned::to_owned),
-            embedding: params.embedding.map(<[f32]>::to_vec),
             created_at: parse_datetime(&now)?,
             updated_at: parse_datetime(&now)?,
         })
@@ -336,24 +332,20 @@ impl HarnessMemoryRepository for Database {
         params: &MergeUserFactParams<'_>,
     ) -> AppResult<Option<UserFact>> {
         let now = Utc::now().to_rfc3339();
-        let embedding_bytes = params.embedding.map(embedding_to_bytes);
 
-        // COALESCE keeps the anchor's own words and its embedding when it
-        // already has one; MAX keeps the higher confidence, so a restatement
-        // can only ever raise it.
+        // COALESCE keeps the anchor's own words; MAX keeps the higher
+        // confidence, so a restatement can only ever raise it.
         sqlx::query(
             r"
             UPDATE user_facts
             SET confidence = MAX(confidence, $1),
                 source_msg_id = COALESCE($2, source_msg_id),
-                embedding = COALESCE(embedding, $3),
-                updated_at = $4
-            WHERE id = $5 AND tenant_id = $6
+                updated_at = $3
+            WHERE id = $4 AND tenant_id = $5
             ",
         )
         .bind(params.confidence)
         .bind(params.source_msg_id)
-        .bind(embedding_bytes)
         .bind(&now)
         .bind(params.fact_id)
         .bind(params.tenant_id)

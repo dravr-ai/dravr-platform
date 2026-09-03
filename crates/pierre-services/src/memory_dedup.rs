@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Decides whether an extracted fact is new or a restatement of one the athlete already has
-// ABOUTME: Exact key first, then cosine similarity over embeddings; a match merges into the anchor rather than appending a sibling
+// ABOUTME: The same sentence again is caught here; a paraphrase is the extractor's call, and both merge into the anchor
 
 //! Fact de-duplication.
 //!
@@ -11,13 +11,20 @@
 //! one goal is not merely clutter — the drift is lossy, and the athlete is
 //! asked to forget them one by one.
 //!
-//! Two layers decide where a fact goes, cheapest first:
+//! Two layers decide where a fact goes, and this module is the certain one:
+//! same kind, same predicate code, same normalised object is the same
+//! sentence said again, which costs one string comparison and cannot merge
+//! two different facts.
 //!
-//! 1. **Exact key.** Same kind, same predicate code, same normalised object —
-//!    a literal repeat never reaches the expensive path.
-//! 2. **Similarity.** Otherwise the candidate's embedding is compared to the
-//!    embeddings of the athlete's facts of that kind, and a score at or above
-//!    the configured threshold is a restatement.
+//! A paraphrase is not decided here. It is decided by the extractor, which
+//! is shown the athlete's existing facts and answers which one a new fact
+//! restates — see `memory_extraction`. That replaced a cosine threshold over
+//! embeddings, which could not work at any value: measured on two vendors'
+//! models, "a marathon in October" and "a half marathon in October" score
+//! HIGHER against each other than one goal restated in another language does
+//! against itself. Embeddings measure topical closeness, and two race goals
+//! a month apart are as close as topics get. A reader distinguishes them; a
+//! distance cannot.
 //!
 //! What a match merges into is the **anchor**: the athlete's own phrasing wins
 //! over a model's rewording. An onboarding-sourced row is always the anchor
@@ -28,16 +35,13 @@
 
 use pierre_memory::{FactKind, FactSource, PredicateCode, UserFact};
 
-/// How the two layers are tuned. Served from the harness config document so
-/// the threshold moves without a deploy.
+/// How much of the athlete's memory a write is decided against. Served from
+/// the harness config document so the cap moves without a deploy.
 #[derive(Debug, Clone, Copy)]
 pub struct DedupConfig {
-    /// Whether similarity matching runs at all. The exact-key layer is always
-    /// on: it costs one string comparison and cannot produce a false merge.
-    pub similarity_enabled: bool,
-    /// Cosine score at or above which two facts of one kind are the same fact.
-    pub similarity_threshold: f32,
-    /// How many of the athlete's facts of that kind are compared.
+    /// How many of the athlete's facts are compared, and how many the
+    /// extractor is shown. One cap, so the model never answers about a fact
+    /// this module would not have considered.
     pub candidate_limit: usize,
 }
 
@@ -68,16 +72,14 @@ pub struct Candidate<'a> {
     pub predicate_code: PredicateCode,
     /// The athlete's words for the value.
     pub object: &'a str,
-    /// The candidate's embedding, when one could be computed.
-    pub embedding: Option<&'a [f32]>,
 }
 
 /// Fold an object down to what makes two statements the same string.
 ///
 /// Case, surrounding whitespace, repeated spaces and trailing punctuation only.
 /// Deliberately not stemming or accent-folding: « côte » and "cote" are
-/// different words to an athlete, and the similarity layer exists for
-/// everything this cannot see.
+/// different words to an athlete, and the extractor's paraphrase answer
+/// covers everything this cannot see.
 #[must_use]
 pub fn normalize_object(object: &str) -> String {
     let mut out = String::with_capacity(object.len());
@@ -101,27 +103,6 @@ pub fn normalize_object(object: &str) -> String {
     out
 }
 
-/// Cosine similarity of two vectors, or `None` when either is empty, they are
-/// different widths (two embedding providers), or either has no magnitude.
-#[must_use]
-pub fn cosine_similarity(a: &[f32], b: &[f32]) -> Option<f32> {
-    if a.is_empty() || a.len() != b.len() {
-        return None;
-    }
-    let mut dot = 0.0_f32;
-    let mut norm_a = 0.0_f32;
-    let mut norm_b = 0.0_f32;
-    for (x, y) in a.iter().zip(b.iter()) {
-        dot += x * y;
-        norm_a += x * x;
-        norm_b += y * y;
-    }
-    if norm_a <= 0.0 || norm_b <= 0.0 {
-        return None;
-    }
-    Some(dot / (norm_a.sqrt() * norm_b.sqrt()))
-}
-
 /// The row a group of matching facts merges into.
 ///
 /// An onboarding row wins because the athlete typed it; among equals the
@@ -134,7 +115,11 @@ fn anchor<'a>(matches: &[&'a UserFact]) -> Option<&'a UserFact> {
     })
 }
 
-/// Decide where `candidate` goes, given the athlete's existing facts.
+/// Decide where `candidate` goes on the certain layer alone.
+///
+/// [`FactWrite::Insert`] means only "no existing fact says this in the same
+/// words" — the caller still has the extractor's paraphrase answer to
+/// consider before it writes a new row.
 ///
 /// `existing` should already be scoped to this athlete; facts of another kind
 /// are ignored here rather than at the call site, so a caller that passes the
@@ -160,28 +145,17 @@ pub fn decide(existing: &[UserFact], candidate: &Candidate<'_>, config: DedupCon
                 && normalize_object(&fact.object) == normalized
         })
         .collect();
-    if let Some(row) = anchor(&exact) {
-        return FactWrite::MergeInto(row.id.clone());
-    }
-
-    // Layer 2: the same fact, said differently.
-    if !config.similarity_enabled {
-        return FactWrite::Insert;
-    }
-    let Some(vector) = candidate.embedding else {
-        return FactWrite::Insert;
-    };
-    let similar: Vec<&UserFact> = same_kind
-        .iter()
-        .copied()
-        .filter(|fact| {
-            fact.embedding.as_ref().is_some_and(|stored| {
-                cosine_similarity(vector, stored)
-                    .is_some_and(|score| score >= config.similarity_threshold)
-            })
-        })
-        .collect();
-    anchor(&similar).map_or(FactWrite::Insert, |row| {
+    anchor(&exact).map_or(FactWrite::Insert, |row| {
         FactWrite::MergeInto(row.id.clone())
     })
+}
+
+/// The anchor among `candidates`, exposed so the extractor's paraphrase answer
+/// merges into the same row this module would have chosen.
+///
+/// A model naming any member of a group must not produce a different winner
+/// than a literal repeat naming the group.
+#[must_use]
+pub fn anchor_of<'a>(candidates: &[&'a UserFact]) -> Option<&'a UserFact> {
+    anchor(candidates)
 }

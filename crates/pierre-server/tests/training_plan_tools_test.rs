@@ -1011,7 +1011,6 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
             source: FactSource::Conversation,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
 
@@ -1377,7 +1376,6 @@ async fn seed_agnostic_goal_fact(
             source: FactSource::Coach,
             valid_until: None,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
     Ok(fact.id)
@@ -1478,7 +1476,6 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
                 source: FactSource::Conversation,
                 valid_until: None,
                 source_msg_id: None,
-                embedding: None,
             })
             .await?;
     }

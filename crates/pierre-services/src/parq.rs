@@ -90,7 +90,6 @@ where
             source: FactSource::Onboarding,
             valid_until,
             source_msg_id: None,
-            embedding: None,
         })
         .await?;
         raised += 1;

@@ -88,7 +88,6 @@ async fn facts_carry_the_coach_title_when_the_coach_resolves() {
                 source: FactSource::Conversation,
                 valid_until: None,
                 source_msg_id: None,
-                embedding: None,
             })
             .await
             .expect("fact");

@@ -14,8 +14,7 @@ use pierre_core::models::{Pillar, TenantId};
 /// The anchor keeps what the athlete said: neither the object text nor a lower
 /// confidence is written here, because the rewording that triggered a merge is
 /// often the poorer wording. What a merge records is that the athlete said it
-/// again — the newest message that stated it, an embedding for the row if it
-/// had none, and a fresh `updated_at`.
+/// again — the newest message that stated it, and a fresh `updated_at`.
 #[derive(Debug, Clone, Copy)]
 pub struct MergeUserFactParams<'a> {
     /// Tenant that owns the fact, so a merge cannot cross a tenant boundary.
@@ -27,9 +26,6 @@ pub struct MergeUserFactParams<'a> {
     /// Confidence of the restatement. Applied only when it is higher than the
     /// anchor's — repetition is evidence, a poorer rewording is not.
     pub confidence: f32,
-    /// Embedding to store when the anchor has none, so a row written before
-    /// embeddings existed becomes matchable after its first restatement.
-    pub embedding: Option<&'a [f32]>,
 }
 
 /// Parameters for a [`HarnessMemoryRepository::upsert_user_fact`] call.
@@ -61,8 +57,6 @@ pub struct UpsertUserFactParams<'a> {
     pub valid_until: Option<chrono::DateTime<chrono::Utc>>,
     /// Source message id for provenance.
     pub source_msg_id: Option<&'a str>,
-    /// Optional embedding vector (little-endian f32 at the DB layer).
-    pub embedding: Option<&'a [f32]>,
 }
 
 /// Parameters for persisting a compaction block.

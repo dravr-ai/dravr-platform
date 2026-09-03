@@ -336,46 +336,6 @@ impl<'a> InsertLlmUsage<'a> {
     }
 }
 
-/// Record of a single embedding API call, persisted in the
-/// `embedding_usage` table. Separate from `llm_usage` so that
-/// embedding volume never dilutes chat-token billing aggregates.
-#[derive(Debug, Clone)]
-pub struct EmbeddingUsageRecord {
-    /// Unique record ID
-    pub id: String,
-    /// Tenant that owns the call
-    pub tenant_id: String,
-    /// User that triggered the call
-    pub user_id: String,
-    /// Embedding provider name (e.g. "gemini")
-    pub provider: String,
-    /// Model identifier (e.g. "text-embedding-004")
-    pub model: String,
-    /// Characters-based token estimate for the input text
-    pub input_tokens: i64,
-    /// USD cost of the embedding call
-    pub cost_usd: f64,
-    /// When the call was recorded (ISO 8601)
-    pub created_at: String,
-}
-
-/// Insert parameters for a new `embedding_usage` row.
-#[derive(Debug)]
-pub struct InsertEmbeddingUsage<'a> {
-    /// Tenant that owns the call
-    pub tenant_id: &'a str,
-    /// User that triggered the call
-    pub user_id: &'a str,
-    /// Embedding provider name (e.g. "gemini")
-    pub provider: &'a str,
-    /// Model identifier
-    pub model: &'a str,
-    /// Characters-based token estimate for the input text
-    pub input_tokens: i64,
-    /// USD cost of the embedding call
-    pub cost_usd: f64,
-}
-
 /// Aggregated LLM usage row grouped by provider, model, and call type
 #[derive(Debug, Clone, Serialize)]
 pub struct LlmUsageAggregateRow {

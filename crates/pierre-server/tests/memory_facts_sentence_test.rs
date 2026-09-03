@@ -74,7 +74,6 @@ async fn a_french_athlete_reads_her_facts_in_french() {
                 source: FactSource::Onboarding,
                 valid_until: None,
                 source_msg_id: None,
-                embedding: None,
             })
             .await
             .expect("fact");

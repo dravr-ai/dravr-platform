@@ -13,10 +13,7 @@ use sqlx::sqlite::SqliteArguments;
 use sqlx::{Sqlite, SqlitePool};
 use uuid::Uuid;
 
-pub use pierre_core::models::usage::{
-    EmbeddingUsageRecord, InsertEmbeddingUsage, InsertLlmUsage, LlmUsageAggregateRow,
-    LlmUsageDailyRow,
-};
+pub use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 
 use super::Database;
 
@@ -107,48 +104,6 @@ impl Database {
         })
     }
 
-    /// Insert a new embedding usage record (`SQLite` backend).
-    pub(crate) async fn insert_embedding_usage_impl(
-        &self,
-        params: &InsertEmbeddingUsage<'_>,
-    ) -> AppResult<EmbeddingUsageRecord> {
-        let id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query(
-            r"
-            INSERT INTO embedding_usage (id, tenant_id, user_id, provider, model, input_tokens, cost_usd, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ",
-        )
-        .bind(&id)
-        .bind(params.tenant_id)
-        .bind(params.user_id)
-        .bind(params.provider)
-        .bind(params.model)
-        .bind(params.input_tokens)
-        .bind(params.cost_usd)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to insert embedding usage: {e}")))?;
-
-        Ok(EmbeddingUsageRecord {
-            id,
-            tenant_id: params.tenant_id.to_owned(),
-            user_id: params.user_id.to_owned(),
-            provider: params.provider.to_owned(),
-            model: params.model.to_owned(),
-            input_tokens: params.input_tokens,
-            cost_usd: params.cost_usd,
-            created_at: now,
-        })
-    }
-
-    /// Query aggregated LLM usage grouped by `provider`+`model`+`call_type` (inherent implementation).
-    ///
-    /// Excludes the turn-summary rows written at turn completion —
-    /// those have zero tokens and would only inflate the `calls`
-    /// count, so aggregates reflect real LLM activity only.
     pub(crate) async fn get_llm_usage_aggregates_impl(
         &self,
         tenant_id: &str,
@@ -285,13 +240,6 @@ impl LlmUsageRepository for Database {
         params: &super::llm_usage::InsertLlmUsage<'_>,
     ) -> AppResult<LlmUsageRecord> {
         self.insert_llm_usage_impl(params).await
-    }
-
-    async fn insert_embedding_usage(
-        &self,
-        params: &InsertEmbeddingUsage<'_>,
-    ) -> AppResult<EmbeddingUsageRecord> {
-        self.insert_embedding_usage_impl(params).await
     }
 
     async fn get_llm_usage_aggregates(

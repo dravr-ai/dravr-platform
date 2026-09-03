@@ -41,7 +41,6 @@ fn fact_params<'a>(
         source: FactSource::Conversation,
         valid_until: None,
         source_msg_id: None,
-        embedding: None,
     }
 }
 

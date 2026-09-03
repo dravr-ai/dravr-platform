@@ -351,7 +351,6 @@ impl ServerContext {
             messaging_strings_registry: self.mcp.messaging_strings_registry.clone(),
             cageux_config_registry: self.fitness.cageux_config_registry.clone(),
             harness_config_registry: self.fitness.harness_config_registry.clone(),
-            embedding_provider: self.common.embedding_provider.clone(),
             persona_contract_registry: self.fitness.persona_contract_registry.clone(),
             sse_manager: self.sse.sse_manager.clone(),
             #[cfg(feature = "health-sync")]

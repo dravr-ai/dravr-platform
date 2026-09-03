@@ -178,8 +178,8 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                 .await?;
 
             Ok(ToolResult::ok(json!({
-                "note_id": note.id,
-                "created_at": note.created_at.to_rfc3339(),
+            "note_id": note.id,
+            "created_at": note.created_at.to_rfc3339(),
             })))
         }
         .await;
@@ -452,7 +452,6 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 source: FactSource::Coach,
                 valid_until: None,
                 source_msg_id: None,
-                embedding: None,
             };
             let fact = context
                 .resources

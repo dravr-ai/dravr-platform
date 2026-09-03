@@ -502,7 +502,6 @@ async fn converge_goal_fact(
                     source: FactSource::Coach,
                     valid_until: None,
                     source_msg_id: None,
-                    embedding: None,
                 })
                 .await?
                 .id
