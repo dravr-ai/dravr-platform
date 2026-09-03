@@ -21,6 +21,7 @@ import type { MemoryFactRow } from '@pierre/api-client';
 import { MEMORY_FACT_KINDS, MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
 import { spacing, borderRadius, fontSize, fontWeight, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
+import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
@@ -37,6 +38,7 @@ function formatUpdated(iso: string, language: string): string {
 
 export function MemoryScreen(): React.JSX.Element {
   const { t, language } = useTranslation();
+  const router = useRouter();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
@@ -108,8 +110,34 @@ export function MemoryScreen(): React.JSX.Element {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background.primary }}
+      edges={['top']}
       testID="memory-screen"
     >
+      {/* Memory is a settings pane like Notifications or About, and carries the
+          same way back: it is reached by a push from the settings list, where
+          the tab bar is not rendered. */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => router.back()}
+          testID="back-button"
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back')}
+          style={{ padding: 8, marginRight: 8 }}
+        >
+          <Feather name="arrow-left" size={24} color={colors.text.primary} />
+        </TouchableOpacity>
+        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>
+          {t('shell.memoryTitle')}
+        </Text>
+      </View>
+
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg }}
         refreshControl={
@@ -123,16 +151,6 @@ export function MemoryScreen(): React.JSX.Element {
         }
       >
         <View style={{ marginBottom: spacing.lg }}>
-          <Text
-            style={{
-              fontSize: fontSize.xl,
-              fontWeight: fontWeight.bold,
-              color: colors.text.primary,
-              marginBottom: spacing.xs,
-            }}
-          >
-            {t('shell.memoryTitle')}
-          </Text>
           <Text style={{ fontSize: fontSize.sm, color: colors.text.secondary }}>
             {t('app.memoryPanelBlurb')}
           </Text>

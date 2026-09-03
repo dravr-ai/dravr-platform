@@ -239,10 +239,6 @@ export function ExpandableTabBar() {
     display: expandOpacity.value > 0.01 ? 'flex' : 'none',
   }));
 
-  const collapsedIconsStyle = useAnimatedStyle(() => ({
-    opacity: expandOpacity.value > 0.5 ? 0 : 1,
-  }));
-
   const indicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: activeIndicatorX.value }],
   }));
@@ -304,18 +300,19 @@ export function ExpandableTabBar() {
               ))}
             </Animated.View>
 
-            {/* Collapsed icon row */}
-            <Animated.View
-              style={[
-                {
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-around',
-                  height: COLLAPSED_HEIGHT,
-                  paddingHorizontal: 16,
-                },
-                collapsedIconsStyle,
-              ]}
+            {/* The destinations, lit whether or not the sheet above them is open:
+                the sheet holds actions only, so there is nothing for them to
+                duplicate, and a row that held its 56pt while invisible left the
+                open pill with a blank band under the actions. */}
+            <View
+              testID="tab-bar-destinations"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-around',
+                height: COLLAPSED_HEIGHT,
+                paddingHorizontal: 16,
+              }}
             >
               {tabs.map((tab, index) => {
                 const isFocused = activeIndex === index;
@@ -385,7 +382,7 @@ export function ExpandableTabBar() {
                   indicatorStyle,
                 ]}
               />
-            </Animated.View>
+            </View>
           </View>
         </GlassContainer>
       </Animated.View>

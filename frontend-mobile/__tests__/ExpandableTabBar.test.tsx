@@ -294,6 +294,26 @@ describe('ExpandableTabBar', () => {
     expect(pillHeight(getByTestId)).toBe(56);
   });
 
+  it('keeps the destinations lit while the sheet above them is open', () => {
+    const { getByLabelText, getByTestId } = render(<ExpandableTabBar />);
+    const opacityOf = () => {
+      const style = getByTestId('tab-bar-destinations').props.style as
+        | Record<string, unknown>
+        | Array<Record<string, unknown>>;
+      const flat = Array.isArray(style) ? Object.assign({}, ...style) : style;
+      return (flat as { opacity?: number }).opacity ?? 1;
+    };
+
+    expect(opacityOf()).toBe(1);
+
+    // The row used to fade out here while still holding its 56pt, which left a
+    // blank band under the actions once the sheet stopped repeating the
+    // destinations (carnet#209).
+    fireEvent.press(getByLabelText('Open menu'));
+    expect(opacityOf()).toBe(1);
+    expect(getByTestId('tab-bar-destinations').props.style).toBeDefined();
+  });
+
   it('opens taller for the third action a thread adds', () => {
     mockSegments = ['(app)', '(tabs)', '(chat)', '[conversationId]'];
     mockGlobalParams = { conversationId: 'conv-1' };

@@ -10,6 +10,8 @@ import { describe, expect, it } from 'vitest';
 import en from '../../../../packages/i18n/src/locales/en/translation.json';
 
 const WEB_PANEL = path.join(__dirname, '../../components/memory/MemoryPanel.tsx');
+// The settings pane table, which named the screen a third time in its own hint.
+const PANE_TABLE = path.join(__dirname, '../../../../packages/shared-constants/src/surfaces.ts');
 const MOBILE_SCREEN = path.join(
   __dirname,
   '../../../../frontend-mobile/src/screens/memory/MemoryScreen.tsx',
@@ -38,6 +40,10 @@ const RETIRED_KEYS = [
   'app.memoryBlurb',
   'app.noFactsYet',
   'app.memoryEmptyBlurb',
+  // The third copy of the title: the settings pane's own hint said the same
+  // sentence, byte for byte in fr/es/de/pt, and the pane now points at
+  // `shell.memoryTitle` like both screens do.
+  'settingsTabs.memoryHint',
 ];
 
 function leaf(bundle: Record<string, unknown>, key: string): unknown {
@@ -50,6 +56,7 @@ function leaf(bundle: Record<string, unknown>, key: string): unknown {
 describe('memory screen copy parity', () => {
   const web = fs.readFileSync(WEB_PANEL, 'utf-8');
   const mobile = fs.readFileSync(MOBILE_SCREEN, 'utf-8');
+  const surfaces = fs.readFileSync(PANE_TABLE, 'utf-8');
 
   it('has both clients read the same key for every string the screen shares', () => {
     for (const key of SHARED_KEYS) {
@@ -64,6 +71,7 @@ describe('memory screen copy parity', () => {
       expect(leaf(en as Record<string, unknown>, key), key).toBeUndefined();
       expect(web, `web still reads ${key}`).not.toContain(key);
       expect(mobile, `mobile still reads ${key}`).not.toContain(key);
+      expect(surfaces, `the pane table still reads ${key}`).not.toContain(key);
     }
   });
 });

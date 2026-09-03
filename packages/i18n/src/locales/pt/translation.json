@@ -2297,7 +2297,6 @@
     "connections": "Fontes de dados",
     "connectionsHint": "Strava, Garmin e os dados que o teu coach lê",
     "memory": "Memória",
-    "memoryHint": "O que o teu coach se lembra de ti",
     "messaging": "Mensagens",
     "messagingHint": "Telegram, WhatsApp e outras apps de mensagens",
     "notifications": "Notificações",

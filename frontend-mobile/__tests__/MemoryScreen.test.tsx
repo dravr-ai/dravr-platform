@@ -12,6 +12,11 @@ import { i18n } from '@pierre/i18n';
 const mockListMemoryFacts = jest.fn();
 const mockForgetMemoryFact = jest.fn();
 
+const mockRouterBack = jest.fn();
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ back: mockRouterBack, push: jest.fn(), replace: jest.fn() }),
+}));
+
 jest.mock('../src/services/api', () => ({
   userApi: {
     listMemoryFacts: (...args: unknown[]) => mockListMemoryFacts(...args),
@@ -225,5 +230,16 @@ describe('MemoryScreen', () => {
     });
 
     alertSpy.mockRestore();
+  });
+
+  it('offers the way back every other settings pane offers', async () => {
+    // Memory is reached by a push from the settings list, where the tab bar is
+    // not rendered, so without this control the pane is a dead end.
+    const { getByTestId } = renderScreen();
+    await waitFor(() => {
+      expect(getByTestId('back-button')).toBeTruthy();
+    });
+    fireEvent.press(getByTestId('back-button'));
+    expect(mockRouterBack).toHaveBeenCalled();
   });
 });

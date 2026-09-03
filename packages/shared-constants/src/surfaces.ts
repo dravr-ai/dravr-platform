@@ -319,7 +319,7 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
   {
     id: 'memory',
     nameKey: 'settingsTabs.memory',
-    hintKey: 'settingsTabs.memoryHint',
+    hintKey: 'shell.memoryTitle',
     web: 'memory',
     mobile: '/(app)/memory',
     flag: null,
