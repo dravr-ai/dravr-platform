@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    AddMessageParams, ParticipantRole, TenantId, UpsertMessageFeedbackParams,
+    AddMessageParams, ParticipantRole, TenantId, UpsertMessageFeedbackParams, CHANNEL_TYPE_WEB,
 };
 use pierre_core::uuid_utils::parse_uuid;
 use sqlx::postgres::PgRow;
@@ -149,6 +149,10 @@ impl ChatRepository for PostgresDatabase {
             created_at: now.to_rfc3339(),
             updated_at: now.to_rfc3339(),
             group_id: group_uuid.map(|u| u.to_string()),
+            // The INSERT above does not name the column, so the stored value is
+            // the schema default. Callers that mean another channel stamp it
+            // afterwards through `set_conversation_channel`.
+            channel_type: CHANNEL_TYPE_WEB.to_owned(),
             onboarding_state: None,
         })
     }
@@ -163,7 +167,7 @@ impl ChatRepository for PostgresDatabase {
             r"
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.model, c.coach_id, c.session_id,
                    c.total_tokens, c.created_at, c.updated_at, c.group_id::TEXT AS group_id,
-                   c.onboarding_state
+                   c.channel_type, c.onboarding_state
             FROM chat_conversations c
             WHERE c.id = $1 AND c.tenant_id = $3
               AND EXISTS (
@@ -179,12 +183,18 @@ impl ChatRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to get conversation: {e}")))?;
 
-        Ok(row.map(|r| {
+        row.map(|r| {
             let created_at: DateTime<Utc> = r.get("created_at");
             let updated_at: DateTime<Utc> = r.get("updated_at");
             let user_id_uuid: Uuid = r.get("user_id");
+            // Decoded through `try_get` rather than `get`: `Row::get` is
+            // `try_get().unwrap()`, and an unwind here takes the whole
+            // container down with every in-flight request on it.
+            let channel_type: String = r
+                .try_get("channel_type")
+                .map_err(|e| AppError::database(format!("decode channel_type: {e}")))?;
 
-            ConversationRecord {
+            Ok(ConversationRecord {
                 id: r.get("id"),
                 user_id: user_id_uuid.to_string(),
                 tenant_id: r.get("tenant_id"),
@@ -196,9 +206,11 @@ impl ChatRepository for PostgresDatabase {
                 created_at: created_at.to_rfc3339(),
                 updated_at: updated_at.to_rfc3339(),
                 group_id: r.get("group_id"),
+                channel_type,
                 onboarding_state: r.get("onboarding_state"),
-            }
-        }))
+            })
+        })
+        .transpose()
     }
 
     async fn list_conversations(
@@ -700,7 +712,7 @@ impl ChatRepository for PostgresDatabase {
             "SELECT id::TEXT, user_id::TEXT, tenant_id::TEXT, title, model, coach_id, session_id, \
                     total_tokens, TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at, \
                     TO_CHAR(updated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as updated_at, \
-                    group_id::TEXT, onboarding_state \
+                    group_id::TEXT, channel_type, onboarding_state \
              FROM chat_conversations \
              ORDER BY updated_at DESC \
              LIMIT $1",
@@ -710,23 +722,30 @@ impl ChatRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to query recent conversations: {e}")))?;
 
-        Ok(rows
-            .iter()
-            .map(|row| ConversationRecord {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                tenant_id: row.get("tenant_id"),
-                title: row.get("title"),
-                model: row.get("model"),
-                coach_id: row.get("coach_id"),
-                session_id: row.get("session_id"),
-                total_tokens: row.get("total_tokens"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-                group_id: row.get("group_id"),
-                onboarding_state: row.get("onboarding_state"),
+        rows.iter()
+            .map(|row| {
+                // See `get_conversation` — the new column is decoded fallibly so
+                // a type mismatch is an error, not a process abort.
+                let channel_type: String = row
+                    .try_get("channel_type")
+                    .map_err(|e| AppError::database(format!("decode channel_type: {e}")))?;
+                Ok(ConversationRecord {
+                    id: row.get("id"),
+                    user_id: row.get("user_id"),
+                    tenant_id: row.get("tenant_id"),
+                    title: row.get("title"),
+                    model: row.get("model"),
+                    coach_id: row.get("coach_id"),
+                    session_id: row.get("session_id"),
+                    total_tokens: row.get("total_tokens"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    group_id: row.get("group_id"),
+                    channel_type,
+                    onboarding_state: row.get("onboarding_state"),
+                })
             })
-            .collect())
+            .collect()
     }
 
     async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64> {

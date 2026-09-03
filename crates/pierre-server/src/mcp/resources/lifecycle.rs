@@ -586,6 +586,10 @@ impl ServerContext {
             backfill_reentry.clone(),
             admin_jwt_secret.into(),
             base_url,
+            // The in-app arm's ping. Cloned from the already-assembled common
+            // slice, the same handle the commitment sweep is given.
+            #[cfg(feature = "client-notifications")]
+            common.notification_service.clone(),
         ));
 
         let mcp = super::slices::McpSlice {

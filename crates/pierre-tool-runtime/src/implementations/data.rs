@@ -47,8 +47,9 @@ use crate::conversions::{
 };
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::data_helpers::{
-    historical_backfill_fetch_limit, historical_window_read_limit, provider_reconnect_note,
-    read_only_annotations, response_cache_eligible, HISTORICAL_COVERAGE_BOUND_SECS,
+    backfill_placeholder_message, historical_backfill_fetch_limit, historical_window_read_limit,
+    provider_reconnect_note, read_only_annotations, response_cache_eligible,
+    HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -742,19 +743,18 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // the run's own log shows the backfill had already written
                         // the history. Telling the model which case it is lets it
                         // say something true either way.
-                        let message = if started {
-                            format!(
-                                "I'm pulling your older {display_provider} history now — this \
-                                 can take a minute. Ask me again shortly and it'll be ready."
-                            )
-                        } else {
-                            format!(
-                                "Your older {display_provider} history is still being fetched \
-                                 from an earlier request — it is not ready yet. Say so plainly, \
-                                 do not promise it for a specific moment, and answer with the \
-                                 data already available."
-                            )
-                        };
+                        // Whether anything will carry the finished window back
+                        // on its own. A chat turn (conversation id present) with
+                        // a notifier wired gets it delivered into the same
+                        // conversation — on a messaging channel through that
+                        // channel's adapter, in the web and mobile apps as a
+                        // persisted turn. A direct MCP or A2A caller has neither,
+                        // so for that one caller re-asking really is the only
+                        // path and the copy must keep saying so.
+                        let followed_up = context.conversation_id.is_some()
+                            && context.resources.backfill_notifier().is_some();
+                        let message =
+                            backfill_placeholder_message(&display_provider, started, followed_up);
                         return Ok(ToolResult::ok(json!({
                             "status": "backfilling",
                             "provider": display_provider,

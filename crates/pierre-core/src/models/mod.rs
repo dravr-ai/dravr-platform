@@ -172,10 +172,11 @@ pub use user_mcp_token::{
 // Chat conversation and message record types
 mod conversation;
 pub use conversation::{
-    split_visuals, AddMessageParams, CoachRuntimeContext, ConversationLastMessage,
-    ConversationPage, ConversationParticipant, ConversationRecord, ConversationSummary,
-    ConversationTurnId, MessageFeedbackRecord, MessageRecord, ParticipantRole, PersistedAction,
-    PersistedReplyBlock, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE, COMMAND_FINISH_REASON,
+    is_in_app_channel, split_visuals, AddMessageParams, CoachRuntimeContext,
+    ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
+    ConversationSummary, ConversationTurnId, MessageFeedbackRecord, MessageRecord, ParticipantRole,
+    PersistedAction, PersistedReplyBlock, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE,
+    CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 

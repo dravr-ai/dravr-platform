@@ -111,6 +111,28 @@ impl From<ConversationTurnId> for CanotTurnId {
     }
 }
 
+/// `channel_type` of a conversation opened from the web client.
+///
+/// Also the `chat_conversations.channel_type` column default, so a row whose
+/// INSERT never named the column reads back as this.
+pub const CHANNEL_TYPE_WEB: &str = "web";
+
+/// `channel_type` of a conversation opened from the React Native app.
+pub const CHANNEL_TYPE_MOBILE: &str = "mobile";
+
+/// Whether a conversation's `channel_type` names one of the two first-party
+/// clients rather than a messaging app.
+///
+/// The distinction is a delivery one, not cosmetic: an in-app thread is read
+/// by fetching the conversation, so a proactive notice reaches the athlete by
+/// being persisted into it. Every other `channel_type` is delivered by handing
+/// the message to that channel's adapter, which needs a `messaging_sessions`
+/// row the in-app clients never create.
+#[must_use]
+pub fn is_in_app_channel(channel_type: &str) -> bool {
+    matches!(channel_type, CHANNEL_TYPE_WEB | CHANNEL_TYPE_MOBILE)
+}
+
 /// Database representation of a chat conversation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationRecord {
@@ -142,6 +164,14 @@ pub struct ConversationRecord {
     /// Optional coaching group context for group-scoped conversations
     #[serde(default)]
     pub group_id: Option<String>,
+    /// Channel of origin from `chat_conversations.channel_type`: `web`/`mobile`
+    /// for an in-app chat, or a messaging channel (`telegram`/`whatsapp`/…).
+    ///
+    /// The same column [`ConversationSummary::channel_type`] carries for the
+    /// list badge, read here so a background job holding only a conversation id
+    /// can tell how to deliver into it — see [`is_in_app_channel`]. `NOT NULL`
+    /// in the schema, so absence is not a state.
+    pub channel_type: String,
     /// Active pillar-onboarding flow state (JSON). When set, prompt assembly
     /// runs this conversation in guided onboarding mode and the extraction
     /// worker stamps captured facts with `source=onboarding`. `None` for

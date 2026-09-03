@@ -950,3 +950,196 @@ fn a_prefetched_tool_name_is_not_the_model_engaging_with_activities() {
         "a turn whose tool loop captured a list is the case we do trust"
     );
 }
+
+/// The web and mobile clients create no `messaging_sessions` row and no
+/// `ChannelType` names them, so every completion notice for an in-app
+/// conversation used to die in the session reverse-lookup: the athlete asked
+/// for a deep window, was told "ask me again shortly", and nothing ever came
+/// back. Delivery for those surfaces is a persisted assistant turn — that is
+/// how both clients read a thread — so this asserts the turn lands, carries
+/// the athlete's actual activities, and that no channel send was attempted.
+#[tokio::test]
+async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    // `create_conversation` leaves `channel_type` at the column default,
+    // `web` — exactly the row `POST /api/chat/conversations` produces.
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[
+            cached_activity("a-1", "Sortie longue", 400),
+            cached_activity("a-2", "Fractionné", 380),
+        ],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+
+    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            after_ts,
+            2,
+        )
+        .await;
+
+    assert!(
+        channel.sent.lock().unwrap().is_empty(),
+        "an in-app conversation has no outbound channel; nothing may be sent on one"
+    );
+
+    let messages = repos
+        .chat
+        .get_recent_messages(&conversation_id, &user_id, tenant_id, 10)
+        .await
+        .unwrap();
+    let assistant: Vec<_> = messages.iter().filter(|m| m.role == "assistant").collect();
+    assert_eq!(
+        assistant.len(),
+        1,
+        "the completion notice must land as exactly one assistant turn: {messages:?}"
+    );
+    let body = &assistant[0].content;
+    assert!(
+        body.contains("Sortie longue") && body.contains("Fractionné"),
+        "the turn must carry the athlete's warmed activities, not a nudge: {body}"
+    );
+    assert!(
+        messages.iter().all(|m| m.role != "user"),
+        "the push must not fabricate a question the athlete never asked: {messages:?}"
+    );
+}
+
+/// The staleness guard still holds. A messaging thread the athlete `/reset`
+/// leaves the session pointing at a NEW conversation, so the old id resolves no
+/// session either — the same shape an in-app conversation has. The
+/// conversation's own `channel_type` is what separates them, and a notice
+/// against the archived messaging thread is noise that must stay dropped.
+#[tokio::test]
+async fn push_still_drops_a_reset_messaging_thread() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    // The conversation came in over Telegram; its session has since been
+    // repointed at a fresh conversation by `/reset`.
+    repos
+        .chat
+        .set_conversation_channel(&conversation_id, &user_id, tenant_id, "telegram")
+        .await
+        .unwrap();
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a-1", "Sortie longue", 400)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+
+    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            after_ts,
+            1,
+        )
+        .await;
+
+    assert!(
+        channel.sent.lock().unwrap().is_empty(),
+        "no session means no channel to send on"
+    );
+    let messages = repos
+        .chat
+        .get_recent_messages(&conversation_id, &user_id, tenant_id, 10)
+        .await
+        .unwrap();
+    assert!(
+        messages.is_empty(),
+        "an archived messaging thread must not be written into: {messages:?}"
+    );
+}
+
+/// The notice is rendered in the athlete's own locale.
+///
+/// It used to be rendered in `DEFAULT_LOCALE` for everyone: the locale was read
+/// as `session.get("locale")`, and neither backend's `messaging_sessions`
+/// `SELECT` returns that column, so the read was always `None`. An English
+/// athlete got French. Resolution now walks the repositories — channel-link
+/// override, then `users.locale` — the same chain the commitment sweep walks.
+#[tokio::test]
+async fn push_body_is_rendered_in_the_users_locale() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    repos.users.update_locale(user_uuid, "en").await.unwrap();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a-1", "Long run", 400)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+
+    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            after_ts,
+            1,
+        )
+        .await;
+
+    let messages = repos
+        .chat
+        .get_recent_messages(&conversation_id, &user_id, tenant_id, 10)
+        .await
+        .unwrap();
+    let body = &messages
+        .iter()
+        .find(|m| m.role == "assistant")
+        .expect("the completion turn should have landed")
+        .content;
+    assert!(
+        body.contains("Your history is ready"),
+        "an `en` athlete must read the English header: {body}"
+    );
+    assert!(
+        !body.contains("Ton historique"),
+        "the French default must not be forced on them: {body}"
+    );
+}

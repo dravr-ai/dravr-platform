@@ -1766,6 +1766,8 @@
     "backfill": {
       "list_header": "✅ Dein Verlauf ist bereit — {0} Aktivitäten:",
       "list_more": "… und {0} weitere",
+      "push_body": "{0} Aktivitäten geladen — sie stehen in deinem Chat.",
+      "push_title": "Dein Verlauf ist bereit",
       "ready": "✅ Dein Verlauf ist bereit — {0} Aktivitäten geladen. Frag mich einfach noch einmal, wonach du gesucht hast."
     },
     "capability": {

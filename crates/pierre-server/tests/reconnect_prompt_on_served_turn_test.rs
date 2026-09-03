@@ -58,7 +58,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     ActivityBuilder, ConnectionType, ConversationRecord, ConversationTurnId, MessageRecord,
-    SportType, TenantId,
+    SportType, TenantId, CHANNEL_TYPE_WEB,
 };
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, CopilotHeadlessConfig,
@@ -933,6 +933,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
             created_at: "2026-08-29T00:00:00Z".to_owned(),
             updated_at: "2026-08-29T00:00:00Z".to_owned(),
             group_id: None,
+            channel_type: CHANNEL_TYPE_WEB.to_owned(),
             onboarding_state: None,
         },
         content: result.content.clone(),

@@ -15,7 +15,7 @@ mod participants;
 mod read_markers;
 
 use super::Database;
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, CHANNEL_TYPE_WEB};
 
 // Re-export DTOs from pierre-core (canonical definitions)
 pub use pierre_core::models::{
@@ -120,6 +120,10 @@ impl ChatManager {
             created_at: now.clone(),
             updated_at: now,
             group_id: group_id.map(ToOwned::to_owned),
+            // The INSERT above does not name the column, so the stored value is
+            // the schema default. Callers that mean another channel stamp it
+            // afterwards through `set_conversation_channel`.
+            channel_type: CHANNEL_TYPE_WEB.to_owned(),
             onboarding_state: None,
         })
     }
@@ -138,7 +142,7 @@ impl ChatManager {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT c.id, c.user_id, c.tenant_id, c.title, c.model, c.coach_id, c.session_id, c.total_tokens, c.created_at, c.updated_at, c.group_id, c.onboarding_state
+            SELECT c.id, c.user_id, c.tenant_id, c.title, c.model, c.coach_id, c.session_id, c.total_tokens, c.created_at, c.updated_at, c.group_id, c.channel_type, c.onboarding_state
             FROM chat_conversations c
             WHERE c.id = $1 AND c.tenant_id = $3
               AND EXISTS (
@@ -154,20 +158,30 @@ impl ChatManager {
         .await
         .map_err(|e| AppError::database(format!("Failed to get conversation: {e}")))?;
 
-        Ok(row.map(|r| ConversationRecord {
-            id: r.get("id"),
-            user_id: r.get("user_id"),
-            tenant_id: r.get("tenant_id"),
-            title: r.get("title"),
-            model: r.get("model"),
-            coach_id: r.get("coach_id"),
-            session_id: r.get("session_id"),
-            total_tokens: r.get("total_tokens"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-            group_id: r.get("group_id"),
-            onboarding_state: r.get("onboarding_state"),
-        }))
+        row.map(|r| {
+            // Decoded through `try_get` rather than `get`: `Row::get` is
+            // `try_get().unwrap()`, so a column-type mismatch aborts the
+            // process instead of failing the call.
+            let channel_type: String = r
+                .try_get("channel_type")
+                .map_err(|e| AppError::database(format!("decode channel_type: {e}")))?;
+            Ok(ConversationRecord {
+                id: r.get("id"),
+                user_id: r.get("user_id"),
+                tenant_id: r.get("tenant_id"),
+                title: r.get("title"),
+                model: r.get("model"),
+                coach_id: r.get("coach_id"),
+                session_id: r.get("session_id"),
+                total_tokens: r.get("total_tokens"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+                group_id: r.get("group_id"),
+                channel_type,
+                onboarding_state: r.get("onboarding_state"),
+            })
+        })
+        .transpose()
     }
 
     /// Update conversation title
@@ -904,7 +918,8 @@ impl ChatRepository for Database {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, title, model, coach_id, session_id,
-                   total_tokens, created_at, updated_at, group_id, onboarding_state
+                   total_tokens, created_at, updated_at, group_id, channel_type,
+                   onboarding_state
             FROM chat_conversations
             ORDER BY updated_at DESC
             LIMIT $1
@@ -915,23 +930,30 @@ impl ChatRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to query recent conversations: {e}")))?;
 
-        Ok(rows
-            .iter()
-            .map(|row| ConversationRecord {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                tenant_id: row.get("tenant_id"),
-                title: row.get("title"),
-                model: row.get("model"),
-                coach_id: row.get("coach_id"),
-                session_id: row.get("session_id"),
-                total_tokens: row.get("total_tokens"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-                group_id: row.get("group_id"),
-                onboarding_state: row.get("onboarding_state"),
+        rows.iter()
+            .map(|row| {
+                // See `get_conversation` — the new column is decoded fallibly so
+                // a type mismatch is an error, not a process abort.
+                let channel_type: String = row
+                    .try_get("channel_type")
+                    .map_err(|e| AppError::database(format!("decode channel_type: {e}")))?;
+                Ok(ConversationRecord {
+                    id: row.get("id"),
+                    user_id: row.get("user_id"),
+                    tenant_id: row.get("tenant_id"),
+                    title: row.get("title"),
+                    model: row.get("model"),
+                    coach_id: row.get("coach_id"),
+                    session_id: row.get("session_id"),
+                    total_tokens: row.get("total_tokens"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    group_id: row.get("group_id"),
+                    channel_type,
+                    onboarding_state: row.get("onboarding_state"),
+                })
             })
-            .collect())
+            .collect()
     }
 
     async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64> {

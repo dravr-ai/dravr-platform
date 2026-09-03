@@ -140,8 +140,14 @@ describe('client locale corpus', () => {
     // each — describing contracts they could not see, while
     // `GET /api/personas` rendered the same cards from the live contract
     // registry and nobody read it. Eighteen `app.style*` keys left with them.
+    //
+    // 2380 until the backfill notice learned to reach the app. A completed
+    // historical backfill is delivered into a web or mobile conversation as a
+    // persisted turn rather than through a channel adapter, and the app push
+    // that announces it needs a title and a one-line body of its own —
+    // `messaging.backfill.push_title` and `.push_body`, +2.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2380);
+    expect(reference).toHaveLength(2382);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

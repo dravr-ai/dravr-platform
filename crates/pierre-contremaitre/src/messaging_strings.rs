@@ -212,6 +212,19 @@ pub const KEY_BACKFILL_LIST_HEADER: &str = "messaging.backfill.list_header";
 /// `{0}` = number of additional activities not shown.
 pub const KEY_BACKFILL_LIST_MORE: &str = "messaging.backfill.list_more";
 
+/// Key: title of the app-push completion notice. No placeholders.
+///
+/// Raised when the conversation is an in-app one, which has no outbound
+/// channel to send on: the notice itself is a persisted turn in the thread and
+/// this notification is what tells the athlete it landed.
+pub const KEY_BACKFILL_PUSH_TITLE: &str = "messaging.backfill.push_title";
+
+/// Key: body of that same notification. `{0}` = count of activities loaded.
+///
+/// Deliberately a one-line count pointing at the chat rather than the activity
+/// list, which is already the persisted turn and does not fit a lock screen.
+pub const KEY_BACKFILL_PUSH_BODY: &str = "messaging.backfill.push_body";
+
 // ── Commitment verdict keys ───────────────────────────────────────────────
 // Emitted by the commitment sweep once a promise's window closes. Composed
 // from counts and the sanitized sport slug only — never from the athlete's or

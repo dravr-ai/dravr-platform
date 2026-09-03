@@ -1766,6 +1766,8 @@
     "backfill": {
       "list_header": "✅ Your history is ready — {0} activities:",
       "list_more": "… and {0} more",
+      "push_body": "{0} activities loaded — they're in your chat.",
+      "push_title": "Your history is ready",
       "ready": "✅ Your history is ready — {0} activities loaded. Ask me again what you were looking for."
     },
     "capability": {

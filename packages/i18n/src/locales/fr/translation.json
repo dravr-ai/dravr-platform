@@ -1766,6 +1766,8 @@
     "backfill": {
       "list_header": "✅ Ton historique est prêt — {0} activités :",
       "list_more": "… et {0} de plus",
+      "push_body": "{0} activités récupérées — elles sont dans ta conversation.",
+      "push_title": "Ton historique est prêt",
       "ready": "✅ Ton historique est prêt — {0} activités récupérées. Redemande-moi ce que tu cherchais."
     },
     "capability": {

@@ -35,7 +35,6 @@
 //! against an archived thread would be noise.
 
 use std::fmt::Write as _;
-use std::iter::once;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock, Weak};
 
@@ -47,7 +46,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
-use pierre_core::models::{Activity, ConversationTurnId as CoreTurnId, TenantId};
+use pierre_core::models::{
+    is_in_app_channel, Activity, ConversationRecord, ConversationTurnId as CoreTurnId, TenantId,
+};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
 use pierre_database::RepositoryRegistry;
@@ -59,9 +60,12 @@ use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::NotificationService;
+
 use crate::mcp::resources::ServerContext;
+use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
 use crate::services::messaging_ingress::addressing::reply_recipient;
-use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out};
 use crate::services::messaging_ingress::build_messaging_profile;
 use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
 use pierre_chat_pipeline::TurnTelemetry;
@@ -325,33 +329,23 @@ pub fn install_backfill_reentry(resources: &Arc<ServerContext>) {
     }
 }
 
-/// Routing pieces resolved for a completed backfill: where to deliver the
-/// notice plus which tenant owns the channel config/adapter.
-struct ResolvedRoute {
-    /// Messaging-session id (the `id` column of `messaging_sessions`). Carried so
-    /// a send failure can persist the dropped notice as an outbound message row
-    /// under this session before queuing it for retry — exactly as the
-    /// synchronous reply path does.
-    session_id: String,
-    /// Channel slug (e.g. `"telegram"`) for config load + logging.
-    channel_str: String,
-    /// Parsed channel type for adapter selection + the outgoing message.
-    channel_type: ChannelType,
-    /// Channel-native conversation id the notice routes to (the exact chat).
-    recipient: String,
-    /// BCP-47 short locale for the notice body.
-    locale: String,
-    /// Tenant that owns the channel config + outbound adapter — the
-    /// BOT/channel-owner tenant. Differs from the session's own tenant for a
-    /// cross-tenant bot (a user DMs an admin-owned bot); equals it for a
-    /// single-tenant self-host. Used ONLY for the config load + send; the
-    /// session lookup, warmed-cache read, and chat re-entry all stay on the
-    /// user's own tenant.
-    channel_tenant_id: TenantId,
+/// Where a completed backfill's notice is delivered.
+///
+/// The two arms are different delivery mechanisms, not two channels: a
+/// messaging conversation is written to by handing an outgoing message to that
+/// channel's adapter, while a first-party conversation is written to by
+/// persisting a turn into the thread the client already reads.
+enum Destination {
+    /// The conversation came in over a messaging app — send through its adapter.
+    Channel(Box<ResolvedRoute>),
+    /// A web or mobile conversation. These clients create no
+    /// `messaging_sessions` row and no `ChannelType` names them, so every
+    /// notice for one used to die in the session lookup.
+    InApp,
 }
 
 /// Backfill-completion notifier: pushes a localized "your history is ready"
-/// notice back to the exact channel conversation that triggered the backfill.
+/// notice back to the exact conversation that triggered the backfill.
 pub struct ServerBackfillNotifier {
     /// Shared repository registry — the session reverse-lookup goes through
     /// `repos.messaging`. Arc so the notifier can be stored behind the
@@ -371,6 +365,12 @@ pub struct ServerBackfillNotifier {
     admin_jwt_secret: Arc<str>,
     /// Server root URL for building the hosted-login link in the reauth nudge.
     base_url: String,
+    /// App-push service, used only for the in-app arm: the persisted turn is
+    /// the delivery, this is the ping that tells the athlete it landed. `None`
+    /// in tests and when push is not configured — the turn is written either
+    /// way, so a missing service costs the notification, never the data.
+    #[cfg(feature = "client-notifications")]
+    notifications: Option<Arc<NotificationService>>,
 }
 
 impl ServerBackfillNotifier {
@@ -388,6 +388,7 @@ impl ServerBackfillNotifier {
         reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
         admin_jwt_secret: Arc<str>,
         base_url: String,
+        #[cfg(feature = "client-notifications")] notifications: Option<Arc<NotificationService>>,
     ) -> Arc<dyn BackfillNotifier> {
         let resolver = config_adapter_resolver(repos.clone());
         Arc::new(Self {
@@ -397,6 +398,8 @@ impl ServerBackfillNotifier {
             reentry,
             admin_jwt_secret,
             base_url,
+            #[cfg(feature = "client-notifications")]
+            notifications,
         })
     }
 
@@ -417,6 +420,8 @@ impl ServerBackfillNotifier {
             reentry: Arc::new(OnceLock::new()),
             admin_jwt_secret: Arc::from("test-jwt-secret"),
             base_url: "https://app.test".to_owned(),
+            #[cfg(feature = "client-notifications")]
+            notifications: None,
         }
     }
 
@@ -441,6 +446,8 @@ impl ServerBackfillNotifier {
             reentry: slot,
             admin_jwt_secret: Arc::from("test-jwt-secret"),
             base_url: "https://app.test".to_owned(),
+            #[cfg(feature = "client-notifications")]
+            notifications: None,
         }
     }
 
@@ -481,11 +488,6 @@ impl ServerBackfillNotifier {
                 .and_then(Value::as_str),
             channel_user_id,
         );
-        let locale = session
-            .get("locale")
-            .and_then(Value::as_str)
-            .unwrap_or(DEFAULT_LOCALE);
-
         let Ok(channel_type) = ChannelType::from_str(channel_str) else {
             warn!(channel = %channel_str, "Unknown channel type for backfill-ready notice");
             return None;
@@ -511,9 +513,104 @@ impl ServerBackfillNotifier {
             channel_str: channel_str.to_owned(),
             channel_type,
             recipient: recipient.to_owned(),
-            locale: locale.to_owned(),
+            channel_user_id: channel_user_id.to_owned(),
             channel_tenant_id,
         })
+    }
+
+    /// Decide how this conversation is reachable, or `None` when it is not.
+    ///
+    /// A messaging session wins: that conversation is read in the channel app,
+    /// so the notice belongs there. Absent one the conversation's own
+    /// `channel_type` separates the two remaining cases, which used to be
+    /// indistinguishable and were both dropped: a first-party thread, which is
+    /// read by fetching the conversation and so is delivered into, and a
+    /// messaging thread whose session was repointed by a `/reset`, where a
+    /// notice against the archived thread would be noise.
+    async fn resolve_destination(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> Option<Destination> {
+        if let Some(route) = self.resolve_route(tenant_id, pierre_conversation_id).await {
+            return Some(Destination::Channel(Box::new(route)));
+        }
+
+        let conversation = self
+            .lookup_conversation(user_id, tenant_id, pierre_conversation_id)
+            .await?;
+
+        if !is_in_app_channel(&conversation.channel_type) {
+            info!(
+                channel = %conversation.channel_type,
+                "Backfill push skipped: messaging session moved or gone (user likely /reset)"
+            );
+            return None;
+        }
+        info!("Backfill push: routing notice into the in-app conversation");
+        Some(Destination::InApp)
+    }
+
+    /// Read the conversation the backfill was triggered from, or `None` when
+    /// it is gone (deleted, or the athlete is no longer a participant) and
+    /// there is no thread left to answer into.
+    async fn lookup_conversation(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> Option<ConversationRecord> {
+        match self
+            .repos
+            .chat
+            .get_conversation(pierre_conversation_id, &user_id.to_string(), tenant_id)
+            .await
+        {
+            Ok(Some(conversation)) => Some(conversation),
+            Ok(None) => {
+                info!("Backfill push skipped: the conversation is gone");
+                None
+            }
+            Err(e) => {
+                warn!(error = %e, "Backfill push: conversation lookup failed");
+                None
+            }
+        }
+    }
+
+    /// Resolve the athlete's locale: the per-channel override when the notice
+    /// is going to a messaging channel, then their profile, then the default.
+    ///
+    /// Walked against the repositories rather than read off the session
+    /// projection. `messaging_sessions` has no `locale` in either backend's
+    /// `SELECT`, so the previous `session.get("locale")` was always `None` and
+    /// pinned every completion notice and reconnect nudge to `DEFAULT_LOCALE`
+    /// whatever the athlete reads in. Same chain the commitment sweep walks.
+    async fn resolve_locale(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        route: Option<&ResolvedRoute>,
+    ) -> String {
+        if let Some(route) = route {
+            if let Ok(Some(override_locale)) = self
+                .repos
+                .messaging
+                .get_channel_link_locale(tenant_id, &route.channel_str, &route.channel_user_id)
+                .await
+            {
+                if !override_locale.trim().is_empty() {
+                    return override_locale;
+                }
+            }
+        }
+        if let Ok(Some(user)) = self.repos.users.get_global(user_id).await {
+            if !user.locale.trim().is_empty() {
+                return user.locale;
+            }
+        }
+        DEFAULT_LOCALE.to_owned()
     }
 
     /// Reverse-look-up the messaging session by Pierre conversation id. Returns
@@ -531,10 +628,10 @@ impl ServerBackfillNotifier {
             .await
         {
             Ok(Some(session)) => Some(session),
-            Ok(None) => {
-                info!("Backfill push skipped: session moved or gone (user likely /reset)");
-                None
-            }
+            // Not a skip on its own: an in-app conversation never has a session
+            // row. `resolve_destination` reads the conversation to tell that
+            // from a messaging thread the athlete reset, and logs the verdict.
+            Ok(None) => None,
             Err(e) => {
                 warn!(error = %e, "Backfill push: session lookup failed");
                 None
@@ -736,20 +833,20 @@ impl BackfillNotifier for ServerBackfillNotifier {
         after_ts: i64,
         activity_count: usize,
     ) {
-        let Some(ResolvedRoute {
-            session_id,
-            channel_str,
-            channel_type,
-            recipient,
-            locale,
-            channel_tenant_id,
-        }) = self.resolve_route(tenant_id, pierre_conversation_id).await
+        let Some(destination) = self
+            .resolve_destination(user_id, tenant_id, pierre_conversation_id)
+            .await
         else {
             return;
         };
+        let route = match &destination {
+            Destination::Channel(route) => Some(route.as_ref()),
+            Destination::InApp => None,
+        };
+        let locale = self.resolve_locale(user_id, tenant_id, route).await;
 
-        // Durable cross-replica dedup. The staleness reverse-lookup above has
-        // already confirmed there is a live channel to notify; claim the
+        // Durable cross-replica dedup. The resolution above has already
+        // confirmed there is somewhere to deliver; claim the
         // `(tenant, user, provider, window)` BEFORE reading the cache, resolving
         // the adapter, or sending so a race between replicas resolves to exactly
         // one send. A `false` claim means another replica (or an earlier
@@ -785,7 +882,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // user still hears that their history loaded.
             let count = activity_count.to_string();
             self.strings.render(KEY_BACKFILL_READY, &locale, &[&count])
-        } else {
+        } else if let Destination::Channel(route) = &destination {
             // DECOUPLING (data delivery ≠ LLM judgment): the deterministic list,
             // rendered from the warmed cache the backfill just wrote, is the SPINE
             // — the user ALWAYS receives the data they asked for, regardless of the
@@ -805,7 +902,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     user_id,
                     tenant_id,
                     pierre_conversation_id,
-                    channel_type,
+                    route.channel_type,
                     &locale,
                 )
                 .await
@@ -814,70 +911,51 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 Some(coach_reply) => coach_reply.body,
                 None => self.render_list_body(&locale, &warmed),
             }
+        } else {
+            // In-app: the list, never a re-entry turn. `pierre_chat_pipeline::execute`
+            // persists the prompt it is handed as a `user` row before it answers —
+            // the model reads the question back out of the conversation history, so
+            // the write is load-bearing, not incidental. On a channel that row is
+            // invisible; in the athlete's own thread it would appear as them asking
+            // the same question a second time, which they never did. The
+            // deterministic list is the spine either way, so the in-app arm ships
+            // the spine and leaves the fabricated turn unwritten. The fabricated
+            // row is itself a defect on the channel surfaces, where the unified
+            // chat list shows it: carnet#246.
+            self.render_list_body(&locale, &warmed)
         };
 
-        // Fresh turn — this is a proactive push, not a reply to the
-        // originating turn.
-        // A warmed history can be long — a coach answer over a deep window, or
-        // the templated list itself. The channel accepts a bounded message and
-        // rejects anything past it, so the notice goes out as ordered parts,
-        // each inside the ceiling, rather than being dropped whole.
-        let parts = fan_out(
-            proactive_text(channel_type, recipient, body),
-            channel_ceiling(channel_type),
-        );
+        // The window's true size: `warmed` when the cache read landed, else the
+        // count the backfill reported.
+        let count = warmed.len().max(activity_count);
 
-        // Load the channel config + adapter from the BOT/channel-owner tenant
-        // (resolved via the channel link), NOT the user's own tenant — the
-        // Telegram bot config lives under the bot tenant for a cross-tenant bot.
-        let Some((adapter, channel_config)) = self
-            .resolver
-            .resolve(channel_tenant_id, &channel_str, channel_type)
-            .await
-        else {
-            return;
-        };
-
-        let push_user_id = user_id.to_string();
-        let failed = FailedOutbound {
-            message_tenant_id: tenant_id,
-            queue_tenant_id: channel_tenant_id,
-            session_id: &session_id,
-            user_id: Some(&push_user_id),
-            channel: &channel_str,
-        };
-        let mut remaining = parts.into_iter();
-        while let Some(outgoing) = remaining.next() {
-            let Err(e) = adapter.send(&outgoing, &channel_config).await else {
-                continue;
-            };
-            warn!(error = %e, channel = %channel_str, "Failed to send backfill-ready notice on channel");
-            // Path parity with the synchronous reply: a failed channel send (e.g.
-            // Meta WhatsApp error 131047, out-of-24h-window/template-required) must
-            // be persisted + queued for the background retry worker, not silently
-            // dropped. The message row lands on the user/session tenant; the queue
-            // row lands on the bot/channel-owner tenant so the worker resolves the
-            // right channel config on re-send. The parts after it are queued too:
-            // sending them now would put a continuation in front of its opening.
-            for dropped in once(outgoing).chain(remaining.by_ref()) {
-                if let Err(enqueue_err) = enqueue_failed_outbound(
-                    self.repos.messaging.as_ref(),
-                    adapter.as_ref(),
-                    &dropped,
-                    &failed,
-                )
-                .await
-                {
-                    error!(error = %enqueue_err, "Backfill push: failed to enqueue dropped notice for retry");
+        match destination {
+            Destination::Channel(route) => {
+                ChannelDelivery {
+                    repos: &self.repos,
+                    resolver: self.resolver.as_ref(),
                 }
+                .send(*route, user_id, tenant_id, body, count)
+                .await;
             }
-            return;
+            Destination::InApp => {
+                InAppDelivery {
+                    repos: &self.repos,
+                    strings: &self.strings,
+                    #[cfg(feature = "client-notifications")]
+                    notifications: self.notifications.as_ref(),
+                }
+                .deliver(
+                    user_id,
+                    tenant_id,
+                    pierre_conversation_id,
+                    &locale,
+                    body,
+                    count,
+                )
+                .await;
+            }
         }
-        info!(
-            channel = %channel_str,
-            count = warmed.len().max(activity_count),
-            "Sent backfill-ready notice on channel"
-        );
     }
 
     async fn push_provider_reauth(
@@ -905,17 +983,18 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
         // Resolve the originating channel — cross-channel, DM-correct (the same
         // routing the backfill-ready notice uses).
-        let Some(ResolvedRoute {
+        let Some(route) = self.resolve_route(tenant_id, pierre_conversation_id).await else {
+            return;
+        };
+        let locale = self.resolve_locale(user_id, tenant_id, Some(&route)).await;
+        let ResolvedRoute {
             session_id,
             channel_str,
             channel_type,
             recipient,
-            locale,
+            channel_user_id: _,
             channel_tenant_id,
-        }) = self.resolve_route(tenant_id, pierre_conversation_id).await
-        else {
-            return;
-        };
+        } = route;
 
         // Mint the one-time hosted-login link. The historical backfill only ever
         // runs on the scrape-backed mirror (sciotte / sciotte_garmin), so this is

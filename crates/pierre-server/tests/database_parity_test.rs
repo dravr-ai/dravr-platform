@@ -331,6 +331,60 @@ async fn test_parity_chat_create_conversation() {
     );
 }
 
+/// `chat_conversations.channel_type` must read back identically on both
+/// backends.
+///
+/// The column is `TEXT NOT NULL DEFAULT 'web'` and is now load-bearing: the
+/// backfill push reads it to tell a first-party conversation (deliverable by
+/// persisting a turn) from a messaging thread whose session was reset
+/// (undeliverable). A column-name or decode divergence here would make the PG
+/// tier either fail the read or answer the wrong verdict, and
+/// `create_test_server_resources` hard-codes `SQLite`, so this file is the only
+/// seam that exercises the PG path at all.
+#[tokio::test]
+async fn test_parity_chat_conversation_channel_type() {
+    let (sqlite_db, pg_db) = create_both_databases().await;
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
+
+    for (repos, label) in [(&sqlite_repos, "SQLite"), (&pg_repos, "PostgreSQL")] {
+        let (user_id, tenant_id) = create_test_user(repos).await;
+        let user = user_id.to_string();
+        let conv = repos
+            .chat
+            .create_conversation(&user, tenant_id, "Channel Test", "gpt-4", None, None)
+            .await
+            .unwrap_or_else(|e| panic!("{label}: create_conversation failed: {e}"));
+
+        // The INSERT never names the column, so the returned record must carry
+        // the schema default rather than a value the row does not hold.
+        assert_eq!(conv.channel_type, "web", "{label}: fresh conversation");
+        let read_back = repos
+            .chat
+            .get_conversation(&conv.id, &user, tenant_id)
+            .await
+            .unwrap_or_else(|e| panic!("{label}: get_conversation failed: {e}"))
+            .unwrap_or_else(|| panic!("{label}: conversation vanished"));
+        assert_eq!(read_back.channel_type, "web", "{label}: read back");
+
+        repos
+            .chat
+            .set_conversation_channel(&conv.id, &user, tenant_id, "telegram")
+            .await
+            .unwrap_or_else(|e| panic!("{label}: set_conversation_channel failed: {e}"));
+        let stamped = repos
+            .chat
+            .get_conversation(&conv.id, &user, tenant_id)
+            .await
+            .unwrap_or_else(|e| panic!("{label}: get_conversation failed: {e}"))
+            .unwrap_or_else(|| panic!("{label}: conversation vanished"));
+        assert_eq!(
+            stamped.channel_type, "telegram",
+            "{label}: a stamped channel must survive the round-trip"
+        );
+    }
+}
+
 /// Test that message operations behave identically
 #[tokio::test]
 async fn test_parity_chat_messages() {

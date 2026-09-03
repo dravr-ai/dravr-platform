@@ -207,3 +207,51 @@ pub fn read_only_annotations() -> ToolAnnotations {
 // ============================================================================
 // GetActivitiesTool - Retrieve user activities
 // ============================================================================
+
+/// The `message` a still-fetching historical window carries back to the model.
+///
+/// Two axes, because two different things are true on different paths.
+///
+/// `started` distinguishes the first ask from a re-ask while the same window is
+/// already in flight. Repeating "I'm pulling it now" on the second one reads as
+/// no progress, so that branch says the fetch is already running and never
+/// repeats the ask-again line.
+///
+/// `followed_up` is whether anything will carry the finished window back on its
+/// own: a chat turn gets it delivered into the same conversation, through the
+/// channel's adapter or as a persisted turn, while a direct MCP or A2A caller
+/// has no such path. Telling an athlete to ask again when the answer is already
+/// on its way is the defect this exists to prevent — and telling a caller that
+/// nothing will notify to sit and wait would be the mirror of it.
+#[must_use]
+pub fn backfill_placeholder_message(
+    display_provider: &str,
+    started: bool,
+    followed_up: bool,
+) -> String {
+    if started {
+        let delivery = if followed_up {
+            "The finished window comes back into this conversation on its own — tell \
+             the athlete it is on its way here, and do not ask them to repeat the \
+             question."
+        } else {
+            "Ask me again shortly and it'll be ready."
+        };
+        format!(
+            "I'm pulling your older {display_provider} history now — this can take a \
+             minute. {delivery}"
+        )
+    } else {
+        let delivery = if followed_up {
+            " It comes back into this conversation on its own when it lands."
+        } else {
+            ""
+        };
+        format!(
+            "Your older {display_provider} history is still being fetched from an \
+             earlier request — it is not ready yet. Say so plainly, do not promise it \
+             for a specific moment, and answer with the data already available.\
+             {delivery}"
+        )
+    }
+}

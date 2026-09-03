@@ -49,6 +49,13 @@ pub(crate) mod user_approval_notifier;
 #[cfg(feature = "client-messaging")]
 pub mod backfill_notifier;
 
+/// The two ways a backfill-completion notice reaches an athlete: out through a
+/// messaging channel's adapter, or into a first-party conversation as a
+/// persisted turn. Gated with the notifier it serves: both arms are reached
+/// only from it, and the channel arm needs the messaging adapters.
+#[cfg(feature = "client-messaging")]
+pub(crate) mod backfill_delivery;
+
 /// Spawns the coaching background workers (outcome evaluator, archetype
 /// aggregation, commitment sweep).
 pub mod coaching_workers;

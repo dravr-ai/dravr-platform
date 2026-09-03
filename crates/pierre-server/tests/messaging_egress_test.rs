@@ -42,7 +42,9 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::messaging::OutgoingMessage;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_core::models::{ConversationRecord, ConversationTurnId, MessageRecord};
+use pierre_core::models::{
+    ConversationRecord, ConversationTurnId, MessageRecord, CHANNEL_TYPE_WEB,
+};
 use pierre_mcp_server::services::messaging_ingress::block_render::{
     channel_ceiling, fan_out, render_reply,
 };
@@ -99,6 +101,7 @@ fn conversation() -> ConversationRecord {
         created_at: "2026-08-24T00:00:00Z".to_owned(),
         updated_at: "2026-08-24T00:05:00Z".to_owned(),
         group_id: None,
+        channel_type: CHANNEL_TYPE_WEB.to_owned(),
         onboarding_state: None,
     }
 }

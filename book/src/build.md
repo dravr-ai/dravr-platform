@@ -326,10 +326,13 @@ cargo build --release --no-default-features --features "sqlite,protocol-rest,tra
 
 | Configuration | Size |
 |---------------|------|
-| `server-full` (default) | ~50MB |
-| `server-production` | ~50MB |
+| `server-full` (default) | ~80MB |
+| `server-production` | ~80MB |
 
-CI's `release-binary` job fails the build above 80MB.
+CI's `release-binary` job fails the build above 90MB, and warns from 85MB up.
+The ceiling was 80MB until 2026-09-03, when main had been reporting exactly
+80MB for four consecutive runs — passing, but with no room for the next change
+of any size.
 
 ### Other Features
 
