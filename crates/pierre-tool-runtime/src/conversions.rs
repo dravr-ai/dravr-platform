@@ -11,6 +11,8 @@
 //!
 //! - [`tool_definition`] assembles a tronc [`Tool`] from the platform's typed
 //!   name/description/[`JsonSchema`]/[`ToolAnnotations`] pieces.
+//! - [`task_capable`] marks one of those definitions as allowed to answer with
+//!   an MCP task handle.
 //! - [`capabilities_to_tronc`] maps the platform's host capability flags to
 //!   tronc's generic capability set (the fitness domain flags are dropped —
 //!   tronc models those as registry string categories, supplied at registration).
@@ -21,7 +23,7 @@
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+use dravr_tronc::mcp::schema::{Content, TaskSupport, Tool, ToolExecution, ToolResponse};
 use dravr_tronc::mcp::tool::ToolCapabilities as TroncCapabilities;
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
@@ -47,6 +49,45 @@ pub fn tool_definition(
         annotations,
         output_schema: None,
         execution: None,
+    }
+}
+
+/// Declare that a tool may answer with an MCP task handle (SEP-2663).
+///
+/// Task support is a property of the tool, so it is declared here, beside the
+/// tool's own definition, and read back off the registry by the host seam that
+/// decides the wire shape. It used to be a hand-curated list of names sitting
+/// next to the registry instead: a new provider-fetching tool answered
+/// synchronously, unlike its twenty-five siblings, until somebody remembered to
+/// edit that list — silently, with nothing failing (carnet#232).
+///
+/// [`TaskSupport::Optional`], never `Required`: the fast-path budget decides
+/// the wire shape per call, so a cache-warm call still answers inline and only
+/// work that outlives the budget becomes a handle. `Required` would refuse a
+/// non-declaring client outright.
+///
+/// Declare it on a tool whose worst path is at least one uncached provider
+/// fetch — verified by reading the tool's own `execute` body down to
+/// `create_authenticated_provider` / `fetch_activities_from_provider` /
+/// `fetch_provider_activities`, never attributed by which file it lives in.
+/// That is why `calculate_recovery_score` carries it while `analyze_sleep_quality`
+/// in the same file does not.
+///
+/// Deliberately undeclared: `verify_claim` (deterministic, mid-sentence),
+/// `set_goal` and the stored-data reads (database only), `analyze_sleep_quality`
+/// and `track_sleep_trends` (every sleep-capable backend is an API),
+/// `export_intervals` / `export_routes` / `extract_activity_streams` (one bounded
+/// fetch since the single-activity helper), and the three bounded fan-outs
+/// (`validate_recipe`, `analyze_meal_nutrition`, `discover_routes`). The full
+/// classification of all 110 tools lives in the vault note "MCP Tasks — Which
+/// Tools Answer Asynchronously".
+#[must_use]
+pub fn task_capable(tool: Tool) -> Tool {
+    Tool {
+        execution: Some(ToolExecution {
+            task_support: TaskSupport::Optional,
+        }),
+        ..tool
     }
 }
 

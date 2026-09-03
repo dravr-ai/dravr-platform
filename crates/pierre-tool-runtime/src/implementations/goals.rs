@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
@@ -1014,12 +1014,12 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        task_capable(tool_definition(
             "suggest_goals",
             "Get AI-suggested fitness goals based on your activity history and fitness level",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1097,12 +1097,12 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["goal_id".to_owned()]));
-        tool_definition(
+        task_capable(tool_definition(
             "track_progress",
             "Track progress toward a specific fitness goal with milestone achievements and projections",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1233,12 +1233,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             properties,
             Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
         );
-        tool_definition(
+        task_capable(tool_definition(
             "analyze_goal_feasibility",
             "Analyze whether a fitness goal is achievable based on your current fitness level and training history",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

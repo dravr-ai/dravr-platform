@@ -43,7 +43,7 @@ use crate::activity_fetch::{
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::data_helpers::{
@@ -197,12 +197,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
         // All parameters are optional.
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        task_capable(tool_definition(
             "get_activities",
             "Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Use `sort_by` to honor an explicit ordering request (e.g. longest-to-shortest). Supports sport-type filtering and pagination.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

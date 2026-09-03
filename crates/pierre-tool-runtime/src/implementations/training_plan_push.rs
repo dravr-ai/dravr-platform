@@ -28,7 +28,7 @@ use super::training_plans::{load_conversation, resolve_coach_slug};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -200,7 +200,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        task_capable(tool_definition(
             "push_training_plan",
             "Put the athlete's active training plan on their Intervals.icu calendar, or \
              bring the calendar up to date after the plan changed: creates the days that \
@@ -213,7 +213,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              from_date.",
             schema,
             Some(destructive_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

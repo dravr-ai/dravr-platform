@@ -48,7 +48,7 @@ use crate::athlete_display_name::fetch_user_display_name;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -314,7 +314,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 
         let schema = object_schema(properties, Some(vec!["member".to_owned()]));
 
-        tool_definition(
+        task_capable(tool_definition(
             "get_group_member_activities",
             "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to \
              read a peer's data in a group chat — `get_activities` always returns YOUR own data, \
@@ -324,7 +324,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
              not shared their data via `/group consent yes`; the error's `reason` says why.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

@@ -26,7 +26,7 @@ use serde_json::Value;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::implementations::handler_bridge;
 use crate::protocol::UniversalExecutor;
@@ -208,13 +208,13 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        task_capable(tool_definition(
             "calculate_recovery_score",
             "Calculate holistic recovery score combining training stress, sleep, and HRV. \
              Fetches sleep and activity data from connected providers automatically",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -317,13 +317,13 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        task_capable(tool_definition(
             "suggest_rest_day",
             "Get AI-powered recommendation on whether to rest or train. \
              Fetches sleep and activity data from connected providers automatically",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -484,12 +484,12 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        task_capable(tool_definition(
             "optimize_sleep_schedule",
             "Get personalized sleep schedule recommendations based on training and recovery needs",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

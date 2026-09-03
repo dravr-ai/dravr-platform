@@ -36,7 +36,7 @@ use dravr_tronc::mcp::schema::{
     AuthCapability, CompleteRequest, CompleteResult, Completion, CompletionCapability,
     CreateMessageRequest, LoggingCapability, OAuth2Capability, PromptsCapability,
     ResourcesCapability, Root, SamplingCapability, ServerCapabilities, TaskSupport, Tool,
-    ToolExecution, ToolResponse, ToolSchema, ToolsCapability,
+    ToolResponse, ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
@@ -113,15 +113,10 @@ fn build_context(
 
 /// Convert a typed [`ToolSchema`] into the engine's raw-JSON [`Tool`] definition.
 ///
-/// The SEP-2663 task-support declaration is derived from
-/// [`TASK_CAPABLE_TOOLS`] — the same constant the dispatcher's handle path
-/// gates on — so the advertisement and the behaviour cannot drift.
+/// The SEP-2663 task-support declaration rides along from the tool's own
+/// `definition()` — the same declaration the dispatcher's handle path reads back
+/// off the registry — so the advertisement and the behaviour cannot drift.
 fn schema_to_tool(schema: ToolSchema) -> Tool {
-    let execution = TASK_CAPABLE_TOOLS
-        .contains(&schema.name.as_str())
-        .then_some(ToolExecution {
-            task_support: TaskSupport::Optional,
-        });
     Tool {
         name: schema.name,
         description: schema.description,
@@ -131,7 +126,7 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
         input_schema: to_canonical_value(&schema.input_schema),
         annotations: schema.annotations,
         output_schema: None,
-        execution,
+        execution: schema.execution,
     }
 }
 
@@ -247,66 +242,6 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         }
     }
 }
-
-/// Tools allowed to answer with a task handle when the caller declared the
-/// `io.modelcontextprotocol/tasks` extension.
-///
-/// Grown deliberately, one conversion at a time — the classification of all
-/// 110 tools (3 task-required, 28 eligible, 79 sync) lives in the vault note
-/// "MCP Tasks — Which Tools Answer Asynchronously". A tool outside this list
-/// always answers inline, however long it runs.
-///
-/// The three task-required conversions came first: `get_activities` (whose
-/// sync contract already failed on deep windows), `compute_training_history`
-/// (the first write path — an upsert keyed by date, so work continuing after
-/// a client stops polling leaves harmless, re-computable state), and
-/// `push_training_plan` (visible calendar writes — the one entry whose worker
-/// OBSERVES `tasks/cancel` via the scoped cancel flag and stops between
-/// entries; the push is convergent, so a re-run heals a partial one).
-///
-/// The rest is the provider-fetching eligible family: every tool whose worst
-/// path is ≥1 uncached provider fetch (each verified to reach
-/// `create_authenticated_provider` / `fetch_activities_from_provider` /
-/// `fetch_provider_activities` from its own execute body — never attributed
-/// by file, which is how sleep-quality reads stay OFF this list while
-/// `calculate_recovery_score` in the same file is on it). The fast-path
-/// budget, not this list, decides the wire shape: a cache-warm call answers
-/// inline; only work that genuinely outlives the budget becomes a handle, so
-/// membership costs a fast call nothing.
-///
-/// Deliberately absent: `verify_claim` (deterministic, mid-sentence),
-/// `set_goal` and the stored-data reads (DB-only), `analyze_sleep_quality` /
-/// `track_sleep_trends` (every sleep-capable backend is an API),
-/// `export_intervals` / `export_routes` / `extract_activity_streams` (one
-/// bounded fetch since the single-activity helper), and the three bounded
-/// fan-outs (`validate_recipe`, `analyze_meal_nutrition`, `discover_routes`).
-const TASK_CAPABLE_TOOLS: &[&str] = &[
-    "analyze_activity",
-    "analyze_goal_feasibility",
-    "analyze_performance_trends",
-    "analyze_training_load",
-    "analyze_weather_impact",
-    "calculate_fitness_score",
-    "calculate_metrics",
-    "calculate_recovery_score",
-    "compare_activities",
-    "compute_training_history",
-    "detect_patterns",
-    "export_dossier",
-    "export_latest_snapshot",
-    "generate_recommendations",
-    "get_activities",
-    "get_activity_intelligence",
-    "get_athlete",
-    "get_group_member_activities",
-    "get_stats",
-    "optimize_sleep_schedule",
-    "predict_performance",
-    "push_training_plan",
-    "suggest_goals",
-    "suggest_rest_day",
-    "track_progress",
-];
 
 /// Default fast-path budget (ms) before a declared-tasks call converts into a
 /// task handle. Under it, cache-warm and API-backed work answers inline, so
@@ -621,9 +556,20 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         arguments: Value,
     ) -> CallToolOutcome {
         // The asynchronous path is opt-in twice over: the client must declare
-        // the tasks extension on this request, and the tool must be one whose
-        // conversion was decided deliberately. Everything else answers inline.
-        if !(ctx.supports_tasks() && TASK_CAPABLE_TOOLS.contains(&name)) {
+        // the tasks extension on this request, and the tool must have declared
+        // task support on its own definition. Everything else answers inline.
+        let declares_tasks = match self.resources.mcp.tool_registry.task_support(name) {
+            Some(TaskSupport::Optional) => true,
+            // `Forbidden`, and a tool that declared nothing, answer inline.
+            // Nothing declares `Required`: `conversions::task_capable` is the
+            // only way to set the block and it always says `Optional`, so the
+            // fast-path budget can still answer a cache-warm call inline.
+            // Declaring `Required` means first teaching this seam to refuse a
+            // client that did not declare the extension, which is why the arm is
+            // spelled out rather than swept into a wildcard.
+            Some(TaskSupport::Forbidden | TaskSupport::Required) | None => false,
+        };
+        if !(ctx.supports_tasks() && declares_tasks) {
             return CallToolOutcome::Immediate(Box::new(
                 self.call_tool(name, state, ctx, arguments).await,
             ));

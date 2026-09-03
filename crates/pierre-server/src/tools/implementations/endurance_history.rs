@@ -23,7 +23,7 @@ use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, tool_definition, tool_result_to_response,
+    capabilities_to_tronc, task_capable, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
@@ -122,7 +122,7 @@ pub struct ComputeTrainingHistoryTool;
 impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
     fn definition(&self) -> Tool {
         let schema = date_range_schema();
-        tool_definition(
+        task_capable(tool_definition(
             "compute_training_history",
             "Compute and persist Endurance daily training-state rollups for the \
              authenticated user across the requested window — CTL, ATL, TSB \
@@ -133,7 +133,7 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
              window is the last 90 days.",
             schema,
             Some(write_safe_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

@@ -832,6 +832,60 @@ async fn test_list_tools_advertises_task_support() {
     );
 }
 
+/// The advertisement and the dispatch gate read the SAME declaration.
+///
+/// They used to read two: `tools/list` derived `execution` from a
+/// `TASK_CAPABLE_TOOLS` literal beside the registry, and so did the seam that
+/// decides whether a call becomes a handle. Both now read the tool's own
+/// `definition().execution`, which is what `ToolRegistry::task_support`
+/// returns. A tool that advertised a handle and then never returned one — or
+/// returned one it never advertised — fails here (carnet#232).
+#[tokio::test]
+async fn test_task_support_advertised_matches_the_registry_declaration() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.coach.database)
+        .await
+        .expect("Failed to create user");
+
+    let dispatcher = PierreToolDispatcher::new(resources.clone());
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let tools = dispatcher
+        .list_tools(&state, &tronc_context(user_id, None, true))
+        .await;
+    assert!(!tools.is_empty(), "the registry serves tools at all");
+
+    let registry = &resources.mcp.tool_registry;
+    let mut declared = Vec::new();
+    for tool in &tools {
+        let advertised = tool.execution.map(|execution| execution.task_support);
+        assert_eq!(
+            registry.task_support(&tool.name),
+            advertised,
+            "{} advertises {advertised:?} on tools/list but the registry reads              {:?} — the wire and the dispatch gate must not disagree",
+            tool.name,
+            registry.task_support(&tool.name),
+        );
+        if advertised == Some(TaskSupport::Optional) {
+            declared.push(tool.name.clone());
+        }
+    }
+
+    // The declaration is real, not a field nothing ever sets: the three
+    // conversions that came first are still the ones that carry it.
+    for name in [
+        "get_activities",
+        "compute_training_history",
+        "push_training_plan",
+    ] {
+        assert!(
+            declared.iter().any(|n| n == name),
+            "{name} declares task support; declared set is {declared:?}"
+        );
+    }
+}
+
 /// `tools/list` must answer in a stable order. The registry was backed by a
 /// `HashMap`, whose iteration order Rust randomizes per process, so the catalog
 /// came back shuffled on every replica and every restart. Three consequences,

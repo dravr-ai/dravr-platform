@@ -23,7 +23,7 @@ use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, tool_definition, tool_result_to_response,
+    capabilities_to_tronc, task_capable, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -129,7 +129,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             required: Some(Vec::new()),
             ..Default::default()
         };
-        tool_definition(
+        task_capable(tool_definition(
             "export_latest_snapshot",
             "Export the Endurance 'latest.json' snapshot for the authenticated user — \
              per-activity intensity factor, efficiency factor, variability index, \
@@ -140,7 +140,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
              contract. The response shape mirrors `GET /api/v1/endurance/latest`.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -205,7 +205,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             required: Some(Vec::new()),
             ..Default::default()
         };
-        tool_definition(
+        task_capable(tool_definition(
             "export_dossier",
             "Export the Endurance 'dossier.json' aggregate for the authenticated \
              user — physiological profile (VO2max, FTP, threshold pace, fitness \
@@ -215,7 +215,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
              Mirrors `GET /api/v1/endurance/dossier`.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

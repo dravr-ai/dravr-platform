@@ -26,7 +26,7 @@ use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use serde::Serialize;
 
 use crate::security::{RuntimeTool, SecurityLabels};
-use dravr_tronc::mcp::schema::Tool;
+use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
 
@@ -60,6 +60,10 @@ pub struct SchemaTokenEstimate {
 /// `ToolSchema` keeps it typed for overlay editing and client-side validation,
 /// so it is deserialized back here. A malformed schema falls back to an empty
 /// object schema rather than failing the listing.
+///
+/// `execution` is carried through: it is the tool's own SEP-2663 declaration of
+/// whether a call may be answered with a task handle, so `tools/list` has to
+/// say so for a client to know it can poll.
 fn schema_from_definition(def: Tool) -> ToolSchema {
     let input_schema = serde_json::from_value(def.input_schema).unwrap_or_else(|_| JsonSchema {
         schema_type: "object".to_owned(),
@@ -73,7 +77,7 @@ fn schema_from_definition(def: Tool) -> ToolSchema {
         input_schema,
         annotations: def.annotations,
         output_schema: None,
-        execution: None,
+        execution: def.execution,
     }
 }
 
@@ -210,6 +214,24 @@ impl ToolRegistry {
     #[must_use]
     pub fn security_class(&self, name: &str) -> Option<SecurityLabels> {
         self.tools.get(name).map(|tool| tool.security_class())
+    }
+
+    /// The MCP task support a tool declares on its own definition (SEP-2663).
+    /// `None` for an unknown tool, or one that declared none — which the spec
+    /// reads as "never answers with a task handle".
+    ///
+    /// Read the same way as [`Self::security_class`]: off the tool object the
+    /// registry already holds, never from a table beside it. A hand-kept list of
+    /// 25 names lived next to this registry and grew there by hand, so a new
+    /// provider-fetching tool answered synchronously — unlike every sibling —
+    /// until somebody remembered to add it, with nothing failing meanwhile
+    /// (carnet#232).
+    #[must_use]
+    pub fn task_support(&self, name: &str) -> Option<TaskSupport> {
+        self.tools
+            .get(name)
+            .and_then(|tool| tool.definition().execution)
+            .map(|execution| execution.task_support)
     }
 
     /// Check if a tool is registered
