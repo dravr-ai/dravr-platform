@@ -311,19 +311,17 @@ impl HarnessMemoryRepository for PostgresDatabase {
         // `timestamptz`, and the RFC3339 text SQLite stores is rejected here.
         let now = Utc::now();
 
-        // COALESCE keeps the anchor's own words and its embedding when it
-        // already has one; GREATEST keeps the higher confidence, so a
-        // restatement can only ever raise it. Not MAX: on PostgreSQL that is
-        // an aggregate over rows, and the two-argument scalar form SQLite
-        // offers does not exist here.
+        // COALESCE keeps the anchor's own words; GREATEST keeps the higher
+        // confidence, so a restatement can only ever raise it. Not MAX: on
+        // PostgreSQL that is an aggregate over rows, and the two-argument
+        // scalar form SQLite offers does not exist here.
         sqlx::query(
             r"
             UPDATE user_facts
             SET confidence = GREATEST(confidence, $1),
                 source_msg_id = COALESCE($2::text, source_msg_id),
-                embedding = COALESCE(embedding, $3::bytea),
-                updated_at = $4
-            WHERE id = $5 AND tenant_id = $6
+                updated_at = $3
+            WHERE id = $4 AND tenant_id = $5
             ",
         )
         .bind(params.confidence)
@@ -339,7 +337,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
             r"
             SELECT id, tenant_id, user_id, coach_id, scope, kind, pillar,
                    predicate_code, object, confidence, source, valid_until,
-                   source_msg_id, embedding, created_at, updated_at
+                   source_msg_id, created_at, updated_at
             FROM user_facts
             WHERE id = $1 AND tenant_id = $2
             ",

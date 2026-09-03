@@ -121,6 +121,9 @@ use std::collections::HashMap;
 // client-messaging-gated.
 #[cfg(feature = "client-messaging")]
 use std::collections::HashSet;
+// Its one reader is the commands-directory override, which is
+// client-messaging-gated like the catalogue it points at.
+#[cfg(feature = "client-messaging")]
 use std::env;
 #[cfg(feature = "client-messaging")]
 use std::path::{Path, PathBuf};

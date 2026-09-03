@@ -357,7 +357,7 @@ impl HarnessMemoryRepository for Database {
             r"
             SELECT id, tenant_id, user_id, coach_id, scope, kind, pillar,
                    predicate_code, object, confidence, source, valid_until,
-                   source_msg_id, embedding, created_at, updated_at
+                   source_msg_id, created_at, updated_at
             FROM user_facts
             WHERE id = $1 AND tenant_id = $2
             ",
