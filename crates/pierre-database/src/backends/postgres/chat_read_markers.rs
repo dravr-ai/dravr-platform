@@ -21,20 +21,34 @@ const TARGET_SQL: &str = r"
     ) AS target
     FROM conversation_participants p
     JOIN chat_conversations c ON c.id = p.conversation_id
-    WHERE p.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
+    WHERE p.conversation_id = $1 AND p.user_id = $2
+      AND p.tenant_id = c.tenant_id
+      AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
 ";
 
 const ADVANCE_SQL: &str = r"
     UPDATE conversation_participants
     SET last_read_at = $4
-    WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3
+    WHERE conversation_id = $1 AND user_id = $2
+      AND EXISTS (
+        SELECT 1 FROM chat_conversations c
+        WHERE c.id = conversation_participants.conversation_id
+          AND conversation_participants.tenant_id = c.tenant_id
+          AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
+      )
       AND (last_read_at IS NULL OR last_read_at < $4)
 ";
 
 const CLEAR_SQL: &str = r"
     UPDATE conversation_participants
     SET last_read_at = NULL
-    WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3
+    WHERE conversation_id = $1 AND user_id = $2
+      AND EXISTS (
+        SELECT 1 FROM chat_conversations c
+        WHERE c.id = conversation_participants.conversation_id
+          AND conversation_participants.tenant_id = c.tenant_id
+          AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
+      )
 ";
 
 /// Advance the caller's read marker — see

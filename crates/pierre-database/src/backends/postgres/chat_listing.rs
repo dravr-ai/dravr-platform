@@ -15,6 +15,11 @@ use sqlx::{PgPool, Row};
 
 /// How many leading characters of the newest row travel with a list row —
 /// the same bound as the `SQLite` backend, so a preview reads identically.
+// A GROUP row is authorized by the participant row rather than by the caller's
+// tenant: a channel room is stored under the channel/bot tenant on purpose, so
+// the caller's tenant would hide it from the very members it belongs to. A 1:1
+// thread still requires the caller's tenant. See the SQLite twin in
+// `database/chat/listing.rs` for the full account (carnet#248).
 const CONTENT_HEAD_CHARS: i32 = 512;
 
 /// One page of a participant's conversations — the same shape as the `SQLite`
@@ -43,7 +48,9 @@ const PAGE_SQL: &str = r"
     JOIN conversation_participants p ON p.conversation_id = c.id
     LEFT JOIN coaching_groups g ON g.id = c.group_id
     LEFT JOIN coaches co ON co.id = c.coach_id
-    WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
+    WHERE p.user_id = $1
+      AND p.tenant_id = c.tenant_id
+      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
     ORDER BY c.updated_at DESC, c.id DESC
     LIMIT $3 OFFSET $4
 ";
@@ -53,7 +60,9 @@ const TOTAL_SQL: &str = r"
     SELECT COUNT(*)
     FROM chat_conversations c
     JOIN conversation_participants p ON p.conversation_id = c.id
-    WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
+    WHERE p.user_id = $1
+      AND p.tenant_id = c.tenant_id
+      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
 ";
 
 /// Map one page row; timestamps are `TIMESTAMPTZ`, rendered to RFC 3339 like
