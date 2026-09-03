@@ -12,7 +12,7 @@ use crate::constants::{
         ERROR_RATE_LIMIT_EXCEEDED,
     },
     protocol::JSONRPC_VERSION,
-    tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES, GET_CONNECTION_STATUS},
+    tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES},
 };
 use crate::mcp::audit::record_tool_call;
 use dravr_tronc::mcp::schema::ToolResponse;
@@ -46,18 +46,6 @@ use uuid::Uuid;
 /// Default ID for notifications and error responses that don't have a request ID
 fn default_request_id() -> Value {
     Value::Number(serde_json::Number::from(0))
-}
-
-/// OAuth credentials provided in MCP requests
-pub struct McpOAuthCredentials<'a> {
-    /// Strava OAuth client ID
-    pub strava_client_id: Option<&'a str>,
-    /// Strava OAuth client secret
-    pub strava_client_secret: Option<&'a str>,
-    /// Fitbit OAuth client ID
-    pub fitbit_client_id: Option<&'a str>,
-    /// Fitbit OAuth client secret
-    pub fitbit_client_secret: Option<&'a str>,
 }
 
 /// Context for routing tool calls with necessary resources and identity
@@ -301,13 +289,10 @@ impl ToolHandlers {
         // The charge for a REGISTRY tool is levied at the dispatch chokepoint
         // in `UniversalExecutor::execute_tool`, which every transport passes
         // through; charging again here billed an ACP turn twice for one tool.
-        // The three OAuth carve-outs above never reach that chokepoint, so
-        // their charge is still owed here — same three constants the router
+        // The two OAuth carve-outs above never reach that chokepoint, so
+        // their charge is still owed here — same two constants the router
         // matches on, so the two cannot drift into disagreement.
-        if matches!(
-            tool_name,
-            CONNECT_PROVIDER | GET_CONNECTION_STATUS | DISCONNECT_PROVIDER
-        ) {
+        if matches!(tool_name, CONNECT_PROVIDER | DISCONNECT_PROVIDER) {
             Self::charge_carve_out_tool_call(resources, &tenant_id_str, &user_id_str, tool_name)
                 .await;
         }
@@ -651,12 +636,12 @@ impl ToolHandlers {
         user_id: Uuid,
         ctx: &ToolRoutingContext<'_>,
     ) -> McpResponse {
-        // OAuth connection tools are handled specially — their flow (minting
-        // hosted-login URLs, MCP request-id shaping) doesn't fit McpTool.
+        // `connect_provider` is handled specially — minting a hosted-login URL
+        // and shaping the MCP request id doesn't fit McpTool.
         //
         // S4 CARVE-OUT: this path bypasses `UniversalExecutor::execute_tool`.
-        // connect/get_status are non-destructive (empty Guardian labels), so
-        // bypassing the chokepoint is a no-op for them. `disconnect_provider`
+        // `connect_provider` is non-destructive (empty Guardian labels), so
+        // bypassing the chokepoint is a no-op for it. `disconnect_provider`
         // IS `IRREVERSIBLE`; its carve-out handler and the registry
         // `DisconnectProviderTool` both delegate to the same domain chokepoint
         // (`OAuthService::disconnect_provider`), so the carve-out exists only
@@ -665,12 +650,13 @@ impl ToolHandlers {
         // action). It runs the SAME shared `guardian::guardian_gate` inline
         // (#1), so taint→irreversible + the per-turn destructive budget fire
         // on this /mcp path exactly as at the chokepoint.
+        //
+        // `get_connection_status` deliberately has NO carve-out: it routes to
+        // the registry tool like every other read, so `/mcp` and the rest of
+        // the product answer the same shape from one implementation.
         match tool_name {
             CONNECT_PROVIDER => {
                 return Self::handle_connect_provider(args, request_id);
-            }
-            GET_CONNECTION_STATUS => {
-                return Self::handle_get_connection_status(args, request_id, ctx).await;
             }
             DISCONNECT_PROVIDER => {
                 return Self::guarded_disconnect_provider(args, request_id, ctx).await;
@@ -792,37 +778,6 @@ impl ToolHandlers {
             })),
             error: None,
         }
-    }
-
-    /// Handle `get_connection_status` OAuth tool
-    ///
-    /// Tenant context is always available since tool execution requires it.
-    async fn handle_get_connection_status(
-        args: &Value,
-        request_id: Value,
-        ctx: &ToolRoutingContext<'_>,
-    ) -> McpResponse {
-        let params =
-            serde_json::from_value::<json_schemas::GetConnectionStatusParams>(args.clone())
-                .unwrap_or_default();
-
-        let credentials = McpOAuthCredentials {
-            strava_client_id: params.strava_client_id.as_deref(),
-            strava_client_secret: params.strava_client_secret.as_deref(),
-            fitbit_client_id: params.fitbit_client_id.as_deref(),
-            fitbit_client_secret: params.fitbit_client_secret.as_deref(),
-        };
-
-        ProviderToolRouter::handle_tenant_connection_status(
-            ctx.tenant_context,
-            &ctx.resources.auth.tenant_oauth_client,
-            &ctx.resources.common.repos,
-            request_id,
-            credentials,
-            ctx.resources.common.config.http_port,
-            &ctx.resources.common.config,
-        )
-        .await
     }
 
     /// Gate `disconnect_provider` through the shared Guardian decision before the

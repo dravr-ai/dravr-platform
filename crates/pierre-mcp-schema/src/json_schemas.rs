@@ -128,30 +128,6 @@ pub struct DisconnectProviderParams {
     pub provider: String,
 }
 
-/// Parameters for getting connection status
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct GetConnectionStatusParams {
-    /// Optional provider name (if not specified, returns all)
-    #[serde(default)]
-    pub provider: Option<String>,
-
-    /// Optional Strava client ID (for credentials)
-    #[serde(default)]
-    pub strava_client_id: Option<String>,
-
-    /// Optional Strava client secret (for credentials)
-    #[serde(default)]
-    pub strava_client_secret: Option<String>,
-
-    /// Optional Fitbit client ID (for credentials)
-    #[serde(default)]
-    pub fitbit_client_id: Option<String>,
-
-    /// Optional Fitbit client secret (for credentials)
-    #[serde(default)]
-    pub fitbit_client_secret: Option<String>,
-}
-
 /// Parameters for marking notifications as read
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarkNotificationsReadParams {
@@ -558,30 +534,4 @@ pub struct ProgressReportDetails {
 pub struct ProgressReportResponse {
     /// Progress report details
     pub progress_report: ProgressReportDetails,
-}
-
-/// Individual notification
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NotificationItem {
-    /// Notification identifier
-    pub id: String,
-    /// Provider name
-    pub provider: String,
-    /// Whether the notification indicates success
-    pub success: bool,
-    /// Notification message
-    pub message: String,
-    /// When the notification was created
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
-
-/// Connection help information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectionHelp {
-    /// Help message
-    pub message: String,
-    /// List of supported providers
-    pub supported_providers: Vec<String>,
-    /// Additional note
-    pub note: String,
 }

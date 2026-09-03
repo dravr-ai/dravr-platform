@@ -37,29 +37,35 @@ use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver::{self, BackendKind};
+use pierre_providers::ProviderRegistry;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_tools_core::ToolResult;
 
-/// User-facing provider names reported by `get_connection_status`.
+/// The user-facing providers this build actually ships, in name order.
 ///
-/// Mirror backends (`sciotte`, `sciotte_garmin`) never appear here — they
+/// Read off [`ProviderRegistry`], which registers each provider under its own
+/// cargo feature, minus the mirror backends (`sciotte`, `sciotte_garmin`) that
 /// are coalesced into the user-facing provider they serve (`strava`,
-/// `garmin`). Any user-facing provider added to `ProviderRegistry` must
-/// also be added here so the LLM sees it.
-const USER_FACING_PROVIDERS: &[&str] = &[
-    oauth_providers::STRAVA,
-    oauth_providers::FITBIT,
-    oauth_providers::GARMIN,
-    oauth_providers::WHOOP,
-    oauth_providers::TERRA,
-    oauth_providers::COROS,
-];
+/// `garmin`). Deriving it means a provider the binary cannot connect can never
+/// be named: the hand-written list this replaced went on offering `fitbit`,
+/// `terra` and `coros` to MCP clients long after the 2026-Q2 cleanup left them
+/// out of `server-production` (carnet#233).
+fn user_facing_providers(registry: &ProviderRegistry) -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = registry
+        .supported_providers()
+        .into_iter()
+        .filter(|provider| !backend_resolver::is_mirror_backend(provider))
+        .collect();
+    names.sort_unstable();
+    names
+}
 
-/// Canonicalise a provider name into its static user-facing entry from
-/// `USER_FACING_PROVIDERS`, or `None` if the name is not a recognised
-/// user-facing provider.
-fn user_facing_canonical(name: &str) -> Option<&'static str> {
-    USER_FACING_PROVIDERS.iter().copied().find(|p| *p == name)
+/// Canonicalise a provider name into its static entry from
+/// [`user_facing_providers`], or `None` if this build does not surface it.
+fn user_facing_canonical(registry: &ProviderRegistry, name: &str) -> Option<&'static str> {
+    user_facing_providers(registry)
+        .into_iter()
+        .find(|provider| *provider == name)
 }
 
 /// Validate redirect URL scheme for OAuth mobile flows
@@ -272,7 +278,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         let repos = &ctx.resources.repos();
 
         let Some(provider) = args.get("provider").and_then(Value::as_str) else {
-            let supported = USER_FACING_PROVIDERS.join(", ");
+            let supported = user_facing_providers(registry).join(", ");
             return Ok(ToolResult::error(json!({
                 "error": format!(
                     "Missing required 'provider' parameter. Supported providers: {supported}"
@@ -288,7 +294,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             })));
         }
         if !registry.is_supported(provider) {
-            let supported = USER_FACING_PROVIDERS.join(", ");
+            let supported = user_facing_providers(registry).join(", ");
             return Ok(ToolResult::error(json!({
                 "error": format!(
                     "Provider '{provider}' is not supported. Supported providers: {supported}"
@@ -488,7 +494,10 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                 }
 
                 let auth_repos = ctx.resources.repos().auth_repos();
-                let (is_connected, backend_kind) = match user_facing_canonical(specific_provider) {
+                let (is_connected, backend_kind) = match user_facing_canonical(
+                    ctx.resources.provider_registry(),
+                    specific_provider,
+                ) {
                     Some(canonical) => {
                         let status = backend_resolver::coalesced_status(
                             &auth_repos,
@@ -525,7 +534,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                 let mut providers_status = Map::new();
 
                 let auth_repos = ctx.resources.repos().auth_repos();
-                for user_facing in USER_FACING_PROVIDERS {
+                for user_facing in user_facing_providers(ctx.resources.provider_registry()) {
                     let status = backend_resolver::coalesced_status(
                         &auth_repos,
                         user_uuid,
@@ -535,7 +544,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                     .await;
 
                     let needs_reauth = status_by_provider
-                        .get(*user_facing)
+                        .get(user_facing)
                         .copied()
                         .is_some_and(|s| s.requires_reauth());
                     let status_str = if needs_reauth {
@@ -547,7 +556,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                     };
 
                     providers_status.insert(
-                        (*user_facing).to_owned(),
+                        user_facing.to_owned(),
                         json!({
                             "connected": status.connected,
                             "status": status_str,

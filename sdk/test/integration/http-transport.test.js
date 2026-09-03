@@ -116,33 +116,62 @@ describe('Dravr over Streamable HTTP', () => {
 
   describe('tools/call', () => {
     /**
-     * What `/mcp` answers, which is NOT what the registry tool answers.
+     * `/mcp` answers `get_connection_status` from the registry tool, like every
+     * other read, so this asserts the one shape the whole product sees.
      *
-     * `tool_handlers.rs` intercepts `get_connection_status` before the registry
-     * and shapes its own payload: an array of two hardcoded providers carrying
-     * `connect_url` and `connect_instructions`, where the registry tool returns
-     * an object keyed by provider carrying `status` and `backend`. This test
-     * pins the transport's real answer rather than the one the rest of the
-     * product sees — see carnet#233, which is the divergence itself. When that
-     * is resolved this asserts the registry shape.
+     * It used to be intercepted before the registry and shaped separately: an
+     * array of two hardcoded entries, `strava` and `fitbit`, carrying
+     * `connect_url` but no `status` and no `needs_reauth`. An MCP client was
+     * told about a provider no production build compiles in, and was never told
+     * that a connected-but-dead session needs re-auth — the one thing that state
+     * exists to communicate (carnet#233).
      */
-    test('get_connection_status answers in band with a provider list', async () => {
+    test('get_connection_status answers in band with the registry provider map', async () => {
       const result = await client().callTool({
         name: 'get_connection_status',
         arguments: {},
       });
 
       expect(result.isError).toBeFalsy();
-      const providers = result.structuredContent?.providers ?? [];
-      expect(Array.isArray(providers)).toBe(true);
-      expect(providers.length).toBeGreaterThan(0);
+      const providers = result.structuredContent?.providers ?? {};
+      expect(Array.isArray(providers)).toBe(false);
+      const names = Object.keys(providers);
+      expect(names.length).toBeGreaterThan(0);
+      // Read off the provider registry, so a provider this build does not
+      // compile in cannot appear. `fitbit` is the one that used to.
+      expect(names).toContain('strava');
+      expect(names).not.toContain('fitbit');
+      // Mirror backends are coalesced into the provider they serve, never named.
+      expect(names).not.toContain('sciotte');
+      expect(names).not.toContain('sciotte_garmin');
+
       // A fresh test user has connected none of them, and every entry carries
-      // the way in.
-      for (const entry of providers) {
-        expect(typeof entry.provider).toBe('string');
+      // the lifecycle state a client reconnects on.
+      for (const name of names) {
+        const entry = providers[name];
         expect(entry.connected).toBe(false);
-        expect(typeof entry.connect_url).toBe('string');
+        expect(entry.needs_reauth).toBe(false);
+        expect(entry.status).toBe('disconnected');
+        expect(typeof entry.backend).toBe('string');
       }
+    });
+
+    /**
+     * The same tool, narrowed to one provider, answers the single-provider shape
+     * rather than the map — the branch an MCP client takes when it already knows
+     * which provider it cares about.
+     */
+    test('get_connection_status narrowed to one provider names it', async () => {
+      const result = await client().callTool({
+        name: 'get_connection_status',
+        arguments: { provider: 'strava' },
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent?.provider).toBe('strava');
+      expect(result.structuredContent?.connected).toBe(false);
+      expect(result.structuredContent?.status).toBe('disconnected');
+      expect(result.structuredContent?.needs_reauth).toBe(false);
     });
 
     /**

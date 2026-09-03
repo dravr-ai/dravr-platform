@@ -12,27 +12,18 @@
 //! This module provides an MCP server that supports user authentication,
 //! secure token storage, and user-scoped data access.
 
-use super::{
-    resources::ServerContext,
-    tool_handlers::{McpOAuthCredentials, ToolRoutingContext},
-};
-#[cfg(feature = "provider-strava")]
-use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
+use super::{resources::ServerContext, tool_handlers::ToolRoutingContext};
 use crate::constants::{
     errors::{ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND},
-    get_server_config,
     protocol::JSONRPC_VERSION,
 };
 use chrono::Utc;
 use pierre_auth::api_keys::ApiKeyUsage;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::security::headers::SecurityConfig;
-use pierre_auth::tenant::oauth_client::StoreCredentialsRequest;
-use pierre_auth::tenant::oauth_manager::TenantOAuthManager;
-use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
+use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{OAuthNotification, TenantOAuthCredentials};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
@@ -42,14 +33,13 @@ use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 // Trait methods dispatched through repos.notifications / repos.oauth_tokens
 use serde_json::Value;
-use std::fmt::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
-use tracing::{debug, error, info, warn, Level};
+use tracing::{error, info, warn, Level};
 use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
@@ -66,7 +56,6 @@ use axum::response::Response;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_database::backends::UsageRepository;
-use pierre_database::{AuthRepos, RepositoryRegistry};
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
@@ -80,22 +69,6 @@ use tokio::net::TcpListener;
 use tower::layer::util::Identity;
 
 // Constants are now imported from the constants module
-
-/// Connection status for providers
-struct ProviderConnectionStatus {
-    strava_connected: bool,
-    fitbit_connected: bool,
-}
-
-/// Helper struct for OAuth provider credential parameters
-struct OAuthProviderParams<'a> {
-    provider: &'a str,
-    client_id: &'a str,
-    client_secret: &'a str,
-    configured_redirect_uri: Option<&'a String>,
-    scopes: &'a [String],
-    base_url: &'a str,
-}
 
 /// MCP server supporting user authentication and isolated data access
 #[derive(Clone)]
@@ -238,443 +211,6 @@ impl ProviderToolRouter {
     }
 
     // === Tenant-Aware Tool Handlers ===
-
-    /// Store user-provided OAuth credentials if supplied
-    async fn store_mcp_oauth_credentials(
-        tenant_context: &TenantContext,
-        oauth_client: &Arc<TenantOAuthClient>,
-        repos: &Arc<RepositoryRegistry>,
-        credentials: &McpOAuthCredentials<'_>,
-        config: &Arc<ServerConfig>,
-    ) {
-        // Store Strava credentials if provided
-        #[cfg(feature = "provider-strava")]
-        if let (Some(id), Some(secret)) = (
-            credentials.strava_client_id,
-            credentials.strava_client_secret,
-        ) {
-            Self::store_provider_credentials(
-                tenant_context,
-                oauth_client,
-                repos,
-                OAuthProviderParams {
-                    provider: "strava",
-                    client_id: id,
-                    client_secret: secret,
-                    configured_redirect_uri: config.oauth.strava.redirect_uri.as_ref(),
-                    scopes: &Self::get_strava_scopes(),
-                    base_url: &config.base_url,
-                },
-            )
-            .await;
-        }
-
-        // Store Fitbit credentials if provided
-        if let (Some(id), Some(secret)) = (
-            credentials.fitbit_client_id,
-            credentials.fitbit_client_secret,
-        ) {
-            Self::store_provider_credentials(
-                tenant_context,
-                oauth_client,
-                repos,
-                OAuthProviderParams {
-                    provider: "fitbit",
-                    client_id: id,
-                    client_secret: secret,
-                    configured_redirect_uri: config.oauth.fitbit.redirect_uri.as_ref(),
-                    scopes: &Self::get_fitbit_scopes(),
-                    base_url: &config.base_url,
-                },
-            )
-            .await;
-        }
-    }
-
-    /// Store OAuth credentials for a specific provider.
-    ///
-    /// Writes through to both the durable `tenants` repository (the source of
-    /// truth — survives restart, visible to other replicas) and the per-process
-    /// cache held by `oauth_client` for fast same-process lookups.
-    async fn store_provider_credentials(
-        tenant_context: &TenantContext,
-        oauth_client: &Arc<TenantOAuthClient>,
-        repos: &Arc<RepositoryRegistry>,
-        params: OAuthProviderParams<'_>,
-    ) {
-        info!(
-            "Storing MCP-provided {} OAuth credentials for tenant {}",
-            params.provider, tenant_context.tenant_id
-        );
-
-        let redirect_uri = params.configured_redirect_uri.map_or_else(
-            || format!("{}/api/oauth/callback/{}", params.base_url, params.provider),
-            String::clone,
-        );
-
-        Self::persist_provider_credentials(tenant_context, repos, &params, redirect_uri.clone())
-            .await;
-        Self::cache_provider_credentials(tenant_context, oauth_client, &params, redirect_uri).await;
-    }
-
-    /// Persist MCP-provided credentials to the durable `tenants` repository (source of truth).
-    async fn persist_provider_credentials(
-        tenant_context: &TenantContext,
-        repos: &Arc<RepositoryRegistry>,
-        params: &OAuthProviderParams<'_>,
-        redirect_uri: String,
-    ) {
-        let credentials = TenantOAuthCredentials {
-            tenant_id: tenant_context.tenant_id,
-            provider: params.provider.to_owned(),
-            client_id: params.client_id.to_owned(),
-            client_secret: params.client_secret.to_owned(),
-            redirect_uri,
-            scopes: params.scopes.to_vec(),
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider(
-                params.provider,
-            ),
-        };
-        if let Err(e) = repos.tenants.store_oauth_credentials(&credentials).await {
-            error!(
-                "Failed to persist {} OAuth credentials for tenant {}: {}",
-                params.provider, tenant_context.tenant_id, e
-            );
-        }
-    }
-
-    /// Populate the per-process credential cache held by `oauth_client`.
-    async fn cache_provider_credentials(
-        tenant_context: &TenantContext,
-        oauth_client: &Arc<TenantOAuthClient>,
-        params: &OAuthProviderParams<'_>,
-        redirect_uri: String,
-    ) {
-        let request = StoreCredentialsRequest {
-            client_id: params.client_id.to_owned(),
-            client_secret: params.client_secret.to_owned(),
-            redirect_uri,
-            scopes: params.scopes.to_vec(),
-            configured_by: tenant_context.user_id,
-        };
-        if let Err(e) = oauth_client
-            .store_credentials(tenant_context.tenant_id, params.provider, request)
-            .await
-        {
-            error!(
-                "Failed to cache {} OAuth credentials: {}",
-                params.provider, e
-            );
-        }
-    }
-
-    /// Get default Strava OAuth scopes
-    #[cfg(feature = "provider-strava")]
-    fn get_strava_scopes() -> Vec<String> {
-        STRAVA_DEFAULT_SCOPES
-            .split(',')
-            .map(<str as ToOwned>::to_owned)
-            .collect()
-    }
-
-    /// Get default Fitbit OAuth scopes
-    fn get_fitbit_scopes() -> Vec<String> {
-        vec![
-            "activity".to_owned(),
-            "heartrate".to_owned(),
-            "location".to_owned(),
-            "nutrition".to_owned(),
-            "profile".to_owned(),
-            "settings".to_owned(),
-            "sleep".to_owned(),
-            "social".to_owned(),
-            "weight".to_owned(),
-        ]
-    }
-
-    /// Handle tenant-aware connection status.
-    ///
-    /// Cross-cuts `AuthRepos` (`oauth_tokens`) and the registry's OAuth
-    /// completion `notifications` repository; takes the full registry at
-    /// the entry-point to keep the args list under the clippy ceiling.
-    /// Helpers below receive narrow views or the rows already read.
-    #[tracing::instrument(
-        skip(tenant_oauth_client, repos, request_id, credentials, config),
-        fields(
-            tenant_id = %tenant_context.tenant_id,
-            tenant_name = %tenant_context.tenant_name,
-            user_id = %tenant_context.user_id,
-        )
-    )]
-    pub async fn handle_tenant_connection_status(
-        tenant_context: &TenantContext,
-        tenant_oauth_client: &Arc<TenantOAuthClient>,
-        repos: &Arc<RepositoryRegistry>,
-        request_id: Value,
-        credentials: McpOAuthCredentials<'_>,
-        http_port: u16,
-        config: &Arc<ServerConfig>,
-    ) -> McpResponse {
-        info!(
-            "Checking connection status for tenant {} user {}",
-            tenant_context.tenant_name, tenant_context.user_id
-        );
-
-        // Store MCP-provided OAuth credentials if supplied
-        Self::store_mcp_oauth_credentials(
-            tenant_context,
-            tenant_oauth_client,
-            repos,
-            &credentials,
-            config,
-        )
-        .await;
-
-        let auth = repos.auth_repos();
-        let base_url = Self::build_oauth_base_url(http_port);
-        let connection_status = Self::check_provider_connections(tenant_context, &auth).await;
-        let unread_notifications =
-            Self::fetch_unread_oauth_notifications(repos, tenant_context.user_id).await;
-        let notifications_text = Self::build_notifications_text(&unread_notifications);
-        let structured_data = Self::build_structured_connection_data(
-            tenant_context,
-            &connection_status,
-            &base_url,
-            &unread_notifications,
-        );
-        let text_content = Self::build_text_content(
-            &connection_status,
-            &base_url,
-            tenant_context,
-            &notifications_text,
-        );
-
-        McpResponse {
-            jsonrpc: JSONRPC_VERSION.to_owned(),
-            result: Some(serde_json::json!({
-                "content": [
-                    {
-                        "type": "text",
-                        "text": text_content
-                    }
-                ],
-                "structuredContent": structured_data,
-                "isError": false
-            })),
-            error: None,
-            id: Some(request_id),
-        }
-    }
-
-    /// Build OAuth base URL from server config (respects `BASE_URL` scheme for TLS/proxy)
-    fn build_oauth_base_url(http_port: u16) -> String {
-        let base = get_server_config().map_or_else(
-            || format!("http://localhost:{http_port}"),
-            |c| c.base_url.clone(),
-        );
-        format!("{base}/api/oauth")
-    }
-
-    /// Check connection status for all providers
-    async fn check_provider_connections(
-        tenant_context: &TenantContext,
-        auth: &AuthRepos,
-    ) -> ProviderConnectionStatus {
-        let user_id = tenant_context.user_id;
-        let tenant_id_str = tenant_context.tenant_id.to_string();
-
-        // Check Strava connection status
-        debug!(
-            "Checking Strava token for user_id={}, tenant_id={}, provider=strava",
-            user_id, tenant_id_str
-        );
-        let strava_connected = auth
-            .oauth_tokens
-            .get_token(user_id, tenant_context.tenant_id, "strava")
-            .await
-            .map_or_else(
-                |e| {
-                    warn!("Failed to query Strava OAuth token: {e}");
-                    false
-                },
-                |token| {
-                    let connected = token.is_some();
-                    debug!("Strava token lookup result: connected={connected}");
-                    connected
-                },
-            );
-
-        // Check Fitbit connection status
-        let fitbit_connected = auth
-            .oauth_tokens
-            .get_token(user_id, tenant_context.tenant_id, "fitbit")
-            .await
-            .is_ok_and(|token| token.is_some());
-
-        ProviderConnectionStatus {
-            strava_connected,
-            fitbit_connected,
-        }
-    }
-
-    /// Read the unread OAuth completion notifications off the registry. A
-    /// read failure is logged and reads as none, so the status reply still
-    /// goes out.
-    async fn fetch_unread_oauth_notifications(
-        repos: &RepositoryRegistry,
-        user_id: Uuid,
-    ) -> Vec<OAuthNotification> {
-        repos
-            .notifications
-            .get_unread(user_id)
-            .await
-            .unwrap_or_else(|e| {
-                warn!(
-                    user_id = %user_id,
-                    error = %e,
-                    "Failed to fetch OAuth notifications for connection status"
-                );
-                Vec::new()
-            })
-    }
-
-    /// Build notifications text from unread notifications
-    fn build_notifications_text(unread_notifications: &[OAuthNotification]) -> String {
-        if unread_notifications.is_empty() {
-            String::new()
-        } else {
-            let mut notifications_msg = String::from("\n\nRecent OAuth Updates:\n");
-            for notification in unread_notifications {
-                let status_indicator = if notification.success {
-                    "[SUCCESS]"
-                } else {
-                    "[FAILED]"
-                };
-                writeln!(
-                    notifications_msg,
-                    "{status_indicator} {}: {}",
-                    notification.provider.to_uppercase(),
-                    notification.message
-                )
-                .unwrap_or_else(|_| warn!("Failed to write notification text"));
-            }
-            notifications_msg
-        }
-    }
-
-    /// Build structured connection data JSON
-    fn build_structured_connection_data(
-        tenant_context: &TenantContext,
-        connection_status: &ProviderConnectionStatus,
-        base_url: &str,
-        unread_notifications: &[OAuthNotification],
-    ) -> Value {
-        serde_json::json!({
-            "providers": [
-                {
-                    "provider": "strava",
-                    "connected": connection_status.strava_connected,
-                    "tenant_id": tenant_context.tenant_id,
-                    "last_sync": null,
-                    "connect_url": format!("{base_url}/auth/strava/{}", tenant_context.user_id),
-                    "connect_instructions": if connection_status.strava_connected {
-                        "Your Strava account is connected and ready to use."
-                    } else {
-                        "Click this URL to connect your Strava account and authorize access to your fitness data."
-                    }
-                },
-                {
-                    "provider": "fitbit",
-                    "connected": connection_status.fitbit_connected,
-                    "tenant_id": tenant_context.tenant_id,
-                    "last_sync": null,
-                    "connect_url": format!("{base_url}/auth/fitbit/{}", tenant_context.user_id),
-                    "connect_instructions": if connection_status.fitbit_connected {
-                        "Your Fitbit account is connected and ready to use."
-                    } else {
-                        "Click this URL to connect your Fitbit account and authorize access to your fitness data."
-                    }
-                }
-            ],
-            "tenant_info": {
-                "tenant_id": tenant_context.tenant_id,
-                "tenant_name": tenant_context.tenant_name
-            },
-            "connection_help": serde_json::to_value(json_schemas::ConnectionHelp {
-                message: "To connect a fitness provider, click the connect_url for the provider you want to use. You'll be redirected to their website to authorize access, then redirected back to complete the connection.".to_owned(),
-                supported_providers: vec!["strava".to_owned(), "fitbit".to_owned()],
-                note: "After connecting, you can use fitness tools like get_activities, get_athlete, and get_stats with the connected provider.".to_owned(),
-            }).unwrap_or_else(|_| serde_json::json!({})),
-            "recent_notifications": unread_notifications.iter().map(|n| {
-                json_schemas::NotificationItem {
-                    id: n.id.clone(),
-                    provider: n.provider.clone(),
-                    success: n.success,
-                    message: n.message.clone(),
-                    created_at: n.created_at,
-                }
-            }).collect::<Vec<_>>()
-        })
-    }
-
-    /// Build human-readable text content
-    fn build_text_content(
-        connection_status: &ProviderConnectionStatus,
-        base_url: &str,
-        tenant_context: &TenantContext,
-        notifications_text: &str,
-    ) -> String {
-        let strava_status = if connection_status.strava_connected {
-            "Connected"
-        } else {
-            "Not Connected"
-        };
-        let fitbit_status = if connection_status.fitbit_connected {
-            "Connected"
-        } else {
-            "Not Connected"
-        };
-
-        let strava_action = if connection_status.strava_connected {
-            "Ready to use fitness tools!".to_owned()
-        } else {
-            format!(
-                "Click to connect: {base_url}/auth/strava/{}",
-                tenant_context.user_id
-            )
-        };
-
-        let fitbit_action = if connection_status.fitbit_connected {
-            "Ready to use fitness tools!".to_owned()
-        } else {
-            format!(
-                "Click to connect: {base_url}/auth/fitbit/{}",
-                tenant_context.user_id
-            )
-        };
-
-        let connection_instructions = if !connection_status.strava_connected
-            || !connection_status.fitbit_connected
-        {
-            "To connect a provider:\n\
-            1. Click one of the URLs above\n\
-            2. You'll be redirected to authorize access\n\
-            3. Complete the OAuth flow to connect your account\n\
-            4. Start using fitness tools like get_activities, get_athlete, and get_stats"
-        } else {
-            "All providers connected! You can now use fitness tools like get_activities, get_athlete, and get_stats."
-        };
-
-        format!(
-            "Fitness Provider Connection Status\n\n\
-            Available Providers:\n\n\
-            Strava ({strava_status})\n\
-            {strava_action}\n\n\
-            Fitbit ({fitbit_status})\n\
-            {fitbit_action}\n\n\
-            {connection_instructions}{notifications_text}"
-        )
-    }
 
     /// Disconnect a provider through the domain chokepoint (`OAuthService`):
     /// mirror resolution, lockstep token+row deletion, catalogued notify event.

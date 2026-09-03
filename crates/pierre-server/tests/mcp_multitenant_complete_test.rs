@@ -656,17 +656,34 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
         eprintln!("DEBUG: Full response: {connection_response:?}");
     }
 
-    // The result has structuredContent with providers array and tenant_info
+    // `/mcp` answers this from the registry tool, so `structuredContent.providers`
+    // is the map keyed by provider that the whole product reads — not the
+    // two-entry `strava`/`fitbit` array a `/mcp`-only carve-out used to shape
+    // (carnet#233).
     assert!(result.is_object());
     let structured_content = &result["structuredContent"];
     assert!(structured_content.is_object());
-    assert!(structured_content["providers"].is_array());
-    assert_eq!(structured_content["providers"].as_array().unwrap().len(), 2); // Strava and Fitbit
-    assert!(structured_content["tenant_info"].is_object());
-    assert_eq!(
-        structured_content["tenant_info"]["tenant_name"],
-        "Test Tenant"
+    let providers = structured_content["providers"]
+        .as_object()
+        .expect("providers is an object keyed by provider name");
+    assert!(
+        providers.contains_key("strava"),
+        "strava is compiled into every build: {providers:?}"
     );
+    assert!(
+        !providers.contains_key("fitbit"),
+        "fitbit is not compiled into server-full and must not be offered: {providers:?}"
+    );
+    // Every entry carries the lifecycle state an MCP client reconnects on.
+    for (name, entry) in providers {
+        assert_eq!(
+            entry["connected"], false,
+            "{name} should start disconnected"
+        );
+        assert_eq!(entry["needs_reauth"], false, "{name} has no dead session");
+        assert_eq!(entry["status"], "disconnected", "{name} status");
+        assert!(entry["backend"].is_string(), "{name} names its backend");
+    }
 
     // Test 7: MCP Protocol - Call Tool (Get Activities - should work without provider)
     let activities_response = client

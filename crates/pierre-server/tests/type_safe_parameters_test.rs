@@ -241,45 +241,6 @@ fn test_progress_report_response_serialization() {
     assert_eq!(json["progress_report"]["insights"][0], "Great progress!");
 }
 
-#[test]
-fn test_notification_item_round_trip() {
-    use chrono::Utc;
-
-    let notification = json_schemas::NotificationItem {
-        id: "notif_123".to_owned(),
-        provider: "strava".to_owned(),
-        success: true,
-        message: "Activity synced".to_owned(),
-        created_at: Utc::now(),
-    };
-
-    // Serialize to JSON
-    let json = serde_json::to_value(&notification).unwrap();
-
-    // Deserialize back
-    let deserialized: json_schemas::NotificationItem = serde_json::from_value(json).unwrap();
-
-    assert_eq!(deserialized.id, notification.id);
-    assert_eq!(deserialized.provider, notification.provider);
-    assert_eq!(deserialized.success, notification.success);
-    assert_eq!(deserialized.message, notification.message);
-}
-
-#[test]
-fn test_connection_help_serialization() {
-    let help = json_schemas::ConnectionHelp {
-        message: "Connect your provider".to_owned(),
-        supported_providers: vec!["strava".to_owned(), "fitbit".to_owned()],
-        note: "Authorization required".to_owned(),
-    };
-
-    let json = serde_json::to_value(&help).unwrap();
-    assert_eq!(json["message"], "Connect your provider");
-    assert_eq!(json["supported_providers"][0], "strava");
-    assert_eq!(json["supported_providers"][1], "fitbit");
-    assert_eq!(json["note"], "Authorization required");
-}
-
 // ============================================================================
 // Error Message Quality Tests
 // ============================================================================
@@ -331,23 +292,4 @@ fn test_extra_fields_ignored() {
     let params: json_schemas::ProviderParams = serde_json::from_value(json).unwrap();
     assert_eq!(params.provider, Some("strava".to_owned()));
     // Extra fields should be silently ignored
-}
-
-#[test]
-fn test_notification_item_with_extra_fields() {
-    use chrono::Utc;
-
-    let json = json!({
-        "id": "notif_456",
-        "provider": "strava",
-        "success": true,
-        "message": "Test",
-        "created_at": Utc::now().to_rfc3339(),
-        "legacy_field": "old_data",
-        "deprecated_flag": true
-    });
-
-    let notification: json_schemas::NotificationItem = serde_json::from_value(json).unwrap();
-    assert_eq!(notification.provider, "strava");
-    // Backward compatible - extra fields don't break parsing
 }
