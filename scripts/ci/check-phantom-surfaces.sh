@@ -27,6 +27,16 @@
 #      called from web alone read as "consumed" and every client-side parity gap
 #      passed green. The pools are separate now: web-only and mobile-only are
 #      reported as the gaps they are.
+#   3. An /api/ route the server serves that NO client mentions.
+#      Every check above starts at the client and asks what it fails to reach,
+#      so a capability with no client at all is invisible to all of them.
+#      Recurrence: GET /api/personas shipped a route, an axum shim, a renderer
+#      and a 302-line endpoint test, and zero clients, for weeks — while both
+#      apps kept the hand-written persona cards it existed to replace, and the
+#      renderer's own comment said it "mirrors the client-side PERSONA_NAME
+#      map". The 2026-09-02 review found it by reading; nothing could have
+#      failed a push over it, because the direction of a check decides what is
+#      invisible to it.
 #
 # Both were found by a manual cold read months after they were written. Neither
 # is visible to a regression test: nothing broke, because nothing ran.
@@ -292,6 +302,61 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Scan 4: /api/ routes the server serves that no client mentions
+# ---------------------------------------------------------------------------
+# Matched on the route's STATIC PREFIX, because neither side spells the whole
+# path: Rust carries `{param}` segments and the clients append `?query` or
+# interpolate `${id}` onto a literal. Comparing full strings reported routes as
+# orphans that a domain file reaches one line later — /api/memory/facts is
+# built as `/api/memory/facts?${query}`, and an exact-match scan called it dead.
+#
+# Only `/api/` is scanned. `/mcp`, `/a2a`, `/health` and `/.well-known` are
+# protocol surfaces whose consumers are external by definition, and asking our
+# own clients to call them would be the bug.
+ROUTE_SRC=(crates/*/src)
+grep -rhoE '\.route\("/api/[^"]*"' "${ROUTE_SRC[@]}" 2>/dev/null \
+    | sed -E 's/^\.route\("//; s/"$//' \
+    | sed -E 's#/\{[^}]*\}.*$##' \
+    | sort -u > "$TMP/routes.txt"
+
+ROUTE_N=$(grep -c . < "$TMP/routes.txt" || true)
+
+if [[ "$ROUTE_N" -eq 0 ]]; then
+    echo -e "${RED}❌ Parsed zero /api/ routes — this scan is stale.${NC}"
+    FAILED=true
+else
+    # Every file that could name an endpoint: the api-client, both apps, the
+    # SDK, and shared-constants (which carries generated route tables).
+    find packages/api-client/src frontend/src frontend-mobile/src \
+         frontend-mobile/app sdk/src packages/shared-constants/src \
+         \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null \
+        | grep -vE '__tests__|\.test\.|\.spec\.' > "$TMP/client_files.txt"
+
+    : > "$TMP/orphan_routes.txt"
+    if [[ -s "$TMP/client_files.txt" ]]; then
+        while read -r route; do
+            [[ -z "$route" ]] && continue
+            # -F: a route is a literal, and `.` in a path must not match any char.
+            if ! grep -qF -- "$route" $(cat "$TMP/client_files.txt") 2>/dev/null; then
+                echo "$route" >> "$TMP/orphan_routes.txt"
+            fi
+        done < "$TMP/routes.txt"
+    else
+        echo -e "${RED}❌ Found zero client files — this scan is stale.${NC}"
+        FAILED=true
+    fi
+
+    ORPHAN_ROUTE_N=$(grep -c . < "$TMP/orphan_routes.txt" || true)
+    if [[ "$ORPHAN_ROUTE_N" -gt 0 ]]; then
+        echo -e "${YELLOW}⚠️  /api/ routes no client mentions (${ORPHAN_ROUTE_N} of ${ROUTE_N}):${NC}"
+        while read -r r; do
+            [[ -z "$r" ]] && continue
+            echo "   $r"
+        done < "$TMP/orphan_routes.txt"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Gate: fail when THIS change introduces a new phantom surface
 # ---------------------------------------------------------------------------
 if [[ -n "$BASE_REF" ]]; then
@@ -367,10 +432,30 @@ if [[ -n "$BASE_REF" ]]; then
         done < "$TMP/orphan_config_fields.txt"
     fi
 
+    # A route this change ADDS that no client mentions. The standing stock is
+    # reported above and not gated: it holds deliberate external surfaces (the
+    # /api/v1 endurance API, the Slack action webhook) alongside real phantoms,
+    # and this check cannot tell them apart. What it can tell is that a route
+    # arriving right now has nothing on the other end — decide that while the
+    # reason is still in someone's head.
+    ADDED_ROUTES="$(git diff -U0 "${BASE_REF}...HEAD" -- 'crates/*/src/*.rs' 2>/dev/null \
+        | grep '^+' | grep -v '^+++' | grep -oE '\.route\("/api/[^"]*"' \
+        | sed -E 's/^\.route\("//; s/"$//' | sed -E 's#/\{[^}]*\}.*$##' | sort -u || true)"
+    if [[ -n "$ADDED_ROUTES" && -f "$TMP/orphan_routes.txt" ]]; then
+        while read -r r; do
+            [[ -z "$r" ]] && continue
+            if grep -qxF "$r" "$TMP/orphan_routes.txt" 2>/dev/null; then
+                echo -e "${RED}❌ New /api/ route no client mentions: ${r}${NC}"
+                NEW_FOUND=true
+            fi
+        done <<< "$ADDED_ROUTES"
+    fi
+
     if [[ "$NEW_FOUND" == "true" ]]; then
         echo ""
         echo -e "${RED}A capability that nothing implements or calls is a phantom surface.${NC}"
         echo -e "${RED}A capability only one client calls is the same thing, on one surface.${NC}"
+        echo -e "${RED}A route no client calls is the same thing again, from the server end.${NC}"
         echo -e "${YELLOW}Wire a production consumer on every surface that should have it in this${NC}"
         echo -e "${YELLOW}same change, or register the gap with a LIMITATION(registre#issue):${NC}"
         echo -e "${YELLOW}marker naming the item. Do not ship it bare — nothing breaks when a${NC}"
@@ -378,7 +463,8 @@ if [[ -n "$BASE_REF" ]]; then
         FAILED=true
     else
         echo -e "${GREEN}✅ This change adds no unimplemented trait, no uncalled api-client method,${NC}"
-        echo -e "${GREEN}   and no method that reaches one client but not the other.${NC}"
+        echo -e "${GREEN}   no method that reaches one client but not the other, and no route${NC}"
+        echo -e "${GREEN}   the server serves to nobody.${NC}"
     fi
 fi
 
