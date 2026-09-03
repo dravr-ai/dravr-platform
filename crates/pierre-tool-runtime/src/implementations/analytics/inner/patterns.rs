@@ -8,6 +8,7 @@ use crate::protocol::format::{apply_format_to_response, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -37,6 +38,7 @@ async fn fetch_and_detect_patterns(
     provider: Box<dyn FitnessProvider>,
     pattern_type: &str,
     user_uuid: uuid::Uuid,
+    user_timezone: Option<&str>,
 ) -> UniversalResponse {
     use DEFAULT_ACTIVITY_LIMIT;
 
@@ -49,7 +51,7 @@ async fn fetch_and_detect_patterns(
             // synthetic activity-density signals from re-uploaded GPS files.
             let (activities, _fragment_report) =
                 dedupe_and_report(&raw_activities, &DedupConfig::default());
-            let analysis = detect_activity_patterns(&activities, pattern_type);
+            let analysis = detect_activity_patterns(&activities, pattern_type, user_timezone);
 
             UniversalResponse {
                 success: true,
@@ -75,7 +77,11 @@ async fn fetch_and_detect_patterns(
 }
 
 /// Detect patterns in activity data based on pattern type
-fn detect_activity_patterns(activities: &[Activity], pattern_type: &str) -> serde_json::Value {
+fn detect_activity_patterns(
+    activities: &[Activity],
+    pattern_type: &str,
+    user_timezone: Option<&str>,
+) -> serde_json::Value {
     use PatternDetector;
 
     if activities.len() < 3 {
@@ -98,7 +104,13 @@ fn detect_activity_patterns(activities: &[Activity], pattern_type: &str) -> serd
         "overtraining" => {
             format_overtraining_signals(&PatternDetector::detect_overtraining_signals(activities))
         }
-        _ => format_weekly_schedule(&PatternDetector::detect_weekly_schedule(activities)), // default: weekly_schedule
+        // The weekday and hour histograms are counted on the athlete's civil
+        // clock. Read in UTC, a 21:00 America/Toronto session was counted on
+        // the following weekday and reported as a 01:00 habit (registre#252).
+        _ => format_weekly_schedule(&PatternDetector::detect_weekly_schedule(
+            activities,
+            resolve_zone(user_timezone),
+        )), // default: weekly_schedule
     }
 }
 
@@ -394,7 +406,25 @@ pub fn handle_detect_patterns(
                     }
                 }
 
-                let result = fetch_and_detect_patterns(provider, pattern_type, user_uuid).await;
+                // The athlete's own zone: the weekly-schedule histograms are
+                // counted on their civil clock, not the server's (registre#252).
+                let user_timezone = executor
+                    .resources
+                    .repos()
+                    .users
+                    .get_global(user_uuid)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|user| user.timezone);
+
+                let result = fetch_and_detect_patterns(
+                    provider,
+                    pattern_type,
+                    user_uuid,
+                    user_timezone.as_deref(),
+                )
+                .await;
 
                 // Report completion on success
                 if result.success {

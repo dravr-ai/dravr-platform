@@ -82,6 +82,63 @@ pub fn weekday_short(weekday: Weekday, locale: &str) -> &'static str {
     names[locale_index(locale)]
 }
 
+/// Every written form of `weekday`, lowercased, across the five shipped
+/// locales — long and short.
+///
+/// For *reading* a weekday out of text rather than writing one: a claim that
+/// says "dimanche" is asserting a day, and the athlete-data verifier has to
+/// recognise it before it can check it (registre#249). Lowercased and
+/// unaccented-tolerant only insofar as the source is, so callers lowercase the
+/// haystack and compare.
+#[must_use]
+pub fn weekday_forms(weekday: Weekday) -> &'static [&'static str] {
+    match weekday {
+        Weekday::Mon => &[
+            "lundi", "monday", "lunes", "montag", "segunda", "lun", "mon",
+        ],
+        Weekday::Tue => &[
+            "mardi", "tuesday", "martes", "dienstag", "terça", "terca", "mar", "tue",
+        ],
+        Weekday::Wed => &[
+            "mercredi",
+            "wednesday",
+            "miércoles",
+            "miercoles",
+            "mittwoch",
+            "quarta",
+            "mer",
+            "wed",
+        ],
+        Weekday::Thu => &[
+            "jeudi",
+            "thursday",
+            "jueves",
+            "donnerstag",
+            "quinta",
+            "jeu",
+            "thu",
+        ],
+        Weekday::Fri => &[
+            "vendredi", "friday", "viernes", "freitag", "sexta", "ven", "fri",
+        ],
+        Weekday::Sat => &[
+            "samedi", "saturday", "sábado", "sabado", "samstag", "sáb", "sam", "sat",
+        ],
+        Weekday::Sun => &["dimanche", "sunday", "domingo", "sonntag", "dim", "sun"],
+    }
+}
+
+/// Every weekday, for callers that scan text for any of them.
+pub const ALL_WEEKDAYS: [Weekday; 7] = [
+    Weekday::Mon,
+    Weekday::Tue,
+    Weekday::Wed,
+    Weekday::Thu,
+    Weekday::Fri,
+    Weekday::Sat,
+    Weekday::Sun,
+];
+
 /// `2026-09-01 lun 18:30` — the stamp shape every dated prompt surface shares.
 ///
 /// The weekday sits between the date and the time deliberately: the model reads

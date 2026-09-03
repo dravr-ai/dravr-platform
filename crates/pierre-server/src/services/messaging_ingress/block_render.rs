@@ -26,10 +26,10 @@
 //! [`TurnEnvelope`]: pierre_chat_pipeline::TurnEnvelope
 
 use pierre_chat_pipeline::{
-    AssistantTurn, NoticeKind, QuotaWarningState, RenderCapabilities, ReplyBlock,
+    AssistantTurn, NoticeKind, QuotaLevel, QuotaWarningState, RenderCapabilities, ReplyBlock,
 };
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_PROVIDER_RECONNECT_BUTTON, KEY_QUOTA_WARNING,
+    MessagingStringsRegistry, KEY_PROVIDER_RECONNECT_BUTTON, KEY_QUOTA_BURST, KEY_QUOTA_WARNING,
 };
 use pierre_core::chunking::chunk_reply;
 use pierre_core::models::messaging::{CardAction, MessageContent, OutgoingMessage};
@@ -155,8 +155,16 @@ fn quota_warning_line(
     locale: &str,
     warning: &QuotaWarningState,
 ) -> String {
+    // The level chooses the sentence. Both templates used to be the warning
+    // one, which renders "{used} of {limit}" — a comparison that stops making
+    // sense the moment `used` passes `limit`. An athlete on 2026-09-02 was told
+    // "tu as utilisé 670828 de 500000 sur ton forfait" (registre#251).
+    let key = match warning.level {
+        QuotaLevel::Burst => KEY_QUOTA_BURST,
+        QuotaLevel::Approaching => KEY_QUOTA_WARNING,
+    };
     registry.render(
-        KEY_QUOTA_WARNING,
+        key,
         locale,
         &[
             &warning.current.to_string(),

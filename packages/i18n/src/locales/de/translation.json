@@ -1880,6 +1880,7 @@
     },
     "quota_exceeded": "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.",
     "quota_warning": "Hinweis: Du hast {0} von {1} deines Tarifs verbraucht. Der Zähler wird am {2} zurückgesetzt.",
+    "quota_burst": "Hinweis: Du hast das Limit von {1} deines Tarifs überschritten und nutzt die Reserve. Der Zähler wird am {2} zurückgesetzt.",
     "rate_limited": "Du sendest Nachrichten etwas schneller, als dein Tarif erlaubt. Warte einen Moment und versuch es dann noch einmal — ich bin hier.",
     "reply_withheld": "Meine Antwort ging nicht raus — sie enthielt technische Details, die hier nicht hingehören. Schick mir deine letzte Nachricht noch einmal und wir machen dort weiter, wo wir waren.",
     "scope": {

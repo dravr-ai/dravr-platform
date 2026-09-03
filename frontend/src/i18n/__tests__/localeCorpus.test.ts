@@ -146,8 +146,16 @@ describe('client locale corpus', () => {
     // persisted turn rather than through a channel adapter, and the app push
     // that announces it needs a title and a one-line body of its own —
     // `messaging.backfill.push_title` and `.push_body`, +2.
+    //
+    // 2382 until the quota notice stopped saying one thing at two levels.
+    // `messaging.quota_warning` renders "{used} of {limit}", which is fine at
+    // 45 of 50 and nonsense at 670828 of 500000 — an athlete read that four
+    // turns running on 2026-09-02. `messaging.quota_burst` is the sentence for
+    // past the cap: it names the limit and the reset and never prints the
+    // comparison. One key, five locales, because a surface gained a state it
+    // already had and could not describe (carnet#251).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2382);
+    expect(reference).toHaveLength(2383);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

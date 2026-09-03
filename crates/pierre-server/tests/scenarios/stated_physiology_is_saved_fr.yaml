@@ -1,0 +1,59 @@
+# Scenario: the athlete states a physiological value out loud; the coach
+# must persist it with `set_physiology` on that same turn, not merely
+# quote it back.
+#
+# Origin: Raph's Telegram session 2026-09-02 (registre#250). He asked
+# "As tu acces a mes power zones?", was told no, and supplied his FTP:
+# 380 W. The coach ACKNOWLEDGED having seen it — "tu l'as mentionné à
+# 380W plus tôt" — hand-computed a threshold in prose ("en dessous
+# d'environ 210W (55% du seuil)"), and stored nothing. Every ACP
+# response in that session returned tool_calls=0.
+#
+# `set_physiology` had been chat-callable since registre#39, and the
+# category comment admitting it names this exact case: "Physiology
+# arrives mid-conversation — 'my FTP is 285' — so the coach must be able
+# to save it on the turn it is said." The capability was there; nothing
+# asked the coach to use it. So the next session starts from the same
+# flat "je n'ai pas accès à tes zones", and the derived zones never
+# exist.
+#
+# The rule now lives in TURN_DIRECTIVE. This is what measures whether it
+# reaches the model, rather than asserting it in a comment.
+name: "A stated FTP is saved, not just quoted back (FR)"
+locales: ["fr"]
+notes: "Tool-discipline regression — registre#250, Telegram 2026-09-02"
+# Same lane as provider_capability_not_narrated_en: the assertion is an
+# INVOCATION, and the local nightly grader (qwen2.5:7b, CPU-only) does
+# not call tools. Runs under CHAT_SCENARIO_INCLUDE_ONDEMAND=1 or against
+# a stronger model.
+nightly_gate: false
+provider_state:
+  providers:
+    strava:
+      initial_activities:
+        - { name: "Road 2 AUS", sport: ride, distance_km: 161.0, date: "2026-09-01" }
+turns:
+  - user: "As-tu accès à mes zones de puissance?"
+    assertions:
+      # Answering a capability question is fine; inventing zones is not.
+      - kind: no_substring
+        values: ["set_physiology", "calculate_personalized_zones"]
+  - user: "Mon FTP est à 380W."
+    assertions:
+      # The whole point: the number is persisted on the turn it is said.
+      - kind: tool_called
+        name: set_physiology
+      # And the tool name never reaches the athlete.
+      - kind: no_substring
+        values: ["set_physiology"]
+  - user: "Donne-moi mes zones alors."
+    assertions:
+      # With the profile saved, the zones are derived rather than
+      # hand-waved as a percentage in prose.
+      - kind: any_of
+        values: ["zone", "W", "watts"]
+      - kind: no_substring
+        values:
+          - "calculate_personalized_zones"
+          - "je n'ai pas accès"
+          - "je n'ai pas de zones"

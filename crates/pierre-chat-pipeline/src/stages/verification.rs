@@ -21,9 +21,10 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use futures_util::FutureExt;
+use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::error_helpers::panic_payload_str;
 use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_evals::athlete_data::AthleteRecord;
+use pierre_evals::athlete_data::{AthleteRecord, RecordedActivity};
 use pierre_evals::{
     AthleteMetrics, ExtractedClaim, PersonalizedContext, ResolvedAction, ToleranceStrategy,
     VerdictOutcome, VerificationConfig, VerificationFallback,
@@ -701,18 +702,33 @@ async fn build_athlete_record(
         .await
         .unwrap_or_default();
 
+    // The athlete's own zone, so a 21:00 session belongs to the day they
+    // trained. A claim about "Tuesday" is checked against their Tuesday.
+    let user_timezone = ctx
+        .repos
+        .users
+        .get_global(uuid)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|u| u.timezone);
+    let zone = resolve_zone(user_timezone.as_deref());
+
     Some(AthleteRecord {
         has_provider: true,
-        distances_km: activities
-            .iter()
-            .filter_map(|a| a.distance_meters().map(|m| m / 1000.0))
-            .collect(),
-        durations_min: activities
+        activities: activities
             .iter()
             .map(|a| {
                 #[allow(clippy::cast_precision_loss)]
-                let secs = a.duration_seconds() as f64;
-                secs / 60.0
+                let duration_min = (a.duration_seconds() as f64) / 60.0;
+                RecordedActivity {
+                    date: local_date(a.start_date(), zone),
+                    sport: a.sport_type().clone(),
+                    name: a.name().to_owned(),
+                    distance_km: a.distance_meters().map(|m| m / 1000.0),
+                    duration_min,
+                    elevation_m: a.elevation_gain(),
+                }
             })
             .collect(),
     })

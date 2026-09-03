@@ -24,7 +24,9 @@
 //! - Treating a cache miss as a contradiction calls the coach a liar over our
 //!   own sync lag.
 
-use pierre_evals::athlete_data::{check, AthleteRecord};
+use chrono::NaiveDate;
+use pierre_core::models::SportType;
+use pierre_evals::athlete_data::{check, AthleteRecord, RecordedActivity};
 use pierre_evals::claim_extractor::ExtractedClaim;
 use pierre_memory::{ClaimCategory, ClaimStatus, VerdictLayer};
 
@@ -78,13 +80,31 @@ fn a_vague_statement_with_no_provider_is_unverifiable_not_contradicted() {
     );
 }
 
+/// An anonymous session carrying only the figures a test asserts on.
+///
+/// The date, sport and name matter to the named-activity checks and to nothing
+/// else, so a figures-only fixture keeps them out of the way.
+fn session(distance_km: Option<f64>, duration_min: f64) -> RecordedActivity {
+    RecordedActivity {
+        date: NaiveDate::from_ymd_opt(2026, 9, 1).expect("valid date"),
+        sport: SportType::Run,
+        name: String::new(),
+        distance_km,
+        duration_min,
+        elevation_m: None,
+    }
+}
+
 /// A figure that matches a held activity is supported.
 #[test]
 fn a_figure_matching_a_recorded_activity_is_supported() {
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: vec![21.4, 8.0, 5.2],
-        durations_min: vec![118.0, 42.0],
+        activities: vec![
+            session(Some(21.4), 118.0),
+            session(Some(8.0), 42.0),
+            session(Some(5.2), 0.0),
+        ],
     };
 
     let outcome = check(
@@ -117,8 +137,7 @@ fn a_figure_matching_a_recorded_activity_is_supported() {
 fn a_figure_matching_nothing_is_unverifiable_not_contradicted() {
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: vec![5.0, 8.0],
-        durations_min: vec![30.0],
+        activities: vec![session(Some(5.0), 30.0), session(Some(8.0), 0.0)],
     };
 
     let outcome = check(
@@ -145,8 +164,7 @@ fn a_figure_matching_nothing_is_unverifiable_not_contradicted() {
 fn a_connected_athlete_with_no_cached_window_is_unverifiable() {
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: Vec::new(),
-        durations_min: Vec::new(),
+        activities: Vec::new(),
     };
 
     let outcome = check(
@@ -172,8 +190,7 @@ fn a_connected_athlete_with_no_cached_window_is_unverifiable() {
 fn an_hours_claim_is_converted_before_matching() {
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: Vec::new(),
-        durations_min: vec![120.0],
+        activities: vec![session(None, 120.0)],
     };
 
     let outcome = check(
@@ -192,8 +209,7 @@ fn an_hours_claim_is_converted_before_matching() {
     // And the inverse: a genuine 2-minute activity must not satisfy "2 hours".
     let two_minutes = AthleteRecord {
         has_provider: true,
-        distances_km: Vec::new(),
-        durations_min: vec![2.0],
+        activities: vec![session(None, 2.0)],
     };
     let wrong = check(
         &claim("That long ride took you about 2 hours to finish."),
@@ -300,8 +316,12 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
     let record = AthleteRecord {
         has_provider: true,
         // Four 10 km runs — a real week totalling 40 km, held per-activity.
-        distances_km: vec![10.0, 10.0, 10.0, 10.0],
-        durations_min: vec![50.0, 50.0, 50.0, 50.0],
+        activities: vec![
+            session(Some(10.0), 50.0),
+            session(Some(10.0), 50.0),
+            session(Some(10.0), 50.0),
+            session(Some(10.0), 50.0),
+        ],
     };
 
     for reply in [
@@ -343,8 +363,7 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
 fn a_comma_decimal_is_one_figure() {
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: vec![21.4],
-        durations_min: vec![],
+        activities: vec![session(Some(21.4), 0.0)],
     };
     let claim = claim("Tu as couru 21,4 km hier.");
     let outcome = check(&claim, &record).expect("layer adjudicates its own category");
@@ -376,8 +395,7 @@ fn a_comma_decimal_is_one_figure() {
 fn a_pace_expression_injects_no_phantom_figure() {
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: vec![10.0],
-        durations_min: vec![50.0],
+        activities: vec![session(Some(10.0), 50.0)],
     };
     let claim = claim("You ran 10 km at 5:00 min/km.");
     let outcome = check(&claim, &record).expect("layer adjudicates its own category");
@@ -428,8 +446,7 @@ fn the_bare_k_form_does_not_need_a_trailing_space() {
 fn a_sleep_claim_is_not_supported_by_a_workout_duration() {
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: vec![],
-        durations_min: vec![480.0],
+        activities: vec![session(None, 480.0)],
     };
     for text in ["You slept 8 hours last night.", "Tu as dormi 8 heures."] {
         let claim = claim(text);

@@ -1880,6 +1880,7 @@
     },
     "quota_exceeded": "Atingiste o limite de conversa do teu plano por agora. Ele repõe-se automaticamente — volta um pouco mais tarde.",
     "quota_warning": "Nota: já usaste {0} de {1} do teu plano. O contador repõe-se a {2}.",
+    "quota_burst": "Nota: ultrapassaste o limite de {1} do teu plano e continuas com a reserva. O contador repõe-se a {2}.",
     "rate_limited": "Estás a enviar mensagens um pouco mais depressa do que o teu plano permite. Aguarda um momento e tenta novamente — eu estarei aqui.",
     "reply_withheld": "A minha resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Envia de novo a tua última mensagem e retomamos onde estávamos.",
     "scope": {

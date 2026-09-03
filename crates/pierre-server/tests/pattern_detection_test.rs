@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, Utc};
+use chrono_tz::UTC;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_intelligence::{PatternDetector, RiskLevel};
 
@@ -44,7 +45,11 @@ fn test_weekly_schedule_detection() {
         // Friday
     }
 
-    let pattern = PatternDetector::detect_weekly_schedule(&activities);
+    // UTC explicitly: this fixture builds its days in UTC, so the athlete's
+    // clock and the server's are the same one here. Naming it is the point —
+    // the zone used to be implicit, which is how the histograms ended up on the
+    // wrong day for anyone training in the evening (registre#252).
+    let pattern = PatternDetector::detect_weekly_schedule(&activities, UTC);
 
     // With 3 equally distributed days, consistency score ~= 33 (1/3² + 1/3² + 1/3²) * 100
     assert!(

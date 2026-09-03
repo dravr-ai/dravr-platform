@@ -35,15 +35,42 @@
 //! that matches none is *unsupported* rather than contradicted — our cache is a
 //! window, not the whole truth, and it can legitimately miss an activity.
 
+use chrono::{Datelike, NaiveDate};
+use pierre_core::civil_time::{weekday_forms, ALL_WEEKDAYS};
+use pierre_core::models::{resolve_sport_type, sport_family_head, SportType};
+
 use crate::claim_extractor::ExtractedClaim;
 use crate::verdict_engine::VerdictOutcome;
 use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
+/// One activity as this layer holds it.
+///
+/// The fields are the ones a coach quotes back and an athlete corrects. Two of
+/// them — the date and the sport — carried no representation here at all until
+/// registre#249, so every claim about *which day* or *which sport* was
+/// structurally unfalsifiable, in every locale.
+#[derive(Debug, Clone)]
+pub struct RecordedActivity {
+    /// Calendar date on the athlete's civil clock.
+    pub date: NaiveDate,
+    /// Canonical sport for the activity.
+    pub sport: SportType,
+    /// The provider's name for it — "Road 2 AUS", "Passion rando". This is how
+    /// an athlete and a coach both refer to a specific session.
+    pub name: String,
+    /// Distance in kilometres, when the source carries GPS.
+    pub distance_km: Option<f64>,
+    /// Duration in minutes. Always present.
+    pub duration_min: f64,
+    /// Total ascent in metres, when the source carries it.
+    pub elevation_m: Option<f64>,
+}
+
 /// What we actually hold about an athlete, as far as this layer is concerned.
 ///
-/// Deliberately not the dossier type: this layer needs three facts, and taking
-/// the whole dossier would couple claim verification to every future change in
-/// athlete modelling.
+/// Deliberately not the dossier type: this layer needs a handful of facts per
+/// activity, and taking the whole dossier would couple claim verification to
+/// every future change in athlete modelling.
 #[derive(Debug, Clone, Default)]
 pub struct AthleteRecord {
     /// Whether the athlete has any connected provider at all.
@@ -51,10 +78,8 @@ pub struct AthleteRecord {
     /// `false` is the strong case — it licenses a contradiction, because there
     /// is provably no source for a specific figure.
     pub has_provider: bool,
-    /// Distances, in kilometres, of the activities we hold for the window.
-    pub distances_km: Vec<f64>,
-    /// Durations, in minutes, of the activities we hold for the window.
-    pub durations_min: Vec<f64>,
+    /// The activities we hold for the window.
+    pub activities: Vec<RecordedActivity>,
 }
 
 impl AthleteRecord {
@@ -67,7 +92,19 @@ impl AthleteRecord {
     /// Whether we hold any activity at all for the window.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.distances_km.is_empty() && self.durations_min.is_empty()
+        self.activities.is_empty()
+    }
+
+    /// Every value we hold in `unit`, for matching an asserted figure.
+    fn held(&self, unit: Unit) -> Vec<f64> {
+        self.activities
+            .iter()
+            .filter_map(|a| match unit {
+                Unit::Kilometres => a.distance_km,
+                Unit::Minutes => Some(a.duration_min),
+                Unit::Metres => a.elevation_m,
+            })
+            .collect()
     }
 }
 
@@ -89,6 +126,10 @@ struct AssertedFigure {
 enum Unit {
     Kilometres,
     Minutes,
+    /// Metres of ascent. Every elevation figure in the 2026-09-02 conversation
+    /// — 2391 m, 895 m, 414 m — was unfalsifiable because this unit did not
+    /// exist (registre#249).
+    Metres,
 }
 
 /// Check a claim about the athlete's own records.
@@ -132,6 +173,15 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
             "A provider is connected but no activities are held for this window, so the claim \
              can be neither confirmed nor refuted — the data may exist and be unsynced.",
         ));
+    }
+
+    // A claim that names one of the athlete's own activities can be checked on
+    // more than its numbers. This runs ahead of the figure logic because "you
+    // did that on Sunday" is a sharper, more specific finding than "no figure
+    // matched" — and it is the check the athlete was making by hand
+    // (registre#249).
+    if let Some(verdict) = check_named_activity(&claim.text, record) {
+        return Some(verdict);
     }
 
     if figures.is_empty() {
@@ -203,6 +253,162 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
     })
 }
 
+/// Shortest activity name this layer will match on.
+///
+/// A provider name of three characters or fewer ("Am", "PM", "🚴") appears
+/// inside ordinary prose by accident, and a false match here produces a
+/// confident contradiction about the wrong session.
+const MIN_MATCHABLE_NAME: usize = 4;
+
+/// Check a claim that names one of the athlete's own activities.
+///
+/// Fires only when the claim names **exactly one** held activity and asserts
+/// exactly one weekday or one sport for it. Two named activities, or two
+/// weekdays, is an ambiguity this layer cannot resolve — and a wrong
+/// contradiction costs more than a missed one.
+///
+/// This is the check the 2026-09-02 conversation needed and did not have. The
+/// coach placed a Tuesday ride on Sunday, called a run a bike session, and both
+/// claims passed the verifier untouched while four *benign* coaching
+/// prescriptions were flagged (registre#249).
+fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOutcome> {
+    let lower = text.to_lowercase();
+
+    let mut named = record.activities.iter().filter(|a| {
+        a.name.chars().count() >= MIN_MATCHABLE_NAME && lower.contains(&a.name.to_lowercase())
+    });
+    let activity = named.next()?;
+    if named.next().is_some() {
+        // More than one of their activities is named; which one the weekday
+        // belongs to is not decidable from the text.
+        return None;
+    }
+
+    // Scan the text with the activity's own name removed. "Passion rando"
+    // carries the word `rando`, so leaving it in had the record contradict
+    // itself — the layer read the athlete's own session title as the coach's
+    // claim about its sport.
+    let residual = lower.replace(&activity.name.to_lowercase(), " ");
+
+    if let Some(claimed) = sole_weekday(&residual) {
+        let actual = activity.date.weekday();
+        if claimed != actual {
+            return Some(contradicted(format!(
+                "Places \"{}\" on {}, but it is on record for {} ({}).",
+                activity.name,
+                weekday_forms(claimed)[1],
+                weekday_forms(actual)[1],
+                activity.date
+            )));
+        }
+    }
+
+    if let Some(claimed) = sole_sport(&residual) {
+        if !same_family(&claimed, &activity.sport) {
+            return Some(contradicted(format!(
+                "Calls \"{}\" a {:?}, but it is on record as a {:?}.",
+                activity.name, claimed, activity.sport
+            )));
+        }
+    }
+
+    None
+}
+
+/// The one weekday the text names, or `None` when it names none or several.
+fn sole_weekday(lower: &str) -> Option<chrono::Weekday> {
+    let mut found = None;
+    for day in ALL_WEEKDAYS {
+        if weekday_forms(day)
+            .iter()
+            .any(|form| contains_word(lower, form))
+        {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(day);
+        }
+    }
+    found
+}
+
+/// The one sport the text names, or `None` when it names none or several
+/// unrelated ones.
+///
+/// Resolution goes through [`resolve_sport_type`], the same alias table the
+/// tools accept from the LLM, so this reads no vocabulary of its own.
+fn sole_sport(lower: &str) -> Option<SportType> {
+    // Surface forms that `resolve_sport_type` actually accepts. It normalises
+    // by stripping separators but NOT accents, so "course à pied" resolves to
+    // nothing while the bare "course" resolves to Run — which is why the
+    // multi-word French form is not in this list.
+    const CANDIDATES: [&str; 21] = [
+        "course", "running", "run", "jogging", "trail", "vélo", "velo", "bike", "cycling", "ride",
+        "vtt", "mtb", "gravel", "natation", "swim", "marche", "walk", "rando", "hike", "ski",
+        "raquette",
+    ];
+    let mut found: Option<SportType> = None;
+    for candidate in CANDIDATES {
+        if !contains_word(lower, candidate) {
+            continue;
+        }
+        let Some(sport) = resolve_sport_type(candidate) else {
+            continue;
+        };
+        match &found {
+            None => found = Some(sport),
+            Some(existing) if same_family(existing, &sport) => {}
+            Some(_) => return None,
+        }
+    }
+    found
+}
+
+/// Whether two sports are the same discipline, collapsing sub-variants onto
+/// their head — a mountain bike ride and a gravel ride are both cycling, and a
+/// coach calling one the other is not making a false claim about the sport.
+fn same_family(a: &SportType, b: &SportType) -> bool {
+    let head = |s: &SportType| sport_family_head(s).unwrap_or_else(|| s.clone());
+    head(a) == head(b)
+}
+
+/// Whether `needle` appears in `haystack` bounded by non-alphanumerics.
+///
+/// Substring alone matches "mar" inside "marathon" and "run" inside "brunch",
+/// which would attribute a weekday or a sport the athlete never named.
+fn contains_word(haystack: &str, needle: &str) -> bool {
+    let mut from = 0;
+    while let Some(rel) = haystack[from..].find(needle) {
+        let start = from + rel;
+        let end = start + needle.len();
+        let before_ok = haystack[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric());
+        let after_ok = haystack[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphanumeric());
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+/// The shared shape of a contradiction this layer can prove from the record.
+fn contradicted(explanation: String) -> VerdictOutcome {
+    VerdictOutcome {
+        status: ClaimStatus::Contradicted,
+        evidence_strength: EvidenceStrength::Strong,
+        confidence: 0.9,
+        layer_fired: VerdictLayer::AthleteData,
+        explanation,
+        evidence_refs: None,
+    }
+}
+
 /// Whether the claim is about sleep, in any locale the coach replies in.
 ///
 /// Deliberately a substring test on stems: `dorm` covers "dormi"/"dormir"/
@@ -229,11 +435,9 @@ fn unverifiable(explanation: &str) -> VerdictOutcome {
 
 /// Whether an asserted figure matches something we hold, within tolerance.
 fn matches_record(figure: AssertedFigure, record: &AthleteRecord) -> bool {
-    let held: &[f64] = match figure.unit {
-        Unit::Kilometres => &record.distances_km,
-        Unit::Minutes => &record.durations_min,
-    };
-    held.iter()
+    record
+        .held(figure.unit)
+        .iter()
         .any(|&actual| (actual - figure.value).abs() <= actual.abs() * MATCH_TOLERANCE)
 }
 
@@ -244,6 +448,7 @@ fn describe(figures: &[AssertedFigure]) -> String {
         .map(|f| match f.unit {
             Unit::Kilometres => format!("{} km", trim_float(f.value)),
             Unit::Minutes => format!("{} min", trim_float(f.value)),
+            Unit::Metres => format!("{} m", trim_float(f.value)),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -337,6 +542,9 @@ fn leading_unit(tail: &str) -> Option<(Unit, f64)> {
     const KM: [&str; 4] = ["kilometres", "kilometers", "kilomètres", "km"];
     const MIN: [&str; 4] = ["minutes", "minute", "mins", "min"];
     const HOURS: [&str; 4] = ["hours", "hour", "heures", "hrs"];
+    // Elevation. Checked AFTER minutes so "min" is never read as a bare "m",
+    // and the longest forms lead as everywhere else here.
+    const METRES: [&str; 4] = ["mètres", "metres", "meters", "m+"];
 
     for form in KM {
         if tail.starts_with(form) {
@@ -353,11 +561,22 @@ fn leading_unit(tail: &str) -> Option<(Unit, f64)> {
             return Some((Unit::Minutes, 60.0));
         }
     }
+    for form in METRES {
+        if tail.starts_with(form) {
+            return Some((Unit::Metres, 1.0));
+        }
+    }
     if bare_form(tail, 'k') {
         return Some((Unit::Kilometres, 1.0));
     }
     if bare_form(tail, 'h') {
         return Some((Unit::Minutes, 60.0));
+    }
+    // Bare "m" last of all: "min" and "mètres" have already claimed their
+    // prefixes, and `bare_form` refuses anything with a letter after it, so a
+    // weight in "80 mg" or a pace in "5 min" cannot land here.
+    if bare_form(tail, 'm') {
+        return Some((Unit::Metres, 1.0));
     }
     None
 }
@@ -366,7 +585,8 @@ fn leading_unit(tail: &str) -> Option<(Unit, f64)> {
 /// i.e. not the first letter of a longer word.
 ///
 /// "10k." and "10k" both count; "10kg" does not, which is what stops a body
-/// weight from being read as a distance.
+/// weight from being read as a distance — or, for `m`, an "80 mg" supplement
+/// dose from being read as elevation.
 fn bare_form(tail: &str, letter: char) -> bool {
     let mut chars = tail.chars();
     if chars.next() != Some(letter) {

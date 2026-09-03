@@ -137,6 +137,26 @@ Everything above is your coaching context, not a competing identity.";
 /// channel constraints and the Stage 7g.2 output contract, so this block cannot
 /// contradict either one.
 ///
+/// ## Why it names one tool
+///
+/// Every other line here is about reading. The physiology line is the only
+/// *write* rule, and it is here because nothing else was going to produce it:
+/// `set_physiology` has been chat-callable since registre#39 — its category
+/// comment states this exact scenario, "my FTP is 285" — and the model never
+/// reached for it.
+///
+/// Live 2026-09-02: the athlete asked *"As tu acces a mes power zones?"*, was
+/// told no, supplied 380 W, and the coach **acknowledged seeing it** («tu l'as
+/// mentionné à 380W plus tôt»), hand-computed a threshold in prose, and stored
+/// nothing. Zero tool calls on all fifteen turns. The next session starts from
+/// the same "I don't have your zones" (registre#250).
+///
+/// The tool name is hard-coded, against the usual rule, because the alternative
+/// — "the physiology tool" — is exactly the vagueness that produced the miss.
+/// `the_turn_directive_names_a_tool_the_registry_serves` fails the build if the
+/// name ever stops resolving, which is the drift the rule was protecting
+/// against.
+///
 /// Public purely so the "states a task, asserts no identity" contract is
 /// testable without standing up the full async assembly stage — the same
 /// reason [`close_with_identity_anchor`] is public.
@@ -145,6 +165,10 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
      Ground every recommendation in something specific you know about them — their volume, \
      their injury history, their event, or what they told you earlier in this conversation.\n\
      If you need data you do not have, call one tool and then answer.\n\
+     If the athlete states a physiological value about themselves — FTP or threshold power, \
+     max or resting heart rate, lactate threshold, weight, VO2max — call `set_physiology` on \
+     that same turn before you use it. A number you only quote back is gone by the next \
+     conversation, and the zones derived from it never exist.\n\
      Do not restate the question, and do not list assumptions in place of an answer.";
 
 /// Voice anchor for a coach-bound turn, placed just ahead of the

@@ -339,6 +339,19 @@ pub const KEY_QUOTA_EXCEEDED: &str = "messaging.quota_exceeded";
 /// resets.
 pub const KEY_QUOTA_WARNING: &str = "messaging.quota_warning";
 
+/// Key: the sender is past the plan's limit and inside the burst allowance.
+///
+/// Distinct from [`KEY_QUOTA_WARNING`] because the two say different things and
+/// one template cannot say both. The warning renders "{used} of {limit}", which
+/// is nonsense once `used` exceeds `limit` — live on 2026-09-02 an athlete was
+/// told *"tu as utilisé 670828 de 500000 sur ton forfait"* four turns running
+/// (registre#251). The burst line names the limit and the reset, and never
+/// prints the comparison.
+///
+/// Also distinct from [`KEY_QUOTA_EXCEEDED`], which is for a turn that was
+/// REFUSED. A burst turn ran and the athlete got their answer.
+pub const KEY_QUOTA_BURST: &str = "messaging.quota_burst";
+
 /// Key: user has not connected any fitness provider yet.
 ///
 /// Surfaced by [`super::super::services::onboarding_gate`] when a messaging

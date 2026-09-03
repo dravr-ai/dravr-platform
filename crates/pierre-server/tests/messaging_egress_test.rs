@@ -605,30 +605,34 @@ fn a_quota_warning_reaches_the_athlete_as_its_own_message() {
     );
 }
 
+/// Render one notice at `level` in `locale`.
+fn quota_notice(level: QuotaLevel, current: i64, limit: i64, locale: &str) -> String {
+    let mut state = turn_state("Ta charge grimpe.");
+    state.quota = QuotaState::Warning(QuotaWarningState {
+        level,
+        current,
+        limit,
+        resets_at: "2026-08-25T00:00:00Z".to_owned(),
+    });
+    let turn = envelope(ChannelType::Telegram, state);
+    let rendered = render_reply(
+        &profile(ChannelType::Telegram).render,
+        &turn.assistant,
+        &strings(),
+        locale,
+    );
+    rendered.prose[1].clone()
+}
+
 /// The notice speaks the athlete's language on every channel we ship.
 #[test]
 fn the_quota_notice_is_written_in_all_five_locales() {
-    let registry = strings();
     let mut seen: Vec<String> = Vec::new();
     for locale in LOCALES {
-        let mut state = turn_state("Ta charge grimpe.");
-        state.quota = QuotaState::Warning(QuotaWarningState {
-            level: QuotaLevel::Burst,
-            current: 60,
-            limit: 50,
-            resets_at: "2026-08-25T00:00:00Z".to_owned(),
-        });
-        let turn = envelope(ChannelType::Telegram, state);
-        let rendered = render_reply(
-            &profile(ChannelType::Telegram).render,
-            &turn.assistant,
-            &registry,
-            locale,
-        );
-        let notice = rendered.prose[1].clone();
+        let notice = quota_notice(QuotaLevel::Approaching, 45, 50, locale);
         assert!(
-            notice.contains("60") && notice.contains("50"),
-            "{locale}: the notice must carry the counters, got {notice:?}"
+            notice.contains("45") && notice.contains("50"),
+            "{locale}: the approaching notice carries the counters, got {notice:?}"
         );
         assert!(
             !seen.contains(&notice),
@@ -637,6 +641,46 @@ fn the_quota_notice_is_written_in_all_five_locales() {
         seen.push(notice);
     }
     assert_eq!(seen.len(), 5);
+}
+
+/// Past the cap, the notice stops printing a comparison that no longer parses.
+///
+/// Both levels used to render the same template, `"{used} of {limit}"`, which
+/// is fine at 45 of 50 and nonsense at 60 of 50. Live 2026-09-02: an athlete
+/// was told *"tu as utilisé 670828 de 500000 sur ton forfait"* on four
+/// consecutive turns, under the replies where he was disputing the coach's
+/// facts about his own training (registre#251).
+#[test]
+fn the_burst_notice_never_prints_the_over_limit_comparison() {
+    for locale in LOCALES {
+        let notice = quota_notice(QuotaLevel::Burst, 60, 50, locale);
+        assert!(
+            !notice.contains("60"),
+            "{locale}: the used count is what makes the sentence absurd past \
+             the cap and must not appear: {notice:?}"
+        );
+        assert!(
+            notice.contains("50"),
+            "{locale}: the limit still belongs — it is what was passed: {notice:?}"
+        );
+        assert!(
+            notice.contains("2026-08-25T00:00:00Z"),
+            "{locale}: and when the budget comes back: {notice:?}"
+        );
+    }
+}
+
+/// The two levels say different things. One template for both is how the
+/// over-limit case went unnoticed.
+#[test]
+fn approaching_and_burst_are_different_sentences() {
+    for locale in LOCALES {
+        assert_ne!(
+            quota_notice(QuotaLevel::Approaching, 45, 50, locale),
+            quota_notice(QuotaLevel::Burst, 60, 50, locale),
+            "{locale}: burst must not reuse the approaching wording"
+        );
+    }
 }
 
 /// A chart the channel fetches follows the prose as its own message, in reply

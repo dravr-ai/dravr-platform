@@ -27,6 +27,7 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_database::database::repositories::UsageCounterRepository;
 use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
 use pierre_services::usage_counter::LimitCheckResult;
 use uuid::Uuid;
@@ -72,14 +73,78 @@ pub async fn check_pre_chat_quotas_scoped(
     )
     .await?;
 
-    Ok(warning.map_or(QuotaState::Ok, |check| {
-        let level = if check.burst_zone {
-            QuotaLevel::Burst
-        } else {
-            QuotaLevel::Approaching
-        };
-        QuotaState::Warning(warning_state(level, &check))
-    }))
+    let Some(check) = warning else {
+        return Ok(QuotaState::Ok);
+    };
+    let level = if check.burst_zone {
+        QuotaLevel::Burst
+    } else {
+        QuotaLevel::Approaching
+    };
+
+    // Once per level per budget window. Without this the notice rode under
+    // every reply for as long as the athlete stayed over the threshold: five
+    // consecutive turns on 2026-09-02, four of them already past the cap, and
+    // they landed under the replies where he was disputing the coach's facts
+    // about his own training (registre#251).
+    if claim_notice_slot(
+        ctx.repos.usage_counters.as_ref(),
+        tenant_id,
+        user_id,
+        level,
+        &check.resets_at,
+    )
+    .await
+    {
+        Ok(QuotaState::Warning(warning_state(level, &check)))
+    } else {
+        Ok(QuotaState::Ok)
+    }
+}
+
+/// Take the one notice slot for `(level, window)`, returning whether this turn
+/// got it.
+///
+/// `increment_counter` is an atomic upsert returning the new value, so the turn
+/// that sees `1` is the only one that can — no read-then-write race, and no new
+/// table. The counter is keyed on `resets_at` rather than on a date, because
+/// that string IS the window's identity: it is constant for the life of the
+/// budget period and changes the moment the period rolls, which is exactly when
+/// the athlete should hear about their budget again.
+///
+/// A repository error shows the notice. Between telling an athlete twice about
+/// their budget and never telling them at all, the repeat is the lesser fault —
+/// and it restores the old behaviour rather than inventing a third one.
+///
+/// `pub` and taking the repository rather than the whole pipeline context: the
+/// rule is worth pinning against a real database without standing up a turn.
+pub async fn claim_notice_slot(
+    counters: &dyn UsageCounterRepository,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    level: QuotaLevel,
+    resets_at: &str,
+) -> bool {
+    let key = match level {
+        QuotaLevel::Approaching => "quota_notice_approaching",
+        QuotaLevel::Burst => "quota_notice_burst",
+    };
+    match counters
+        .increment_counter(
+            &tenant_id.to_string(),
+            &user_id.to_string(),
+            key,
+            resets_at,
+            1,
+        )
+        .await
+    {
+        Ok(record) => record.value == 1,
+        Err(e) => {
+            tracing::warn!(error = %e, level = key, "quota notice slot unreadable; showing the notice");
+            true
+        }
+    }
 }
 
 /// Shape one limit check into the counters the notice block renders.

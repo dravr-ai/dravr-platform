@@ -225,15 +225,24 @@ fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
 /// mention a run the athlete actually did.
 #[test]
 fn probe_providerless_check_does_not_flag_a_real_ride() {
-    use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord};
+    use chrono::NaiveDate;
+    use pierre_core::models::SportType;
+    use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord, RecordedActivity};
     use pierre_evals::claim_extractor::extract_heuristic;
     use pierre_memory::{ClaimCategory, ClaimStatus};
 
     let truthful_reply = "Nice 12 km ride yesterday, that was a solid effort! Keep it going.";
+    let ride = |km: f64, min: f64| RecordedActivity {
+        date: NaiveDate::from_ymd_opt(2026, 9, 1).expect("valid date"),
+        sport: SportType::Ride,
+        name: String::new(),
+        distance_km: Some(km),
+        duration_min: min,
+        elevation_m: None,
+    };
     let record = AthleteRecord {
         has_provider: true,
-        distances_km: vec![12.2, 5.0],
-        durations_min: vec![38.0],
+        activities: vec![ride(12.2, 38.0), ride(5.0, 0.0)],
     };
 
     let claims = extract_heuristic(truthful_reply);

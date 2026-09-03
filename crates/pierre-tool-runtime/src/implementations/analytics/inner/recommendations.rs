@@ -12,6 +12,7 @@ use crate::runtime::ToolRuntime;
 use chrono::{Duration, Utc};
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_config::constants::time_constants;
+use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::AppResult;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -140,6 +141,7 @@ fn generate_training_recommendations(
     activities: &[Activity],
     recommendation_type: &str,
     algorithm_config: &AlgorithmConfig,
+    user_timezone: Option<&str>,
 ) -> serde_json::Value {
     if activities.is_empty() {
         return serde_json::json!({
@@ -168,9 +170,11 @@ fn generate_training_recommendations(
     }
 
     match recommendation_type {
-        "training_plan" => {
-            generate_training_plan_recommendations(&recent_activities, algorithm_config)
-        }
+        "training_plan" => generate_training_plan_recommendations(
+            &recent_activities,
+            algorithm_config,
+            user_timezone,
+        ),
         "recovery" => generate_recovery_recommendations(&recent_activities, algorithm_config),
         "intensity" => generate_intensity_recommendations(&recent_activities),
         "goal_specific" => {
@@ -185,10 +189,16 @@ fn generate_training_recommendations(
 fn generate_training_plan_recommendations(
     activities: &[Activity],
     algorithm_config: &AlgorithmConfig,
+    user_timezone: Option<&str>,
 ) -> serde_json::Value {
     // Analyze volume progression to detect spikes
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
-    let weekly_schedule = PatternDetector::detect_weekly_schedule(activities);
+    // The athlete's civil clock. Only the consistency score is read from this
+    // schedule and a uniform shift leaves it alone — but an athlete who trains
+    // some evenings at 19:00 and some at 21:00 has one local habit split across
+    // two UTC days, which reads as inconsistency they do not have (registre#252).
+    let weekly_schedule =
+        PatternDetector::detect_weekly_schedule(activities, resolve_zone(user_timezone));
 
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
@@ -1061,6 +1071,18 @@ pub fn handle_generate_recommendations(
                             );
                         }
 
+                        // The athlete's own zone, for the weekly-schedule
+                        // histogram behind the consistency score (registre#252).
+                        let user_timezone = executor
+                            .resources
+                            .repos()
+                            .users
+                            .get_global(user_uuid)
+                            .await
+                            .ok()
+                            .flatten()
+                            .and_then(|user| user.timezone);
+
                         // Try to use MCP sampling if available, otherwise use static analysis
                         let analysis = if let Some(sampling_peer) =
                             &executor.resources.sampling_peer()
@@ -1081,6 +1103,7 @@ pub fn handle_generate_recommendations(
                                         &activities,
                                         recommendation_type,
                                         &executor.cageux_config().algorithms,
+                                        user_timezone.as_deref(),
                                     )
                                 }
                             }
@@ -1090,6 +1113,7 @@ pub fn handle_generate_recommendations(
                                 &activities,
                                 recommendation_type,
                                 &executor.cageux_config().algorithms,
+                                user_timezone.as_deref(),
                             )
                         };
 

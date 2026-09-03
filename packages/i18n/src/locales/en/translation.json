@@ -1880,6 +1880,7 @@
     },
     "quota_exceeded": "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.",
     "quota_warning": "Heads-up: you've used {0} of {1} on your plan. The counter resets on {2}.",
+    "quota_burst": "Heads-up: you're past your plan's limit of {1} and running on reserve. The counter resets on {2}.",
     "rate_limited": "You're sending messages a little faster than your plan allows. Give it a moment and try again — I'll be here.",
     "reply_withheld": "My reply didn't go through — it mixed in technical details that don't belong here. Send your last message again and we'll pick up where we left off.",
     "scope": {

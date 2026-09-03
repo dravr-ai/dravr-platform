@@ -1880,6 +1880,7 @@
     },
     "quota_exceeded": "Tu as atteint la limite de conversation de ton forfait pour le moment. Elle se réinitialise automatiquement — reviens un peu plus tard.",
     "quota_warning": "Petite note : tu as utilisé {0} de {1} sur ton forfait. Le compteur se réinitialise le {2}.",
+    "quota_burst": "Petite note : tu as dépassé la limite de {1} de ton forfait — tu continues sur la réserve. Le compteur se réinitialise le {2}.",
     "rate_limited": "Tu envoies des messages un peu trop vite pour ton forfait. Attends un moment, puis réessaie — je serai là.",
     "reply_withheld": "Ma réponse n'est pas passée — elle mélangeait des détails techniques qui n'ont pas leur place ici. Renvoie ton dernier message et on reprend là où on en était.",
     "scope": {
