@@ -18,3 +18,4 @@ export { GlassContainer } from './GlassContainer';
 export { TabMenuItem } from './TabMenuItem';
 export { ExpandableTabBar, TAB_BAR_BOTTOM_OFFSET, TAB_BAR_GAP, tabBarBottomOffset } from './ExpandableTabBar';
 export { AppearanceToggleButton } from './AppearanceToggleButton';
+export { BrandLockup } from './BrandLockup';

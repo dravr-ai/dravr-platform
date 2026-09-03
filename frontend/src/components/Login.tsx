@@ -14,6 +14,7 @@ import { Button, Input, RevealButton } from './ui';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
+import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
 
 interface LoginProps {
   onNavigateToRegister?: () => void;
@@ -186,7 +187,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               className="font-display font-semibold text-2xl tracking-brand"
               style={{ color: '#a3d0be' }}
             >
-              DRAVR
+              {PRODUCT_WORDMARK}
             </span>
           </div>
 
@@ -271,7 +272,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
           <div className="lg:hidden flex items-center justify-center gap-3">
             <DravrLogo size={80} />
             <span className="font-display font-semibold text-xl tracking-brand text-on-surface">
-              DRAVR
+              {PRODUCT_WORDMARK}
             </span>
           </div>
 

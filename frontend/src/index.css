@@ -24,6 +24,14 @@
      foreground legible in both. */
   --color-primary-hover: 13 59 46;
 
+  /* Brand ink. `primary` is #00241a in light — a forest green so deep it reads
+     as black at text sizes, which left the light theme with no visible green
+     at all. `brand` is the same forest moved up its own tonal ramp until it
+     reads as a colour: it clears 4.5:1 on every light surface tier. It is an
+     INK token — the wordmark, coach-prose links, brand accents. A filled brand
+     surface is still `primary` with `on-primary` text (DESIGN.md §2). */
+  --color-brand: 37 95 77;
+
   --color-tertiary: 3 35 29;
   --color-on-tertiary: 255 255 255;
   --color-tertiary-container: 27 57 50;
@@ -44,11 +52,18 @@
   --color-surface: 249 249 246;
   --color-surface-dim: 218 218 215;
   --color-surface-bright: 249 249 246;
+  /* The light ladder separates on FILL, because light has neither the
+     light-on-dark hairline nor the halo the dark scheme leans on. Adjacent
+     tiers clear 1.06:1 and a raised surface clears 1.18:1 over the canvas
+     under it — DESIGN.md §2 "Light tier separation" carries the measured
+     table. `surface` against `surface-container-lowest` stays the one
+     deliberate near-pair (1.05:1): a card on the page canvas is lifted by
+     the ghost border and the two-layer shadow, not by its fill. */
   --color-surface-container-lowest: 255 255 255;
-  --color-surface-container-low: 244 244 241;
-  --color-surface-container: 238 238 235;
-  --color-surface-container-high: 232 232 229;
-  --color-surface-container-highest: 226 227 224;
+  --color-surface-container-low: 234 234 231;
+  --color-surface-container: 222 222 219;
+  --color-surface-container-high: 214 214 211;
+  --color-surface-container-highest: 207 208 204;
   --color-surface-variant: 226 227 224;
   --color-surface-tint: 60 102 88;
   /* The tone behind a drawer or sheet; reads as a shadow of the page, not as black. */
@@ -59,11 +74,13 @@
   /* `outline` is used as a TEXT colour in 182 places — de-emphasised labels,
      timestamps, counts, the sidebar section headers. That is a foreground
      role, so it answers to WCAG 1.4.3's 4.5:1, not to the 3:1 a border needs.
-     At its original value it measured 4.06:1 on surface-container-low and
+     At the MD3 value (#717974) it measured 4.06:1 on surface-container-low and
      3.20:1 on surface-dim, and no test had ever checked: every axe scan in
      this suite disabled the colour-contrast rule.
-     Both values below now clear 4.5:1 against every surface tone in their
-     scheme, with the darkest/lightest container as the binding case. */
+     Both values below clear 4.5:1 against every surface tone in their
+     scheme, with the darkest/lightest container as the binding case — which
+     is why the light value tracks the container ladder: separating the light
+     tiers moved the binding case down to surface-container-highest. */
 
   /* Foreground pairs for the pillar and feedback hues.
      The `bg-X/10 text-X` chip is used in 115 places — coach categories, verdict
@@ -83,7 +100,7 @@
   --color-on-success-container: 36 98 71;
   --color-on-warning-container: 117 87 25;
 
-  --color-outline: 90 97 93;
+  --color-outline: 82 90 85;
   --color-outline-variant: 192 200 195;
 
   /* Ghost border — visible enough to anchor cards on the light canvas
@@ -108,6 +125,8 @@ html.dark {
   --color-on-primary-container: 190 237 217;
   --color-primary-fixed-dim: 163 208 190;
   --color-primary-hover: 140 186 168;
+  /* Dark already had a legible brand green: it is `primary`. */
+  --color-brand: 163 208 190;
 
   --color-tertiary: 173 205 195;
   --color-on-tertiary: 1 32 26;

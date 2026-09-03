@@ -30,6 +30,7 @@ import {
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
 
 /**
  * The catalogue key for a Google sign-in failure.
@@ -122,7 +123,7 @@ export function LoginScreen() {
     }
   };
 
-  // Editorial hero wordmark — "DRAVR" in Space Grotesk with brand letter-spacing
+  // Editorial hero wordmark — the DRAVR lockup in Space Grotesk with brand letter-spacing
   const wordmarkStyle: TextStyle = {
     fontFamily: 'SpaceGrotesk_SemiBold',
     fontSize: 28,
@@ -199,7 +200,7 @@ export function LoginScreen() {
                 style={logoStyle}
                 resizeMode="contain"
               />
-              <Text style={wordmarkStyle}>DRAVR</Text>
+              <Text style={wordmarkStyle}>{PRODUCT_WORDMARK}</Text>
             </View>
             <Text style={kickerStyle}>{t('app.heroPersona')}</Text>
             <Text style={[heroHeadlineStyle, { marginTop: spacing.sm, marginBottom: spacing.sm }]}>

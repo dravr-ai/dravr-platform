@@ -21,7 +21,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { filterRows, type ConversationRowModel } from '@pierre/chat-utils';
 import { glassCard, gradients, useThemeColors } from '../../constants/theme';
-import { FloatingSearchBar, PromptDialog, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
+import { BrandLockup, FloatingSearchBar, PromptDialog, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
 import { threadHref } from '../../navigation/routes';
@@ -184,11 +184,22 @@ export function ConversationsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="conversations-screen">
-      {/* Header — the landing screen's chrome: title, appearance, bell, and the chat "+" */}
+      {/*
+        Header — the landing screen's chrome: the lockup, appearance, bell, and
+        the chat "+".
+
+        The lockup stands where the screen title used to, the way every
+        messenger writes its own name across the top of its conversation list.
+        The chat tab is the only one that carries it (DESIGN.md §5): the phone
+        has no icon rail to hold the mark, so this header is the single place
+        the athlete's Dravr identity can live, and repeating it on every tab
+        would make it chrome instead. The destination's name stays the spoken
+        one, so a screen reader still says which tab this is.
+      */}
       <View className="flex-row items-center px-4 py-2 border-b border-border-subtle">
-        <Text className="flex-1 text-xl font-bold text-text-primary" testID="conversations-title">
-          {t('app.convListTitle')}
-        </Text>
+        <View className="flex-1">
+          <BrandLockup accessibilityLabel={t('app.convListTitle')} testID="conversations-title" />
+        </View>
         <AppearanceToggleButton size={20} color={colors.text.secondary} />
         <NotificationBellButton size={20} color={colors.text.secondary} />
         <TouchableOpacity

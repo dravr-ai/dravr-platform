@@ -48,6 +48,7 @@ interface ThemeColors {
     primary: string;
     secondary: string;
     tertiary: string;
+    /** Links and active state — the brand ink, legible in both schemes. */
     accent: string;
   };
   /** Hairline border families (RN style strings include alpha). */
@@ -56,6 +57,8 @@ interface ThemeColors {
     default: string;
     strong: string;
   };
+  /** Brand ink at text sizes — the wordmark, links, brand accents. */
+  brand: string;
   /** Semantic flags. */
   success: string;
   warning: string;
@@ -77,10 +80,25 @@ interface ThemeContextValue {
   loading: boolean;
 }
 
+/**
+ * Ghost-border recipes, per scheme (DESIGN.md §2 "Outline / borders").
+ *
+ * A hairline only reads when it contrasts with what it sits on, and the two
+ * schemes need opposite ink for that: a pale grey-green line carries on the
+ * near-black canvas and disappears on a white card, which is how the light
+ * theme lost the only separation its near-identical surface tiers had. Light
+ * therefore takes the darker Product Tier ghost border; dark keeps the pale
+ * one at the lower opacities a near-black ground needs.
+ */
+const BORDER_INK: Record<ColorScheme, { rgb: string; subtle: number; default: number; strong: number }> = {
+  light: { rgb: '155, 165, 159', subtle: 0.22, default: 0.4, strong: 0.55 },
+  dark: { rgb: '192, 200, 195', subtle: 0.08, default: 0.14, strong: 0.22 },
+};
+
 function buildPalette(scheme: ColorScheme): ThemeColors {
   const tokens = scheme === 'dark' ? BOREAL_DARK : BOREAL_LIGHT;
   const pillars = PILLARS[scheme];
-  const borderRgb = '192, 200, 195';
+  const ink = BORDER_INK[scheme];
 
   return {
     tokens,
@@ -105,13 +123,14 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
       primary: tokens.onSurface,
       secondary: tokens.onSurfaceVariant,
       tertiary: tokens.outline,
-      accent: tokens.primary,
+      accent: tokens.brand,
     },
     border: {
-      subtle: `rgba(${borderRgb}, 0.08)`,
-      default: `rgba(${borderRgb}, 0.14)`,
-      strong: `rgba(${borderRgb}, 0.22)`,
+      subtle: `rgba(${ink.rgb}, ${ink.subtle})`,
+      default: `rgba(${ink.rgb}, ${ink.default})`,
+      strong: `rgba(${ink.rgb}, ${ink.strong})`,
     },
+    brand: tokens.brand,
     success: scheme === 'dark' ? '#79a694' : '#2e7d5b',
     warning: scheme === 'dark' ? '#d6b87a' : '#8f6a2e',
     error: tokens.error,

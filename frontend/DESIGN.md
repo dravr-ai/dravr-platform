@@ -4,7 +4,8 @@
 > `frontend/src/index.css`, `frontend/tailwind.config.cjs`,
 > `frontend-mobile/global.css`, `frontend-mobile/tailwind.config.js`, and
 > `packages/shared-constants/src/design-system.ts`. Any change to those files
-> must be reflected here.
+> must be reflected here. The brand's own name lives in
+> `packages/shared-constants/src/brands.ts` as `PRODUCT_WORDMARK`.
 
 Dravr ships two related design systems that share a brand identity but differ
 in tone:
@@ -25,7 +26,7 @@ on-color text pairings.
 
 | Property | Value |
 |---|---|
-| Brand name (lockup) | DRAVR — `letter-spacing: 0.15em` |
+| Brand name (lockup) | DRAVR — `letter-spacing: 0.15em`, `brand` ink |
 | Tone | Calm, premium, editorial — never glossy or hype |
 | Motif | Boreal forest at dusk — deep greens, paper-white, warm bronze |
 
@@ -40,15 +41,26 @@ identity and adds discipline for high-density screens.
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `primary` | `#00241a` | `#a3d0be` | Filled CTAs, active state, wordmark ink |
+| `primary` | `#00241a` | `#a3d0be` | Filled CTAs, active state |
 | `primary-container` | `#0d3b2e` | `#234e40` | Hero gradient endpoint, dense fills |
 | `on-primary` | `#ffffff` | `#002117` | **Mandatory** text color on `primary` surfaces |
 | `on-primary-container` | `#79a694` | `#beedd9` | Text on `primary-container` |
+| `brand` | `#255f4d` | `#a3d0be` | Brand **ink**: the DRAVR wordmark, coach-prose links, brand accents |
 
 **Dark-on-dark is a bug, never a style choice.** Any element with `bg-primary`
 or any inline `backgroundColor` ≤ `#234e40` MUST use `text-on-primary`
 (`#ffffff` in light, `#002117` in dark). The `.btn-primary` class enforces this
 with `!text-on-primary` so inherited text colors cannot bleed through.
+
+**`brand` is ink, never a fill.** `primary` in light is `#00241a` — a forest
+green so deep it reads as black at text sizes, which left the light theme with
+no visible green anywhere: the wordmark, the coach's prose links and the focus
+accent were all effectively black on white. `brand` is the same forest moved up
+its own tonal ramp (between `PRIMARY_PALETTE` 600 and 500) until it reads as a
+colour, and it clears 4.5:1 against every tier of the light surface stack —
+`#ffffff` 7.4:1 down to `surface-container-highest` 4.8:1. In dark it *is*
+`primary`, which was already legible there. A filled brand surface stays
+`bg-primary` + `text-on-primary`; the rule above is untouched.
 
 ### Surface stack (light)
 
@@ -56,14 +68,47 @@ with `!text-on-primary` so inherited text colors cannot bleed through.
 |---|---|---|
 | `surface` | `#f9f9f6` | App canvas (body background) |
 | `surface-container-lowest` | `#ffffff` | Cards, modals, popovers |
-| `surface-container-low` | `#f4f4f1` | Section fills, input backgrounds |
-| `surface-container` | `#eeeeeb` | Neutral chips, secondary surfaces |
-| `surface-container-high` | `#e8e8e5` | Hover states on neutral chips |
-| `surface-container-highest` | `#e2e3e0` | Pressed states, very dense rows |
+| `surface-container-low` | `#eaeae7` | Section fills, input backgrounds, thread canvas |
+| `surface-container` | `#dededb` | Neutral chips, secondary surfaces |
+| `surface-container-high` | `#d6d6d3` | Hover states on neutral chips |
+| `surface-container-highest` | `#cfd0cc` | Pressed states, very dense rows |
 
 Cards sit on **`surface-container-lowest` (pure white) with a 1px Product Tier
 ghost border + two-layer ambient shadow**. The page canvas (`surface`) is
 intentionally a half-step warmer than pure white so cards "lift off" the page.
+
+### Light tier separation
+
+**The light ladder has to separate on fill, because fill is all it has.** Dark
+gets a second channel for free: a pale hairline (`ghost-border`, `#c0c8c3` at
+22%) is visible on a near-black ground, so its tiers can sit a few percent
+apart and still read. Turn the same hairline onto a white card and it is gone,
+and a `#ffffff` surface on the old `#f4f4f1` canvas measured **1.05:1** — which
+is not a faint edge, it is no edge. That is why light mode read as unstyled
+while dark read as a system.
+
+| Pair | Minimum | Measured |
+|---|---|---|
+| Adjacent tiers — `surface`→`…-low`→`…`→`…-high`→`…-highest` | **1.06:1** | 1.14 / 1.12 / 1.08 / 1.06 |
+| A raised surface over the canvas under it — `…-lowest` on `…-low` | **1.18:1** | **1.21:1** |
+| `surface` vs `surface-container-lowest` | — (exempt) | 1.05:1 |
+
+The 1.18:1 floor is not invented: it is the separation the **dark** scheme
+already carried for the same pair (`surface-container-high` on
+`surface-container-low`, 1.20:1), and it is where the messengers this layout
+follows sit — WhatsApp's light thread runs a white bubble on `#efeae2`
+(1.20:1), Telegram's on `#e6ebee` (1.24:1).
+
+The last row is the one deliberate exemption. A card on the page canvas is
+lifted by the ghost border and the two-layer shadow — the Product Tier card
+recipe above — not by its fill, so those two tones stay a half-step apart on
+purpose. Everything that has no border and no shadow under it (chips, the
+composer field, a bubble, a hovered row) answers to the table.
+
+Body ink (`on-surface`, `#1a1c1b`) clears WCAG AA on every tier of the stack,
+17.1:1 at the top and 11.1:1 at the bottom; `on-surface-variant` clears it at
+6.0:1 in the worst case. `outline` — a *text* role — is what the deeper tiers
+bind, which is why its value tracks this ladder (see below).
 
 ### Pillar accents — Product Tier
 
@@ -117,7 +162,7 @@ deliberate rather than as drift.
 
 | Token | Hex (light) | Role |
 |---|---|---|
-| `outline` | `#717974` | Helper text, label tertiary |
+| `outline` | `#525a55` | Helper text, label tertiary |
 | `outline-variant` | `#c0c8c3` | Inactive icons, separator hints |
 | `ghost-border` (CSS var) | `rgba(155, 165, 159, 0.40)` | **Card and chip border baseline** |
 | `ghost-border-strong` (CSS var) | `rgba(155, 165, 159, 0.55)` | Focus rings, active separators |
@@ -126,13 +171,25 @@ The 0.40 opacity is load-bearing. The editorial-tier value (0.15) made cards
 invisible on the light canvas. Anything denser than 0.55 becomes a hard
 rule and breaks the Boreal "quiet separator" tone.
 
+**The ghost border changes ink between schemes, not just opacity.** Light draws
+it in `155 165 159`, dark in `192 200 195`, because a hairline has to contrast
+with what it sits on and the two grounds are opposite. Mobile shipped the dark
+ink in both schemes, which is how the light theme's last remaining separation
+channel disappeared along with its fill steps.
+
+`outline` is used as a **text** colour (helper lines, timestamps, counts,
+section headers), so it answers to WCAG 1.4.3's 4.5:1, not to the 3:1 a border
+needs. `#525a55` clears that against every tier of the light stack, 7.1:1 on
+white down to 4.6:1 on `surface-container-highest`. Its MD3 value (`#717974`)
+measured 4.25:1 on the canvas and 2.9:1 on the darkest tier.
+
 ---
 
 ## 3. Typography
 
 | Role | Family | Weight | Notes |
 |---|---|---|---|
-| Display, headlines | Space Grotesk | 600–700 | Hero text, page H1, the DRAVR wordmark |
+| Display, headlines | Space Grotesk | 600–700 | Hero text, page H1, the DRAVR wordmark (600) |
 | Body | Plus Jakarta Sans | 400–500 | All running text |
 | Labels, caps | Inter | 500 | Buttons, chips, table headers, small caps |
 | Serif accent | Newsreader | 400 | Editorial pull-quotes only (sparingly) |
@@ -178,6 +235,24 @@ React Native collapses to a single shadow per view. The mobile tokens in
 
 No glow. No violet ring. No backdrop-blur on standard cards (reserved for the
 `boreal-overlay` callout pattern used over photographic backgrounds only).
+
+### Which channel does the lifting
+
+Every shadow in this system is cast in `on-surface` ink — near-black. That is
+a **light**-scheme instrument: on the near-black dark canvas a black shadow is
+inert, and no opacity rescues it. So the two schemes lift a surface with
+different tools, and a component that reaches for the wrong one ships flat:
+
+| Scheme | What separates a raised surface | What is inert |
+|---|---|---|
+| Light | the **fill step** (§2 "Light tier separation") + the `ghost-border` hairline in `155 165 159` + the two-layer shadow | a pale hairline — invisible on white |
+| Dark | the **fill step** + the `ghost-border` hairline in `192 200 195` | the shadow — a black halo on a black ground |
+
+The fill step is the half both schemes share, and it is the half that has to be
+right first: it is the only channel that survives a screenshot, a reduced-
+transparency setting and a printer. Border and shadow reinforce it; neither
+substitutes for it. `aiGlow` is a legacy alias for `AMBIENT_SHADOW` and is not
+a third channel — there is no glow in this system.
 
 ---
 
@@ -273,12 +348,25 @@ then the thread with a back button in its header.
 
 | Region | Light | Dark | Notes |
 |---|---|---|---|
-| Icon rail (72px) | `surface-container` | `surface-container-lowest` | Brand mark, one icon per destination (Chat, Discover, Notifications), gear + avatar at the bottom. No name or role text — the name lives at the top of Settings. |
+| Icon rail (72px) — **web only** | `surface-container` | `surface-container-lowest` | Brand mark, one icon per destination (Chat, Discover, Notifications), gear + avatar at the bottom. No name or role text — the name lives at the top of Settings. |
+| Chat-tab header — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title, then the appearance toggle, the bell and the `+`. The other tabs keep their own titles. |
 | List column (360/400px) | `surface-container-lowest` | `surface` | Title + `+`, a search field, filter chips (All / Unread / Groups / Coaches), then rows. |
 | List row | hover `surface-container-low`, selected `surface-container-high` | same tokens | 48px initials avatar, title + time on line 1, preview + unread pill on line 2, inset ghost-border divider. Unread pill = `bg-primary text-on-primary`. |
 | Thread header | `surface-container` | `surface-container-low` | Avatar, title (the way into the info drawer), one subtitle line, `+`. |
 | Thread canvas | `surface-container-low` | `surface-container-low` | Bubbles on it, a day pill (`surface-container-high`) between days. |
 | Composer bar | `surface-container` with field `surface-container-lowest` | bar `surface-container-low`, field `surface-container-high` | The field must sit a step off its bar in both schemes. |
+
+**Mark only on web, mark plus name on the phone — because they are different
+shells.** The rail is a persistent 72px column that never leaves the screen, so
+a wordmark in it is repeated chrome and the mark alone is enough to say whose
+app this is. The phone has no rail: it has four unlabelled tab glyphs and one
+header per screen, so past the login screen there is nowhere else for identity
+to live. The chat tab's header is that place, and only that one — the wordmark
+on every screen would turn identity back into chrome. Set it the way §1 and §3
+define the lockup: Space Grotesk 600, `letter-spacing: 0.15em`, `brand` ink.
+The mark is self-contained (it brings its own deep-forest badge), so the same
+asset holds on both canvases — 14.9:1 at its darkest against the light one,
+9.5:1 at its lightest ripple against the dark one.
 
 | Element | Class | Notes |
 |---|---|---|
@@ -354,6 +442,13 @@ All motion respects `prefers-reduced-motion: reduce`.
 | Color encoding | Never the sole channel — pair with icon, label, or position |
 
 Pillar colors meet AA at 4.5:1 against `surface` (`#f9f9f6`).
+
+The surface ladder itself is measured, not assumed:
+`frontend/src/__tests__/DesignTokens.test.ts` computes every ratio in §2 from
+the token values, asserts the separation floors and the 4.5:1 text minimums,
+and checks the three mirrors against the tables in this file. The wordmark is
+data (`PRODUCT_WORDMARK` in `@pierre/shared-constants`), not a translated
+string, so it is identical in all five locales by construction.
 
 ---
 

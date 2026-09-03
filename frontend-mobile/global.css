@@ -35,16 +35,28 @@
     --color-surface-bright: 249 249 246;
     --color-surface-tint: 60 102 88;
     --color-surface-variant: 226 227 224;
-    --color-surface-container: 238 238 235;
+    /* The light container ladder separates on FILL. Light carries neither the
+       light-on-dark hairline nor the halo the dark scheme leans on, so tiers
+       that sat 1.05:1 apart read as one flat sheet. Adjacent tiers now clear
+       1.06:1 and a raised surface clears 1.18:1 over the canvas beneath it —
+       DESIGN.md §2 "Light tier separation". */
+    --color-surface-container: 222 222 219;
     --color-surface-container-lowest: 255 255 255;
-    --color-surface-container-low: 244 244 241;
-    --color-surface-container-high: 232 232 229;
-    --color-surface-container-highest: 226 227 224;
+    --color-surface-container-low: 234 234 231;
+    --color-surface-container-high: 214 214 211;
+    --color-surface-container-highest: 207 208 204;
 
     --color-on-surface: 26 28 27;
     --color-on-surface-variant: 65 72 69;
-    --color-outline: 113 121 116;
+    /* Helper text and tertiary labels. Clears 4.5:1 on every light tier,
+       including the darkest — the MD3 #717974 measured 4.25:1 on the canvas. */
+    --color-outline: 82 90 85;
     --color-outline-variant: 192 200 195;
+
+    /* Brand ink at text sizes — the wordmark, links, brand accents. `primary`
+       is #00241a in light and reads as black, so it cannot carry the green.
+       An ink token: a filled brand surface is `primary` + `on-primary`. */
+    --color-brand: 37 95 77;
 
     /* Pillar tints — Product Tier lift (~15% chroma) so semantic colors
        remain readable in dense data UIs. WCAG AA against surface (#F9F9F6). */
@@ -83,8 +95,10 @@
     --color-blue-600: 35 78 64;
     --color-blue-700: 13 59 46;
 
-    /* Border base — `<alpha-value>` slot is set in tailwind.config.js. */
-    --color-border: 192 200 195;
+    /* Ghost-border base — `<alpha-value>` slot is set in tailwind.config.js.
+       Light needs the darker grey-green of DESIGN.md's ghost border: the pale
+       192 200 195 the dark scheme uses is invisible on a white card. */
+    --color-border: 155 165 159;
 
     --color-success: 46 125 91;
     --color-warning: 176 131 38;
@@ -133,6 +147,9 @@
     --color-on-surface-variant: 192 200 195;
     --color-outline: 138 147 137;
     --color-outline-variant: 65 72 69;
+
+    /* Dark already had a legible brand green: it is `primary`. */
+    --color-brand: 163 208 190;
 
     --color-pillar-activity: 121 166 148;
     --color-pillar-nutrition: 214 184 122;

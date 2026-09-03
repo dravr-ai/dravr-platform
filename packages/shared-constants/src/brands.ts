@@ -44,3 +44,14 @@ export const PERSONA_NAME = {
   power_athlete: 'Power-athlete',
   coach: 'Coach',
 } as const;
+
+/**
+ * How Dravr writes its own name.
+ *
+ * A proper noun, so it is data rather than copy: the wordmark is identical in
+ * all five locales and must never travel through `t()`, where a translator
+ * would see an ordinary-looking five-letter string with no way to know it is
+ * the product's name. Every surface that draws the lockup — the login hero,
+ * the phone's chat header — reads it from here so the five letters exist once.
+ */
+export const PRODUCT_WORDMARK = 'DRAVR' as const;

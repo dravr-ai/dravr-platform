@@ -39,10 +39,10 @@ export const BOREAL_LIGHT = {
   surfaceDim: '#dadad7',
   surfaceBright: '#f9f9f6',
   surfaceContainerLowest: '#ffffff',
-  surfaceContainerLow: '#f4f4f1',
-  surfaceContainer: '#eeeeeb',
-  surfaceContainerHigh: '#e8e8e5',
-  surfaceContainerHighest: '#e2e3e0',
+  surfaceContainerLow: '#eaeae7',
+  surfaceContainer: '#dededb',
+  surfaceContainerHigh: '#d6d6d3',
+  surfaceContainerHighest: '#cfd0cc',
   surfaceVariant: '#e2e3e0',
   surfaceTint: '#3c6658',
   onSurface: '#1a1c1b',
@@ -53,8 +53,11 @@ export const BOREAL_LIGHT = {
   background: '#f9f9f6',
   onBackground: '#1a1c1b',
 
-  outline: '#717974',
+  outline: '#525a55',
   outlineVariant: '#c0c8c3',
+
+  /** Brand ink at text sizes — the wordmark, prose links, brand accents. */
+  brand: '#255f4d',
 } as const;
 
 // ========== BOREAL DARK — tuned variant for mobile OLED night use ==========
@@ -112,6 +115,9 @@ export const BOREAL_DARK = {
 
   outline: '#8a9389',
   outlineVariant: '#414845',
+
+  /** Brand ink at text sizes — the same role `primary` fills on the dark canvas. */
+  brand: '#a3d0be',
 } as const;
 
 /** Color scheme identifier for runtime theme selection. */
@@ -230,8 +236,8 @@ export const SURFACE_HIERARCHY = {
 /** Surface stack — web body background is `primary` (light canvas). */
 export const BACKGROUND_COLORS = {
   primary: BOREAL_LIGHT.surface,              // #F9F9F6 — base canvas
-  secondary: BOREAL_LIGHT.surfaceContainerLow,// #F4F4F1 — sections
-  tertiary: BOREAL_LIGHT.surfaceContainer,    // #EEEEEB — elevated surfaces
+  secondary: BOREAL_LIGHT.surfaceContainerLow,// #EAEAE7 — sections
+  tertiary: BOREAL_LIGHT.surfaceContainer,    // #DEDEDB — elevated surfaces
   elevated: BOREAL_LIGHT.surfaceContainerLowest, // #FFFFFF — floating cards
 } as const;
 
@@ -239,7 +245,7 @@ export const BACKGROUND_COLORS = {
 export const TEXT_COLORS = {
   primary: BOREAL_LIGHT.onSurface,         // #1A1C1B — default body copy
   secondary: BOREAL_LIGHT.onSurfaceVariant,// #414845 — muted body copy
-  tertiary: BOREAL_LIGHT.outline,          // #717974 — helper / label
+  tertiary: BOREAL_LIGHT.outline,          // #525A55 — helper / label
   accent: BOREAL_LIGHT.primary,            // #00241A — links, active state
 } as const;
 
