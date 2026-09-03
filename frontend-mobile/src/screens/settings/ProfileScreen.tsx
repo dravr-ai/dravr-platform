@@ -1,5 +1,5 @@
-// ABOUTME: Profile screen — edit display name, view the account email
-// ABOUTME: Mobile counterpart of the web Settings t('common.profile') tab, sharing its updateProfile call
+// ABOUTME: Profile pane — display name, account email, appearance and app language
+// ABOUTME: Holds what the web Profile pane holds, so the two clients group the same things
 
 import React, { useState } from 'react';
 import {
@@ -14,8 +14,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { spacing, useThemeColors } from '../../constants/theme';
+import { spacing, useThemeColors, useTheme } from '../../constants/theme';
+import type { AppearancePref } from '../../hooks/useAppearancePref';
 import { Input } from '../../components/ui';
+import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
@@ -34,6 +36,7 @@ export function ProfileScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const colors = useThemeColors();
+  const { pref: appearancePref, setPref: setAppearancePref } = useTheme();
   const { user, updateUser } = useAuth();
 
   const currentName = user?.display_name ?? '';
@@ -131,6 +134,83 @@ export function ProfileScreen() {
           >
             <Text style={{ fontSize: 16, color: colors.text.tertiary }}>{user?.email}</Text>
           </View>
+        </View>
+
+        {/* Appearance and language sit with the profile on web too — they are
+            how the athlete's own copy of the app reads, not a pane of their
+            own. */}
+        <View testID="profile-appearance-section">
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>
+            {t('settings.appearance')}
+          </Text>
+          <View style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+            {(['system', 'dark', 'light'] as const).map((option, idx, arr) => {
+              const isSelected = appearancePref === option;
+              const label =
+                option === 'system'
+                  ? t('settings.appearanceSystem')
+                  : option === 'dark'
+                    ? t('settings.appearanceDark')
+                    : t('settings.appearanceLight');
+              const description =
+                option === 'system'
+                  ? t('settings.appearanceSystemHint')
+                  : option === 'dark'
+                    ? t('settings.appearanceDarkHint')
+                    : t('settings.appearanceLightHint');
+              const icon = option === 'system' ? 'smartphone' : option === 'dark' ? 'moon' : 'sun';
+              return (
+                <TouchableOpacity
+                  key={option}
+                  testID={`appearance-option-${option}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => { void setAppearancePref(option as AppearancePref); }}
+                  style={[
+                    { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
+                    idx < arr.length - 1
+                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+                      : {},
+                  ]}
+                >
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 12,
+                      backgroundColor: colors.background.secondary,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 12,
+                    }}
+                  >
+                    <Feather name={icon} size={20} color={colors.text.secondary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, color: colors.text.primary }}>{label}</Text>
+                    <Text style={{ fontSize: 13, color: colors.text.tertiary, marginTop: 2 }}>{description}</Text>
+                  </View>
+                  <Feather
+                    name={isSelected ? 'check-circle' : 'circle'}
+                    size={20}
+                    color={isSelected ? colors.pierre.violet : colors.text.tertiary}
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* The switcher sets the chrome language AND `users.locale`, so the
+            coach answers in the language the athlete reads the app in. */}
+        <View testID="profile-language-section">
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 4 }}>
+            {t('settings.language')}
+          </Text>
+          <Text style={{ fontSize: 13, color: colors.text.tertiary, marginBottom: 12 }}>
+            {t('settings.languageDescription')}
+          </Text>
+          <LanguageSwitcher serverLocale={user?.locale} />
         </View>
 
         <TouchableOpacity

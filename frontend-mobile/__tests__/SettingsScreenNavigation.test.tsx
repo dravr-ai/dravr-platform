@@ -1,10 +1,10 @@
-// ABOUTME: Unit tests pinning that every Settings row actually navigates somewhere
-// ABOUTME: Six rows rendered a chevron and did nothing; these fail if any regresses to that
+// ABOUTME: Pins that every settings row leads to the pane the shared declaration names, and clears the chrome
+// ABOUTME: The screen was one 1,200pt scroll clipped by the notch at the top and the tab bar at the bottom
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { Linking } from 'react-native';
+import { render, fireEvent } from '@testing-library/react-native';
 import type { User } from '@pierre/shared-types';
+import { settingsPanesFor } from '@pierre/shared-constants';
 
 const mockPush = jest.fn();
 const mockBack = jest.fn();
@@ -12,6 +12,12 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: mockBack }),
   useFocusEffect: () => undefined,
 }));
+
+// jest.setup.js mocks the safe-area context with a real phone's geometry —
+// 44pt of status bar, 34pt of home indicator. Zeroes would let both layout
+// assertions pass on a screen that clips on every real device.
+const TOP_INSET = 44;
+const BOTTOM_INSET = 34;
 
 jest.mock('../src/services/api', () => ({
   userApi: {
@@ -24,17 +30,13 @@ jest.mock('../src/services/api', () => ({
   },
 }));
 
-jest.mock('../src/screens/chat/useUsageStatus', () => ({
-  useUsageStatus: () => ({ data: null, isLoading: false }),
-}));
-
 const mockUseAuth = jest.fn();
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
-// The MCP Tokens row is gated on the shared `api_tokens` flag. These specs are
-// about the rest of the screen, so the flag hook answers with its off default
+// The API Tokens pane is gated on the shared `api_tokens` flag. These specs
+// cover the rest of the list, so the flag hook answers with its off default
 // rather than dragging a QueryClientProvider into every render.
 jest.mock('../src/hooks/useFeatureFlags', () => ({
   useFeatureFlags: () => ({ flags: { api_tokens: false, billing_header: false }, known: [], isLoading: false, isError: false }),
@@ -42,6 +44,7 @@ jest.mock('../src/hooks/useFeatureFlags', () => ({
 }));
 
 import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
+import { tabBarBottomOffset } from '../src/components/ui/ExpandableTabBar';
 
 const baseUser: Partial<User> = {
   id: 'user-1',
@@ -51,6 +54,9 @@ const baseUser: Partial<User> = {
   role: 'user',
   user_status: 'active',
 };
+
+/** The panes a signed-in athlete gets with both feature flags off. */
+const athletePanes = settingsPanesFor('mobile').filter((pane) => pane.flag === null);
 
 describe('SettingsScreen navigation', () => {
   beforeEach(() => {
@@ -63,64 +69,62 @@ describe('SettingsScreen navigation', () => {
     });
   });
 
-  // Each of these rendered a chevron-right promising navigation while its
-  // TouchableOpacity carried no onPress at all. Tapping did nothing, which is
-  // indistinguishable from a broken screen.
-  it.each([
-    ['settings-edit-profile-button', '/(app)/(tabs)/(settings)/profile'],
-    ['settings-personal-info-button', '/(app)/(tabs)/(settings)/profile'],
-    ['settings-memory-button', '/(app)/memory'],
-    ['settings-privacy-button', '/(app)/(tabs)/(settings)/privacy'],
-  ])('%s navigates to %s', (testID, destination) => {
-    const { getByTestId } = render(<SettingsScreen />);
-    fireEvent.press(getByTestId(testID));
-    expect(mockPush).toHaveBeenCalledWith(destination);
+  it.each(athletePanes.map((pane) => [pane.id, pane.mobile as string]))(
+    'the %s row pushes %s',
+    (id, destination) => {
+      const { getByTestId } = render(<SettingsScreen />);
+      fireEvent.press(getByTestId(`settings-pane-${id}`));
+      expect(mockPush).toHaveBeenCalledWith(destination);
+    },
+  );
+
+  it('lists exactly the panes the shared declaration serves this athlete', () => {
+    // The list is derived, so a pane added to the declaration for web alone
+    // shows up here as a missing row rather than as a screen nobody compared.
+    const { queryByTestId } = render(<SettingsScreen />);
+    for (const pane of athletePanes) {
+      expect(queryByTestId(`settings-pane-${pane.id}`)).toBeTruthy();
+    }
+    // Flag-gated panes stay out while their flag is off: API tokens behind
+    // `api_tokens`, billing behind the build-time toggle.
+    expect(queryByTestId('settings-pane-tokens')).toBeNull();
+    expect(queryByTestId('settings-pane-billing')).toBeNull();
   });
 
-  it('routes both profile entry points to the same screen', () => {
-    // Web exposes a single Profile tab. Two rows reaching two different places
-    // would be the drift this parity work exists to remove.
+  it('no longer offers a per-athlete AI provider row', () => {
+    // Nobody brings their own model. The row asked for provider API keys and
+    // changed nothing about the coaching that followed.
+    const { queryByTestId } = render(<SettingsScreen />);
+    expect(queryByTestId('settings-pane-ai-provider')).toBeNull();
+    expect(queryByTestId('settings-ai-provider-button')).toBeNull();
+  });
+
+  it('keeps the top of the screen clear of the status bar', () => {
+    // The title and first card scrolled up behind the notch: the safe-area
+    // inset was padding inside the scroll, so it moved with the content.
+    const { getByTestId } = render(<SettingsScreen />);
+    const header = getByTestId('settings-safe-header');
+    expect(header.props.style.paddingTop).toBe(TOP_INSET);
+  });
+
+  it('clears the floating tab bar at the bottom of the scroll', () => {
+    // The tab bar floats over the scroll with no scrim, so the last row sat
+    // half-hidden behind it.
+    const { getByTestId } = render(<SettingsScreen />);
+    const scroll = getByTestId('settings-scroll');
+    expect(scroll.props.contentContainerStyle.paddingBottom).toBe(
+      tabBarBottomOffset(BOTTOM_INSET),
+    );
+    expect(tabBarBottomOffset(BOTTOM_INSET)).toBeGreaterThan(BOTTOM_INSET);
+  });
+
+  it('routes the header button to the profile pane the list also serves', () => {
     const { getByTestId } = render(<SettingsScreen />);
     fireEvent.press(getByTestId('settings-edit-profile-button'));
-    fireEvent.press(getByTestId('settings-personal-info-button'));
+    fireEvent.press(getByTestId('settings-pane-profile'));
 
     const destinations = mockPush.mock.calls.map((call) => call[0]);
     expect(destinations).toHaveLength(2);
     expect(new Set(destinations).size).toBe(1);
-  });
-
-  it('opens the help centre externally rather than doing nothing', async () => {
-    const openSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-    const { getByTestId } = render(<SettingsScreen />);
-    fireEvent.press(getByTestId('settings-help-center-button'));
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://dravr.ai/help');
-    });
-    openSpy.mockRestore();
-  });
-
-  it('opens terms externally rather than doing nothing', async () => {
-    const openSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-    const { getByTestId } = render(<SettingsScreen />);
-    fireEvent.press(getByTestId('settings-terms-privacy-button'));
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://dravr.ai/privacy');
-    });
-    openSpy.mockRestore();
-  });
-
-  it('renders the version as a plain row, not a tappable control', () => {
-    // Version has no destination and never did. Presenting it as a button
-    // advertised a tap that could not be serviced.
-    const { getByTestId, queryByTestId } = render(<SettingsScreen />);
-    expect(getByTestId('settings-version-row')).toBeTruthy();
-    expect(queryByTestId('settings-version-button')).toBeNull();
-  });
-
-  it('hides the billing row while billing is disabled', () => {
-    // BILLING_ENABLED is false for the first release and the billing route
-    // redirects away; showing an entry point would strand the user.
-    const { queryByTestId } = render(<SettingsScreen />);
-    expect(queryByTestId('settings-billing-button')).toBeNull();
   });
 });

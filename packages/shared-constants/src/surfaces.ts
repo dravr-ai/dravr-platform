@@ -131,14 +131,6 @@ export const USER_SURFACES: readonly UserSurface[] = [
     blocks: NO_BLOCKS,
   },
   {
-    id: 'ai-provider',
-    label: 'AI Provider',
-    web: 'settings',
-    mobile: '/(app)/(tabs)/(settings)/ai-provider',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-  {
     id: 'connected-apps',
     label: 'Connected Apps',
     web: 'settings',
@@ -200,3 +192,218 @@ export function surfacesFor(platform: 'web' | 'mobile'): UserSurface[] {
 export function webNavLabels(): string[] {
   return USER_SURFACES.map((s) => s.webNav).filter((label): label is string => label !== null);
 }
+
+/**
+ * A section inside a settings pane.
+ *
+ * Only panes that group several things name their sections; a pane that is a
+ * single destination has none. The ids are what each client tags its rendered
+ * block with, so the grouping is checkable rather than described.
+ */
+export type SettingsSectionId =
+  | 'account-status'
+  | 'usage'
+  | 'security'
+  | 'connected-mcp-apps'
+  | 'sign-out'
+  | 'version'
+  | 'coach-model'
+  | 'help'
+  | 'legal';
+
+/** The settings panes, by id. */
+export type SettingsPaneId =
+  | 'profile'
+  | 'connections'
+  | 'tokens'
+  | 'coaching'
+  | 'messaging'
+  | 'notifications'
+  | 'memory'
+  | 'privacy'
+  | 'about'
+  | 'account'
+  | 'billing';
+
+/** One named settings destination, and what it holds. */
+export interface SettingsPane {
+  id: SettingsPaneId;
+  /** Corpus key of the pane's name, rendered by both clients. */
+  nameKey: string;
+  /** Corpus key of the one-line hint under the name. */
+  hintKey: string;
+  /** Web: the `activeTab` id, or null when web serves it elsewhere. */
+  web: SettingsPaneId | null;
+  /** Mobile: the expo-router path, or null when mobile serves it elsewhere. */
+  mobile: string | null;
+  /**
+   * The sections the pane groups, in render order. Absent when the pane is a
+   * single destination with nothing to order.
+   */
+  holds?: readonly SettingsSectionId[];
+  /**
+   * The gate the pane rides on: the `api_tokens` server feature flag, the
+   * build-time billing toggle, or nothing.
+   */
+  flag: 'api_tokens' | 'billing' | null;
+  /** Required when either side is null: why that platform lacks the pane. */
+  why?: string;
+}
+
+/**
+ * Every settings pane, in menu order — the one declaration of how settings are
+ * grouped, read by the web tab rail and the mobile settings list alike.
+ *
+ * Distinct from {@link USER_SURFACES}, which answers a different question:
+ * that registry says whether a destination EXISTS on a platform, this one says
+ * what the settings menu LISTS, in what order, under which name, holding what.
+ * They overlap on the settings destinations by design; neither derives the
+ * other, because a surface can exist without being a pane — `connected-apps`
+ * is a screen of its own on mobile and a section of the Account pane on web.
+ *
+ * It exists because the grouping drifted with nothing to catch it: usage sat
+ * inside Account on web and stood alone on mobile, MCP apps likewise, and the
+ * mobile app served the whole lot as one 1,200pt scroll while web served ten
+ * named panes. `holds` is what pins that — the two clients render the same
+ * sections, in the same pane, in the same order.
+ */
+export const SETTINGS_PANES: readonly SettingsPane[] = [
+  {
+    id: 'profile',
+    nameKey: 'settingsTabs.profile',
+    hintKey: 'settingsTabs.profileHint',
+    web: 'profile',
+    mobile: '/(app)/(tabs)/(settings)/profile',
+    flag: null,
+  },
+  {
+    id: 'connections',
+    nameKey: 'settingsTabs.connections',
+    hintKey: 'settingsTabs.connectionsHint',
+    web: 'connections',
+    mobile: '/(app)/(tabs)/(settings)/connections',
+    flag: null,
+  },
+  {
+    id: 'tokens',
+    nameKey: 'settingsTabs.tokens',
+    hintKey: 'settingsTabs.tokensHint',
+    web: 'tokens',
+    mobile: '/(app)/(tabs)/(settings)/tokens',
+    flag: 'api_tokens',
+  },
+  {
+    id: 'coaching',
+    nameKey: 'settingsTabs.coaching',
+    hintKey: 'settingsTabs.coachingHint',
+    web: 'coaching',
+    mobile: '/(app)/(tabs)/(settings)/coaching-style',
+    flag: null,
+  },
+  {
+    id: 'messaging',
+    nameKey: 'settingsTabs.messaging',
+    hintKey: 'settingsTabs.messagingHint',
+    web: 'messaging',
+    mobile: '/(app)/(tabs)/(settings)/messaging',
+    flag: null,
+  },
+  {
+    id: 'notifications',
+    nameKey: 'settingsTabs.notifications',
+    hintKey: 'settingsTabs.notificationsHint',
+    web: 'notifications',
+    mobile: '/(app)/(tabs)/(settings)/notification-preferences',
+    flag: null,
+  },
+  {
+    id: 'memory',
+    nameKey: 'settingsTabs.memory',
+    hintKey: 'settingsTabs.memoryHint',
+    web: 'memory',
+    mobile: '/(app)/memory',
+    flag: null,
+  },
+  {
+    id: 'privacy',
+    nameKey: 'settingsTabs.privacy',
+    hintKey: 'settingsTabs.privacyHint',
+    web: 'privacy',
+    mobile: '/(app)/(tabs)/(settings)/privacy',
+    flag: null,
+  },
+  {
+    id: 'about',
+    nameKey: 'settingsTabs.about',
+    hintKey: 'settingsTabs.aboutHint',
+    web: 'about',
+    mobile: '/(app)/(tabs)/(settings)/about',
+    holds: ['version', 'coach-model', 'help', 'legal'],
+    flag: null,
+  },
+  {
+    id: 'account',
+    nameKey: 'settingsTabs.account',
+    hintKey: 'settingsTabs.accountHint',
+    web: 'account',
+    mobile: '/(app)/(tabs)/(settings)/account',
+    holds: ['account-status', 'usage', 'security', 'connected-mcp-apps', 'sign-out'],
+    flag: null,
+  },
+  {
+    id: 'billing',
+    nameKey: 'app.billing',
+    hintKey: 'app.planAndUsage',
+    web: null,
+    mobile: '/(app)/billing',
+    flag: 'billing',
+    why: 'Web serves plan and usage from the Usage destination in the sidebar, which the settings menu does not duplicate.',
+  },
+];
+
+/**
+ * Panes an operator does not get: provider connections, messaging and About
+ * are athlete-account surfaces. Gated on `role`, as the Dashboard gates.
+ */
+export const ADMIN_HIDDEN_PANES: ReadonlySet<SettingsPaneId> = new Set([
+  'connections',
+  'about',
+  'messaging',
+]);
+
+/** The panes a platform lists in its settings menu, in menu order. */
+export function settingsPanesFor(platform: 'web' | 'mobile'): SettingsPane[] {
+  return SETTINGS_PANES.filter((pane) => pane[platform] !== null);
+}
+
+/** The pane with this id. */
+export function settingsPane(id: SettingsPaneId): SettingsPane {
+  const pane = SETTINGS_PANES.find((candidate) => candidate.id === id);
+  if (!pane) {
+    throw new Error(`No settings pane declared for id "${id}"`);
+  }
+  return pane;
+}
+
+/**
+ * The sections a pane groups, in render order — empty for a pane that is a
+ * single destination. Both clients render from this, so a section moved on one
+ * of them without moving here shows up as a missing block rather than as a
+ * layout nobody compared.
+ */
+export function settingsPaneSections(id: SettingsPaneId): readonly SettingsSectionId[] {
+  return settingsPane(id).holds ?? [];
+}
+
+/**
+ * Where the About pane's help and legal rows go.
+ *
+ * One address for both clients. The marketing site's help, privacy and terms
+ * paths each answer 404, and a per-client copy of the destination is how the
+ * same dead link ships twice.
+ */
+export const HELP_URL = 'https://dravr.ai/docs';
+export const LEGAL_URL = 'https://dravr.ai/docs';
+
+/** The release both clients report in their About pane. */
+export const APP_VERSION = '1.0.0';

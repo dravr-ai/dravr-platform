@@ -6,10 +6,10 @@ import path from 'path';
 import { SURFACE_CAPABILITIES, USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
 
 /**
- * Mobile silently lacked Profile, Privacy, Messaging and AI Provider while
- * rendering rows that pointed at them, and shipped Memory and Billing screens
- * nothing navigated to. None of that failed anything — it was visible only by
- * driving both apps side by side.
+ * Mobile silently lacked Profile, Privacy and Messaging while rendering rows
+ * that pointed at them, and shipped Memory and Billing screens nothing
+ * navigated to. None of that failed anything — it was visible only by driving
+ * both apps side by side.
  *
  * This is not a diff between web's routes and mobile's. It checks one client
  * against the single registry, which is the declaration of what the product
@@ -35,9 +35,10 @@ describe('surface parity — mobile', () => {
   it('declares at least the primary destinations', () => {
     // Guards against the registry itself being gutted to make this pass. The
     // floor moved from 14 to 13 when the Chat-First Cutover folded the Coaches
-    // tab into Discover, and to 12 when group management moved into the
-    // group's own chat thread: neither is a destination of its own now.
-    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(12);
+    // tab into Discover, to 12 when group management moved into the group's
+    // own chat thread, and to 11 when the per-athlete AI-provider screen was
+    // removed from both clients: each one destination fewer by decision.
+    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(11);
   });
 
   it('no longer declares the retired Coaches surface', () => {
@@ -45,6 +46,13 @@ describe('surface parity — mobile', () => {
     // a deep link into a route group that no longer exists.
     expect(USER_SURFACES.find((s) => s.id === 'coaches')).toBeUndefined();
     expect(USER_SURFACES.find((s) => s.id === 'insights')).toBeUndefined();
+  });
+
+  it('no longer declares the retired AI-provider surface', () => {
+    // Nobody brings their own model. The screen took provider API keys and
+    // changed nothing about the coaching, so a row pointing at it would open a
+    // route that no longer exists.
+    expect(USER_SURFACES.find((s) => s.id === 'ai-provider')).toBeUndefined();
   });
 
   it('no longer declares the retired Groups surface', () => {

@@ -433,7 +433,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     }
   });
 
-  // Mock user LLM settings (needed by AI Settings tab)
+  // Mock user LLM settings (read by the About pane for the model line)
   await page.route('**/api/user/llm-settings**', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
@@ -444,6 +444,11 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
           providers: [],
           user_credentials: [],
           tenant_credentials: [],
+          system_provider: {
+            name: 'copilot_headless',
+            display_name: 'Copilot Headless',
+            model: 'claude-sonnet-5',
+          },
         }),
       });
     } else {

@@ -1,5 +1,5 @@
-// ABOUTME: carnet #64 e2e — mobile can now list and revoke the MCP tokens it mints, behind the api_tokens gate
-// ABOUTME: Mounts the real SettingsScreen over a stubbed transport, so the revoke DELETE is asserted on the wire
+// ABOUTME: carnet #64 e2e — mobile can list and revoke the MCP tokens it mints, behind the api_tokens gate
+// ABOUTME: Mounts the real API Tokens pane over a stubbed transport, so the revoke DELETE is asserted on the wire
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -44,6 +44,7 @@ jest.mock('../../src/screens/chat/useUsageStatus', () => ({
 }));
 
 import { SettingsScreen } from '../../src/screens/settings/SettingsScreen';
+import { TokensScreen } from '../../src/screens/settings/TokensScreen';
 import { i18n } from '@pierre/i18n';
 
 const DESKTOP_TOKEN: McpToken = {
@@ -77,15 +78,11 @@ function features(apiTokens: boolean): MeFeaturesResponse {
   };
 }
 
-function renderSettings() {
+function renderWith(screen: React.ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return render(
-    <QueryClientProvider client={client}>
-      <SettingsScreen />
-    </QueryClientProvider>,
-  );
+  return render(<QueryClientProvider client={client}>{screen}</QueryClientProvider>);
 }
 
 describe('carnet #64 — mobile MCP token revocation', () => {
@@ -113,23 +110,18 @@ describe('carnet #64 — mobile MCP token revocation', () => {
       },
     });
 
-    const { getByTestId, getByText, queryByTestId } = renderSettings();
+    const { getByTestId, getByText, queryByTestId } = renderWith(<TokensScreen />);
 
-    // The row is only rendered once the gate answers "on", and it counts the
-    // tokens the server actually returned.
     await waitFor(() => {
-      expect(getByTestId('settings-mcp-tokens-button')).toBeTruthy();
+      expect(getByTestId('mcp-token-row-tok-desktop')).toBeTruthy();
     });
-    expect(getByText('2 active')).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.press(getByTestId('settings-mcp-tokens-button'));
-    });
-
-    expect(getByTestId('mcp-token-row-tok-desktop')).toBeTruthy();
     expect(getByTestId('mcp-token-row-tok-laptop')).toBeTruthy();
     expect(getByText('Claude Desktop')).toBeTruthy();
-    expect(getByText('pk_live_c3d4… · used 0×')).toBeTruthy();
+    // Against the corpus, not an English literal: the prefix-and-usage line was
+    // hardcoded English on this row until the pane was extracted.
+    expect(
+      getByText(i18n.t('app.tokenPrefixUsage', { prefix: 'pk_live_c3d4', uses: 0 })),
+    ).toBeTruthy();
 
     fireEvent.press(getByTestId('revoke-token-tok-laptop'));
 
@@ -168,22 +160,35 @@ describe('carnet #64 — mobile MCP token revocation', () => {
     expect(getByTestId('mcp-token-row-tok-desktop')).toBeTruthy();
   });
 
+  it('offers the API Tokens pane once the gate answers on', async () => {
+    stub = installHttpStub({
+      'GET /api/me/features': { data: features(true) },
+      'GET /api/oauth/status': { data: { providers: [] } },
+    });
+
+    const { getByTestId } = renderWith(<SettingsScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('settings-pane-tokens')).toBeTruthy();
+    });
+  });
+
   it('renders no token surface at all while api_tokens is off', async () => {
     stub = installHttpStub({
       'GET /api/me/features': { data: features(false) },
       'GET /api/oauth/status': { data: { providers: [] } },
     });
 
-    const { getByTestId, queryByTestId } = renderSettings();
+    const { getByTestId, queryByTestId } = renderWith(<SettingsScreen />);
 
     // Wait on a row that renders for everyone before asserting the absence.
     await waitFor(() => {
-      expect(getByTestId('settings-change-password-button')).toBeTruthy();
+      expect(getByTestId('settings-pane-account')).toBeTruthy();
     });
-    expect(queryByTestId('settings-mcp-tokens-button')).toBeNull();
+    expect(queryByTestId('settings-pane-tokens')).toBeNull();
 
-    // With the gate closed the screen must not even ask for the token list —
-    // an unstubbed GET would throw out of the stub adapter.
+    // With the gate closed the list must not even ask for the tokens — an
+    // unstubbed GET would throw out of the stub adapter.
     expect(stub.requests.map((request) => request.url)).not.toContain('/api/user/mcp-tokens');
   });
 });

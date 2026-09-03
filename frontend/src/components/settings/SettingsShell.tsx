@@ -7,11 +7,12 @@
 import { Suspense, lazy, useMemo } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
+import { ADMIN_HIDDEN_PANES } from '@pierre/shared-constants';
 import { useAuth } from '../../hooks/useAuth';
 import { FEATURE_KEYS, useFeatureFlags } from '../../hooks/useFeatureFlags';
 import { useIsDesktop } from '../../hooks/useBreakpoint';
 import SettingsMenu from './SettingsMenu';
-import { ADMIN_HIDDEN_TABS, SETTINGS_TABS, type SettingsTab } from './settingsTabs';
+import { SETTINGS_TABS, type SettingsTab } from './settingsTabs';
 
 const UserSettings = lazy(() => import('../UserSettings'));
 
@@ -31,7 +32,7 @@ export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellPr
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
 
   const tabs = useMemo(() => {
-    const base = isAdminUser ? SETTINGS_TABS.filter((entry) => !ADMIN_HIDDEN_TABS.has(entry.id)) : SETTINGS_TABS;
+    const base = isAdminUser ? SETTINGS_TABS.filter((entry) => !ADMIN_HIDDEN_PANES.has(entry.id)) : SETTINGS_TABS;
     return flags[FEATURE_KEYS.apiTokens] ? base : base.filter((entry) => entry.id !== 'tokens');
   }, [isAdminUser, flags]);
 

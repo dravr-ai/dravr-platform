@@ -1,20 +1,13 @@
-// ABOUTME: Unit tests for the Usage section in the SettingsScreen
-// ABOUTME: Verifies quota meter labels, compact formatting, and resource counts
+// ABOUTME: Unit tests for the Account pane — its section grouping and the quota meters inside it
+// ABOUTME: Usage and connected MCP apps stood alone on the phone while web held them under Account
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
+import { settingsPaneSections } from '@pierre/shared-constants';
 
-// Mock safe area
-jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-}));
 
-// Mock LinearGradient
-jest.mock('expo-linear-gradient', () => ({
-  LinearGradient: ({ children, ...props }: { children: React.ReactNode }) => {
-    const { View } = require('react-native');
-    return <View {...props}>{children}</View>;
-  },
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
 }));
 
 // Mock Feather icons
@@ -30,6 +23,8 @@ jest.mock('../src/contexts/AuthContext', () => ({
       email: 'test@pierre.dev',
       display_name: 'Test User',
       role: 'user',
+      user_status: 'active',
+      created_at: '2026-01-15T12:00:00Z',
     },
     logout: jest.fn(),
     isAuthenticated: true,
@@ -39,24 +34,9 @@ jest.mock('../src/contexts/AuthContext', () => ({
 // Mock API service
 jest.mock('../src/services/api', () => ({
   userApi: {
-    getMcpTokens: jest.fn().mockResolvedValue({ tokens: [] }),
-  },
-  oauthApi: {
-    getProvidersStatus: jest.fn().mockResolvedValue({ providers: [] }),
+    changePassword: jest.fn(),
   },
   apiClient: { get: jest.fn() },
-}));
-
-// Mock shared-constants
-// PERSONA_NAME mirrors the real map — the settings row renders from it.
-jest.mock('@pierre/shared-constants', () => ({
-  QUERY_KEYS: { usage: { status: () => ['usage', 'status'] } },
-  PERSONA_NAME: {
-    casual: 'Casual',
-    enthusiast: 'Enthusiast',
-    power_athlete: 'Power-athlete',
-    coach: 'Coach',
-  },
 }));
 
 // Mock useUsageStatus with realistic quota data
@@ -90,25 +70,36 @@ jest.mock('../src/screens/chat/useUsageStatus', () => ({
 }));
 
 // Must import AFTER mocks
-// The MCP Tokens row is gated on the shared `api_tokens` flag. These specs are
-// about the rest of the screen, so the flag hook answers with its off default
-// rather than dragging a QueryClientProvider into every render.
-jest.mock('../src/hooks/useFeatureFlags', () => ({
-  useFeatureFlags: () => ({ flags: { api_tokens: false, billing_header: false }, known: [], isLoading: false, isError: false }),
-  FEATURE_KEYS: { apiTokens: 'api_tokens', billingHeader: 'billing_header' },
-}));
+import { AccountScreen } from '../src/screens/settings/AccountScreen';
 
-import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
-
-describe('SettingsScreen - Usage Card', () => {
+describe('AccountScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  it('renders every section the shared declaration groups under Account', async () => {
+    // Web has held status, usage, security and the connected MCP apps together
+    // since it had panes; the phone scattered them down one scroll.
+    const { getByTestId } = render(<AccountScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('account-screen')).toBeTruthy();
+    });
+    const sections = settingsPaneSections('account');
+    expect([...sections]).toEqual([
+      'account-status',
+      'usage',
+      'security',
+      'connected-mcp-apps',
+      'sign-out',
+    ]);
+    for (const section of sections) {
+      expect(getByTestId(`account-section-${section}`)).toBeTruthy();
+    }
+  });
+
   it('should render usage section with quota meter labels', async () => {
-    const { getByText } = render(
-      <SettingsScreen />
-    );
+    const { getByText } = render(<AccountScreen />);
 
     await waitFor(() => {
       expect(getByText('Usage')).toBeTruthy();
@@ -119,9 +110,7 @@ describe('SettingsScreen - Usage Card', () => {
   });
 
   it('should display token counts in compact format', async () => {
-    const { getByText } = render(
-      <SettingsScreen />
-    );
+    const { getByText } = render(<AccountScreen />);
 
     await waitFor(() => {
       // 145000 -> "145.0K" and 500000 -> "500.0K"
@@ -130,9 +119,7 @@ describe('SettingsScreen - Usage Card', () => {
   });
 
   it('should display resource counts for coaches and conversations', async () => {
-    const { getByText } = render(
-      <SettingsScreen />
-    );
+    const { getByText } = render(<AccountScreen />);
 
     await waitFor(() => {
       expect(getByText('Coaches')).toBeTruthy();

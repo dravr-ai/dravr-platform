@@ -312,6 +312,9 @@ export function createUserApi(axios: AxiosInstance) {
 
     /**
      * Get LLM settings.
+     *
+     * Read by both clients' About pane, which states which model answers the
+     * athlete — `system_provider` — as text they cannot edit.
      */
     async getLlmSettings(): Promise<LlmSettingsResponse> {
       const response = await axios.get<LlmSettingsResponse>(ENDPOINTS.USER.LLM_SETTINGS);
@@ -320,6 +323,13 @@ export function createUserApi(axios: AxiosInstance) {
 
     /**
      * Save LLM credentials for a provider.
+     *
+     * LIMITATION(registre#230): `saveLlmCredentials`, `validateLlmCredentials` and
+     * `deleteLlmCredentials` have no production caller. The athlete-facing
+     * AI-provider surface was removed from both clients — nobody brings their own
+     * model — and the endpoints and these three methods are kept by decision, for a
+     * re-add. Per-tenant provider configuration continues through the operator
+     * console.
      */
     async saveLlmCredentials(
       data: SaveLlmCredentialsRequest

@@ -13,13 +13,19 @@ import { useTranslation } from '@pierre/i18n';
 import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import type { OAuthGrant, ThemePreference } from '@pierre/shared-types';
+import {
+  ADMIN_HIDDEN_PANES,
+  APP_VERSION,
+  HELP_URL,
+  LEGAL_URL,
+  settingsPaneSections,
+} from '@pierre/shared-constants';
 import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast } from './ui';
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
-import LlmSettingsTab from './LlmSettingsTab';
-import { ADMIN_HIDDEN_TABS, SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
+import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
@@ -133,7 +139,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const { flags: featureFlags } = useFeatureFlags();
   const visibleTabs = useMemo(() => {
     const base = isAdminUser
-      ? SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_TABS.has(tab.id))
+      ? SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_PANES.has(tab.id))
       : SETTINGS_TABS;
     // API Tokens tab is gated behind the per-tenant/per-user flag; default
     // off until an admin flips it on.
@@ -244,6 +250,19 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
   // Fetch usage quota status
   const { data: usageData, isLoading: usageLoading } = useUsageStatus();
+
+  // Which model answers this athlete. Read-only, and About is where it lives:
+  // the athlete does not choose a provider, so the fact belongs beside the
+  // version rather than beside a key field.
+  const { data: llmSettings } = useQuery({
+    queryKey: QUERY_KEYS.llmSettings.list(),
+    queryFn: () => userApi.getLlmSettings(),
+    enabled: isAuthenticated && activeTab === 'about',
+  });
+  const systemProvider = llmSettings?.system_provider;
+  const coachModelLabel = systemProvider
+    ? [systemProvider.display_name, systemProvider.model].filter(Boolean).join(' · ')
+    : null;
 
   const oauthApps: OAuthApp[] = oauthAppsResponse?.apps || [];
   const tokens: McpToken[] = tokensResponse?.tokens || [];
@@ -1302,9 +1321,6 @@ Authorization: Bearer <your-token-here>`}
           </>
         )}
 
-        {/* AI Settings Tab */}
-        {activeTab === 'llm' && <LlmSettingsTab />}
-
         {activeTab === 'coaching' && <CoachingPersonaTab />}
 
         {activeTab === 'messaging' && <MessagingSettingsTab />}
@@ -1315,269 +1331,333 @@ Authorization: Bearer <your-token-here>`}
 
         {activeTab === 'privacy' && <PrivacySettingsTab />}
 
-        {/* About Tab */}
+        {/* About Tab — rows in the order the shared pane declaration holds
+            them, so the phone's About screen lists the same four things. */}
         {activeTab === 'about' && (
           <Card variant="dark">
             <h2 className="text-lg font-semibold text-on-surface mb-6">{t('about.title')}</h2>
             <div className="space-y-3">
-              {/* Version */}
-              <div className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
-                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm text-on-surface-variant">{t('settingsUi.version')}</p>
-                  <p className="text-on-surface font-medium">1.0.0</p>
-                </div>
-              </div>
-
-              {/* Help Center */}
-              <a
-                href="https://dravr.ai/help"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-primary-container/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-on-surface font-medium">{t('about.helpCenter')}</p>
-                  <p className="text-sm text-on-surface-variant">{t('about.helpHint')}</p>
-                </div>
-                <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </a>
-
-              {/* Terms & Privacy */}
-              <a
-                href="https://dravr.ai/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-activity/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-on-surface font-medium">{t('settingsUi.termsPrivacy')}</p>
-                  <p className="text-sm text-on-surface-variant">{t('about.legalHint')}</p>
-                </div>
-                <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </a>
+              {settingsPaneSections('about').map((section) => {
+                switch (section) {
+                  case 'version':
+                    return (
+                      <div
+                        key={section}
+                        data-testid="about-section-version"
+                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-on-surface-variant">{t('settingsUi.version')}</p>
+                          <p className="text-on-surface font-medium">{APP_VERSION}</p>
+                        </div>
+                      </div>
+                    );
+                  case 'coach-model':
+                    return (
+                      <div
+                        key={section}
+                        data-testid="about-section-coach-model"
+                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-on-surface-variant">{t('about.coachModel')}</p>
+                          <p className="text-on-surface font-medium break-words" data-testid="about-coach-model-value">
+                            {coachModelLabel ?? t('about.coachModelUnknown')}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  case 'help':
+                    return (
+                      <a
+                        key={section}
+                        data-testid="about-section-help"
+                        href={HELP_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-primary-container/15 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-on-surface font-medium">{t('about.helpCenter')}</p>
+                          <p className="text-sm text-on-surface-variant">{t('about.helpHint')}</p>
+                        </div>
+                        <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </a>
+                    );
+                  case 'legal':
+                    return (
+                      <a
+                        key={section}
+                        data-testid="about-section-legal"
+                        href={LEGAL_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-activity/15 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-on-surface font-medium">{t('about.legalDocuments')}</p>
+                          <p className="text-sm text-on-surface-variant">{t('about.legalHint')}</p>
+                        </div>
+                        <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </a>
+                    );
+                  default:
+                    return null;
+                }
+              })}
             </div>
           </Card>
         )}
 
-        {/* Account Tab */}
+        {/* Account Tab — the cards in the order the shared pane declaration
+            holds them, so the phone groups the same five things under Account
+            rather than scattering usage and connected apps across a scroll. */}
         {activeTab === 'account' && (
           <>
-            <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('profile.accountStatus')}</h2>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center py-2 border-b ghost-border">
-                  <span className="text-on-surface-variant">{t('settingsUi.status')}</span>
-                  <span
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      user?.user_status === 'active'
-                        ? 'bg-success/20 text-on-success-container'
-                        : 'bg-warning/20 text-on-warning-container'
-                    }`}
-                  >
-                    {user?.user_status?.charAt(0).toUpperCase()}
-                    {user?.user_status?.slice(1)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b ghost-border">
-                  <span className="text-on-surface-variant">{t('settingsUi.role')}</span>
-                  <span className="text-on-surface capitalize">{user?.role}</span>
-                </div>
-                <div className="flex justify-between items-center py-2">
-                  <span className="text-on-surface-variant">{t('profile.memberSince')}</span>
-                  <span className="text-on-surface">
-                    {user?.created_at
-                      ? format(new Date(user.created_at), 'MMM d, yyyy')
-                      : t('settingsUi.unknownDate')}
-                  </span>
-                </div>
-              </div>
-            </Card>
-
-            {/* Usage Quota Card */}
-            {/* Usage quotas are user-facing only, not shown for admin */}
-            {!isAdminUser && (
-            <Card variant="dark">
-              <div className="flex items-start gap-4 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-on-surface">{t('settingsUi.usage')}</h2>
-                  <p className="text-sm text-on-surface-variant">{t('account.quotaHint')}</p>
-                </div>
-              </div>
-
-              {usageLoading ? (
-                <div className="flex justify-center py-6">
-                  <div className="pierre-spinner w-6 h-6"></div>
-                </div>
-              ) : !usageData ? (
-                <p className="text-sm text-outline text-center py-4">{t('account.usageUnavailable')}</p>
-              ) : (
-                <div className="space-y-5">
-                  {/* Progress bars */}
-                  <div className="space-y-4">
-                    {([
-                      { label: t('settingsUi.dailyMessages'), counter: usageData.daily.messages },
-                      { label: t('settingsUi.dailyTokens'), counter: usageData.daily.tokens, compact: true },
-                      { label: t('settingsUi.weeklyMessages'), counter: usageData.weekly.messages },
-                    ] as { label: string; counter: LimitCheckResult; compact?: boolean }[]).map(({ label, counter, compact }) => {
-                      const pct = counter.limit > 0 ? Math.min((counter.current / counter.limit) * 100, 100) : 0;
-                      return (
-                        <div key={label}>
-                          <div className="flex justify-between items-center mb-1.5">
-                            <span className="text-sm font-medium text-on-surface">{label}</span>
-                            <span className="text-sm text-on-surface-variant">
-                              {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
-                              {' / '}
-                              {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
+            {settingsPaneSections('account').map((section) => {
+              switch (section) {
+                case 'account-status':
+                  return (
+                      <div key={section} data-testid="account-section-account-status">
+                        <Card variant="dark">
+                        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('profile.accountStatus')}</h2>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center py-2 border-b ghost-border">
+                            <span className="text-on-surface-variant">{t('settingsUi.status')}</span>
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                user?.user_status === 'active'
+                                  ? 'bg-success/20 text-on-success-container'
+                                  : 'bg-warning/20 text-on-warning-container'
+                              }`}
+                            >
+                              {user?.user_status?.charAt(0).toUpperCase()}
+                              {user?.user_status?.slice(1)}
                             </span>
                           </div>
-                          <div className="h-2 bg-surface-container-high rounded-full overflow-hidden">
-                            <div
-                              className={clsx(
-                                'h-full rounded-full transition-all duration-300',
-                                getUsageBarColor(counter.current, counter.limit),
-                              )}
-                              style={{ width: `${pct}%` }}
-                            />
+                          <div className="flex justify-between items-center py-2 border-b ghost-border">
+                            <span className="text-on-surface-variant">{t('settingsUi.role')}</span>
+                            <span className="text-on-surface capitalize">{user?.role}</span>
+                          </div>
+                          <div className="flex justify-between items-center py-2">
+                            <span className="text-on-surface-variant">{t('profile.memberSince')}</span>
+                            <span className="text-on-surface">
+                              {user?.created_at
+                                ? format(new Date(user.created_at), 'MMM d, yyyy')
+                                : t('settingsUi.unknownDate')}
+                            </span>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Reset time */}
-                  <p className="text-xs text-outline">
-                    {t('frag.dailyLimitsResetAt')}{' '}
-                    {formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc'))}
-                  </p>
-
-                  {/* Resource counts (user-facing only, not shown for admin) */}
-                  {!isAdminUser && (
-                  <div className="border-t ghost-border pt-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 bg-surface-container-low rounded-lg">
-                        <p className="text-xs text-outline mb-1">{t('settingsUi.coaches')}</p>
-                        <p className="text-sm font-medium text-on-surface">
-                          {usageData.resources.coaches} / {usageData.resources.max_coaches}
-                        </p>
+                        </Card>
                       </div>
-                      <div className="p-3 bg-surface-container-low rounded-lg">
-                        <p className="text-xs text-outline mb-1">{t('settingsUi.conversations')}</p>
-                        <p className="text-sm font-medium text-on-surface">
-                          {usageData.resources.conversations} / {usageData.resources.max_conversations}
-                        </p>
+                  );
+                case 'usage':
+                  // Usage quotas are user-facing; an operator has none of their own.
+                  return isAdminUser ? null : (
+                      <div key={section} data-testid="account-section-usage">
+                        <Card variant="dark">
+                        <div className="flex items-start gap-4 mb-5">
+                          <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+                            <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <h2 className="text-lg font-semibold text-on-surface">{t('settingsUi.usage')}</h2>
+                            <p className="text-sm text-on-surface-variant">{t('account.quotaHint')}</p>
+                          </div>
+                        </div>
+
+                        {usageLoading ? (
+                          <div className="flex justify-center py-6">
+                            <div className="pierre-spinner w-6 h-6"></div>
+                          </div>
+                        ) : !usageData ? (
+                          <p className="text-sm text-outline text-center py-4">{t('account.usageUnavailable')}</p>
+                        ) : (
+                          <div className="space-y-5">
+                            {/* Progress bars */}
+                            <div className="space-y-4">
+                              {([
+                                { label: t('settingsUi.dailyMessages'), counter: usageData.daily.messages },
+                                { label: t('settingsUi.dailyTokens'), counter: usageData.daily.tokens, compact: true },
+                                { label: t('settingsUi.weeklyMessages'), counter: usageData.weekly.messages },
+                              ] as { label: string; counter: LimitCheckResult; compact?: boolean }[]).map(({ label, counter, compact }) => {
+                                const pct = counter.limit > 0 ? Math.min((counter.current / counter.limit) * 100, 100) : 0;
+                                return (
+                                  <div key={label}>
+                                    <div className="flex justify-between items-center mb-1.5">
+                                      <span className="text-sm font-medium text-on-surface">{label}</span>
+                                      <span className="text-sm text-on-surface-variant">
+                                        {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
+                                        {' / '}
+                                        {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <div className="h-2 bg-surface-container-high rounded-full overflow-hidden">
+                                      <div
+                                        className={clsx(
+                                          'h-full rounded-full transition-all duration-300',
+                                          getUsageBarColor(counter.current, counter.limit),
+                                        )}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Reset time */}
+                            <p className="text-xs text-outline">
+                              {t('frag.dailyLimitsResetAt')}{' '}
+                              {formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc'))}
+                            </p>
+
+                            {/* Resource counts (user-facing only, not shown for admin) */}
+                            {!isAdminUser && (
+                            <div className="border-t ghost-border pt-4">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="p-3 bg-surface-container-low rounded-lg">
+                                  <p className="text-xs text-outline mb-1">{t('settingsUi.coaches')}</p>
+                                  <p className="text-sm font-medium text-on-surface">
+                                    {usageData.resources.coaches} / {usageData.resources.max_coaches}
+                                  </p>
+                                </div>
+                                <div className="p-3 bg-surface-container-low rounded-lg">
+                                  <p className="text-xs text-outline mb-1">{t('settingsUi.conversations')}</p>
+                                  <p className="text-sm font-medium text-on-surface">
+                                    {usageData.resources.conversations} / {usageData.resources.max_conversations}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            )}
+                          </div>
+                        )}
+                        </Card>
                       </div>
-                    </div>
-                  </div>
-                  )}
-                </div>
-              )}
-            </Card>
-            )}
-
-            <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('settingsUi.security')}</h2>
-              <div className="space-y-4">
-                <div className="p-4 bg-surface-container-low border ghost-border rounded-lg">
-                  <h3 className="font-medium text-on-surface mb-2">{t('settingsUi.password')}</h3>
-                  <p className="text-sm text-on-surface-variant mb-3">{t('password.changeHint')}</p>
-                  <Button variant="outline" size="sm" onClick={() => setShowChangePassword(true)}>
-                    {t('password.change')}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-
-            {/* Connected Apps — external OAuth clients (e.g. Claude Desktop) the
-                user approved on the consent screen. Distinct from the A2A
-                "Connected Apps" card in the API Tokens tab, which lists
-                self-registered agent-to-agent clients. */}
-            <Card variant="dark">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-on-surface">{t('tokens.connectedMcpApps')}</h2>
-                <p className="text-sm text-on-surface-variant mt-1">
-                  {t('tokens.connectedAppsHint')}
-                </p>
-              </div>
-
-              {isLoadingConnectedApps ? (
-                <div className="flex justify-center py-8">
-                  <div className="pierre-spinner w-6 h-6"></div>
-                </div>
-              ) : connectedAppsError ? (
-                <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
-                  {connectedAppsError instanceof Error
-                    ? connectedAppsError.message
-                    : t('settingsErr.loadAppsFailed')}
-                </div>
-              ) : connectedApps && connectedApps.length > 0 ? (
-                <div className="space-y-3">
-                  {connectedApps.map((app) => (
-                    <div
-                      key={app.id}
-                      className="flex items-start justify-between gap-3 p-4 bg-surface-container-low border ghost-border rounded-lg"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium text-on-surface break-all">{app.client_id}</p>
-                        <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
-                        <p className="text-xs text-outline mt-1">
-                          {t('frag.connected')} {format(new Date(app.granted_at), 'MMM d, yyyy')}
-                        </p>
+                  );
+                case 'security':
+                  return (
+                      <div key={section} data-testid="account-section-security">
+                        <Card variant="dark">
+                        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('settingsUi.security')}</h2>
+                        <div className="space-y-4">
+                          <div className="p-4 bg-surface-container-low border ghost-border rounded-lg">
+                            <h3 className="font-medium text-on-surface mb-2">{t('settingsUi.password')}</h3>
+                            <p className="text-sm text-on-surface-variant mb-3">{t('password.changeHint')}</p>
+                            <Button variant="outline" size="sm" onClick={() => setShowChangePassword(true)}>
+                              {t('password.change')}
+                            </Button>
+                          </div>
+                        </div>
+                        </Card>
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setAppToRevoke(app)}
-                        disabled={revokeConnectedAppMutation.isPending}
-                        className="flex-shrink-0 text-error hover:bg-error/20"
-                      >
-                        {t('settingsUi.revoke')}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-on-surface-variant">
-                  <p>{t('tokens.connectedAppsEmpty')}</p>
-                </div>
-              )}
-            </Card>
+                  );
+                case 'connected-mcp-apps':
+                  // External OAuth clients (e.g. Claude Desktop) the user approved on
+                  // the consent screen. Distinct from the A2A "Connected Apps" card in
+                  // the API Tokens pane, which lists self-registered agent clients.
+                  return (
+                      <div key={section} data-testid="account-section-connected-mcp-apps">
+                        <Card variant="dark">
+                        <div className="mb-4">
+                          <h2 className="text-lg font-semibold text-on-surface">{t('tokens.connectedMcpApps')}</h2>
+                          <p className="text-sm text-on-surface-variant mt-1">
+                            {t('tokens.connectedAppsHint')}
+                          </p>
+                        </div>
 
-            <Card variant="dark" className="border-error/30">
-              <h2 className="text-lg font-semibold text-error mb-4">{t('account.dangerZone')}</h2>
-              <div className="space-y-4">
-                <div className="p-4 bg-error/10 border border-error/20 rounded-lg">
-                  <h3 className="font-medium text-on-surface mb-2">{t('account.signOut')}</h3>
-                  <p className="text-sm text-on-surface-variant mb-3">{t('account.signOutHint')}</p>
-                  <Button variant="secondary" size="sm" onClick={logout}>
-                    {t('account.signOut')}
-                  </Button>
-                </div>
-              </div>
-            </Card>
+                        {isLoadingConnectedApps ? (
+                          <div className="flex justify-center py-8">
+                            <div className="pierre-spinner w-6 h-6"></div>
+                          </div>
+                        ) : connectedAppsError ? (
+                          <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
+                            {connectedAppsError instanceof Error
+                              ? connectedAppsError.message
+                              : t('settingsErr.loadAppsFailed')}
+                          </div>
+                        ) : connectedApps && connectedApps.length > 0 ? (
+                          <div className="space-y-3">
+                            {connectedApps.map((app) => (
+                              <div
+                                key={app.id}
+                                className="flex items-start justify-between gap-3 p-4 bg-surface-container-low border ghost-border rounded-lg"
+                              >
+                                <div className="min-w-0">
+                                  <p className="font-medium text-on-surface break-all">{app.client_id}</p>
+                                  <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
+                                  <p className="text-xs text-outline mt-1">
+                                    {t('frag.connected')} {format(new Date(app.granted_at), 'MMM d, yyyy')}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => setAppToRevoke(app)}
+                                  disabled={revokeConnectedAppMutation.isPending}
+                                  className="flex-shrink-0 text-error hover:bg-error/20"
+                                >
+                                  {t('settingsUi.revoke')}
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 text-on-surface-variant">
+                            <p>{t('tokens.connectedAppsEmpty')}</p>
+                          </div>
+                        )}
+                        </Card>
+                      </div>
+                  );
+                case 'sign-out':
+                  return (
+                      <div key={section} data-testid="account-section-sign-out">
+                        <Card variant="dark" className="border-error/30">
+                        <h2 className="text-lg font-semibold text-error mb-4">{t('account.dangerZone')}</h2>
+                        <div className="space-y-4">
+                          <div className="p-4 bg-error/10 border border-error/20 rounded-lg">
+                            <h3 className="font-medium text-on-surface mb-2">{t('account.signOut')}</h3>
+                            <p className="text-sm text-on-surface-variant mb-3">{t('account.signOutHint')}</p>
+                            <Button variant="secondary" size="sm" onClick={logout}>
+                              {t('account.signOut')}
+                            </Button>
+                          </div>
+                        </div>
+                        </Card>
+                      </div>
+                  );
+                default:
+                  return null;
+              }
+            })}
           </>
         )}
       </div>

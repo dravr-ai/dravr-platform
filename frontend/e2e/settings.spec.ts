@@ -173,7 +173,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  // Mock LLM settings (used by AI Settings tab)
+  // Mock LLM settings (read by the About pane for the model line)
   await page.route('**/api/llm/settings', async (route) => {
     await route.fulfill({
       status: 200,
@@ -286,7 +286,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  // Mock user LLM settings (needed by AI Settings tab)
+  // Mock user LLM settings (read by the About pane for the model line)
   await page.route('**/api/user/llm-settings**', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
@@ -297,6 +297,11 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
           providers: [],
           user_credentials: [],
           tenant_credentials: [],
+          system_provider: {
+            name: 'copilot_headless',
+            display_name: 'Copilot Headless',
+            model: 'claude-sonnet-5',
+          },
         }),
       });
     } else {
@@ -449,7 +454,9 @@ test.describe('Settings Page - User Mode', () => {
     await expect(page.getByRole('button', { name: 'Profile' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Data Providers' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'API Tokens' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'AI Settings' })).toBeVisible();
+    // No AI Settings pane: nobody brings their own model, and the pane stored a
+    // key while changing nothing about the coaching that followed.
+    await expect(page.getByRole('button', { name: 'AI Settings' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'About' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
   });
@@ -479,7 +486,23 @@ test.describe('Settings Page - User Mode', () => {
     await expect(pane.getByText('Version')).toBeVisible();
     await expect(pane.getByText('1.0.0')).toBeVisible();
     await expect(pane.getByText('Help Center')).toBeVisible();
-    await expect(pane.getByText('Terms & Privacy')).toBeVisible();
+    // The legal row is named as a DOCUMENT: "Terms & Privacy" read one word
+    // from the "Privacy & Data" pane and went somewhere else entirely.
+    await expect(pane.getByText('Legal documents')).toBeVisible();
+    await expect(pane.getByText('Terms & Privacy')).toHaveCount(0);
+    // Which model answers, read-only: a fact about the product, not a field
+    // that invites a credential.
+    await expect(pane.getByTestId('about-coach-model-value')).toBeVisible();
+    // Both external rows go to a page that answers; /help, /privacy and /terms
+    // were each a 404 when the audit checked them.
+    await expect(pane.getByTestId('about-section-help')).toHaveAttribute(
+      'href',
+      'https://dravr.ai/docs',
+    );
+    await expect(pane.getByTestId('about-section-legal')).toHaveAttribute(
+      'href',
+      'https://dravr.ai/docs',
+    );
   });
 
   test('account tab shows member since and change password', async ({ page }) => {

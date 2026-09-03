@@ -25,10 +25,6 @@ vi.mock('../CreateA2AClient', () => ({
   ),
 }));
 
-vi.mock('../LlmSettingsTab', () => ({
-  default: () => <div data-testid="llm-settings">LLM Settings</div>,
-}));
-
 vi.mock('../MessagingSettingsTab', () => ({
   default: () => <div data-testid="messaging-settings">Messaging Settings</div>,
 }));
@@ -107,6 +103,15 @@ vi.mock('../../services/api', () => ({
     getOAuthApps: vi.fn().mockResolvedValue({ apps: [] }),
     getMcpTokens: vi.fn().mockResolvedValue({ tokens: [] }),
     changePassword: vi.fn().mockResolvedValue({ message: 'Password changed successfully' }),
+    getLlmSettings: vi.fn().mockResolvedValue({
+      providers: [],
+      user_credentials: [],
+      system_provider: {
+        name: 'copilot_headless',
+        display_name: 'Copilot Headless',
+        model: 'claude-sonnet-5',
+      },
+    }),
     updateProfile: vi.fn().mockResolvedValue({
       message: 'Profile updated',
       user: { id: 'user-1', email: 'test@pierre.dev', display_name: 'Test User' },
@@ -267,7 +272,9 @@ describe('UserSettings Component', () => {
       // Data Providers moved out of Settings into a top-level sidebar tab.
       expect(screen.queryByText('Data Providers')).not.toBeInTheDocument();
       expect(screen.getByText('API Tokens')).toBeInTheDocument();
-      expect(screen.getByText('AI Settings')).toBeInTheDocument();
+      // The per-athlete AI-provider pane is gone: nobody brings their own key,
+      // and the pane stored one while changing nothing about the coaching.
+      expect(screen.queryByText('AI Settings')).not.toBeInTheDocument();
       expect(screen.getByText('Messaging')).toBeInTheDocument();
       expect(screen.getByText('About')).toBeInTheDocument();
       expect(screen.getByText('Account')).toBeInTheDocument();
@@ -347,7 +354,7 @@ describe('UserSettings Component', () => {
   });
 
   describe('About Tab', () => {
-    it('should show version, help, and terms links', async () => {
+    it('should show version, the model answering, help and legal links', async () => {
       const user = userEvent.setup();
 
       await act(async () => {
@@ -360,8 +367,52 @@ describe('UserSettings Component', () => {
         expect(screen.getByText('Version')).toBeInTheDocument();
         expect(screen.getByText('1.0.0')).toBeInTheDocument();
         expect(screen.getByText('Help Center')).toBeInTheDocument();
-        expect(screen.getByText('Terms & Privacy')).toBeInTheDocument();
+        // "Terms & Privacy" sat one row from the "Privacy & Data" pane and
+        // went somewhere else entirely. The document says it is a document.
+        expect(screen.getByText('Legal documents')).toBeInTheDocument();
+        expect(screen.queryByText('Terms & Privacy')).not.toBeInTheDocument();
       });
+    });
+
+    it('states which model answers the athlete, without inviting a key', async () => {
+      // The AI-provider pane was the only place this was visible, and it put a
+      // password field beside it.
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      await user.click(screen.getByText('About'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('about-coach-model-value')).toHaveTextContent(
+          'Copilot Headless · claude-sonnet-5',
+        );
+      });
+      expect(screen.queryByLabelText('API Key')).not.toBeInTheDocument();
+    });
+
+    it('sends help and legal to a page that answers', async () => {
+      // dravr.ai/help, /privacy and /terms are each a 404; /docs answers.
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      await user.click(screen.getByText('About'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('about-section-help')).toHaveAttribute(
+          'href',
+          'https://dravr.ai/docs',
+        );
+      });
+      expect(screen.getByTestId('about-section-legal')).toHaveAttribute(
+        'href',
+        'https://dravr.ai/docs',
+      );
     });
   });
 

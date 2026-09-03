@@ -1,13 +1,9 @@
-// ABOUTME: Regression tests for pure-operator gating of the Data Providers section in SettingsScreen
-// ABOUTME: Admins are platform operators and must not see personal provider surfaces; regular users must
+// ABOUTME: Regression tests for pure-operator gating of the settings list rows
+// ABOUTME: Admins are platform operators and must not see personal athlete panes; regular users must
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
-// Mock safe area
-jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-}));
 
 // Mock LinearGradient
 jest.mock('expo-linear-gradient', () => ({
@@ -51,51 +47,9 @@ jest.mock('../src/services/api', () => ({
   apiClient: { get: jest.fn() },
 }));
 
-// Mock shared-constants. PERSONA_NAME mirrors the real map — the settings
-// row renders the current persona's brand name from it.
-jest.mock('@pierre/shared-constants', () => ({
-  QUERY_KEYS: { usage: { status: () => ['usage', 'status'] } },
-  PERSONA_NAME: {
-    casual: 'Casual',
-    enthusiast: 'Enthusiast',
-    power_athlete: 'Power-athlete',
-    coach: 'Coach',
-  },
-}));
-
-// Mock useUsageStatus with minimal quota data
-jest.mock('../src/screens/chat/useUsageStatus', () => ({
-  useUsageStatus: () => ({
-    data: {
-      daily: {
-        messages: { allowed: true, current: 1, limit: 100, warning: false, burst_zone: false, resets_at: '2026-02-19T05:00:00Z' },
-        tokens: { allowed: true, current: 1000, limit: 500000, warning: false, burst_zone: false, resets_at: '2026-02-19T05:00:00Z' },
-        tool_calls: { allowed: true, current: 1, limit: 50, warning: false, burst_zone: false, resets_at: '2026-02-19T05:00:00Z' },
-      },
-      weekly: {
-        messages: { allowed: true, current: 1, limit: 500, warning: false, burst_zone: false, resets_at: '2026-02-24T05:00:00Z' },
-        tokens: { allowed: true, current: 1000, limit: 2000000, warning: false, burst_zone: false, resets_at: '2026-02-24T05:00:00Z' },
-        tool_calls: { allowed: true, current: 1, limit: 200, warning: false, burst_zone: false, resets_at: '2026-02-24T05:00:00Z' },
-      },
-      resources: {
-        conversations: 1,
-        max_conversations: 10,
-        coaches: 1,
-        max_coaches: 3,
-      },
-    },
-    isLoading: false,
-    level: 'none',
-    sendDisabled: false,
-    message: '',
-    resetsAt: '',
-    invalidate: jest.fn(),
-  }),
-}));
-
 // Must import AFTER mocks
-// The MCP Tokens row is gated on the shared `api_tokens` flag. These specs are
-// about the rest of the screen, so the flag hook answers with its off default
+// The API Tokens pane is gated on the shared `api_tokens` flag. These specs are
+// about the rest of the list, so the flag hook answers with its off default
 // rather than dragging a QueryClientProvider into every render.
 jest.mock('../src/hooks/useFeatureFlags', () => ({
   useFeatureFlags: () => ({ flags: { api_tokens: false, billing_header: false }, known: [], isLoading: false, isError: false }),
@@ -103,41 +57,37 @@ jest.mock('../src/hooks/useFeatureFlags', () => ({
 }));
 
 import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
+import { ADMIN_HIDDEN_PANES } from '@pierre/shared-constants';
 
 describe('SettingsScreen - admin pure-operator gating', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('shows the Data Providers section for regular users', async () => {
+  it('shows the athlete-account panes for regular users', async () => {
     mockRole = 'user';
-    const { getByTestId, getByText } = render(<SettingsScreen />);
+    const { getByTestId } = render(<SettingsScreen />);
 
     await waitFor(() => {
-      expect(getByTestId('settings-data-section')).toBeTruthy();
-      expect(getByText('Data Providers')).toBeTruthy();
+      expect(getByTestId('settings-pane-list')).toBeTruthy();
     });
+    for (const id of ADMIN_HIDDEN_PANES) {
+      expect(getByTestId(`settings-pane-${id}`)).toBeTruthy();
+    }
   });
 
-  it('hides the Data Providers section for admins', async () => {
-    mockRole = 'admin';
-    const { queryByTestId, queryByText, getByTestId } = render(<SettingsScreen />);
-
-    // Wait for the screen to settle on a section that renders for everyone.
-    await waitFor(() => {
-      expect(getByTestId('settings-account-section')).toBeTruthy();
-    });
-    expect(queryByTestId('settings-data-section')).toBeNull();
-    expect(queryByText('Data Providers')).toBeNull();
-  });
-
-  it('hides the Data Providers section for super admins', async () => {
-    mockRole = 'super_admin';
+  it.each(['admin', 'super_admin'] as const)('hides them for %s', async (role) => {
+    mockRole = role;
     const { queryByTestId, getByTestId } = render(<SettingsScreen />);
 
+    // Wait for the list itself, which renders for everyone.
     await waitFor(() => {
-      expect(getByTestId('settings-account-section')).toBeTruthy();
+      expect(getByTestId('settings-pane-list')).toBeTruthy();
     });
-    expect(queryByTestId('settings-data-section')).toBeNull();
+    for (const id of ADMIN_HIDDEN_PANES) {
+      expect(queryByTestId(`settings-pane-${id}`)).toBeNull();
+    }
+    // The Account pane is not an athlete surface and stays.
+    expect(getByTestId('settings-pane-account')).toBeTruthy();
   });
 });

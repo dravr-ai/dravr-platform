@@ -189,8 +189,7 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
   it.each([
     // Reached only through `UserSettings` — the case the old list got wrong.
     // Its mobile twin was translated while this stayed English, so one athlete
-    // read French AI settings on the phone and English in the browser.
-    ['components/LlmSettingsTab.tsx', 'one hop under UserSettings'],
+    // read French messaging settings on the phone and English in the browser.
     ['components/MessagingSettingsTab.tsx', 'one hop under UserSettings'],
     // The GDPR disclosure that started the audit.
     ['components/PrivacySettingsTab.tsx', 'a privacy promise an athlete reads'],

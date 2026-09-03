@@ -124,7 +124,7 @@ describe('client locale corpus', () => {
     // bar — offering the same sheet, so the header's went and
     // `app.headerPlusAria` had nothing left to describe (carnet#213).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2449);
+    expect(reference).toHaveLength(2388);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

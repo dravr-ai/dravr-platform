@@ -157,17 +157,19 @@ Anything you create here persists in the dev DB — clean it up (see `.maestro/c
 
 | Screen | Route | Component | Anchor | Expect |
 |---|---|---|---|---|
-| Settings | `/(app)/(tabs)/(settings)` | `settings/SettingsScreen` | `settings-screen` | Sections: `settings-profile-section`, `settings-data-section`, `settings-coaching-section`, `settings-usage-section`, `settings-account-section`, `settings-appearance-section`. Rows, in render order: `settings-edit-profile-button`, `settings-data-providers-button`, `settings-coaching-style-button`, `settings-messaging-button`, `settings-ai-provider-button`, `settings-personal-info-button`, `settings-change-password-button`, `settings-mcp-tokens-button`, `settings-connected-apps-button`, `settings-memory-button`, `settings-billing-button` (flag-gated), `settings-privacy-button`, `settings-help-center-button`, `settings-terms-privacy-button`, `settings-logout-button`. **Every row must navigate** — a row whose destination does not exist is the exact defect class the parity registry now guards. |
-| Profile | `/(app)/(tabs)/(settings)/profile` | `settings/ProfileScreen` | `profile-screen` | Reached by `settings-edit-profile-button`. Display-name edit (`profile-display-name-input`) saves and survives a reload. |
-| Messaging channels | `/(app)/(tabs)/(settings)/messaging` | `settings/MessagingChannelsScreen` | `messaging-channels-screen` | Reached by `settings-messaging-button`. Channel link/unlink round-trips. |
-| AI provider | `/(app)/(tabs)/(settings)/ai-provider` | `settings/LlmSettingsScreen` | `llm-settings-screen` | Reached by `settings-ai-provider-button`. Provider/key state saves; **no key value is echoed back** into the rendered tree. |
+| Settings | `/(app)/(tabs)/(settings)` | `settings/SettingsScreen` | `settings-screen` | A profile header (`settings-profile-section`, `settings-edit-profile-button`) above one row per named pane, inside `settings-pane-list`. The rows are DERIVED from `SETTINGS_PANES` in `@pierre/shared-constants`, so read the list from there rather than from a copy here: each row is `settings-pane-<id>` and pushes that pane's `mobile` route. `settings-pane-tokens` rides the `api_tokens` flag and `settings-pane-billing` the build-time billing toggle. `settings-safe-header` carries the status-bar inset and the scroll's bottom padding is `tabBarBottomOffset(insets.bottom)`. **Every row must navigate** — a row whose destination does not exist is the exact defect class the parity registry guards. |
+| Profile | `/(app)/(tabs)/(settings)/profile` | `settings/ProfileScreen` | `profile-screen` | Reached by `settings-edit-profile-button` and `settings-pane-profile`. Display-name edit (`profile-display-name-input`) saves and survives a reload. Also holds appearance (`profile-appearance-section`, `appearance-option-system|dark|light`) and language (`profile-language-section`, `language-switcher`), as the web Profile pane does. |
+| Messaging channels | `/(app)/(tabs)/(settings)/messaging` | `settings/MessagingChannelsScreen` | `messaging-channels-screen` | Reached by `settings-pane-messaging`. Channel link/unlink round-trips. |
+| API Tokens | `/(app)/(tabs)/(settings)/tokens` | `settings/TokensScreen` | `tokens-screen` | Reached by `settings-pane-tokens`, behind the `api_tokens` flag. `mcp-token-list` lists active tokens; `new-token-button` mints one and `revoke-token-<id>` takes it back. **No token value is echoed back** into the rendered tree after the create sheet closes. |
+| Account | `/(app)/(tabs)/(settings)/account` | `settings/AccountScreen` | `account-screen` | Reached by `settings-pane-account`. Sections, in the order `settingsPaneSections('account')` declares: `account-section-account-status`, `-usage`, `-security`, `-connected-mcp-apps`, `-sign-out`. Same five things web groups under Account. |
+| About | `/(app)/(tabs)/(settings)/about` | `settings/AboutScreen` | `about-screen` | Reached by `settings-pane-about`. Rows from `settingsPaneSections('about')`: `about-section-version`, `-coach-model`, `-help`, `-legal`. `about-coach-model-value` states which model answers, **read-only** — there is no key field on any athlete surface. Both links open `dravr.ai/docs`. |
 | Coaching style | `/(app)/(tabs)/(settings)/coaching-style` | `settings/CoachingStyleScreen` | `coaching-style-screen` | `persona-status` reflects the saved persona; a change persists across a reload. |
 | Connected apps | `/(app)/(tabs)/(settings)/connected-apps` | `settings/ConnectedAppsScreen` | `connected-apps-screen` | OAuth clients the user has authorised; revoke actually revokes. |
 | Connections | `/(app)/(tabs)/(settings)/connections` (also `/(app)/connections` as a modal) | `connections/ConnectionsScreen` | — (`back-button`, `connections-drag-indicator`) | Provider cards from `/api/providers`: `sciotte`, `sciotte_garmin`, `strava`, `whoop`, `intervals_icu`. `garmin` is **intentionally absent** — see below. Connect/disconnect round-trips; a disconnect that leaves the card connected is P1. |
 
-`settings-data-section` is hidden for `admin` / `super_admin` (grep `isAdminUser` in
-`SettingsScreen.tsx`) — admins are pure operators. Both directions of that gate are part of the
-sweep.
+The panes in `ADMIN_HIDDEN_PANES` — connections, messaging, about — are hidden for `admin` /
+`super_admin` (grep `isAdminUser` in `SettingsScreen.tsx`); admins are pure operators. Both
+directions of that gate are part of the sweep.
 
 **`garmin` never appears in the provider list.** `compute_providers_status` in
 `crates/pierre-routes-auth/src/oauth.rs` skips it explicitly, because Garmin's OAuth API is
@@ -187,8 +189,8 @@ Declared in `app/(app)/_layout.tsx`.
 | Connections | `/(app)/connections` | `connections/ConnectionsScreen` | — | Modal presentation of the same screen as the settings route. |
 | Share insight | `/(app)/share-insight` | `social/ShareInsightScreen` | `share-insight-screen` | Modal presentation. |
 | Adapted insight | `/(app)/adapted-insight` | `social/AdaptedInsightScreen` | `adapt-insight-screen` | Modal presentation. |
-| Memory | `/(app)/memory` | `memory/MemoryScreen` | `memory-screen` | Reached from **Settings** (the row `router.push('/(app)/memory')`) as well as by deep link. Renders the user-facing memory inspector. A Settings row that does not navigate is a finding, not a known gap. |
-| Billing | `/(app)/billing` | `settings/BillingScreen` | — | `BILLING_ENABLED = false` in `src/constants/features.ts` gates **both** the Settings row and the route, which redirects out. Unreachable is correct while the flag is off; flip it to sweep the screen. |
+| Memory | `/(app)/memory` | `memory/MemoryScreen` | `memory-screen` | Reached from **Settings** (`settings-pane-memory`) as well as by deep link. Renders the user-facing memory inspector. A Settings row that does not navigate is a finding, not a known gap. |
+| Billing | `/(app)/billing` | `settings/BillingScreen` | — | `BILLING_ENABLED = false` in `src/constants/features.ts` gates **both** `settings-pane-billing` and the route, which redirects out. Unreachable is correct while the flag is off; flip it to sweep the screen. |
 
 ---
 
@@ -204,12 +206,12 @@ find src/screens -name '*.tsx' -not -path '*__tests__*' -not -name '*.test.tsx' 
   | sed 's|src/screens/||; s|/.*||' | sort | uniq -c | sort -rn
 ```
 
-As of 2026-08-09 that is **47 screen components**, plus the tab bar itself:
+As of 2026-09-02 that is **52 screen components**, plus the tab bar itself:
 
-- 8 social · 8 chat · 7 settings · 5 onboarding · 5 auth · 4 groups · 3 coaches
-- 2 store · 1 each: notifications, memory, conversations, connections, activity detail
+- 16 chat · 11 settings · 7 onboarding · 5 auth · 4 groups · 3 store · 2 conversations
+- 1 each: notifications, memory, connections, coaches
 
-If your count differs from 47, screens were added or removed since this doc was written — sweep
+If your count differs from 52, screens were added or removed since this doc was written — sweep
 what is on disk and correct this file in the same change.
 
 Three of those — Connections, Share Insight, Adapted Insight — have **two** routes each (a tabbed

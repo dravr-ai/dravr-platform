@@ -82,6 +82,19 @@ export type { MentionDraft, MentionCandidate } from './mentions';
 export { USER_SURFACES, surfacesFor, webNavLabels } from './surfaces';
 export type { UserSurface } from './surfaces';
 
+// Settings menu grouping (which panes, in what order, holding what)
+export {
+  SETTINGS_PANES,
+  ADMIN_HIDDEN_PANES,
+  settingsPanesFor,
+  settingsPane,
+  settingsPaneSections,
+  HELP_URL,
+  LEGAL_URL,
+  APP_VERSION,
+} from './surfaces';
+export type { SettingsPane, SettingsPaneId, SettingsSectionId } from './surfaces';
+
 // Generated from the server's own capability table: what each chat surface
 // renders, and the notification screen vocabulary. Never hand-edited —
 // regenerate with `bun run generate` from this package.
