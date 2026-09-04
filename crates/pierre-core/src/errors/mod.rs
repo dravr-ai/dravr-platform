@@ -779,8 +779,14 @@ impl From<ProtocolError> for AppError {
             ProtocolError::InvalidSchema { entity, reason } => {
                 Self::invalid_input(format!("Invalid schema for {entity}: {reason}"))
             }
-            ProtocolError::InsufficientSubscription { required, current } => Self::auth_invalid(
-                format!("Insufficient subscription tier: requires {required}, has {current}"),
+            // An authorization refusal: the caller is who they say they are and
+            // the request is well-formed, so neither a 401 nor a 400 is true. The
+            // reason names what was refused and ships verbatim to the client
+            // through `sanitized_message`, hence its line in
+            // scripts/ci/permission-denied-messages.txt.
+            ProtocolError::PermissionDenied { tool_name, reason } => Self::new(
+                ErrorCode::PermissionDenied,
+                format!("Permission denied for '{tool_name}': {reason}"),
             ),
             ProtocolError::RateLimitExceeded {
                 requests,

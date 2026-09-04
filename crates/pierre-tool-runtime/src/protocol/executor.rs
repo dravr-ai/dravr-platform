@@ -321,20 +321,21 @@ impl UniversalExecutor {
         }
 
         // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
-        // inline `require_admin_access` must not be silently reachable via
-        // MCP-direct / A2A. Reject with the SAME `ProtocolError` the tool's own
-        // `require_admin_access` raises ("Permission denied: Admin access
-        // required", mapped to `InvalidParameters`), so every transport and every
-        // admin-tool test sees one consistent authz shape — not a divergent
-        // in-band response. Denies by default when the admin lookup failed.
+        // inline `ctx.require_admin()` must not be silently reachable via
+        // MCP-direct / A2A. Reject with the same `ProtocolError` a tool body's
+        // own `require_admin` refusal is re-raised as (`PermissionDenied`, the
+        // 403 lane), so every transport and every admin-tool test sees one
+        // consistent authz shape — not a divergent in-band response. Denies by
+        // default when the admin lookup failed.
         if admin_only && !is_admin {
             warn!(
                 tool_name = %tool_name,
                 "admin-only tool denied for non-admin caller at the dispatch chokepoint"
             );
-            return Err(ProtocolError::InvalidParameters(format!(
-                "Permission denied: Admin access required for '{tool_name}'"
-            )));
+            return Err(ProtocolError::PermissionDenied {
+                tool_name: tool_name.to_owned(),
+                reason: "Admin access required".to_owned(),
+            });
         }
 
         if provider_gate.required {
@@ -514,7 +515,7 @@ impl UniversalExecutor {
         // Pre-dispatch authorization refusals — the always-on tenant tool-disable
         // (S3, an in-band nudge the LLM adapts to) and the ADMIN_ONLY
         // defense-in-depth gate (S2, a propagated `ProtocolError` matching the
-        // tool's own `require_admin_access`). Extracted to a helper to keep this
+        // tool's own `ctx.require_admin()`). Extracted to a helper to keep this
         // dispatch fn within the cognitive-complexity budget.
         let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
         let provider_gate = ProviderGate {
@@ -977,9 +978,10 @@ fn scope_refusal(
             missing_scope = %missing,
             "tool denied: the caller's grant does not cover it"
         );
-        return Err(ProtocolError::InvalidParameters(format!(
-            "Permission denied: '{tool_name}' requires the '{missing}' scope"
-        )));
+        return Err(ProtocolError::PermissionDenied {
+            tool_name: tool_name.to_owned(),
+            reason: format!("the '{missing}' scope is required"),
+        });
     }
     Ok(())
 }
@@ -1044,10 +1046,11 @@ fn raised_error_code(response: &ToolResponse) -> Option<String> {
 /// tool recorded in its [`ToolResponse`].
 ///
 /// Mirrors the pre-E3 `AppError` → `ProtocolError` mapping: validation input maps
-/// to `InvalidParameters`; auth / provider gating maps to `InvalidRequest`; every
-/// other code (permission, not-found, internal, …) maps to `InternalError`. The
-/// `tool_name` prefix and original message are preserved so message-asserting
-/// callers keep matching.
+/// to `InvalidParameters`; auth / provider gating maps to `InvalidRequest`; an
+/// authorization refusal maps to `PermissionDenied`, which carries the tool
+/// name itself; every other code (not-found, internal, …) maps to
+/// `InternalError`. The `tool_name` prefix and original message are preserved
+/// so message-asserting callers keep matching.
 fn protocol_error_from_raised(
     tool_name: &str,
     error_code: &str,
@@ -1067,6 +1070,12 @@ fn protocol_error_from_raised(
                 .map(ToOwned::to_owned)
         })
         .unwrap_or_else(|| "Tool execution failed".to_owned());
+    if error_code == "PermissionDenied" {
+        return ProtocolError::PermissionDenied {
+            tool_name: tool_name.to_owned(),
+            reason: message,
+        };
+    }
     let rendered = format!("{tool_name}: {message}");
     match error_code {
         "InvalidInput" => ProtocolError::InvalidParameters(rendered),

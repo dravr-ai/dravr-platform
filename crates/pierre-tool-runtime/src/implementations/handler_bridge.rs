@@ -55,7 +55,10 @@ pub(super) fn build_universal_request(
 /// into `AppResult<T>` so an `McpTool::execute` body can use `?` for
 /// short-circuit propagation. Validation-class protocol errors map to
 /// `AppError::invalid_input` (matching the chat-loop's "missing required
-/// arg" treatment); everything else maps to `AppError::internal`.
+/// arg" treatment); an authorization refusal keeps its `PermissionDenied`
+/// code through the canonical conversion, since a nested dispatch the
+/// caller's grant does not cover is a refusal, not a server fault; everything
+/// else maps to `AppError::internal`.
 pub(super) fn map_protocol_result<T>(
     tool_name: &str,
     result: Result<T, ProtocolError>,
@@ -68,6 +71,7 @@ pub(super) fn map_protocol_result<T>(
             | ProtocolError::InvalidParameter { .. }
             | ProtocolError::MissingParameter { .. }
             | ProtocolError::ToolNotFound { .. } => AppError::invalid_input(rendered),
+            ProtocolError::PermissionDenied { .. } => AppError::from(e),
             _ => AppError::internal(rendered),
         }
     })
@@ -80,7 +84,8 @@ pub(super) fn map_protocol_result<T>(
 /// - Successful responses without a payload return `ToolResult::ok({status: "success"})`.
 /// - Unsuccessful responses (`success: false`) return `ToolResult::error(payload_with_error)`.
 /// - `ProtocolError::Invalid*` / `MissingParameter` / `ToolNotFound` lift to
-///   `AppError::invalid_input`; everything else to `AppError::internal`.
+///   `AppError::invalid_input`; `PermissionDenied` keeps its code through the
+///   canonical conversion; everything else lifts to `AppError::internal`.
 pub(super) fn map_universal_response(
     tool_name: &str,
     result: Result<UniversalResponse, ProtocolError>,
@@ -117,6 +122,7 @@ pub(super) fn map_universal_response(
                 | ProtocolError::InvalidParameter { .. }
                 | ProtocolError::MissingParameter { .. }
                 | ProtocolError::ToolNotFound { .. } => AppError::invalid_input(rendered),
+                ProtocolError::PermissionDenied { .. } => AppError::from(e),
                 _ => AppError::internal(rendered),
             })
         }

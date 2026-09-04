@@ -18,9 +18,11 @@
 //! - `AdminUnassignCoachTool` - Remove coach assignment
 //! - `AdminListCoachAssignmentsTool` - List coach assignments
 //!
-//! Each tool below calls `require_admin_access(ctx)` to enforce the
-//! admin role and `ctx.require_tenant()` to obtain the active tenant
-//! before forwarding to the repository.
+//! Each tool below calls `ctx.require_admin()` to enforce the admin role
+//! inline — `UniversalToolExecutor::execute_tool` refuses non-admins at the
+//! dispatch chokepoint, and the body's own check holds when a tool is run
+//! without it — and `ctx.require_tenant()` to obtain the active tenant
+//! before forwarding to the repository. Both refuse with `PermissionDenied`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -56,23 +58,6 @@ fn extract_format(args: &Value) -> OutputFormat {
         .and_then(Value::as_str)
         .map(OutputFormat::from_str_param)
         .unwrap_or_default()
-}
-
-/// Enforce admin role for the current request.
-///
-/// `UniversalToolExecutor::execute_tool` calls `McpTool::execute` directly
-/// and does not run the `ADMIN_ONLY` gate that `ToolRegistry::execute`
-/// applies, so admin tools must check the role inline. The error is
-/// emitted as `InvalidInput` so the executor maps it to
-/// `ProtocolError::InvalidRequest` via `app_error_to_protocol_error`.
-async fn require_admin_access(ctx: &ToolExecutionContext) -> AppResult<()> {
-    if ctx.is_admin().await? {
-        Ok(())
-    } else {
-        Err(AppError::invalid_input(
-            "Permission denied: Admin access required",
-        ))
-    }
 }
 
 /// Apply TOON formatting to a result payload, mirroring `apply_format_to_response`.
@@ -209,7 +194,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             // The schema has always advertised limit/offset; execute ignored
@@ -367,7 +352,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let params: CreateSystemCoachParams = serde_json::from_value(args).map_err(|e| {
@@ -461,7 +446,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
@@ -593,7 +578,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
@@ -719,7 +704,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
@@ -807,7 +792,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let admin_user_id = ctx.user_id;
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
@@ -913,7 +898,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
@@ -1008,7 +993,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            require_admin_access(&ctx).await?;
+            ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args

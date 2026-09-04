@@ -31,6 +31,7 @@ crates/pierre-core/src/admin/models.rs:Permission required: {permission}
 crates/pierre-core/src/admin/models.rs:Token has no tenant scope — super-admin required for cross-tenant access
 crates/pierre-core/src/admin/models.rs:Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}
 crates/pierre-core/src/error_helpers.rs:User state error: {message}
+crates/pierre-core/src/errors/mod.rs:Permission denied for '{tool_name}': {reason}
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' is not available for this tenant
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' requires admin privileges
 crates/pierre-groups/src/creation_policy.rs:Group creation is not enabled for your account.

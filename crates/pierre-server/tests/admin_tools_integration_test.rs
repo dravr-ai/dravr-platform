@@ -18,13 +18,15 @@
 //!
 //! Each tool is exercised with at least: happy path against an admin caller,
 //! a failure path (not-found or missing required arg), and the non-admin
-//! rejection path that `verify_admin_access` enforces on every handler.
+//! rejection path the dispatch chokepoint's `ADMIN_ONLY` gate enforces on every
+//! handler.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use anyhow::Result;
 use chrono::Utc;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
@@ -50,7 +52,7 @@ async fn create_admin_test_executor() -> Result<Arc<UniversalToolExecutor>> {
 }
 
 /// Create an admin user with their own tenant. The user is marked `UserRole::Admin`
-/// so `verify_admin_access` in the handler module accepts them.
+/// so the `ADMIN_ONLY` gate and each handler's `ctx.require_admin()` accept them.
 async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
     let email = format!("admin_test_{}@example.com", Uuid::new_v4());
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
@@ -85,8 +87,8 @@ async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, St
     Ok((user_id, tenant_id.to_string()))
 }
 
-/// Create a regular (non-admin) user. `verify_admin_access` should reject this caller
-/// with `ProtocolError::InvalidRequest("Permission denied: Admin access required")`.
+/// Create a regular (non-admin) user. The dispatch chokepoint's `ADMIN_ONLY` gate
+/// refuses this caller with `ProtocolError::PermissionDenied`.
 async fn create_regular_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
     let email = format!("regular_test_{}@example.com", Uuid::new_v4());
     let (user_id, _user) =
@@ -139,17 +141,35 @@ async fn create_system_coach(
     Ok(id)
 }
 
-/// Assert that a non-admin caller is rejected with the canonical permission error.
-fn assert_permission_denied(err: &ProtocolError, tool: &str) {
-    match err {
-        ProtocolError::InvalidParameters(msg) => {
-            assert!(
-                msg.contains("Permission denied") || msg.contains("Admin access required"),
-                "{tool}: expected permission-denied message, got: {msg}"
-            );
+/// Assert that a non-admin caller is rejected with the canonical authorization
+/// refusal: the structured `PermissionDenied` variant naming the tool, rendered
+/// as a 403 whose reason survives sanitization — never the input-validation
+/// shape (400), which would tell the caller to fix a request that is fine.
+fn assert_permission_denied(err: ProtocolError, tool: &str) {
+    match &err {
+        ProtocolError::PermissionDenied { tool_name, reason } => {
+            assert_eq!(tool_name, tool, "the refusal must name the tool refused");
+            assert_eq!(reason, "Admin access required", "{tool}: wrong reason");
         }
-        other => panic!("{tool}: expected InvalidParameters, got {other:?}"),
+        other => panic!("{tool}: expected PermissionDenied, got {other:?}"),
     }
+    assert_eq!(
+        err.to_string(),
+        format!("Permission denied for '{tool}': Admin access required")
+    );
+
+    let app_error = AppError::from(err);
+    assert_eq!(app_error.code, ErrorCode::PermissionDenied);
+    assert_eq!(
+        app_error.http_status(),
+        403,
+        "{tool}: a refusal is forbidden, not bad input"
+    );
+    assert_eq!(
+        app_error.sanitized_message(),
+        format!("Permission denied for '{tool}': Admin access required"),
+        "{tool}: the reason must reach the client, not the code's generic sentence"
+    );
 }
 
 // ============================================================================
@@ -254,7 +274,7 @@ async fn test_admin_list_system_coaches_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin caller must be rejected");
-    assert_permission_denied(&err, "admin_list_system_coaches");
+    assert_permission_denied(err, "admin_list_system_coaches");
     Ok(())
 }
 
@@ -325,7 +345,7 @@ async fn test_admin_create_system_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(&err, "admin_create_system_coach");
+    assert_permission_denied(err, "admin_create_system_coach");
     Ok(())
 }
 
@@ -394,7 +414,7 @@ async fn test_admin_get_system_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(&err, "admin_get_system_coach");
+    assert_permission_denied(err, "admin_get_system_coach");
     Ok(())
 }
 
@@ -475,7 +495,7 @@ async fn test_admin_update_system_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(&err, "admin_update_system_coach");
+    assert_permission_denied(err, "admin_update_system_coach");
     Ok(())
 }
 
@@ -549,7 +569,7 @@ async fn test_admin_delete_system_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(&err, "admin_delete_system_coach");
+    assert_permission_denied(err, "admin_delete_system_coach");
     Ok(())
 }
 
@@ -613,7 +633,7 @@ async fn test_admin_assign_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(&err, "admin_assign_coach");
+    assert_permission_denied(err, "admin_assign_coach");
     Ok(())
 }
 
@@ -696,7 +716,7 @@ async fn test_admin_unassign_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(&err, "admin_unassign_coach");
+    assert_permission_denied(err, "admin_unassign_coach");
     Ok(())
 }
 
@@ -786,6 +806,6 @@ async fn test_admin_list_coach_assignments_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(&err, "admin_list_coach_assignments");
+    assert_permission_denied(err, "admin_list_coach_assignments");
     Ok(())
 }

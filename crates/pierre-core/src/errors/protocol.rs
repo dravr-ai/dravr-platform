@@ -102,13 +102,18 @@ pub enum ProtocolError {
         reason: String,
     },
 
-    /// User's subscription tier is insufficient
-    #[error("Insufficient subscription tier: requires {required}, has {current}")]
-    InsufficientSubscription {
-        /// Required subscription tier
-        required: String,
-        /// Current subscription tier
-        current: String,
+    /// The caller is authenticated but not authorized for the tool: the admin
+    /// role or the OAuth scope it requires is missing. Raised at the dispatch
+    /// chokepoint every transport funnels through, and re-raised from a tool
+    /// body's own refusal, so an authorization refusal has one shape whichever
+    /// transport renders it — distinct from an invalid request, which the
+    /// caller can fix.
+    #[error("Permission denied for '{tool_name}': {reason}")]
+    PermissionDenied {
+        /// Name of the tool the caller was refused
+        tool_name: String,
+        /// What the caller lacks, written for the person who was refused
+        reason: String,
     },
 
     /// Rate limit exceeded
