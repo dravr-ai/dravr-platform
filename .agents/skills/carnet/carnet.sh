@@ -466,16 +466,53 @@ cmd_status_all() {
     for n in $nums; do status_line "$n" 1; done
 }
 
+# Claims held under a DIFFERENT session id by this same user and host.
+#
+# A resumed session gets a new id and therefore a new, empty ledger, so `mine`
+# answered "holds nothing" while the previous incarnation's claims sat in its own
+# file — a false all-clear, and precisely when someone is auditing. Reported, but
+# never as "yours": the other ledgers on this machine belong to LIVE PEERS as
+# often as to a dead predecessor, and silently adopting a peer's claim would be a
+# worse bug than the one this fixes. The tracker settles it — `status <n>` marks a
+# gone holder `[session ended — stale]`.
+mine_elsewhere() {
+    local other id ident who claims any=0
+    for other in "$LEDGER_DIR"/*.jsonl; do
+        [ -f "$other" ] || continue
+        id=$(basename "$other" .jsonl)
+        [ "$id" = "${SESSION_ID:-}" ] && continue
+        ident=$(head -1 "$other" 2>/dev/null) || continue
+        # Same person, same machine, or it is not a candidate for "an earlier me".
+        [ "$(printf '%s' "$ident" | jq -r '.user // empty' 2>/dev/null)" = "$USER_LOGIN" ] || continue
+        [ "$(printf '%s' "$ident" | jq -r '.host // empty' 2>/dev/null)" = "$HOST" ] || continue
+        claims=$(ledger_issues "$other" | paste -sd, - 2>/dev/null)
+        [ -n "$claims" ] || continue
+        who=$(printf '%s' "$ident" | jq -r '.name // "unknown"' 2>/dev/null)
+        [ "$any" = 0 ] && say "" && say "other session ids on this machine still list claims:"
+        any=1
+        say "  $who (${id:0:8}): $claims"
+    done
+    [ "$any" = 1 ] || return 0
+    say ""
+    say "  These are NOT necessarily yours — a live peer's ledger looks the same."
+    say "  If one was an earlier incarnation of this session, its claims are"
+    say "  invisible to \`mine\`. Settle each with: carnet.sh status <n>"
+}
+
 cmd_mine() { # <verify>
     local f n
     f=$(ledger_file) || die "not inside a Claude Code session"
-    [ -s "$f" ] || { say "this session ($NAME) holds nothing"; return 0; }
-    say "session $NAME ($SHORT_ID) holds:"
-    for n in $(ledger_issues "$f"); do
-        if [ "$1" = 1 ]; then status_line "$n" 1; else
-            say "  carnet#$n · since $(jq -r --argjson n "$n" 'select(.kind == "claim" and .issue == $n) | .at' "$f")"
-        fi
-    done
+    if [ -s "$f" ]; then
+        say "session $NAME ($SHORT_ID) holds:"
+        for n in $(ledger_issues "$f"); do
+            if [ "$1" = 1 ]; then status_line "$n" 1; else
+                say "  carnet#$n · since $(jq -r --argjson n "$n" 'select(.kind == "claim" and .issue == $n) | .at' "$f")"
+            fi
+        done
+    else
+        say "this session ($NAME) holds nothing"
+    fi
+    mine_elsewhere
 }
 
 # ------------------------------------------------------------------ main

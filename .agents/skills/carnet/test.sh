@@ -311,6 +311,40 @@ run_carnet claim 42 >/dev/null 2>&1
 run_carnet mine
 assert_grep "lists the held issue without an API call" 'carnet#42 · since' "$tmp/out"
 
+# A RESUMED session gets a new id and a new, empty ledger. The previous
+# incarnation's claims stay in its own file, so `mine` used to answer "holds
+# nothing" — a false all-clear, and exactly when someone is auditing.
+reset
+prior="$tmp/cfg/carnet-claims/$DEAD.jsonl"
+mkdir -p "$tmp/cfg/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"EarlierMe","user":"tester","host":"%s","pid":1,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n' "$DEAD" "$HOST" > "$prior"
+printf '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":91,"at":"2026-01-01T00:00:00Z"}\n' >> "$prior"
+run_carnet mine
+assert_grep "an empty ledger still says so" 'holds nothing' "$tmp/out"
+assert_grep "but a prior session id's claims are surfaced" 'other session ids on this machine still list claims' "$tmp/out"
+assert_grep "named, with the issue" 'EarlierMe \(33333333\): 91' "$tmp/out"
+assert_grep "and not asserted as mine" 'NOT necessarily yours' "$tmp/out"
+assert_eq "surfacing them costs no API call" "$(count_calls 'issue view')" 0
+
+# A ledger belonging to someone else, or another machine, is not a candidate for
+# "an earlier me" — adopting a peer's claim would be worse than the false
+# all-clear this fixes.
+reset
+foreign="$tmp/cfg/carnet-claims/$PEER.jsonl"
+mkdir -p "$tmp/cfg/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"SomeoneElse","user":"other","host":"%s","pid":1,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n' "$PEER" "$HOST" > "$foreign"
+printf '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":92,"at":"2026-01-01T00:00:00Z"}\n' >> "$foreign"
+run_carnet mine
+assert_no_grep "another user's ledger is not surfaced" 'SomeoneElse' "$tmp/out"
+
+reset
+elsewhere="$tmp/cfg/carnet-claims/$PEER.jsonl"
+mkdir -p "$tmp/cfg/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"OtherBox","user":"tester","host":"not-this-host","pid":1,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n' "$PEER" > "$elsewhere"
+printf '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":93,"at":"2026-01-01T00:00:00Z"}\n' >> "$elsewhere"
+run_carnet mine
+assert_no_grep "another machine's ledger is not surfaced" 'OtherBox' "$tmp/out"
+
 # ================================================================== hooks
 section "hooks"
 reset
