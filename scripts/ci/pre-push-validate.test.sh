@@ -44,7 +44,9 @@ require_fixture() {
 # Every helper the validator invokes, stubbed as a no-op so the tier body it
 # guards runs and returns. Tier 1e-move is the one invoked with no existence
 # guard, so without its stub a Rust diff aborts there and every later assertion
-# passes vacuously.
+# passes vacuously. Tier 4 is the exception to the pattern: it calls no script,
+# so it is stubbed by its inputs instead — a package test file for its count
+# guard and a `bun` on PATH for the two scripts it runs.
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
 check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh \
 pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh"
@@ -65,6 +67,15 @@ make_repo() {
     printf '#!/bin/sh\nexit 0\n' >"$dir/scripts/ci/$stub"
     chmod +x "$dir/scripts/ci/$stub"
   done
+  # Tier 4 counts the shared-package suites first and fails when it finds none,
+  # so a packages/ diff needs one to reach the tier body at all. The two scripts
+  # it then runs are real commands rather than scripts/ci helpers, so `bun` is
+  # stubbed on PATH the way the helpers above are stubbed on disk.
+  mkdir -p "$dir/packages/probe/__tests__" "$dir/.stubbin"
+  printf 'export {};\n' >"$dir/packages/probe/__tests__/probe.test.ts"
+  printf '{"scripts":{"typecheck:packages":"true","test:packages":"true"}}\n' >"$dir/package.json"
+  printf '#!/bin/sh\nexit 0\n' >"$dir/.stubbin/bun"
+  chmod +x "$dir/.stubbin/bun"
   git -C "$dir" add -A
   git -C "$dir" commit -qm base
   printf '%s\n' "$dir"
@@ -79,7 +90,7 @@ run_change() {
   printf '%s\n' "$body" >"$dir/$path"
   git -C "$dir" add -A
   git -C "$dir" commit -qm "change $path"
-  ( cd "$dir" && "$UNDER_TEST" ) >"$OUT" 2>&1 || code=$?
+  ( cd "$dir" && PATH="$dir/.stubbin:$PATH" "$UNDER_TEST" ) >"$OUT" 2>&1 || code=$?
   LAST_EXIT="$code"
 }
 
