@@ -196,7 +196,7 @@ impl Default for CacheConfig {
 pub struct CacheTtlConfig {
     /// Athlete profile cache TTL in seconds (default: 24 hours)
     pub profile_secs: u64,
-    /// Activity list cache TTL in seconds (default: 15 minutes)
+    /// Activity list cache TTL in seconds (default: 1 hour)
     pub activity_list_secs: u64,
     /// Individual activity cache TTL in seconds (default: 1 hour)
     pub activity_secs: u64,
@@ -371,7 +371,7 @@ impl fmt::Display for CacheKey {
 pub enum CacheResource {
     /// Athlete profile (24h TTL)
     AthleteProfile,
-    /// Activity list with pagination and optional time/sport filters (15min TTL)
+    /// Activity list with pagination and optional time/sport filters (1 h TTL)
     ActivityList {
         /// Page number for pagination
         page: u32,

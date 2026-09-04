@@ -55,7 +55,7 @@ impl CacheConfig {
 pub struct CacheTtlConfig {
     /// Athlete profile cache TTL in seconds (default: 24 hours)
     pub profile_secs: u64,
-    /// Activity list cache TTL in seconds (default: 15 minutes)
+    /// Activity list cache TTL in seconds (default: 1 hour)
     pub activity_list_secs: u64,
     /// Individual activity cache TTL in seconds (default: 1 hour)
     pub activity_secs: u64,

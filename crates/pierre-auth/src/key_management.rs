@@ -1,5 +1,5 @@
 // ABOUTME: Two-tier key management — a KEK (via KekProvider) wraps the Database Encryption Key (DEK)
-// ABOUTME: LocalKekProvider uses the env Master Encryption Key; GCP Cloud KMS is a future KekProvider (ADR-017)
+// ABOUTME: LocalKekProvider wraps the DEK with the env Master Encryption Key; GcpKmsKekProvider wraps it with Cloud KMS (ADR-017)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,7 +24,7 @@ use pierre_database::database::generate_encryption_key;
 /// The KEK never encrypts application data directly; it only wraps the 32-byte
 /// Database Encryption Key (DEK) for storage. This is the seam where the backing
 /// key store is swapped: [`LocalKekProvider`] uses an env-supplied master key,
-/// while a future `GcpKmsKekProvider` delegates wrap/unwrap to Cloud KMS without
+/// while `GcpKmsKekProvider` delegates wrap/unwrap to Cloud KMS without
 /// the key material ever leaving KMS (see ADR-017).
 #[async_trait]
 pub trait KekProvider: Send + Sync {
