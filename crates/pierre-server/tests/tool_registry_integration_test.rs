@@ -18,11 +18,13 @@
 
 mod common;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
+use pierre_contremaitre::tool_descriptions::{ParameterOverlay, ToolDescriptionOverlay};
 use pierre_core::models::TenantId;
+use pierre_mcp_schema::ToolSchema;
 use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
@@ -933,4 +935,101 @@ async fn test_tool_list_is_deterministically_ordered() {
             "role-filtered tool lists must also be ordered"
         );
     }
+}
+
+/// A tool description synced from contremaitre must reach the schema clients
+/// actually receive.
+///
+/// The overlay registry is populated by the contremaitre startup sync, the
+/// hourly poll and the GitHub push webhook, and it is the whole point of
+/// keeping 75 tool YAMLs in that repo: an edit there is supposed to change what
+/// `tools/list`, `GET /mcp/tools` and the chat function-calling surface
+/// advertise within a minute, with no redeploy. That only holds if the shared
+/// `ToolRegistry` is holding the same registry instance the sync writes into,
+/// so this asserts the served text changes — tool description and one
+/// parameter description — after a write that mimics a sync landing.
+#[tokio::test]
+async fn test_contremaitre_tool_overlay_reaches_the_served_schema() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+
+    let target = "get_activities";
+    let served = |ctx: &Arc<ServerContext>| -> ToolSchema {
+        ctx.mcp
+            .tool_registry
+            .list_schemas_for_role(false)
+            .into_iter()
+            .find(|schema| schema.name == target)
+            .expect("get_activities is a registered, non-admin tool")
+    };
+
+    let compiled_in = served(&resources);
+
+    let overlaid = "Contremaitre overlay: retrieve the athlete's recorded activities.";
+    let overlaid_limit = "Contremaitre overlay: how many activities to return.";
+    let mut parameters = HashMap::new();
+    parameters.insert(
+        "limit".to_owned(),
+        ParameterOverlay {
+            description: Some(overlaid_limit.to_owned()),
+        },
+    );
+    resources.mcp.tool_description_registry.update(
+        target,
+        ToolDescriptionOverlay {
+            description: Some(overlaid.to_owned()),
+            parameters,
+        },
+        "0000000000000000000000000000000000000000000000000000000000000000".to_owned(),
+    );
+
+    let after_sync = served(&resources);
+
+    assert_ne!(
+        compiled_in.description, overlaid,
+        "the fixture must differ from the compiled-in text or the assertion below proves nothing"
+    );
+    assert_eq!(
+        after_sync.description, overlaid,
+        "a synced tool description must replace the compiled-in one on the served schema"
+    );
+
+    let properties = after_sync
+        .input_schema
+        .properties
+        .expect("get_activities declares object properties");
+    assert_eq!(
+        properties
+            .get("limit")
+            .and_then(|property| property.description.clone()),
+        Some(overlaid_limit.to_owned()),
+        "a synced parameter description must replace the compiled-in one"
+    );
+
+    // Parameters the overlay does not mention keep their compiled-in text —
+    // the overlay is a merge, not a replacement of the whole schema.
+    let compiled_offset = compiled_in
+        .input_schema
+        .properties
+        .as_ref()
+        .and_then(|properties| properties.get("offset"))
+        .and_then(|property| property.description.clone())
+        .expect("offset carries a compiled-in description");
+    assert_eq!(
+        properties
+            .get("offset")
+            .and_then(|property| property.description.clone()),
+        Some(compiled_offset),
+        "an unmentioned parameter keeps its compiled-in description"
+    );
+
+    // Removing the overlay reverts to the compiled-in text, which is what a
+    // deleted YAML in contremaitre has to do.
+    assert!(resources.mcp.tool_description_registry.remove(target));
+    assert_eq!(
+        served(&resources).description,
+        compiled_in.description,
+        "removing the overlay reverts the served schema to the compiled-in description"
+    );
 }

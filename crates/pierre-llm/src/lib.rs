@@ -32,6 +32,7 @@ pub use pierre_core::llm::{
 
 /// Process-wide guard state for ChatProvider::Chain preemptive fallback
 /// (GitHub rate-limit headroom + circuit breaker on primary).
+mod chain;
 pub mod chain_guard;
 /// Embacle-based LLM provider facade wrapping CLI subprocess and SDK runners
 mod cli_llm_provider;
@@ -78,6 +79,7 @@ pub use embacle::{
 pub use embacle::{
     McpToolDefinition, McpToolExecutor, OpenAiApiConfig, OpenAiApiRunner, QualityGateProvider,
 };
+pub use fallback_policy::is_empty_tool_completion;
 pub use fallback_policy::{is_empty_completion, is_retryable_for_fallback};
 pub use gemini::{
     ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, GeminiProvider,

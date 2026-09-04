@@ -67,6 +67,42 @@ jobs:
       - name: Verify backend paths are proxied, SPA paths are not
         run: ./scripts/ci/nginx-routing-check.sh
 
+  # packages/chat-utils, ui-logic, domain-utils and mcp-types hold the logic both
+  # clients share, and their vitest suites reached no runner: frontend's vitest
+  # `include` is 'src/**' and mobile's jest rootDir puts packages/ outside the
+  # tree. This job is the gate for them.
+  shared-package-tests:
+    name: Shared Package Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install all workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check shared packages
+        run: bun run typecheck:packages
+
+      - name: Test shared packages
+        run: |
+          # `bun run --filter` over a pattern that matches no package exits 0, so
+          # count the suites first: an empty selection must never report green.
+          PACKAGE_TEST_FILES=$(find packages -path '*__tests__*' -name '*.test.ts*' | wc -l | tr -d ' ')
+          echo "Shared-package test files: $PACKAGE_TEST_FILES"
+          if [ "$PACKAGE_TEST_FILES" -eq 0 ]; then
+            echo "No test files under packages/*/__tests__/ — this gate would pass vacuously."
+            exit 1
+          fi
+          bun run test:packages
+
   frontend-tests:
     name: Frontend Test Suite
     runs-on: ubuntu-latest

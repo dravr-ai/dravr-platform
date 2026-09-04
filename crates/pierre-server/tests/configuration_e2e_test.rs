@@ -294,6 +294,13 @@ async fn test_calculate_personalized_zones_e2e() {
     let zones = &result["personalized_zones"];
     assert!(zones["heart_rate_zones"].is_object());
     assert!(zones["pace_zones"].is_object());
+    // Daniels' oxygen-cost curve puts VO2max 55 at 281.7 m/min; the easy zone
+    // is 70 % of that, banded 0.85–0.95, quoted as minutes per kilometre.
+    // Dropping the curve's squared term reads ~15 % fast and would quote
+    // 5:08–4:36 instead.
+    let easy = &zones["pace_zones"]["zone_1_easy"];
+    assert_eq!(easy["min_pace"], "5:58", "easy zone was {easy:?}");
+    assert_eq!(easy["max_pace"], "5:20", "easy zone was {easy:?}");
     assert!(
         zones["power_zones"].is_null(),
         "power zones must be omitted without an FTP, got {:?}",

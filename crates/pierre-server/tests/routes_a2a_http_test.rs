@@ -1,5 +1,5 @@
 // ABOUTME: HTTP integration tests for A2A 1.0 protocol routes (JSONRPC + HTTP+JSON bindings)
-// ABOUTME: Covers version negotiation, auth gating, SendMessage echo path, and REST error shapes
+// ABOUTME: Covers version negotiation, auth gating, SendMessage tool-intent gating, and REST error shapes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -333,11 +333,11 @@ async fn test_a2a_jsonrpc_send_message_requires_auth() {
 }
 
 #[tokio::test]
-async fn test_a2a_jsonrpc_send_message_authenticated_echo_reply() {
-    // The authenticated happy path: a valid JWT-bearing caller reaches the
-    // real SendMessage path. A plain-text message with no tool intent and no
-    // task reference is a message-only exchange — the result is the
-    // SendMessageResponse `{"message": ...}` alternative echoing the text.
+async fn test_a2a_jsonrpc_send_message_plain_text_is_refused_not_echoed() {
+    // SendMessage executes registered tools addressed by a `data` part. A
+    // plain-text message names no tool, so it is refused with the spec's
+    // ContentTypeNotSupported error — never answered by handing the caller
+    // its own sentence back as the agent's reply.
     let resources = create_a2a_test_resources().await;
     let (_user, jwt) = common::create_test_tenant(&resources, "a2a-auth@example.com")
         .await
@@ -367,15 +367,26 @@ async fn test_a2a_jsonrpc_send_message_authenticated_echo_reply() {
     let envelope: serde_json::Value = response.json();
 
     assert!(
-        envelope["error"].is_null(),
-        "authenticated SendMessage must not error, got: {envelope:?}"
+        envelope["result"].is_null(),
+        "a message naming no tool must not produce a result: {envelope:?}"
     );
-    let message = &envelope["result"]["message"];
-    assert_eq!(message["role"], "ROLE_AGENT");
-    assert!(message["messageId"].is_string());
+    assert_eq!(envelope["error"]["code"], -32005);
     assert_eq!(
-        message["parts"][0]["text"], "hello agent",
-        "authenticated reply must echo the sent text, got: {envelope:?}"
+        envelope["error"]["data"][0]["reason"], "CONTENT_TYPE_NOT_SUPPORTED",
+        "refusal must carry the spec reason: {envelope:?}"
+    );
+    assert!(
+        envelope["error"]["message"]
+            .as_str()
+            .expect("error message")
+            .contains("tool_name"),
+        "the refusal must name the accepted shape: {envelope:?}"
+    );
+    assert!(
+        !serde_json::to_string(&envelope)
+            .expect("serialize envelope")
+            .contains("hello agent"),
+        "the caller's own text must never come back as the agent reply: {envelope:?}"
     );
 }
 
@@ -414,7 +425,7 @@ async fn test_rest_binding_auth_maps_to_401() {
 }
 
 #[tokio::test]
-async fn test_rest_message_send_authenticated_echo() {
+async fn test_rest_message_send_plain_text_is_refused_not_echoed() {
     let resources = create_a2a_test_resources().await;
     let (_user, jwt) = common::create_test_tenant(&resources, "a2a-rest@example.com")
         .await
@@ -436,10 +447,19 @@ async fn test_rest_message_send_authenticated_echo() {
         .send(routes)
         .await;
 
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 400);
     let result: serde_json::Value = response.json();
-    assert_eq!(result["message"]["role"], "ROLE_AGENT");
-    assert_eq!(result["message"]["parts"][0]["text"], "ping over rest");
+    assert_eq!(result["error"]["status"], "INVALID_ARGUMENT");
+    assert_eq!(
+        result["error"]["details"][0]["reason"],
+        "CONTENT_TYPE_NOT_SUPPORTED"
+    );
+    assert!(
+        !serde_json::to_string(&result)
+            .expect("serialize body")
+            .contains("ping over rest"),
+        "the caller's own text must never come back as the agent reply: {result:?}"
+    );
 }
 
 #[tokio::test]
@@ -533,7 +553,9 @@ async fn test_client_credentials_token_authenticates_protocol_methods() {
     let (client_id, token) = register_client_and_mint_token(&resources, user.id).await;
     let routes = a2a_router_from(&resources);
 
-    // SendMessage (message-only echo) authenticates with the client token.
+    // SendMessage authenticates with the client token: the request reaches
+    // the protocol handler, which refuses it on content grounds rather than
+    // on authentication grounds.
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "SendMessage",
@@ -555,13 +577,13 @@ async fn test_client_credentials_token_authenticates_protocol_methods() {
 
     assert_eq!(response.status(), 200);
     let envelope: serde_json::Value = response.json();
-    assert!(
-        envelope["error"].is_null(),
-        "client-credentials SendMessage must not error: {envelope:?}"
+    assert_eq!(
+        envelope["error"]["code"], -32005,
+        "client-credentials SendMessage must pass auth and fail on content: {envelope:?}"
     );
     assert_eq!(
-        envelope["result"]["message"]["parts"][0]["text"],
-        "hello from a machine"
+        envelope["error"]["data"][0]["reason"],
+        "CONTENT_TYPE_NOT_SUPPORTED"
     );
 
     // ListTasks under the client token is scoped to the acting client.
@@ -632,6 +654,86 @@ async fn test_client_credentials_tasks_keyed_to_acting_client() {
         .expect("load task")
         .expect("task exists");
     assert_eq!(record.client_id, client_id);
+}
+
+#[tokio::test]
+async fn test_plain_text_continuation_fails_the_task_without_echoing() {
+    // A follow-up message on a live task that names no tool has nothing to
+    // execute. The task must terminate as FAILED carrying the accepted
+    // shape — never as COMPLETED carrying the caller's own words.
+    let resources = create_a2a_test_resources().await;
+    let (user, _jwt) = common::create_test_tenant(&resources, "a2a-continuation@example.com")
+        .await
+        .expect("seed user + tenant");
+    let (client_id, token) = register_client_and_mint_token(&resources, user.id).await;
+    let routes = a2a_router_from(&resources);
+
+    // Seed a live (non-terminal) task directly so the continuation path is
+    // reached deterministically.
+    let context_id = "ctx-continuation";
+    let task_id = pierre_runtime_context::A2ACtx::repos(resources.as_ref())
+        .a2a
+        .create_task(
+            &client_id,
+            None,
+            "message",
+            &serde_json::json!({ "seed": true }),
+            Some(context_id),
+        )
+        .await
+        .expect("seed a live task");
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "m-continuation-1",
+                "role": "ROLE_USER",
+                "taskId": task_id,
+                "parts": [{ "text": "analyze my last week of training" }]
+            }
+        },
+        "id": 31
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {token}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+    let task = &envelope["result"]["task"];
+    assert_eq!(
+        task["status"]["state"], "TASK_STATE_FAILED",
+        "a task that executed nothing must not report completion: {envelope:?}"
+    );
+
+    let status_text = task["status"]["message"]["parts"][0]["text"]
+        .as_str()
+        .expect("failed status carries an explanatory agent message");
+    assert!(
+        status_text.contains("tool_name"),
+        "the failure must name the accepted shape, got: {status_text}"
+    );
+    assert_ne!(
+        status_text, "analyze my last week of training",
+        "the agent reply must never be the caller's own text"
+    );
+
+    // The persisted record agrees with the wire snapshot.
+    let record = pierre_runtime_context::A2ACtx::repos(resources.as_ref())
+        .a2a
+        .get_task(&task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert!(
+        record.status.is_terminal(),
+        "the task must reach a terminal state"
+    );
 }
 
 #[tokio::test]

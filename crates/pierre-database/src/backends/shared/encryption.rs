@@ -149,6 +149,71 @@ where
     db.decrypt_data_with_aad(encrypted_token, &aad_context)
 }
 
+/// Create AAD context binding an RSA private key to the key id that owns it
+///
+/// Format: `"{kid}|rsa_keypairs"`
+///
+/// The JWT signing key has no tenant or user to bind to, so the key id is the
+/// context: ciphertext copied onto a different `rsa_keypairs` row fails
+/// authentication and cannot be pressed into service under another `kid`.
+///
+/// # Examples
+/// ```
+/// # use pierre_database::backends::shared::encryption::create_rsa_key_aad_context;
+/// let aad = create_rsa_key_aad_context("jwt_signing_2026");
+/// assert_eq!(aad, "jwt_signing_2026|rsa_keypairs");
+/// ```
+#[must_use]
+pub fn create_rsa_key_aad_context(kid: &str) -> String {
+    format!("{kid}|rsa_keypairs")
+}
+
+/// Armour header that opens every PEM-encoded private key export.
+const PEM_ARMOUR_PREFIX: &str = "-----BEGIN";
+
+/// Whether a stored `rsa_keypairs.private_key_pem` value is un-encrypted PEM
+///
+/// Ciphertext produced by [`HasEncryption::encrypt_data_with_aad`] is
+/// `"v{N}:{base64}"`, which cannot begin with PEM armour, so rows written
+/// before the column carried ciphertext are recognised exactly.
+///
+/// # Examples
+/// ```
+/// # use pierre_database::backends::shared::encryption::is_plaintext_private_key_pem;
+/// assert!(is_plaintext_private_key_pem("-----BEGIN PRIVATE KEY-----\nMIIE")); // secret-scan-ok: the detector's own fixture — PEM armour with no key material
+/// assert!(!is_plaintext_private_key_pem("v1:c29tZSBjaXBoZXJ0ZXh0"));
+/// ```
+#[must_use]
+pub fn is_plaintext_private_key_pem(stored: &str) -> bool {
+    stored.trim_start().starts_with(PEM_ARMOUR_PREFIX)
+}
+
+/// Encrypt an RSA private key PEM for storage in `rsa_keypairs`
+///
+/// # Errors
+/// Returns an error if encryption fails
+pub fn encrypt_rsa_private_key<D>(db: &D, kid: &str, private_key_pem: &str) -> AppResult<String>
+where
+    D: HasEncryption,
+{
+    db.encrypt_data_with_aad(private_key_pem, &create_rsa_key_aad_context(kid))
+}
+
+/// Decrypt an RSA private key PEM read from `rsa_keypairs`
+///
+/// Callers separate plaintext rows out with [`is_plaintext_private_key_pem`]
+/// first; this handles the ciphertext case.
+///
+/// # Errors
+/// Returns an error if the stored ciphertext is corrupt or its AAD context
+/// does not match the key id it was read under
+pub fn decrypt_rsa_private_key<D>(db: &D, kid: &str, stored: &str) -> AppResult<String>
+where
+    D: HasEncryption,
+{
+    db.decrypt_data_with_aad(stored, &create_rsa_key_aad_context(kid))
+}
+
 /// Trait for databases that support encryption
 ///
 /// Both `PostgreSQL` and `SQLite` must implement this trait to use shared

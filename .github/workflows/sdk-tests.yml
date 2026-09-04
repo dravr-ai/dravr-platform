@@ -210,11 +210,16 @@ jobs:
             echo "Error: src/response-schemas.ts not found"
             exit 1
           fi
-          # Count tools in schema map (should be >= 35)
-          MAP_COUNT=$(grep -E "^\s+\"[a-z_]+\":" src/response-schemas.ts | wc -l)
+          # Count tools in schema map (should be >= 35). The keys are bare
+          # identifiers, not quoted strings, and they are read from inside the
+          # map body — a count that selects nothing reads 0 and must fail, not
+          # warn: an empty selection is never a passing coverage check.
+          MAP_COUNT=$(awk '/^export const ToolResponseSchemaMap/{in_map=1;next} in_map&&/^}/{exit} in_map' src/response-schemas.ts \
+            | grep -cE "^[[:space:]]+[a-z][a-z0-9_]*:" || true)
           echo "Found $MAP_COUNT tools in ToolResponseSchemaMap"
           if [ "$MAP_COUNT" -lt 35 ]; then
-            echo "Warning: Only $MAP_COUNT tools have response schemas (expected >= 35)"
+            echo "Error: only $MAP_COUNT tools have response schemas (expected >= 35)"
+            exit 1
           fi
           # Run schema unit tests
           bun run test test/unit/response-schemas.test.js || {

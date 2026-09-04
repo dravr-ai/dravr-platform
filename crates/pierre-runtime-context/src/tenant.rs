@@ -8,8 +8,8 @@
 //!
 //! Every route handler and tenant-scoped service must pass the authenticated
 //! [`AuthResult`] through [`resolve_tenant`] before reading or writing
-//! tenant-scoped data; there is exactly one tenant-resolution policy in
-//! the codebase, and it lives here.
+//! tenant-scoped data; that is how a request *selects* which tenant it acts
+//! for, and the policy for selecting one lives here.
 //!
 //! ## Why this exists
 //!
@@ -30,6 +30,17 @@
 //!
 //! [`resolve_tenant`] closes both: it never fabricates an id, and it
 //! verifies membership whenever `active_tenant_id` is present.
+//!
+//! ## The other half of the rule
+//!
+//! The MCP and A2A tool-execution paths are handed a tenant that is already
+//! named — by an argument, a header, or an `active_tenant_id` claim — so they
+//! build a `pierre_auth::tenant::TenantContext` rather than select an id.
+//! `pierre_mcp_transport::tenant_isolation` is where that happens, and it
+//! applies the same membership rule: a `(user, tenant)` pair with no
+//! `tenant_users` row is refused, never resolved to a default role. Selecting
+//! an id and naming one are different jobs; trusting an unverified claim is not
+//! a difference between them.
 //!
 //! ## Modes
 //!

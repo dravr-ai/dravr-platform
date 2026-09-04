@@ -10,11 +10,16 @@
 //! into the Endurance `intervals.json` payload — one row per lap with the
 //! per-interval Endurance metrics (avg HR, normalized power, IF, decoupling).
 //!
+//! Stream-derived metrics are computed over the lap's own window of the
+//! activity stream. Cageux laps carry no absolute start, so a lap's window —
+//! and its start time — is addressed by the cumulative elapsed seconds of the
+//! laps before it.
+//!
 //! When the activity has no laps, the output is a single synthetic interval
 //! covering the whole activity so coaches can still compare apples to
 //! apples against multi-lap sessions.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use dravr_cageux::models::activity::{Activity, Lap, TimeSeriesData};
 use dravr_cageux::visitor::{DecouplingDetector, NormalizedPowerCalculator, TimeSeriesExt};
 use serde::{Deserialize, Serialize};
@@ -79,10 +84,7 @@ pub fn build_intervals(activity: &Activity, ftp_watts: Option<u32>) -> Intervals
     let stream = activity.time_series_data();
 
     let intervals: Vec<IntervalRow> = match activity.laps() {
-        Some(laps) if !laps.is_empty() => laps
-            .iter()
-            .map(|lap| build_row_from_lap(base_start, lap, stream, ftp_watts))
-            .collect(),
+        Some(laps) if !laps.is_empty() => rows_from_laps(base_start, laps, stream, ftp_watts),
         _ => vec![build_row_from_whole_activity(activity, stream, ftp_watts)],
     };
 
@@ -94,15 +96,51 @@ pub fn build_intervals(activity: &Activity, ftp_watts: Option<u32>) -> Intervals
     }
 }
 
-fn build_row_from_lap(
+/// Walk the laps in order, handing each one its own slice of the stream.
+///
+/// Laps are contiguous, so a lap starts where the previous ones end: the
+/// running offset is the sum of the preceding laps' elapsed seconds, which is
+/// also what addresses this lap's samples in the stream.
+fn rows_from_laps(
     base_start: DateTime<Utc>,
-    lap: &Lap,
+    laps: &[Lap],
     stream: Option<&TimeSeriesData>,
     ftp_watts: Option<u32>,
+) -> Vec<IntervalRow> {
+    let mut offset_seconds: u64 = 0;
+    let mut rows = Vec::with_capacity(laps.len());
+    for lap in laps {
+        let window =
+            stream.and_then(|full| lap_window(full, offset_seconds, lap.elapsed_time_seconds));
+        rows.push(build_row_from_lap(
+            base_start,
+            offset_seconds,
+            lap,
+            window.as_ref(),
+            ftp_watts,
+        ));
+        offset_seconds = offset_seconds.saturating_add(lap.elapsed_time_seconds);
+    }
+    rows
+}
+
+/// Build one row from a lap and the stream slice covering that lap.
+///
+/// `offset_seconds` is the lap's distance in seconds from the activity start:
+/// cageux laps carry no absolute start, so the wall-clock start is the base
+/// start advanced by the elapsed time of the laps that precede this one.
+/// `window` holds only that lap's samples, so the stream-derived metrics
+/// describe the interval rather than the whole session.
+fn build_row_from_lap(
+    base_start: DateTime<Utc>,
+    offset_seconds: u64,
+    lap: &Lap,
+    window: Option<&TimeSeriesData>,
+    ftp_watts: Option<u32>,
 ) -> IntervalRow {
-    let lap_start = base_start; // Cageux laps don't carry an absolute start; use activity start.
-    let normalized_power = stream.and_then(np_for_window);
-    let decoupling_pct = stream.and_then(decoupling_for_window);
+    let lap_start = start_at_offset(base_start, offset_seconds);
+    let normalized_power = window.and_then(np_for_window);
+    let decoupling_pct = window.and_then(decoupling_for_window);
     let intensity_factor = match (normalized_power, ftp_watts) {
         (Some(np), Some(ftp)) if ftp > 0 => Some(np / f64::from(ftp)),
         _ => None,
@@ -149,6 +187,75 @@ fn build_row_from_whole_activity(
         intensity_factor,
         decoupling_pct,
     }
+}
+
+/// Wall-clock instant `offset_seconds` after the activity start.
+///
+/// Falls back to the activity start when the offset cannot be represented as a
+/// signed duration, which keeps the row ordered inside the activity instead of
+/// wrapping to an unrelated instant.
+fn start_at_offset(base_start: DateTime<Utc>, offset_seconds: u64) -> DateTime<Utc> {
+    i64::try_from(offset_seconds)
+        .ok()
+        .and_then(TimeDelta::try_seconds)
+        .and_then(|delta| base_start.checked_add_signed(delta))
+        .unwrap_or(base_start)
+}
+
+/// Slice `stream` down to the samples belonging to one lap.
+///
+/// Stream timestamps are offsets in seconds from the activity start, so a lap
+/// beginning `start_offset_seconds` in and running for `elapsed_seconds` owns
+/// the samples in `[start, start + elapsed)`. `None` when no sample falls in
+/// that window, which leaves the window-derived metrics absent rather than
+/// filling them with a neighbouring lap's numbers.
+fn lap_window(
+    stream: &TimeSeriesData,
+    start_offset_seconds: u64,
+    elapsed_seconds: u64,
+) -> Option<TimeSeriesData> {
+    let end_offset_seconds = start_offset_seconds.saturating_add(elapsed_seconds);
+    let mut first: Option<usize> = None;
+    let mut end = 0_usize;
+    for (idx, &timestamp) in stream.timestamps.iter().enumerate() {
+        let offset = u64::from(timestamp);
+        if offset >= start_offset_seconds && offset < end_offset_seconds {
+            if first.is_none() {
+                first = Some(idx);
+            }
+            end = idx.saturating_add(1);
+        }
+    }
+    let start = first?;
+    Some(TimeSeriesData {
+        timestamps: stream
+            .timestamps
+            .get(start..end)
+            .unwrap_or_default()
+            .to_vec(),
+        heart_rate: slice_channel(stream.heart_rate.as_deref(), start, end),
+        power: slice_channel(stream.power.as_deref(), start, end),
+        cadence: slice_channel(stream.cadence.as_deref(), start, end),
+        speed: slice_channel(stream.speed.as_deref(), start, end),
+        altitude: slice_channel(stream.altitude.as_deref(), start, end),
+        temperature: slice_channel(stream.temperature.as_deref(), start, end),
+        gps_coordinates: slice_channel(stream.gps_coordinates.as_deref(), start, end),
+    })
+}
+
+/// Copy `channel[start..end]`, clamped to the channel's own length.
+///
+/// Channels are allowed to be shorter than the timestamp axis — the visitor
+/// pairs them by index and skips what is missing — so a lap late in the
+/// activity can land entirely past the end of a short channel, which yields
+/// `None`.
+fn slice_channel<T: Clone>(channel: Option<&[T]>, start: usize, end: usize) -> Option<Vec<T>> {
+    let values = channel?;
+    let window = values.get(start.min(values.len())..end.min(values.len()))?;
+    if window.is_empty() {
+        return None;
+    }
+    Some(window.to_vec())
 }
 
 fn np_for_window(stream: &TimeSeriesData) -> Option<f64> {

@@ -42,6 +42,16 @@ export function createNotificationsApi(axios: AxiosInstance) {
 
     /**
      * Register a device token for push notifications.
+     *
+     * LIMITATION(registre#301): `registerDevice`, `listDevices`, `deactivateDevice`
+     * and `badgeSync` have zero production callers. The server half is complete —
+     * `pierre-routes-groups` serves `POST`/`GET /api/notifications/device` and
+     * `DELETE /api/notifications/device/{id}` on exactly these paths — but neither
+     * client can produce a token to send: `frontend-mobile` carries no
+     * `expo-notifications` dependency, so nothing calls `getExpoPushTokenAsync`.
+     * The dispatcher's Expo push sink therefore resolves zero devices for every
+     * user; the persisted notification row that both clients read through their
+     * feed is the delivery path that works.
      */
     async registerDevice(request: RegisterDeviceTokenRequest): Promise<DeviceToken> {
       const response = await axios.post<DeviceToken>(ENDPOINTS.NOTIFICATIONS.DEVICES, request);

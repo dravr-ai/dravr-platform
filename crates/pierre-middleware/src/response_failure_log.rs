@@ -21,7 +21,12 @@
 //! Sciotte Chrome limiter), not a server fault. It logs at `WARN` and so never
 //! reaches the ops channel. Every other 5xx logs at `ERROR`, now enriched with
 //! the endpoint so the alert is self-explanatory.
+//!
+//! The endpoint it logs is the redacted request line attached by
+//! [`crate::redaction::redaction_middleware`], so an alert for a failing
+//! `OAuth` callback names the route without carrying the authorization code.
 
+use crate::redaction::RedactedRequestLine;
 use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -38,7 +43,14 @@ use tracing::{error, warn};
 /// `INFO`.
 pub async fn response_failure_log_middleware(req: Request, next: Next) -> Response {
     let method = req.method().clone();
-    let path = req.uri().path().to_owned();
+    // `redaction_middleware` is installed outside this one, so the log-safe
+    // request line — path plus a query stripped of codes, tokens and addresses
+    // — is already attached. The bare path is the fallback for a stack that
+    // does not install it.
+    let path = req
+        .extensions()
+        .get::<RedactedRequestLine>()
+        .map_or_else(|| req.uri().path().to_owned(), ToString::to_string);
     let started = Instant::now();
 
     let response = next.run(req).await;

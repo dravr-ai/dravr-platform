@@ -535,9 +535,21 @@ async fn test_get_dashboard_overview_success() -> Result<()> {
     assert!(tier_names.contains(&&"professional".to_owned()));
     assert!(tier_names.contains(&&"enterprise".to_owned()));
 
-    // Note: Recent activity might be empty in test environment since
-    // get_request_logs method may not be fully implemented for test database
-    // This is acceptable as the core dashboard functionality is being tested
+    // Recent activity is read back from the recorded usage, so it names the
+    // keys the setup created rather than a placeholder.
+    assert!(
+        !overview.recent_activity.is_empty(),
+        "recorded usage must surface as recent activity"
+    );
+    let key_names: Vec<&str> = setup.api_keys.iter().map(|k| k.name.as_str()).collect();
+    for activity in &overview.recent_activity {
+        assert!(
+            key_names.contains(&activity.api_key_name.as_str()),
+            "recent activity must name a real API key, got: {}",
+            activity.api_key_name
+        );
+        assert!(!activity.tool_name.is_empty());
+    }
 
     Ok(())
 }
@@ -1103,11 +1115,20 @@ async fn test_get_request_logs_success() -> Result<()> {
         )
         .await?;
 
-    // Note: Logs might be empty in test environment - this is acceptable
-    // as we're testing the API interface and authentication
+    // The setup recorded usage inside this window, so the read returns rows.
+    assert!(
+        !logs.is_empty(),
+        "recorded usage in the last 24h must come back as request logs"
+    );
+    let key_names: Vec<&str> = setup.api_keys.iter().map(|k| k.name.as_str()).collect();
 
     // Verify log structure
     for log in &logs {
+        assert!(
+            key_names.contains(&log.api_key_name.as_str()),
+            "log must name a real API key, got: {}",
+            log.api_key_name
+        );
         assert!(!log.id.is_empty());
         assert!(log.timestamp <= Utc::now());
         assert!(!log.api_key_id.is_empty());

@@ -23,9 +23,12 @@ use pierre_core::narration::is_degenerate_reply;
 use pierre_core::tokens::{estimate_chat_tokens, join_prompt_text};
 use tracing::{info, warn};
 
+use crate::cli_loop::cli_loop_request;
+use crate::embacle_bridge::{from_embacle_calls, to_embacle_declarations};
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
 use crate::headless_stream;
+use crate::llm_call_record::{accumulate_optional, LlmCallRecord, LlmCallRecorder};
 use crate::protocol::UniversalResponse;
 use crate::tool_loop_io::{
     GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult, ToolLoopTally,
@@ -41,8 +44,6 @@ use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
     FunctionResponse, MessageRole, TokenUsage, Tool,
 };
-
-use crate::llm_call_record::{accumulate_optional, LlmCallRecord, LlmCallRecorder};
 
 // ============================================================================
 // API Tool Loop (Gemini/Groq native function calling)
@@ -440,11 +441,12 @@ pub async fn run_cli_tool_loop(
     for iteration in 0..max_iterations {
         let llm_request = {
             log_wire_shape("cli_tool_loop", llm_messages);
-            let req = ChatRequest::new(llm_messages.clone()).with_model(params.model);
-            match params.temperature {
-                Some(t) => req.with_temperature(t),
-                None => req,
-            }
+            cli_loop_request(
+                llm_messages.clone(),
+                params.model,
+                params.temperature,
+                params.mcp_servers.clone(),
+            )
         };
 
         // notify: CLI/embacle provider call about to start. Same event as
@@ -622,35 +624,6 @@ pub async fn run_cli_tool_loop(
 
     // Max iterations reached without a final text response
     Ok(tally.max_iterations(None))
-}
-
-// ============================================================================
-// Type Conversions: pierre-llm ↔ embacle::tool_simulation
-// ============================================================================
-
-/// Convert pierre-llm function declarations to embacle `tool_simulation` declarations.
-fn to_embacle_declarations(
-    decls: &[FunctionDeclaration],
-) -> Vec<tool_simulation::FunctionDeclaration> {
-    decls
-        .iter()
-        .map(|d| tool_simulation::FunctionDeclaration {
-            name: d.name.clone(),
-            description: d.description.clone(),
-            parameters: d.parameters.clone(),
-        })
-        .collect()
-}
-
-/// Convert embacle `tool_simulation` function calls to pierre-llm function calls.
-fn from_embacle_calls(calls: Vec<tool_simulation::FunctionCall>) -> Vec<FunctionCall> {
-    calls
-        .into_iter()
-        .map(|c| FunctionCall {
-            name: c.name,
-            args: c.args,
-        })
-        .collect()
 }
 
 /// Convert an [`Instant`] elapsed time into milliseconds, saturating

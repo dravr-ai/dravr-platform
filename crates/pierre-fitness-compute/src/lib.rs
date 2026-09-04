@@ -15,6 +15,10 @@
 //! intervals, route terrain, LT1/LT2 thresholds), geocoding and OSM route
 //! discovery, and weather context.
 
+/// Jack Daniels' oxygen-cost curve, inverted: `VO2max` to velocity at `VO2max`.
+pub mod daniels;
+pub use daniels::velocity_at_vo2max;
+
 /// Endurance Phase 1 latest-snapshot computation (`GET /api/v1/endurance/latest`).
 pub mod latest_snapshot;
 pub use latest_snapshot::{

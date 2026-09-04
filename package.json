@@ -9,9 +9,9 @@
   ],
   "scripts": {
     "preinstall": "node -e \"if(!process.env.npm_execpath || !process.env.npm_execpath.includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",
-    "typecheck:packages": "bun run typecheck --filter './packages/*'",
-    "lint:packages": "bun run lint --filter './packages/*'",
-    "test:packages": "bun run test --filter './packages/*'",
+    "typecheck:packages": "bun run --filter './packages/*' typecheck",
+    "lint:packages": "bun run --filter './packages/*' lint",
+    "test:packages": "bun run --filter './packages/*' test",
     "scan:skills": "uvx snyk-agent-scan@latest --skills .claude/skills",
     "scan:mcp": "uvx snyk-agent-scan@latest .mcp.json"
   },

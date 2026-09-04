@@ -172,6 +172,11 @@ resource "google_monitoring_alert_policy" "coach_identity_leak_survived_reask" {
     }
   }
 
+  # Routed to the same Slack channel as the job-failure and instance-floor
+  # policies (declared in monitoring.tf) — user-visible harm has to reach a
+  # human, not just open an incident in the console.
+  notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
+
   # Closes itself once the rate settles, so a burst does not need manual
   # acknowledgement to stop nagging.
   alert_strategy {

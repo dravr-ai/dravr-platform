@@ -241,6 +241,18 @@ variable "frontend_max_instances" {
 }
 
 # -----------------------------------------------------------------------------
+# Firebase Identity Platform
+# -----------------------------------------------------------------------------
+
+# No default: the frontend nginx config proxies /__/ auth-handler paths to
+# https://<id>.firebaseapp.com, so the value has to name the Firebase project
+# linked to project_id rather than inherit another environment's.
+variable "firebase_project_id" {
+  description = "Firebase project ID (linked GCP project with Firebase enabled)"
+  type        = string
+}
+
+# -----------------------------------------------------------------------------
 # Labels
 # -----------------------------------------------------------------------------
 

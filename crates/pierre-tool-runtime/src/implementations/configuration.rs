@@ -38,6 +38,7 @@ use pierre_core::config::profiles::ProfileTemplates;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
+use pierre_fitness_compute::velocity_at_vo2max;
 use pierre_intelligence::physiological_constants::configuration_validation;
 use pierre_intelligence::physiological_constants::heart_rate_zones::{
     AEROBIC_THRESHOLD_PERMILLE, LACTATE_THRESHOLD_PERMILLE, PERMILLE_DIVISOR, ZONE_1_MAX_PERMILLE,
@@ -52,6 +53,9 @@ use pierre_tools_core::ToolResult;
 // ============================================================================
 // Helpers (inlined from former handlers/configuration.rs)
 // ============================================================================
+
+/// Seconds in a minute, in the float form the pace formatter multiplies by.
+const SECONDS_PER_MINUTE_F64: f64 = 60.0;
 
 /// Normalize stored configuration structure with defaults
 fn normalize_stored_configuration(stored_config: &Value) -> Value {
@@ -306,8 +310,13 @@ fn zone_calculations_payload(params: &ZoneParams, resting_hr: u16, max_hr: u16) 
     })
 }
 
+/// Render the VDOT pace zones for a tool payload.
+///
+/// Every zone is a configured fraction of the velocity the athlete holds at
+/// `VO2max`, which [`velocity_at_vo2max`] derives from Daniels' oxygen-cost
+/// curve — the platform's one inversion of that relation.
 fn calculate_pace_zones_from_vo2max(vo2_max: f64, config: &TrainingZonesConfig) -> Value {
-    let base_velocity = (vo2_max + 4.60) / 0.182_258;
+    let base_velocity = velocity_at_vo2max(vo2_max);
 
     let easy_velocity = base_velocity * config.vdot_easy_zone_percent;
     let tempo_velocity = base_velocity * config.vdot_tempo_zone_percent;
@@ -316,7 +325,10 @@ fn calculate_pace_zones_from_vo2max(vo2_max: f64, config: &TrainingZonesConfig) 
     let repetition_velocity = base_velocity * config.vdot_repetition_zone_percent;
 
     let format_pace = |velocity_m_per_min: f64| -> String {
-        let seconds_per_km = METERS_PER_KILOMETER / velocity_m_per_min.max(1.0);
+        // Velocities are metres per minute, so a kilometre costs
+        // 1000 / velocity minutes; the payload quotes minutes and seconds.
+        let minutes_per_km = METERS_PER_KILOMETER / velocity_m_per_min.max(1.0);
+        let seconds_per_km = minutes_per_km * SECONDS_PER_MINUTE_F64;
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let total_secs = if !seconds_per_km.is_finite() || seconds_per_km < 0.0 {

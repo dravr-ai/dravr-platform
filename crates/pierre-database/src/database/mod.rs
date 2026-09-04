@@ -75,6 +75,8 @@ pub mod repositories;
 pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (`SQLite`)
 pub mod route_summaries;
+/// RSA signing-keypair persistence
+pub mod rsa_keys;
 /// Security repository: RSA keypairs, key rotation, audit events, system secrets
 pub mod security_repository;
 /// Seeder repository for seed-only database operations
@@ -572,108 +574,6 @@ impl Database {
     pub fn hash_data(&self, data: &str) -> AppResult<String> {
         let hash = digest(&SHA256, data.as_bytes());
         Ok(general_purpose::STANDARD.encode(hash.as_ref()))
-    }
-
-    /// Save RSA keypair to database for persistence across restarts
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub async fn save_rsa_keypair(
-        &self,
-        kid: &str,
-        private_key_pem: &str,
-        public_key_pem: &str,
-        created_at: DateTime<Utc>,
-        is_active: bool,
-        key_size_bits: usize,
-    ) -> AppResult<()> {
-        sqlx::query(
-            r"
-            INSERT INTO rsa_keypairs (kid, private_key_pem, public_key_pem, created_at, is_active, key_size_bits)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT(kid) DO UPDATE SET
-                private_key_pem = EXCLUDED.private_key_pem,
-                public_key_pem = EXCLUDED.public_key_pem,
-                is_active = EXCLUDED.is_active
-            ",
-        )
-        .bind(kid)
-        .bind(private_key_pem)
-        .bind(public_key_pem)
-        .bind(created_at)
-        .bind(is_active)
-        .bind(i64::try_from(key_size_bits).map_err(|e| AppError::invalid_input(format!("RSA key size exceeds maximum supported value: {e}")))?)
-        .execute(&self.pool)
-
-            .await
-
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Load all RSA keypairs from database
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database query fails
-    pub async fn load_rsa_keypairs(
-        &self,
-    ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
-        use sqlx::Row;
-
-        let rows = sqlx::query(
-            "SELECT kid, private_key_pem, public_key_pem, created_at, is_active FROM rsa_keypairs ORDER BY created_at DESC",
-        )
-        .fetch_all(&self.pool)
-
-            .await
-
-            .map_err(|e| AppError::database(format!("Database query failed: {e}")))?;
-
-        let mut keypairs = Vec::new();
-        for row in rows {
-            let kid: String = row
-                .try_get("kid")
-                .map_err(|e| AppError::database(format!("Failed to get kid: {e}")))?;
-            let private_key_pem: String = row
-                .try_get("private_key_pem")
-                .map_err(|e| AppError::database(format!("Failed to get private_key_pem: {e}")))?;
-            let public_key_pem: String = row
-                .try_get("public_key_pem")
-                .map_err(|e| AppError::database(format!("Failed to get public_key_pem: {e}")))?;
-            let created_at: DateTime<Utc> = row
-                .try_get("created_at")
-                .map_err(|e| AppError::database(format!("Failed to get created_at: {e}")))?;
-            let is_active: bool = row
-                .try_get("is_active")
-                .map_err(|e| AppError::database(format!("Failed to get is_active: {e}")))?;
-
-            keypairs.push((kid, private_key_pem, public_key_pem, created_at, is_active));
-        }
-
-        Ok(keypairs)
-    }
-
-    /// Update active status of RSA keypair
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub async fn update_rsa_keypair_active_status(
-        &self,
-        kid: &str,
-        is_active: bool,
-    ) -> AppResult<()> {
-        sqlx::query("UPDATE rsa_keypairs SET is_active = $1 WHERE kid = $2")
-            .bind(is_active)
-            .bind(kid)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
     }
 
     /// Create a new tenant and add the owner to `tenant_users`

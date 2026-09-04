@@ -226,7 +226,7 @@ pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional =
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
-# Assets crate: structured-output directive + workout schema consumed by the chat pipeline context.
+# Assets crate: the workout and viz schemas consumed by the chat pipeline context.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "6f94c81ebb6671baea56b77e3a0528585d6d2cf8" }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
 photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.1.6" }

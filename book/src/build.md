@@ -207,6 +207,8 @@ provider-terra = []
 provider-fitbit = []
 provider-whoop = []
 provider-coros = []
+provider-intervals-icu = []
+provider-sciotte = []
 provider-synthetic = []
 all-providers = ["provider-strava", "provider-garmin", ...]
 ```
@@ -301,11 +303,17 @@ example below shows how.
 
 ```toml
 # Full platform (default) — local dev, SQLite
-server-full = ["protocol-all", "transport-all", "client-all", "oauth", "all-providers", "tools-all"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 
 # Cloud Run target — the shape docker/images/server/Dockerfile builds
-server-production = ["protocol-all", "transport-all", "client-all", "oauth", "all-providers", "tools-all"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 ```
+
+Both profiles name their providers one by one rather than pulling in
+`all-providers`. `provider-fitbit`, `provider-terra` and `provider-coros` are
+therefore absent from every shipped binary: they compile only under the
+`all-providers` / `production-providers` aggregates, which no build invokes.
+`crates/pierre-server/tests/build_features_test.rs` pins the set.
 
 ### Build Examples
 

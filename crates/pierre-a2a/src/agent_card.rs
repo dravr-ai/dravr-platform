@@ -23,6 +23,19 @@ pub const BINDING_JSONRPC: &str = "JSONRPC";
 /// Protocol binding identifier for the HTTP+JSON/REST interface (spec §5.2)
 pub const BINDING_HTTP_JSON: &str = "HTTP+JSON";
 
+/// Media type of the structured `data` part that carries a tool invocation.
+/// The message surface acts on that part alone, so it is the card's only
+/// declared input mode.
+pub const DATA_PART_MEDIA_TYPE: &str = "application/json";
+
+/// Path of the OAuth 2.0 authorization server's token endpoint.
+///
+/// This is the route that serves the `client_credentials` grant advertised by
+/// the card's `oauth2ClientCredentials` scheme. Mounted by
+/// `pierre-routes-identity` and published as `token_endpoint` in the RFC 8414
+/// discovery document.
+pub const OAUTH2_TOKEN_PATH: &str = "/oauth2/token";
+
 /// A2A 1.0 Agent Card for Pierre
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentCard {
@@ -265,7 +278,7 @@ impl AgentCard {
     pub fn with_base_url(base_url: &str) -> Self {
         Self {
             name: "Dravr AI".into(),
-            description: "AI-powered fitness data analysis and insights platform providing comprehensive activity analysis, performance tracking, and intelligent recommendations for athletes and fitness enthusiasts.".into(),
+            description: "AI-powered fitness data analysis and insights platform providing comprehensive activity analysis, performance tracking, and intelligent recommendations for athletes and fitness enthusiasts. Skills are invoked as structured tool calls: a message carries a data part shaped {\"tool_name\": \"<skill id>\", \"parameters\": {...}}.".into(),
             version: "1.0.0".into(),
             supported_interfaces: vec![
                 AgentInterface {
@@ -287,7 +300,7 @@ impl AgentCard {
                 extended_agent_card: true,
                 extensions: Vec::new(),
             },
-            default_input_modes: vec!["text/plain".into(), "application/json".into()],
+            default_input_modes: vec![DATA_PART_MEDIA_TYPE.into()],
             default_output_modes: vec!["application/json".into(), "text/plain".into()],
             skills: Self::create_skills(),
             provider: Some(AgentProvider {
@@ -356,7 +369,7 @@ impl AgentCard {
                 SecurityScheme::OAuth2(OAuth2SecurityScheme {
                     flows: OAuthFlows {
                         client_credentials: Some(ClientCredentialsOAuthFlow {
-                            token_url: format!("{base_url}/oauth/token"),
+                            token_url: format!("{base_url}{OAUTH2_TOKEN_PATH}"),
                             scopes,
                         }),
                         authorization_code: None,
@@ -369,7 +382,11 @@ impl AgentCard {
         ])
     }
 
-    /// Skills advertised by the card
+    /// Skills advertised by the card.
+    ///
+    /// A skill is invoked by sending it as a `SendMessage` `data` part, so
+    /// every example is written in that literal wire shape — the only form
+    /// the message surface accepts.
     fn create_skills() -> Vec<AgentSkill> {
         vec![
             AgentSkill {
@@ -378,8 +395,10 @@ impl AgentCard {
                 description: "Retrieve user fitness activities from connected providers".into(),
                 tags: vec!["fitness".into(), "activities".into(), "data".into()],
                 examples: vec![
-                    "Get my last 5 activities".into(),
-                    "List my runs from last week".into(),
+                    r#"{"data": {"tool_name": "get_activities", "parameters": {"limit": 5}}}"#
+                        .into(),
+                    r#"{"data": {"tool_name": "get_activities", "parameters": {"after": 1640995200, "before": 1672531200}}}"#
+                        .into(),
                 ],
                 input_modes: Vec::new(),
                 output_modes: Vec::new(),
@@ -389,7 +408,10 @@ impl AgentCard {
                 name: "Analyze Activity".into(),
                 description: "AI-powered analysis of a specific fitness activity".into(),
                 tags: vec!["fitness".into(), "analysis".into(), "intelligence".into()],
-                examples: vec!["Analyze my morning run and highlight anomalies".into()],
+                examples: vec![
+                    r#"{"data": {"tool_name": "analyze_activity", "parameters": {"activity_id": "12345", "provider": "strava"}}}"#
+                        .into(),
+                ],
                 input_modes: Vec::new(),
                 output_modes: Vec::new(),
             },
@@ -398,7 +420,10 @@ impl AgentCard {
                 name: "Get Athlete Profile".into(),
                 description: "Retrieve athlete profile information".into(),
                 tags: vec!["fitness".into(), "profile".into()],
-                examples: vec!["Show my athlete profile".into()],
+                examples: vec![
+                    r#"{"data": {"tool_name": "get_athlete", "parameters": {"provider": "strava"}}}"#
+                        .into(),
+                ],
                 input_modes: Vec::new(),
                 output_modes: Vec::new(),
             },
@@ -407,7 +432,10 @@ impl AgentCard {
                 name: "Set Goal".into(),
                 description: "Set a fitness goal for the user".into(),
                 tags: vec!["fitness".into(), "goals".into()],
-                examples: vec!["Set a weekly running goal of 40 km".into()],
+                examples: vec![
+                    r#"{"data": {"tool_name": "set_goal", "parameters": {"goal_type": "distance", "target_value": 40, "timeframe": "week"}}}"#
+                        .into(),
+                ],
                 input_modes: Vec::new(),
                 output_modes: Vec::new(),
             },

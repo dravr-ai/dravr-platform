@@ -153,37 +153,111 @@ fn test_manifest_round_trip() {
 
 // ── Registry tests ─────────────────────────────────────────────────────
 
+/// Every system prompt key the pinned contremaitre manifest publishes under
+/// `prompts.system`, sorted.
+///
+/// The registry's seed table and this list are two views of the same set: a
+/// key the manifest publishes and the registry does not seed has no
+/// cold-start content, no row in the admin listing, and reaches a running
+/// binary only through whatever compiled-in constant its call site reads —
+/// a rev bump plus a redeploy, while its siblings hot-reload in about a
+/// minute through the webhook. `structured_output` and `visual_blocks` — the
+/// JSON-plan and inline-chart contracts, both athlete-visible — sat outside
+/// the registry that way (carnet#312).
+const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
+    "activity_analysis",
+    "activity_analysis_system",
+    "coach_generation",
+    "insight_generation",
+    "insight_validation",
+    "memory_extraction",
+    "messaging_context",
+    "pierre_system",
+    "platform_contract",
+    "progression_guardrails",
+    "recommendation_analysis",
+    "recommendation_system",
+    "structured_output",
+    "tool_discipline",
+    "tool_discipline_messaging",
+    "tool_discipline_shared",
+    "visual_blocks",
+];
+
 #[test]
 fn test_new_registry_has_all_system_prompts() {
     let registry = PromptRegistry::new();
-    let prompts = registry.list_system();
-    assert_eq!(prompts.len(), 13, "expected 13 system prompts");
+    let mut keys: Vec<String> = registry
+        .list_system()
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    keys.sort();
+    let expected: Vec<String> = MANIFEST_SYSTEM_PROMPT_KEYS
+        .iter()
+        .map(|key| (*key).to_owned())
+        .collect();
 
-    let keys: Vec<String> = prompts.iter().map(|(k, _)| k.clone()).collect();
-    assert!(keys.contains(&"pierre_system".to_owned()));
-    assert!(keys.contains(&"coach_generation".to_owned()));
-    assert!(keys.contains(&"messaging_context".to_owned()));
-    assert!(keys.contains(&"tool_discipline_shared".to_owned()));
-    assert!(keys.contains(&"recommendation_analysis".to_owned()));
-    assert!(keys.contains(&"recommendation_system".to_owned()));
-    assert!(keys.contains(&"activity_analysis".to_owned()));
-    assert!(keys.contains(&"activity_analysis_system".to_owned()));
-    assert!(keys.contains(&"tool_discipline".to_owned()));
-    assert!(keys.contains(&"tool_discipline_messaging".to_owned()));
-    assert!(keys.contains(&"memory_extraction".to_owned()));
-    assert!(keys.contains(&"progression_guardrails".to_owned()));
-    // Injected on every turn; a coach replaces the persona block, never this.
-    assert!(keys.contains(&"platform_contract".to_owned()));
+    assert_eq!(
+        keys, expected,
+        "the seed table must carry exactly the system prompts the contremaitre \
+         manifest publishes — a key on one side only cannot hot-reload"
+    );
+}
+
+/// Every seeded prompt must carry real content, not an empty string standing
+/// in for a constant nobody wired up.
+#[test]
+fn test_every_seeded_system_prompt_has_content() {
+    let registry = PromptRegistry::new();
+    for (key, entry) in registry.list_system() {
+        assert!(
+            entry.content.len() > 50,
+            "{key} is seeded with {} bytes — the compiled-in document is missing",
+            entry.content.len()
+        );
+    }
+}
+
+/// The two athlete-visible contracts resolve through the registry, so a synced
+/// edit replaces them.
+#[test]
+fn test_structured_output_and_visual_blocks_hot_reload() {
+    let registry = PromptRegistry::new();
+
+    let compiled_structured = registry.structured_output_prompt();
+    let compiled_visual = registry.visual_blocks_prompt();
+    assert!(!compiled_structured.is_empty());
+    assert!(!compiled_visual.is_empty());
+
+    registry.update_system_prompt(
+        "structured_output",
+        "JSON only, no prose.".to_owned(),
+        "sha_structured".to_owned(),
+    );
+    registry.update_system_prompt(
+        "visual_blocks",
+        "One chart, and say what it shows.".to_owned(),
+        "sha_visual".to_owned(),
+    );
+
+    assert_eq!(registry.structured_output_prompt(), "JSON only, no prose.");
+    assert_eq!(
+        registry.visual_blocks_prompt(),
+        "One chart, and say what it shows."
+    );
+    assert_ne!(registry.structured_output_prompt(), compiled_structured);
+    assert_ne!(registry.visual_blocks_prompt(), compiled_visual);
 }
 
 #[test]
 fn test_new_registry_all_compiled_in() {
     let registry = PromptRegistry::new();
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 13);
+    assert_eq!(stats.system_count, 17);
     assert_eq!(stats.coach_count, 0);
     assert_eq!(stats.persona_count, 4);
-    assert_eq!(stats.compiled_in_count, 17);
+    assert_eq!(stats.compiled_in_count, 21);
     assert_eq!(stats.contremaitre_count, 0);
 }
 
@@ -218,7 +292,7 @@ fn test_update_system_prompt() {
 
     let stats = registry.stats();
     assert_eq!(stats.contremaitre_count, 1);
-    assert_eq!(stats.compiled_in_count, 16);
+    assert_eq!(stats.compiled_in_count, 20);
 }
 
 #[test]
@@ -285,10 +359,10 @@ fn test_stats_counts() {
     registry.update_system_prompt("pierre_system", "override".to_owned(), "sha_o".to_owned());
 
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 13);
+    assert_eq!(stats.system_count, 17);
     assert_eq!(stats.coach_count, 3, "3 per-locale coach entries");
     assert_eq!(stats.persona_count, 4);
-    assert_eq!(stats.compiled_in_count, 16);
+    assert_eq!(stats.compiled_in_count, 20);
     assert_eq!(stats.contremaitre_count, 4);
 }
 

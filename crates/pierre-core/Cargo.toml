@@ -113,11 +113,11 @@ embacle = { version = "0.23.0", optional = true }
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core only re-exports types/errors — channel adapters enabled via pierre-messaging
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.27" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.28" }
 
 # Standalone sports science intelligence engine (dravr-cageux)
 # pierre-core re-exports Activity, SportType, and intelligence types
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.7.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.7.1" }
 
 # Health and wellness domain models with composition-based provider traits
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.4" }

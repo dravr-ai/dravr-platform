@@ -19,19 +19,19 @@
 #   put `-- idempotency-ok: <reason>` on the same line.
 set -euo pipefail
 
-BASE_REF="${1:-origin/main}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-# Resolve the base ref robustly: CI checkouts may lack origin/main. Fall back to
-# the parent commit so we always have a meaningful diff (or pass if neither).
-if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null 2>&1; then
-  if git rev-parse --verify --quiet "HEAD~1^{commit}" >/dev/null 2>&1; then
-    BASE_REF="HEAD~1"
-  else
-    echo "✅ migration-idempotency: no base ref to diff against; skipping."
-    exit 0
-  fi
+# One resolution rule for every diff-scoped gate: an explicit base, else
+# $GATE_BASE_REF, else origin/main — and HEAD~1 whenever that base is missing or
+# is HEAD itself (the shape actions/checkout leaves on a push to main).
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$SCRIPT_DIR/gate-base-ref.sh"
+
+if ! BASE_REF="$(resolve_gate_base_ref "${1:-}")"; then
+  echo "✅ migration-idempotency: no base ref to diff against; skipping."
+  exit 0
 fi
 
 # Changed/added migration files vs base (both backends).

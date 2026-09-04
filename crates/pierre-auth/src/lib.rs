@@ -12,7 +12,7 @@
 //! - `OAuth2` authorization server (Pierre as provider for MCP clients)
 //! - API key management for B2B authentication
 //! - Multi-tenant data isolation with `OAuth`/LLM credential management
-//! - Cryptographic utilities, key management, and security headers
+//! - Cryptographic utilities, key management, secure cookies, and CSRF protection
 
 #![deny(unsafe_code)]
 
@@ -56,7 +56,7 @@ pub mod oauth2_server;
 /// Unified rate limiting system
 pub mod rate_limiting;
 
-/// Security headers, secure cookies, CSRF protection
+/// Secure cookies and CSRF protection
 pub mod security;
 
 /// Strava shared-app OAuth pool selection + credential resolution.

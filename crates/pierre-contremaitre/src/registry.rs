@@ -13,10 +13,12 @@ use pierre_core::models::CoachingPersona;
 use pierre_llm::prompts::{
     get_coaching_persona_prompt, ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
     CASUAL_PERSONA_PROMPT, COACH_GENERATION_PROMPT, COACH_PERSONA_PROMPT,
-    ENTHUSIAST_PERSONA_PROMPT, MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT,
-    PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT,
-    PROGRESSION_GUARDRAILS_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT,
+    ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
+    MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT,
+    PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
+    RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT, STRUCTURED_OUTPUT_PROMPT,
     TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT,
+    VISUAL_BLOCKS_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -99,6 +101,13 @@ impl PromptRegistry {
         let now = Utc::now();
         let mut system = HashMap::new();
 
+        // One entry per system prompt the contremaitre manifest declares. A
+        // key missing here is a key with no cold-start content and no entry in
+        // the admin listing, and its document only reaches a running binary
+        // through a compiled-in constant read at the call site — a rev bump
+        // plus a redeploy, while its siblings hot-reload in about a minute.
+        // `test_new_registry_has_all_system_prompts` pins the two sets
+        // together.
         let compiled_in_prompts: &[(&str, &str)] = &[
             ("pierre_system", PIERRE_SYSTEM_PROMPT),
             ("platform_contract", PLATFORM_CONTRACT_PROMPT),
@@ -116,6 +125,10 @@ impl PromptRegistry {
             ("tool_discipline_shared", TOOL_DISCIPLINE_SHARED_PROMPT),
             ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
             ("progression_guardrails", PROGRESSION_GUARDRAILS_PROMPT),
+            ("structured_output", STRUCTURED_OUTPUT_PROMPT),
+            ("visual_blocks", VISUAL_BLOCKS_PROMPT),
+            ("insight_generation", INSIGHT_GENERATION_PROMPT),
+            ("insight_validation", INSIGHT_VALIDATION_PROMPT),
         ];
 
         for (key, content) in compiled_in_prompts {
@@ -250,10 +263,27 @@ impl PromptRegistry {
         self.get_system_prompt("progression_guardrails")
     }
 
+    /// Get the structured-output contract appended for coaches that declare an
+    /// `output_schema`.
+    pub fn structured_output_prompt(&self) -> String {
+        self.get_system_prompt("structured_output")
+    }
+
+    /// Get the inline-visual contract appended for coaches with a `visuals:`
+    /// grant on a channel that can render a block.
+    ///
+    /// This is the prose half only. The caller appends the bounds generated
+    /// from the schema that validates the blocks, because transcribing those
+    /// by hand is what drifted.
+    pub fn visual_blocks_prompt(&self) -> String {
+        self.get_system_prompt("visual_blocks")
+    }
+
     // ── Generic accessors ──────────────────────────────────────────────
 
-    /// Get a system prompt by key. Returns the compiled-in fallback if the
-    /// key is not found in the registry (should not happen for the 9 core prompts).
+    /// Get a system prompt by key. [`Self::new`] seeds every key the manifest
+    /// publishes, so the lookup hits; the compiled-in fallback covers a key
+    /// published upstream that the seed table does not carry.
     fn get_system_prompt(&self, key: &str) -> String {
         let guard = self.read_system();
         guard.get(key).map_or_else(
@@ -506,6 +536,10 @@ impl PromptRegistry {
             "tool_discipline_shared" => TOOL_DISCIPLINE_SHARED_PROMPT,
             "memory_extraction" => MEMORY_EXTRACTION_PROMPT,
             "progression_guardrails" => PROGRESSION_GUARDRAILS_PROMPT,
+            "structured_output" => STRUCTURED_OUTPUT_PROMPT,
+            "visual_blocks" => VISUAL_BLOCKS_PROMPT,
+            "insight_generation" => INSIGHT_GENERATION_PROMPT,
+            "insight_validation" => INSIGHT_VALIDATION_PROMPT,
             _ => "",
         }
     }

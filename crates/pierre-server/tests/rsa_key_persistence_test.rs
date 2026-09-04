@@ -365,3 +365,177 @@ async fn test_super_admin_token_persistence() -> Result<()> {
 
     Ok(())
 }
+
+/// Read `rsa_keypairs.private_key_pem` exactly as it sits on disk, bypassing
+/// the repository so the test sees the stored bytes and not the decrypted key.
+async fn stored_private_key_column(database: &Database, kid: &str) -> Option<String> {
+    const SQL: &str = "SELECT private_key_pem FROM rsa_keypairs WHERE kid = $1";
+    match database {
+        Database::SQLite(sqlite) => sqlx::query_scalar(SQL)
+            .bind(kid)
+            .fetch_optional(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => sqlx::query_scalar(SQL)
+            .bind(kid)
+            .fetch_optional(pg.pool())
+            .await
+            .unwrap(),
+    }
+}
+
+/// Overwrite the stored column with raw PEM, reproducing a row written before
+/// the private key was encrypted at rest.
+async fn write_plaintext_private_key_column(database: &Database, kid: &str, pem: &str) {
+    const SQL: &str = "UPDATE rsa_keypairs SET private_key_pem = $1 WHERE kid = $2";
+    match database {
+        Database::SQLite(sqlite) => {
+            sqlx::query(SQL)
+                .bind(pem)
+                .bind(kid)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            sqlx::query(SQL)
+                .bind(pem)
+                .bind(kid)
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// The signing key must not be readable PEM in the column, and the round trip
+/// must still hand back a key that signs a token the JWKS validates.
+#[tokio::test]
+async fn test_rsa_private_key_is_encrypted_at_rest() -> Result<()> {
+    let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
+
+    let mut jwks = JwksManager::new();
+    let kid = format!("at_rest_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
+
+    let key_pair = jwks.get_active_key()?;
+    let private_pem = key_pair.export_private_key_pem()?;
+    let public_pem = key_pair.export_public_key_pem()?;
+
+    repos
+        .security
+        .save_rsa_keypair(&kid, &private_pem, &public_pem, Utc::now(), true, 2048)
+        .await?;
+
+    let stored = stored_private_key_column(&database, &kid)
+        .await
+        .expect("keypair row should exist");
+
+    assert!(
+        !stored.contains("-----BEGIN"),
+        "stored private key must not carry PEM armour, got: {stored}"
+    );
+    assert_ne!(
+        stored, private_pem,
+        "stored private key must not equal the plaintext PEM"
+    );
+    let (version_tag, payload) = stored
+        .split_once(':')
+        .expect("stored private key must carry a DEK version tag");
+    assert!(
+        version_tag
+            .strip_prefix('v')
+            .is_some_and(|n| n.parse::<u32>().is_ok()),
+        "DEK version tag must be v<N>, got: {version_tag}"
+    );
+    assert!(!payload.is_empty(), "ciphertext payload must not be empty");
+    assert_eq!(
+        stored_private_key_column(&database, &kid).await.as_deref(),
+        Some(stored.as_str()),
+        "ciphertext must be stable across reads"
+    );
+
+    // The public half stays readable — JWKS publishes it.
+    let keypairs = repos.security.load_rsa_keypairs().await?;
+    assert_eq!(keypairs.len(), 1, "exactly one keypair should be stored");
+    assert_eq!(
+        keypairs[0].1, private_pem,
+        "decrypted private key must round-trip"
+    );
+    assert_eq!(keypairs[0].2, public_pem, "public key stays plaintext");
+
+    // The round-tripped key still signs: sign here, validate through a manager
+    // that only ever saw the database.
+    let auth_manager = AuthManager::new(24);
+    let signing_jwks = Arc::new(jwks);
+    let user = User::new(
+        "at_rest@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("At Rest User".to_owned()),
+    );
+    let token = auth_manager.generate_token(&user, &signing_jwks)?;
+
+    let mut loaded_jwks = JwksManager::new();
+    loaded_jwks.load_keys_from_database(keypairs)?;
+    let claims = auth_manager.validate_token(&token, &Arc::new(loaded_jwks))?;
+    assert_eq!(claims.sub, user.id.to_string(), "session token must verify");
+
+    Ok(())
+}
+
+/// A row still holding plaintext PEM keeps signing, and is rewritten as
+/// ciphertext the first time it is read.
+#[tokio::test]
+async fn test_plaintext_rsa_private_key_row_loads_and_upgrades() -> Result<()> {
+    let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
+
+    let mut jwks = JwksManager::new();
+    let kid = format!("legacy_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
+
+    let key_pair = jwks.get_active_key()?;
+    let private_pem = key_pair.export_private_key_pem()?;
+    let public_pem = key_pair.export_public_key_pem()?;
+
+    repos
+        .security
+        .save_rsa_keypair(&kid, &private_pem, &public_pem, Utc::now(), true, 2048)
+        .await?;
+
+    // Put the row back the way a database written before at-rest encryption holds it.
+    write_plaintext_private_key_column(&database, &kid, &private_pem).await;
+    assert!(
+        stored_private_key_column(&database, &kid)
+            .await
+            .expect("keypair row should exist")
+            .contains("-----BEGIN"),
+        "test setup must leave plaintext PEM in the column"
+    );
+
+    let keypairs = repos.security.load_rsa_keypairs().await?;
+    assert_eq!(
+        keypairs[0].1, private_pem,
+        "a plaintext row must still hand back a usable private key"
+    );
+
+    let upgraded = stored_private_key_column(&database, &kid)
+        .await
+        .expect("keypair row should exist");
+    assert!(
+        !upgraded.contains("-----BEGIN"),
+        "reading a plaintext row must rewrite it as ciphertext, got: {upgraded}"
+    );
+
+    // And the rewritten ciphertext decrypts to the same key.
+    let after_upgrade = repos.security.load_rsa_keypairs().await?;
+    assert_eq!(
+        after_upgrade[0].1, private_pem,
+        "the rewritten row must decrypt to the original private key"
+    );
+
+    Ok(())
+}

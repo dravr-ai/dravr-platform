@@ -265,7 +265,30 @@ pub fn generate_canary(salt: &str) -> String {
 /// boundary's job, not the model's.
 #[must_use]
 pub fn inject_canary_marker(system_prompt: &str, canary: &str) -> String {
-    format!("{system_prompt}\n\n<!-- session-integrity:{canary} -->")
+    format!("{system_prompt}\n\n{CANARY_MARKER_OPEN}{canary}{CANARY_MARKER_CLOSE}")
+}
+
+/// Opening delimiter of the canary marker [`inject_canary_marker`] appends.
+const CANARY_MARKER_OPEN: &str = "<!-- session-integrity:";
+
+/// Closing delimiter of that marker.
+const CANARY_MARKER_CLOSE: &str = " -->";
+
+/// The canary token carried by a prompt hardened with
+/// [`inject_canary_marker`], if it carries one.
+///
+/// Reads back exactly what that function wrote, so the marker's shape is
+/// decided in one place. A boundary that holds the assembled prompt but not
+/// the turn's `PromptGuard` — the streaming forwarder, which sees the request
+/// on its way to the model and nothing else — recovers from the prompt itself
+/// the token it must not let through.
+#[must_use]
+pub fn extract_canary_marker(system_prompt: &str) -> Option<&str> {
+    let open = system_prompt.rfind(CANARY_MARKER_OPEN)? + CANARY_MARKER_OPEN.len();
+    let rest = system_prompt.get(open..)?;
+    let close = rest.find(CANARY_MARKER_CLOSE)?;
+    let token = rest.get(..close)?;
+    (!token.is_empty()).then_some(token)
 }
 
 /// `true` when the canary token appears verbatim in `response`.

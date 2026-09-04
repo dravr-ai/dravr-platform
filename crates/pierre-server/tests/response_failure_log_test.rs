@@ -16,6 +16,8 @@
 //!   blanket silencing of every 503.
 //! * **Fix B** — every logged failure carries the `http_method` + `http_path`
 //!   of the request that produced it, so the operator alert names the endpoint.
+//!   The endpoint is the redacted request line `redaction_middleware` attaches,
+//!   so a failing `OAuth` callback is named without its authorization code.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -29,6 +31,7 @@ use axum::http::{header, Request as HttpRequest, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{middleware, Router};
+use pierre_middleware::redaction::{redaction_middleware, RedactionConfig};
 use pierre_middleware::response_failure_log_middleware;
 use tower::ServiceExt;
 use tracing::field::{Field, Visit};
@@ -148,7 +151,15 @@ fn app() -> Router {
         .route("/ready", get(unavailable_no_hint_handler))
         .route("/boom", get(boom_handler))
         .route("/ok", get(ok_handler))
+        .route("/api/oauth/callback/strava", get(boom_handler))
         .layer(middleware::from_fn(response_failure_log_middleware))
+        // Mirrors the server's layer order: redaction is applied outside the
+        // failure logger, so the log-safe request line is on the request by the
+        // time the logger reads the endpoint off it.
+        .layer(middleware::from_fn_with_state(
+            Arc::new(RedactionConfig::default()),
+            redaction_middleware,
+        ))
 }
 
 async fn call(path: &str) -> Response {
@@ -236,6 +247,33 @@ async fn server_error_logs_error_with_endpoint() {
     assert_eq!(error.field("http_path"), Some("/boom"));
     assert_eq!(error.field("http_method"), Some("GET"));
     assert_eq!(error.field("http_status"), Some("500"));
+}
+
+#[tokio::test]
+async fn failure_on_an_oauth_callback_names_the_route_without_the_code() {
+    let (events, guard) = setup_capture();
+
+    let response = call("/api/oauth/callback/strava?code=4b2c8fdeadbeef&state=xyz789").await;
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let snapshot = events.lock().unwrap().clone();
+    drop(guard);
+
+    let error = snapshot
+        .iter()
+        .find(|e| e.level == tracing::Level::ERROR && e.message.contains("response failed"))
+        .unwrap_or_else(|| panic!("a 500 must ERROR; captured: {snapshot:?}"));
+
+    assert_eq!(
+        error.field("http_path"),
+        Some("/api/oauth/callback/strava?code=[REDACTED]&state=[REDACTED]"),
+        "the alert keeps the query shape but none of its values; captured: {snapshot:?}"
+    );
+    let rendered = format!("{snapshot:?}");
+    assert!(
+        !rendered.contains("4b2c8fdeadbeef") && !rendered.contains("xyz789"),
+        "no captured event may carry the authorization code or state: {rendered}"
+    );
 }
 
 #[tokio::test]

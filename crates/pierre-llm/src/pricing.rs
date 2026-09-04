@@ -124,18 +124,19 @@ impl ModelPricing {
 /// - **Self-hosted** runtimes (Ollama / vLLM / `LocalAI` / generic local
 ///   `OpenAI`-compatible endpoints): the operator pays for the hardware, not
 ///   per token, so the metered per-token cost is zero.
-/// - **Flat-rate subscription** CLI/agent runners (Claude Code, GitHub
-///   Copilot, Cursor, `OpenCode`, Codex, Goose, Cline, Continue, Warp, Kiro,
-///   Kilo): billed by the upstream subscription, not per token through this
-///   platform.
+/// - **Flat-rate subscription** CLI/agent runners (GitHub Copilot, Cursor,
+///   `OpenCode`, Codex, Goose, Cline, Continue, Warp, Kiro, Kilo): billed by
+///   the upstream subscription, not per token through this platform.
 ///
-/// Entries match the machine `name()` string each provider reports onto the
-/// usage record (see `LlmProvider::name`). A model under one of these prefixes
-/// resolves to \$0 *without* the missing-price warning, so cost dashboards do
-/// not flag it as an undercount. `copilot_headless` and `claude_code` are
-/// deliberately absent here: they carry real per-token `PRICING_TABLE` entries
-/// because their Anthropic pass-through usage is metered.
-const NOT_PER_TOKEN_METERED_PROVIDERS: &[&str] = &[
+/// Entries are the exact machine `name()` string each provider reports onto the
+/// usage record (see `LlmProvider::name`) — the embacle runner's own name for a
+/// CLI provider, which is hyphenated for some runners and underscored for
+/// others. A model under one of these prefixes resolves to \$0 *without* the
+/// missing-price warning, so cost dashboards do not flag it as an undercount.
+/// `copilot_headless` and `claude-code` are deliberately absent here: they
+/// carry real per-token `PRICING_TABLE` entries because their Anthropic
+/// pass-through usage is metered.
+pub const NOT_PER_TOKEN_METERED_PROVIDERS: &[&str] = &[
     // Self-hosted OpenAI-compatible runtimes.
     "local",
     "ollama",
@@ -144,7 +145,6 @@ const NOT_PER_TOKEN_METERED_PROVIDERS: &[&str] = &[
     // Flat-rate subscription CLI / agent runners (machine names as reported
     // by each runner's name()).
     "cursor-agent",
-    "claude-code",
     "opencode",
     "codex",
     "goose",
@@ -164,10 +164,14 @@ const OPENROUTER_PROVIDER: &str = "openrouter";
 
 /// Compile-time pricing table: `(provider, model_prefix, pricing)`
 ///
+/// The provider key is the exact `name()` string that lands on the usage row
+/// (`LlmProvider::name`), and `lookup_pricing` matches it by equality — a key
+/// spelled any other way is unreachable, and its models silently bill at \$0.
+///
 /// Model matching uses prefix comparison — a model name like "gemini-2.0-flash-exp"
 /// matches the prefix "gemini-2.0-flash". Entries are ordered longest-prefix-first
 /// within each provider to ensure the most specific match wins.
-const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
+pub const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     // Gemini models (provider name matches GeminiProvider::name() = "gemini")
     // gemini-flash-lite-latest is a Google-maintained rolling alias to the
     // current GA flash-lite tier; prices track whatever that tier costs today.
@@ -207,14 +211,16 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
         "claude-haiku-4",
         ModelPricing::new(0.80, 4.0).with_cache_rates(0.10, 1.25),
     ),
-    // Claude Code CLI — same models as copilot_headless
+    // Claude Code CLI — same models as copilot_headless. Keyed "claude-code",
+    // the name ClaudeCodeRunner reports; PIERRE_LLM_PROVIDER accepts the
+    // underscore spelling as a selector, but the usage row never carries it.
     (
-        "claude_code",
+        "claude-code",
         "claude-opus-4",
         ModelPricing::new(15.0, 75.0).with_cache_rates(0.10, 1.25),
     ),
     (
-        "claude_code",
+        "claude-code",
         // Version-agnostic Sonnet prefix (claude-sonnet-4, -4.5, -4.6, -5),
         // mirroring the copilot_headless entry so a model bump keeps shadow-COGS
         // attributed instead of falling through to $0.
@@ -222,7 +228,7 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
         ModelPricing::new(3.0, 15.0).with_cache_rates(0.10, 1.25),
     ),
     (
-        "claude_code",
+        "claude-code",
         "claude-haiku-4",
         ModelPricing::new(0.80, 4.0).with_cache_rates(0.10, 1.25),
     ),

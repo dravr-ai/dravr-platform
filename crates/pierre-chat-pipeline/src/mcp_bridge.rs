@@ -19,7 +19,7 @@
 //! the session to keep it valid.
 
 use embacle_tool_host::ToolSession;
-use pierre_core::models::TenantId;
+use pierre_core::models::{ConversationTurnId, TenantId};
 
 /// Opens the turn-scoped tool session an ACP-managed provider calls into.
 ///
@@ -38,11 +38,19 @@ pub trait McpBridgeProvider: Send + Sync {
     /// `tool_budget::resolve_max_iterations`. It is passed rather than
     /// re-derived so the agent's loop and the platform's own loop are bounded
     /// by one number from one resolution.
+    ///
+    /// `turn_id` is the Guardian turn key for this utterance, the same value
+    /// the in-process `ReAct` loop binds. The agent's loop runs in another
+    /// process and reaches the executor from a task outside any tool body, so
+    /// the task-local inherit cannot supply it; passing it here is what makes
+    /// taint and the per-turn blast-radius budgets accumulate across the
+    /// loopback calls of one message instead of resetting on every call.
     async fn open_tool_session(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         conversation_id: &str,
+        turn_id: ConversationTurnId,
         budget: usize,
     ) -> Option<ToolSession>;
 }

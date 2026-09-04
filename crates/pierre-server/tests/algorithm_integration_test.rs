@@ -271,10 +271,13 @@ fn test_vo2max_from_vdot_valid() {
     assert!(result.is_ok(), "VO2max estimation should succeed");
     let vo2max = result.unwrap();
 
-    // Expected: 50.0 * 3.5 = 175.0
+    // VDOT is Daniels' economy-adjusted VO2max and is already ml/kg/min — the
+    // validator bounds it to 30..=85 on exactly that basis. The old code
+    // multiplied by 3.5, the MET conversion, and reported this runner at 175,
+    // about double the highest value ever measured in a human.
     assert!(
-        (vo2max - 175.0).abs() < 0.1,
-        "VO2max should be 175, got {vo2max}"
+        (vo2max - 50.0).abs() < 0.1,
+        "VO2max should equal the VDOT it was given, got {vo2max}"
     );
 }
 
@@ -355,9 +358,16 @@ fn test_vo2max_rockport_walk_valid() {
     assert!(result.is_ok(), "Rockport walk estimation should succeed");
     let vo2max = result.unwrap();
 
-    // Rockport walk typically gives VO2max in 35-55 range for average fitness
-    // Just verify it's in the physiological range - the formula may have limitations
-    assert!(vo2max >= 20.0, "VO2max should be at least 20, got {vo2max}");
+    // Kline et al. (1987), worked term by term for these inputs:
+    //   132.853 - 0.0769(80) - 0.3877(40) + 6.315(1)
+    //           - 3.2649(14) - 0.1565(130) = 51.45
+    // A `>= 20.0` floor is what let a sign flip on the time and heart-rate
+    // terms ship: it returned 182.6 for a similar athlete and passed. The
+    // value is pinned so the next inversion fails here.
+    assert!(
+        (vo2max - 51.45).abs() < 0.1,
+        "VO2max should be 51.45 per Kline (1987), got {vo2max}"
+    );
 }
 
 #[test]
@@ -560,7 +570,11 @@ fn test_vo2max_algorithm_name_and_description() {
 #[test]
 fn test_vo2max_algorithm_formula() {
     let vdot = Vo2maxAlgorithm::FromVdot { vdot: 50.0 };
-    assert!(vdot.formula().contains("VDOT x 3.5"));
+    assert!(vdot.formula().contains("VO2max = VDOT"));
+    assert!(
+        !vdot.formula().contains("3.5"),
+        "the MET factor does not apply to a value already in ml/kg/min"
+    );
 
     let cooper = Vo2maxAlgorithm::CooperTest {
         distance_meters: 2800.0,

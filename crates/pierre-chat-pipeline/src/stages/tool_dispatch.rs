@@ -265,6 +265,10 @@ pub(crate) async fn dispatch_llm_with_tools(
                         &input.user_id,
                         input.tool_tenant_id,
                         &input.conversation_id,
+                        // Same Guardian turn key the in-process executor binds
+                        // above, so the agent's loopback calls land in this
+                        // utterance's bucket instead of one bucket each.
+                        input.turn_id,
                         max_iterations,
                     )
                     .await

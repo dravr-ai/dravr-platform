@@ -29,5 +29,10 @@ embacle = { version = "0.23.0", features = ["copilot-headless", "openai-api"] }
 # Pinned by rev — the contremaitre-bump workflow advances this to contremaitre main.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "6f94c81ebb6671baea56b77e3a0528585d6d2cf8" }
 
+[dev-dependencies]
+# The fallback chain's decisions are only observable by driving a real
+# `complete()`/`complete_with_tools()` call, both of which are async.
+tokio = { version = "1.50", features = ["macros", "rt", "rt-multi-thread"] }
+
 [lints]
 workspace = true

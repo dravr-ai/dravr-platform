@@ -118,6 +118,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run ci-backend.yml --ref main
 
+      - name: Run the messaging eval asserters on the bumped prompts
+        # A bump lands new coach prompts. Dispatching the eval's Phase 0-3
+        # asserters here surfaces a prompt regression within minutes instead of
+        # waiting for its 04:00 UTC nightly — the same suppressed-run problem as
+        # the step above, and gated on `changed` so the hourly no-op costs
+        # nothing. `asserters_only` skips the live Slack round trip.
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run messaging-eval.yml --ref main -f asserters_only=true
+
       # No explicit deploy trigger. The bump refreshes the compiled-in prompt
       # SEED for the next regular deploy; runtime prompt freshness is handled by
       # the in-process poll (full_sync every CONTREMAITRE_POLL_INTERVAL_SECS) plus

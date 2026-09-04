@@ -329,7 +329,7 @@ A2A 1.0 agent card: `supportedInterfaces` (preference-ordered),
 
 | Method | Purpose |
 |---|---|
-| `SendMessage` | Deliver a message; tool intents run on a task, plain text gets a direct agent `Message` reply |
+| `SendMessage` | Deliver a tool invocation; it runs on a task. A message naming no tool is refused with `ContentTypeNotSupported` (`-32005`) |
 | `SendStreamingMessage` | Same, streaming task events over SSE |
 | `GetTask` / `ListTasks` / `CancelTask` | Task queries and cancellation (`ListTasks` is cursor-paginated) |
 | `SubscribeToTask` | Reattach an SSE stream to a live task (snapshot first) |
@@ -338,13 +338,22 @@ A2A 1.0 agent card: `supportedInterfaces` (preference-ordered),
 
 Tool invocation travels as a `data` part carrying
 `{"tool_name": ..., "parameters": {...}}`; the tool output lands on the
-task as an artifact `data` part.
+task as an artifact `data` part. That `data` part is the whole input
+contract — the card's `defaultInputModes` is `application/json` and every
+skill example is written in that shape. A message carrying only text names
+no tool, so it is refused rather than answered: a standalone message gets
+`ContentTypeNotSupported` (`-32005`, HTTP 400 `INVALID_ARGUMENT`), and a
+message continuing an existing task drives that task to
+`TASK_STATE_FAILED` with the same explanation as its status message.
 
 ### Authentication
 
 Transport-level per the card's `securitySchemes`: a Pierre user JWT bearer
 (`Authorization: Bearer <jwt>`), or an OAuth2 client-credentials token
-minted by `/a2a/auth` (subject `client:{id}`). A client-credentials caller
+(subject `client:{id}`) from the authorization server's token endpoint,
+`POST /oauth2/token` — the URL the card's `oauth2ClientCredentials` scheme
+advertises. The separate `/oauth/token` ROPC bridge serves the `password`
+grant only and rejects `client_credentials`. A client-credentials caller
 acts as the client's registering user and its tasks are keyed to and scoped
 by that client; user-JWT tasks fall back to the user's first registered
 client. Unauthenticated protocol calls receive HTTP 401.

@@ -153,11 +153,17 @@ module "backend" {
       HTTP_PORT   = "8081"
       ENVIRONMENT = var.environment
     },
+    # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
       DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
       DATABASE_NAME = module.database[0].database_name
       DATABASE_USER = module.database[0].database_user
-    } : {},
+      } : {
+      # Fallback to ephemeral SQLite when Cloud SQL is disabled. The binary
+      # treats DATABASE_URL as required (validate_required_environment) and
+      # refuses to start without it, so the branch has to supply one.
+      DATABASE_URL = "sqlite:./data/users.db"
+    },
     var.enable_cache ? {
       REDIS_URL = module.cache[0].redis_url
     } : {},
@@ -214,13 +220,24 @@ module "frontend" {
 
   ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = true
+  vpc_connector_id      = module.networking.vpc_connector_id
+  vpc_egress            = "ALL_TRAFFIC"
+
+  env_vars = {
+    # Backend URL for nginx reverse proxy (injected via envsubst at container start).
+    # nginx.conf renders `set $backend_upstream ${BACKEND_URL};` unconditionally,
+    # so an unset value is a syntax error and the container never serves.
+    BACKEND_URL = module.backend.service_url
+    # Firebase project ID for self-hosted auth handler (nginx proxies /__/ to firebaseapp.com)
+    FIREBASE_PROJECT_ID = var.firebase_project_id
+  }
 
   health_check_path           = "/health"
   startup_probe_initial_delay = 3
 
   labels = merge(var.labels, { component = "frontend" })
 
-  depends_on = [module.service_accounts]
+  depends_on = [module.networking, module.service_accounts, module.backend]
 }
 
 # -----------------------------------------------------------------------------

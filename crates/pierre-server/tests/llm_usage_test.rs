@@ -296,17 +296,20 @@ async fn test_llm_usage_cost_and_cache() {
 #[tokio::test]
 async fn test_subscription_and_self_hosted_providers_zero_cost_without_undercount_warning() {
     // P2-8 — self-hosted (ollama/vllm/local) and flat-rate subscription CLI
-    // runners (claude-code/cursor-agent/copilot/...) bill $0 per token *by
-    // design*. They must (a) resolve to exactly $0 and (b) be classified as
+    // runners (cursor-agent/copilot/...) bill $0 per token *by design*. They
+    // must (a) resolve to exactly $0 and (b) be classified as
     // not-per-token-metered so the cost path does NOT emit the misleading
     // "No pricing data ... undercount" warning that real misses get.
+    //
+    // `claude-code` and `copilot_headless` are excluded on purpose: both carry
+    // real PRICING_TABLE entries so their Anthropic pass-through usage lands as
+    // shadow COGS rather than $0.
     let registry = PricingRegistry::new();
     let subscription_and_self_hosted = [
         "ollama",
         "vllm",
         "local",
         "localai",
-        "claude-code",
         "cursor-agent",
         "copilot",
         "opencode",
@@ -345,6 +348,10 @@ async fn test_subscription_and_self_hosted_providers_zero_cost_without_undercoun
     assert!(
         !is_not_per_token_metered("gemini"),
         "metered API providers must not be treated as subscription/self-hosted"
+    );
+    assert!(
+        !is_not_per_token_metered("claude-code"),
+        "claude-code carries PRICING_TABLE entries; suppressing it would erase its shadow COGS"
     );
 }
 

@@ -14,7 +14,8 @@
 //!
 //! ## Security Model
 //!
-//! - Private keys never leave the server
+//! - Private keys never leave the server, and are persisted AES-256-GCM
+//!   encrypted with their key id bound in as AAD
 //! - Public keys distributed via `/.well-known/jwks.json`
 //! - Multiple keys supported for graceful rotation
 //! - Old keys retained during rotation window

@@ -297,12 +297,13 @@ impl Database {
         sqlx::query(
             r"
             INSERT INTO api_key_usage (
-                api_key_id, timestamp, endpoint, status_code,
+                id, api_key_id, timestamp, endpoint, status_code,
                 response_time_ms, request_size_bytes, response_size_bytes,
-                ip_address, user_agent
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ip_address, user_agent, error_message
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ",
         )
+        .bind(Uuid::new_v4().to_string())
         .bind(&usage.api_key_id)
         .bind(usage.timestamp)
         .bind(&usage.tool_name)
@@ -342,6 +343,7 @@ impl Database {
         )
         .bind(&usage.ip_address)
         .bind(&usage.user_agent)
+        .bind(&usage.error_message)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to record API key usage: {e}")))?;

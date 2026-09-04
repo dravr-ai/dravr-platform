@@ -108,6 +108,30 @@ pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = system::ACTIVITY_ANALYSIS_SYST
 /// themselves (preferences, physiology, injuries, goals, schedule, equipment).
 pub const MEMORY_EXTRACTION_PROMPT: &str = system::MEMORY_EXTRACTION;
 
+/// Structured-output contract for coach tools that emit a schema-validated
+/// plan.
+///
+/// Appended to the system prompt when the active coach declares an
+/// `output_schema`: JSON-only for a draftable plan, prose for a refusal, and
+/// never a narration of the data-gathering that led there.
+pub const STRUCTURED_OUTPUT_PROMPT: &str = system::STRUCTURED_OUTPUT;
+
+/// Inline-visual contract — how to embed a chart or table in a reply and the
+/// rules the platform enforces on one (verified `source_tool`, closed field
+/// set, v1 chart kinds, size caps).
+///
+/// Appended when the active coach has a non-empty `visuals:` grant and the
+/// channel can render a block.
+pub const VISUAL_BLOCKS_PROMPT: &str = system::VISUAL_BLOCKS;
+
+/// Insight-generation prompt — turns a window of training data into the
+/// candidate insights the validation pass then screens.
+pub const INSIGHT_GENERATION_PROMPT: &str = system::INSIGHT_GENERATION;
+
+/// Insight-validation prompt — screens generated insights against the data
+/// they claim to rest on before any of them reaches an athlete.
+pub const INSIGHT_VALIDATION_PROMPT: &str = system::INSIGHT_VALIDATION;
+
 /// Casual coaching persona block — friend-texting tone, prose, sub-150 words.
 pub const CASUAL_PERSONA_PROMPT: &str = personas::CASUAL;
 

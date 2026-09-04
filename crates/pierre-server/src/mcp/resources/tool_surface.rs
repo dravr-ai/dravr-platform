@@ -40,7 +40,7 @@ use embacle::McpToolDefinition;
 use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, ToolSurface};
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::McpBridgeProvider;
-use pierre_core::models::TenantId;
+use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -312,6 +312,47 @@ impl HostedToolBridge {
             .map_err(|e: RunnerError| warn!(error = %e, "tool host could not bind; turn proceeds without tools"))
             .ok()
     }
+
+    /// The surface one turn calls through, with its executor bound to that
+    /// turn's conversation and Guardian turn token.
+    ///
+    /// Separate from [`McpBridgeProvider::open_tool_session`] because that one
+    /// hands the surface to embacle's host and returns only a session guard,
+    /// which puts the binding out of reach of anything that does not speak
+    /// MCP. The binding is what per-turn taint and the blast-radius budgets
+    /// are keyed on, so it is reachable on its own.
+    #[must_use]
+    pub fn turn_surface(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+        conversation_id: &str,
+        turn_id: ConversationTurnId,
+        budget: usize,
+    ) -> TurnToolSurface {
+        // The turn's own executor, carrying its conversation and Guardian turn
+        // token. This is why the signed conversation claim the old bridge put
+        // in its JWT is no longer needed: the value never leaves the process.
+        //
+        // The turn token is bound explicitly because it cannot be inherited
+        // here: `UniversalToolExecutor::new` reads it from the task-local that
+        // is only scoped around a tool body, and this runs in the pipeline
+        // task. Without it every loopback call would mint its own turn key and
+        // start from a virgin budget with no taint carried over.
+        let executor = Arc::new(
+            UniversalToolExecutor::new(self.tool_runtime.clone())
+                .with_conversation_id(conversation_id.to_owned())
+                .with_turn_token(turn_id.0.to_string()),
+        );
+        TurnToolSurface::new(
+            self.tool_registry.clone(),
+            self.repos.clone(),
+            executor,
+            user_id.to_owned(),
+            tenant_id,
+            budget,
+        )
+    }
 }
 
 #[async_trait]
@@ -321,6 +362,7 @@ impl McpBridgeProvider for HostedToolBridge {
         user_id: &str,
         tenant_id: TenantId,
         conversation_id: &str,
+        turn_id: ConversationTurnId,
         budget: usize,
     ) -> Option<ToolSession> {
         if !self.enabled {
@@ -328,21 +370,8 @@ impl McpBridgeProvider for HostedToolBridge {
         }
         let host = self.host().await?;
 
-        // The turn's own executor, carrying its conversation and Guardian turn
-        // token. This is why the signed conversation claim the old bridge put
-        // in its JWT is no longer needed: the value never leaves the process.
-        let executor = Arc::new(
-            UniversalToolExecutor::new(self.tool_runtime.clone())
-                .with_conversation_id(conversation_id.to_owned()),
-        );
-        let surface = Arc::new(TurnToolSurface::new(
-            self.tool_registry.clone(),
-            self.repos.clone(),
-            executor,
-            user_id.to_owned(),
-            tenant_id,
-            budget,
-        ));
+        let surface =
+            Arc::new(self.turn_surface(user_id, tenant_id, conversation_id, turn_id, budget));
         Some(host.open_session(surface))
     }
 }

@@ -141,7 +141,7 @@ The platform is composed against a set of independently versioned `dravr-*` modu
 | `dravr-embacle` | LLM runner (Copilot ACP, OpenAI, Gemini transports) | Static link + child process for ACP | Yes — natural inference proxy |
 | `dravr-canot` | Messaging gateway (Telegram / Slack / Discord / WA / Messenger) | In-process webhook handlers | Yes — extracts as a webhook receiver service |
 | `dravr-commere` | Push-notification service (APNs, FCM) | In-process | Yes — natural push gateway |
-| `dravr-tronc` | Notification / alerting layer | In-process | Yes — natural pubsub consumer |
+| `dravr-tronc` | MCP protocol engine — tool/schema/transport/host traits the stdio and HTTP servers are built on; the notify layer is one small part of it | Static link | No — protocol plumbing the server links directly |
 | `dravr-meteo` | Weather lookups | In-process HTTP client | Yes — small caching service |
 | `dravr-sciotte` | Headless-Chrome Strava mirror scraper | **Already a service** — separate Cloud Run | (already extracted) |
 | `dravr-contremaitre` | System prompts + coach definitions | **Already external** — separate GitHub repo, hot-reloaded over webhook | (already extracted) |
@@ -156,10 +156,11 @@ graph LR
         REPO[(Repository Layer<br/>SQLite / PostgreSQL)]
     end
 
-    subgraph libs["Stateless libraries — static link, no RPC"]
+    subgraph libs["Statically linked libraries — no RPC"]
         CAGEUX[dravr-cageux]
         RIVIERE[dravr-riviere]
         EQUILIBRE[dravr-equilibre]
+        TRONC[dravr-tronc<br/>MCP protocol engine]
     end
 
     subgraph embedded["I/O subsystems — embedded in-process today"]
@@ -167,7 +168,6 @@ graph LR
         EMBACLE[dravr-embacle<br/>LLM runner]
         CANOT[dravr-canot<br/>messaging]
         COMMERE[dravr-commere<br/>push]
-        TRONC[dravr-tronc<br/>alerting]
         METEO[dravr-meteo<br/>weather]
     end
 
@@ -199,10 +199,11 @@ graph LR
         ORCH[Chat Orchestration]
     end
 
-    subgraph libs["Stateless libraries — still linked"]
+    subgraph libs["Statically linked libraries — still linked"]
         CAGEUX[dravr-cageux]
         RIVIERE[dravr-riviere]
         EQUILIBRE[dravr-equilibre]
+        TRONC[dravr-tronc<br/>MCP protocol engine]
     end
 
     subgraph mesh["Service mesh — each container scales independently"]
@@ -210,7 +211,6 @@ graph LR
         EMBACLE_SVC[dravr-embacle-svc<br/>LLM proxy<br/>Cloud Run]
         CANOT_SVC[dravr-canot-svc<br/>webhook receiver<br/>Cloud Run]
         COMMERE_SVC[dravr-commere-svc<br/>push gateway<br/>Cloud Run]
-        TRONC_SVC[dravr-tronc-svc<br/>alerting consumer<br/>Cloud Run]
         METEO_SVC[dravr-meteo-svc<br/>weather cache<br/>Cloud Run]
         SCIOTTE[dravr-sciotte<br/>scraper<br/>Cloud Run]
     end
@@ -218,11 +218,11 @@ graph LR
     ORCH --> CAGEUX
     ORCH --> RIVIERE
     ORCH --> EQUILIBRE
+    ORCH --> TRONC
     ORCH -.HTTP/gRPC.-> ENFORME_SVC
     ORCH -.HTTP/gRPC.-> EMBACLE_SVC
     ORCH -.HTTP/gRPC.-> CANOT_SVC
     ORCH -.HTTP/gRPC.-> COMMERE_SVC
-    ORCH -.HTTP/gRPC.-> TRONC_SVC
     ORCH -.HTTP/gRPC.-> METEO_SVC
     ORCH -.HTTP/gRPC.-> SCIOTTE
 ```
@@ -232,7 +232,7 @@ graph LR
 - **Independent scaling** — when scraper or LLM-proxy load patterns diverge from chat-orchestration load patterns.
 - **Blast-radius isolation** — a Chrome OOM in `sciotte` already takes down its own pod, not the orchestrator. Same model extends to the others.
 - **Polyglot deployments** — Telegram-only edge nodes that need just `dravr-canot` and a tiny embacle.
-- **Cost control** — push and alerting can run on cheaper instance shapes than the orchestrator.
+- **Cost control** — push and messaging can run on cheaper instance shapes than the orchestrator.
 
 Adding a service for any of the extractable modules is: ship a thin binary that exposes the library trait over HTTP/gRPC, swap the in-process call for a client behind the same Rust trait the orchestrator already uses. Call sites do not change.
 

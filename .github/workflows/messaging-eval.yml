@@ -36,6 +36,11 @@ name: "CI: Messaging Eval"
 
 on:
   workflow_dispatch:
+    inputs:
+      asserters_only:
+        description: "Run only the Phase 0-3 Rust asserters, skipping the live Slack round trip"
+        type: boolean
+        default: false
   schedule:
     - cron: "0 4 * * *"  # 04:00 UTC nightly
   push:
@@ -46,16 +51,13 @@ on:
       - "crates/pierre-server/tests/messaging_rendering_test.rs"
       - "crates/pierre-server/tests/slack_socket_unit_test.rs"
       - ".github/workflows/messaging-eval.yml"
-  # Same-repo chain: when Contremaitre Sync finishes mirroring platform
-  # prompt edits to dravr-contremaitre, run the eval suite so any coach
-  # prompt regression surfaces within minutes instead of waiting for the
-  # next 04:00 UTC nightly. workflow_run uses the default GITHUB_TOKEN
-  # because both workflows live in this repo, so no cross-repo PAT is
-  # required.
-  workflow_run:
-    workflows: ["Contremaitre: Sync Prompts"]
-    types: [completed]
-    branches: [main]
+  # The fast-feedback chain after a contremaitre prompt change is a dispatch
+  # from contremaitre-bump.yml, not a workflow_run trigger here: that workflow
+  # also runs hourly as a safety net and completes without changing anything,
+  # so a completion-keyed trigger would rebuild this suite 24 times a day for
+  # nothing. contremaitre-bump dispatches `asserters_only` only on a real bump,
+  # alongside the ci-backend dispatch it already makes for the same reason —
+  # a GITHUB_TOKEN push raises no workflow runs of its own.
 
 concurrency:
   # On main the sha is part of the group, so every commit gets its own group
@@ -105,8 +107,10 @@ jobs:
     name: Real Slack round trip (Socket Mode)
     # Only run on schedule + manual dispatch — skip on every push path match
     # because the Slack API has rate limits and the test depends on live
-    # LLM latency.
-    if: github.event_name != 'push'
+    # LLM latency. `asserters_only` skips it for the same reason on the
+    # contremaitre-bump dispatch, which wants the prompt regression signal and
+    # not a live round trip.
+    if: github.event_name != 'push' && !inputs.asserters_only
     # Standard 4-vCPU/16 GB ubuntu-latest. Larger GitHub-hosted runners
     # are paid-plan only (Team/Enterprise) — Free public-repo plans don't
     # get them. Qwen 2.5 3B on the Q4_K_M quant fits in this footprint

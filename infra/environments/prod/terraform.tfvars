@@ -30,6 +30,10 @@ redis_memory_size_gb = 1
 frontend_min_instances = 0
 frontend_max_instances = 3
 
+# Firebase project linked to project_id — nginx proxies /__/ auth-handler paths
+# to https://<id>.firebaseapp.com. Replace alongside project_id.
+firebase_project_id = "dravr-prod"
+
 labels = {
   app         = "dravr"
   managed_by  = "terraform"

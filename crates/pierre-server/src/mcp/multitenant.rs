@@ -20,9 +20,7 @@ use crate::constants::{
 use chrono::Utc;
 use pierre_auth::api_keys::ApiKeyUsage;
 use pierre_auth::auth::AuthManager;
-use pierre_auth::security::headers::SecurityConfig;
 use pierre_auth::tenant::TenantContext;
-use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
@@ -37,9 +35,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
-use tracing::{error, info, warn, Level};
+use tracing::{error, info, info_span, Level, Span};
 use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
@@ -51,6 +49,7 @@ use crate::routes::{onboarding::OnboardingRoutes, viz::VizRoutes};
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
 use axum::body::Body;
+use axum::extract::Request;
 use axum::middleware;
 use axum::response::Response;
 #[cfg(feature = "oauth")]
@@ -59,16 +58,37 @@ use pierre_database::backends::UsageRepository;
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
-use pierre_middleware::{request_id_middleware, response_failure_log_middleware, setup_cors};
+use pierre_middleware::{
+    redaction_middleware, request_id_middleware, response_failure_log_middleware, setup_cors,
+    RedactedRequestLine,
+};
 #[cfg(feature = "client-admin-api")]
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 #[cfg(feature = "oauth")]
 use pierre_routes_identity::oauth2::OAuth2Context;
 use std::any::Any;
 use tokio::net::TcpListener;
-use tower::layer::util::Identity;
 
 // Constants are now imported from the constants module
+
+/// Build the per-request HTTP span for tower-http's `TraceLayer`.
+///
+/// Records the log-safe request line the redaction layer attached rather than
+/// the raw URI, whose query carries `OAuth` codes and reset tokens; falls back
+/// to the bare path when no redaction layer is installed. Headers are recorded
+/// nowhere — `Authorization` and `Cookie` live there.
+fn http_request_span(request: &Request<Body>) -> Span {
+    let uri = request
+        .extensions()
+        .get::<RedactedRequestLine>()
+        .map_or_else(|| request.uri().path().to_owned(), ToString::to_string);
+    info_span!(
+        "request",
+        method = %request.method(),
+        uri = %uri,
+        version = ?request.version(),
+    )
+}
 
 /// MCP server supporting user authentication and isolated data access
 #[derive(Clone)]
@@ -87,17 +107,6 @@ impl ProviderToolRouter {
     #[must_use]
     pub fn resources(&self) -> Arc<ServerContext> {
         self.resources.clone()
-    }
-
-    /// Initialize security configuration based on environment
-    fn setup_security_config(config: &ServerConfig) -> SecurityConfig {
-        let security_config =
-            SecurityConfig::from_environment(&config.security.headers.environment.to_string());
-        info!(
-            "Security headers enabled with {} configuration",
-            config.security.headers.environment
-        );
-        security_config
     }
 
     /// Route disconnect tool request to appropriate provider handler
@@ -583,11 +592,7 @@ impl ProviderToolRouter {
         let app = app
             .layer(
                 TraceLayer::new_for_http()
-                    .make_span_with(
-                        DefaultMakeSpan::new()
-                            .level(Level::INFO)
-                            .include_headers(false),
-                    )
+                    .make_span_with(http_request_span)
                     .on_response(
                         DefaultOnResponse::new()
                             .level(Level::INFO)
@@ -602,11 +607,22 @@ impl ProviderToolRouter {
                     .on_failure(()),
             )
             .layer(middleware::from_fn(response_failure_log_middleware))
+            // PII redaction for HTTP logging. Applied outside both the failure
+            // logger and the TraceLayer so the log-safe request line is on the
+            // request before either of them reads the endpoint from it.
+            .layer(middleware::from_fn_with_state(
+                resources.security().redaction_config().clone(),
+                redaction_middleware,
+            ))
             .layer(middleware::from_fn(request_id_middleware))
             .layer(setup_cors(&resources.common.config.cors.allowed_origins))
-            .layer(Self::create_security_headers_layer(
-                &resources.common.config,
-            ))
+            // Browser security response headers (X-Content-Type-Options,
+            // X-Frame-Options, Referrer-Policy, HSTS, Content-Security-Policy)
+            // are set at the nginx edge — docker/images/frontend/nginx.conf
+            // includes security-headers.conf at server level and again in every
+            // location that declares its own add_header. This service runs
+            // INGRESS_TRAFFIC_INTERNAL_ONLY behind that nginx, so nginx owns the
+            // headers for all browser traffic and no layer here sets them.
             .layer(CatchPanicLayer::custom(Self::handle_request_panic));
 
         // Create server address using host from config (defaults to localhost, can be 0.0.0.0 for network access)
@@ -1080,31 +1096,5 @@ impl ProviderToolRouter {
             .route("/ready", get(ready_handler))
             .route("/health/llm", get(llm_health_handler))
             .with_state(llm_health)
-    }
-
-    /// Create security headers layer for Axum
-    ///
-    /// Validates security headers configuration and returns Identity layer.
-    /// Security headers are validated at startup to catch configuration errors early.
-    /// Response header injection happens via response interceptor middleware.
-    fn create_security_headers_layer(config: &Arc<ServerConfig>) -> Identity {
-        // Validate security headers configuration at startup
-        let security_config = Self::setup_security_config(config);
-        let headers = security_config.to_headers();
-
-        // Validate all headers can be parsed - this catches configuration errors early
-        for (header_name, header_value) in headers {
-            if http::HeaderName::from_bytes(header_name.as_bytes()).is_err()
-                || http::HeaderValue::from_str(header_value).is_err()
-            {
-                warn!(
-                    "Invalid security header in config: {} = {}",
-                    header_name, header_value
-                );
-            }
-        }
-
-        // Return identity layer - headers are applied via CORS middleware and response interceptors
-        Identity::new()
     }
 }

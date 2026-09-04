@@ -47,7 +47,15 @@ commit_all() {
 # Runs the gate against HEAD~1 and echoes the exit code.
 run_gate() {
   local dir="$1" code=0
-  ( cd "$dir" && "$UNDER_TEST" HEAD~1 >/tmp/file-sizes-test.out 2>&1 ) || code=$?
+  ( cd "$dir" && GATE_BASE_REF= "$UNDER_TEST" HEAD~1 >/tmp/file-sizes-test.out 2>&1 ) || code=$?
+  echo "$code"
+}
+
+# Runs the gate with NO argument — the shape architectural-validation.sh uses —
+# with $GATE_BASE_REF optionally supplied as $2. This is the CI call path.
+run_gate_default() {
+  local dir="$1" base="${2:-}" code=0
+  ( cd "$dir" && GATE_BASE_REF="$base" "$UNDER_TEST" >/tmp/file-sizes-test.out 2>&1 ) || code=$?
   echo "$code"
 }
 
@@ -140,10 +148,49 @@ commit_all "$d" change
 expect "nested src/ paths are in scope" "$(run_gate "$d")" 1
 rm -rf "$d"
 
+# 9. The CI checkout shape: origin/main points at HEAD, and the gate is called
+#    with no argument. `origin/main...HEAD` is then empty and the gate used to
+#    print its green "no changed files" line having read nothing. It must fall
+#    back to the tip commit and still catch the violation in it.
+d="$(make_repo)"
+gen_lines 10 "$d/crates/demo/src/lib.rs"
+commit_all "$d" base
+gen_lines $((MAX + 50)) "$d/crates/demo/src/big.rs"
+commit_all "$d" change
+git -C "$d" update-ref refs/remotes/origin/main HEAD
+expect "origin/main == HEAD still inspects the tip commit" "$(run_gate_default "$d")" 1
+rm -rf "$d"
+
+# 10. Same checkout shape, clean tip: the fallback must not manufacture a
+#     failure out of a commit that introduced nothing over budget.
+d="$(make_repo)"
+gen_lines 10 "$d/crates/demo/src/lib.rs"
+commit_all "$d" base
+gen_lines 900 "$d/crates/demo/src/small.rs"
+commit_all "$d" change
+git -C "$d" update-ref refs/remotes/origin/main HEAD
+expect "origin/main == HEAD passes a clean tip commit" "$(run_gate_default "$d")" 0
+rm -rf "$d"
+
+# 11. $GATE_BASE_REF is what CI sets to the push's before-sha, and it must be
+#     honoured when the gate is called with no argument. Three commits, with the
+#     violation in the middle one: only a base spanning the whole push sees it.
+d="$(make_repo)"
+gen_lines 10 "$d/crates/demo/src/lib.rs"
+commit_all "$d" base
+BEFORE_SHA="$(git -C "$d" rev-parse HEAD)"
+gen_lines $((MAX + 50)) "$d/crates/demo/src/big.rs"
+commit_all "$d" middle
+gen_lines 20 "$d/crates/demo/src/other.rs"
+commit_all "$d" tip
+git -C "$d" update-ref refs/remotes/origin/main HEAD
+expect "GATE_BASE_REF spans the whole push" "$(run_gate_default "$d" "$BEFORE_SHA")" 1
+rm -rf "$d"
+
 echo ""
 if [ "$failures" -gt 0 ]; then
   echo "❌ check-file-sizes.test.sh: $failures case(s) failed."
   exit 1
 fi
-echo "✅ check-file-sizes.test.sh: all 8 cases passed."
+echo "✅ check-file-sizes.test.sh: all 11 cases passed."
 exit 0

@@ -359,6 +359,36 @@ fi
 # ============================================================================
 
 # ============================================================================
+# TIER 4: Shared Package Tests (if packages/* changed)
+# ============================================================================
+# packages/chat-utils, ui-logic, domain-utils and mcp-types hold the logic both
+# clients share. Their vitest suites reach neither client's runner: frontend's
+# vitest `include` is 'src/**' and mobile's jest rootDir puts packages/ outside
+# the tree, so nothing ran them. Seconds to run, and it is the only local gate
+# on that code.
+if [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; then
+    echo "Tier 4: Shared Package Tests"
+    echo "----------------------------"
+    # A filter that matches no package exits 0, so count the suites first: an
+    # empty selection must never report green.
+    PACKAGE_TEST_FILES="$(find "$PROJECT_ROOT/packages" -path '*__tests__*' -name '*.test.ts*' 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "$PACKAGE_TEST_FILES" -eq 0 ]]; then
+        echo "FAIL: no shared-package test files found under packages/*/__tests__/!"
+        exit 1
+    fi
+    echo "  $PACKAGE_TEST_FILES test file(s)"
+    if ! (cd "$PROJECT_ROOT" && bun run typecheck:packages); then
+        echo "FAIL: shared package type-check failed!"
+        exit 1
+    fi
+    if ! (cd "$PROJECT_ROOT" && bun run test:packages); then
+        echo "FAIL: shared package tests failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 5: Frontend Validation (if changed)
 # ============================================================================
 if [[ "$HAS_FRONTEND_CHANGES" == "true" ]]; then

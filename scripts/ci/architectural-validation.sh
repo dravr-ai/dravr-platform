@@ -261,17 +261,23 @@ TOTAL_ARCS=$(rg "Arc::" crates/pierre-server/src/ | wc -l 2>/dev/null | tr -d ' 
 # Note: globs need **/ prefix to match paths within subdirectories of crates/pierre-server/src/
 MAGIC_NUMBERS=$(rg "\b[0-9]{4,}\b" crates/pierre-server/src/ -g '*.rs' -g '!**/constants/**' -g '!**/config/**' | grep -v -E "(Licensed|http://|https://|Duration|timestamp|//.*[0-9]|seconds|minutes|hours|Version|\.[0-9]|[0-9]\.|test|mock|example|error.*code|status.*code|port|timeout|limit|capacity|-32[0-9]{3}|1000\.0|60\.0|24\.0|7\.0|365\.0|METERS_PER|PER_METER|conversion|unit|\.60934|12345|0000-0000|202[0-9]-[0-9]{2}-[0-9]{2}|Some\([0-9]+\)|Trial.*1000|Standard.*10000|RFC [0-9]|ISO [0-9]|scientific_basis|backoff|cache_|RSA|key_size|unwrap_or\([0-9]|\.into\(\)|max_entries|max_tokens|DIVISOR|SECONDS)" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 
-# Repository pattern — detect nominal (defined but unwired) repository traits
-# A trait defined in repositories/mod.rs with zero occurrences elsewhere in crates/pierre-server/src/ is dead weight:
-# no blanket impl, no direct impl, no call site. This is the "defined but not wired" anti-pattern.
+# Repository pattern — detect nominal (defined but unwired) repository traits.
+# The traits are declared one per domain file under crates/pierre-database/src/
+# repositories/. A trait with zero occurrences anywhere outside that directory —
+# no impl, no call site — is dead API surface: the "defined but not wired"
+# anti-pattern. Tests are excluded from the usage pool on purpose; a trait whose
+# only readers are tests is exactly the phantom surface this looks for.
 NOMINAL_REPOS_COUNT=0
 NOMINAL_REPOS_LIST=""
-REPOS_MOD="crates/pierre-server/src/database/repositories/mod.rs"
-if [ -f "$REPOS_MOD" ]; then
+SCANNED_REPOS_COUNT=0
+REPOS_DIR="crates/pierre-database/src/repositories"
+if [ -d "$REPOS_DIR" ]; then
     while IFS= read -r trait_name; do
         [ -z "$trait_name" ] && continue
-        USAGE_COUNT=$(rg "\b${trait_name}\b" crates/pierre-server/src/ \
-            --glob '!crates/pierre-server/src/database/repositories/mod.rs' \
+        SCANNED_REPOS_COUNT=$((SCANNED_REPOS_COUNT + 1))
+        USAGE_COUNT=$(rg -w "$trait_name" crates -g '*.rs' \
+            -g "!${REPOS_DIR}/**" \
+            -g '!crates/*/tests/**' \
             --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
         if [ "$USAGE_COUNT" -eq 0 ]; then
             NOMINAL_REPOS_COUNT=$((NOMINAL_REPOS_COUNT + 1))
@@ -281,7 +287,7 @@ if [ -f "$REPOS_MOD" ]; then
                 NOMINAL_REPOS_LIST="$NOMINAL_REPOS_LIST, $trait_name"
             fi
         fi
-    done < <(rg "^pub trait \w+Repository" "$REPOS_MOD" --no-filename -o 2>/dev/null \
+    done < <(rg "^pub trait \w+Repository" "$REPOS_DIR" --no-filename -o 2>/dev/null \
         | sed 's/pub trait //' | sed 's/[: ].*//')
 fi
 
@@ -597,10 +603,16 @@ fi
 
 echo -e "${BLUE}Validating repository trait wiring...${NC}"
 
-if [ "$NOMINAL_REPOS_COUNT" -gt 0 ]; then
+if [ "$SCANNED_REPOS_COUNT" -eq 0 ]; then
+    echo -e "${RED}❌ REPOSITORY PATTERN SCAN FOUND NO TRAITS${NC}"
+    echo -e "${RED}Expected 'pub trait *Repository' declarations under ${REPOS_DIR}/,${NC}"
+    echo -e "${RED}and read none. A scan that selects nothing reports green forever, so it fails${NC}"
+    echo -e "${RED}instead: the declarations moved again, and this gate must follow them.${NC}"
+    fail_validation "Repoint the repository-trait scan at the directory that declares them"
+elif [ "$NOMINAL_REPOS_COUNT" -gt 0 ]; then
     echo -e "${RED}❌ REPOSITORY PATTERN VIOLATION: $NOMINAL_REPOS_COUNT nominal (unwired) repository traits${NC}"
-    echo -e "${RED}These traits are defined in repositories/mod.rs but have zero implementations${NC}"
-    echo -e "${RED}and zero call sites anywhere in crates/pierre-server/src/ — they are purely dead API surface:${NC}"
+    echo -e "${RED}These traits are declared under ${REPOS_DIR}/ but have zero implementations${NC}"
+    echo -e "${RED}and zero call sites anywhere outside that directory — they are purely dead API surface:${NC}"
     echo ""
     IFS=', ' read -ra REPO_NAMES <<< "$NOMINAL_REPOS_LIST"
     for repo in "${REPO_NAMES[@]}"; do
@@ -608,13 +620,13 @@ if [ "$NOMINAL_REPOS_COUNT" -gt 0 ]; then
     done
     echo ""
     echo -e "${RED}Each nominal trait MUST have:${NC}"
-    echo -e "${RED}  1. An implementation in crates/pierre-server/src/database/repositories/blanket_impls.rs${NC}"
+    echo -e "${RED}  1. An implementation on a backend in crates/pierre-database/src/backends/${NC}"
     echo -e "${RED}     (or a direct impl on Database if the method delegation differs)${NC}"
-    echo -e "${RED}  2. At least one call site in crates/pierre-server/src/ outside repositories/mod.rs${NC}"
+    echo -e "${RED}  2. At least one production call site outside ${REPOS_DIR}/${NC}"
     echo -e "${RED}     (route handlers or services must import and use the trait)${NC}"
     fail_validation "Wire all repository traits before committing"
 else
-    pass_validation "All repository traits are implemented and used"
+    pass_validation "All $SCANNED_REPOS_COUNT repository traits are implemented and used"
 fi
 
 # ============================================================================
@@ -1497,7 +1509,8 @@ fi
 
 # Migration idempotency — new migrations must use idempotent DDL (ADD COLUMN IF
 # NOT EXISTS, DROP ... IF EXISTS) so they survive live-DB drift (the shared_insights
-# deploy-crash class). Historical migrations are grandfathered (diff vs origin/main).
+# deploy-crash class). Historical migrations are grandfathered: the gate reads only
+# what this change added or modified, against the base $GATE_BASE_REF resolves to.
 if [ -f "$SCRIPT_DIR/check-migration-idempotency.sh" ]; then
     bash "$SCRIPT_DIR/check-migration-idempotency.sh" || VALIDATION_FAILED=true
 else

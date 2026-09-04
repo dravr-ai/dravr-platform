@@ -49,6 +49,14 @@ const LIST_TASKS_DEFAULT_PAGE_SIZE: u32 = 50;
 /// Maximum `ListTasks` page size.
 const LIST_TASKS_MAX_PAGE_SIZE: u32 = 100;
 
+/// Caller-facing explanation for a message that addresses no registered
+/// tool. The A2A surface executes named tools supplied as a structured
+/// `data` part; text parts alone carry no instruction the agent can run.
+const NO_TOOL_INTENT_MESSAGE: &str =
+    "A2A messages must address a registered tool with a data part shaped \
+     {\"tool_name\": \"<tool>\", \"parameters\": {...}}. \
+     Text parts alone name no tool to execute.";
+
 /// Bundle of runtime handles required for full A2A protocol operation.
 ///
 /// [`A2ACtx`] supplies the auth/repos/base-url slice; `tool_runtime` is held
@@ -96,9 +104,7 @@ struct PreparedSend {
 enum SendOutcome {
     /// A named tool ran successfully and produced this result
     Tool(String, Value),
-    /// No tool intent — the agent echoes the message text
-    Echo,
-    /// Tool execution failed with this human-readable reason
+    /// The message produced no tool output, for this human-readable reason
     Failure(String),
 }
 
@@ -438,6 +444,26 @@ impl A2AServer {
         }
     }
 
+    /// Create an A2A-spec error response carrying a caller-facing message in
+    /// place of the variant's generic text, keeping the spec code and the
+    /// mandatory `google.rpc.ErrorInfo` detail.
+    fn spec_error_with_message(
+        err: A2ASpecError,
+        message: impl Into<String>,
+        request_id: Option<Value>,
+    ) -> A2AResponse {
+        A2AResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(A2AErrorResponse {
+                code: err.code(),
+                message: message.into(),
+                data: Some(error_info(err.reason())),
+            }),
+            id: request_id,
+        }
+    }
+
     /// Create an invalid-params (`-32602`) error response.
     fn invalid_params(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
         Self::a2a_error(-32602, message, request_id)
@@ -594,15 +620,16 @@ impl A2AServer {
 
     /// Handle A2A 1.0 `SendMessage`.
     ///
-    /// Two intents are supported, both backed by real work:
+    /// The surface accepts one intent: **tool invocation**. When the message
+    /// carries a `data` part with `{"tool_name": ..., "parameters": {...}}`,
+    /// the named tool executes against the authenticated user's tenant
+    /// through the shared registry path; the output lands on the task as an
+    /// artifact.
     ///
-    /// - **Tool invocation.** When the message carries a `data` part with
-    ///   `{"tool_name": ..., "parameters": {...}}`, the named tool executes
-    ///   against the authenticated user's tenant through the shared registry
-    ///   path; the output lands on the task as an artifact.
-    /// - **Plain message.** A message that names no tool and references no
-    ///   task is answered directly with an agent `Message` (the spec's
-    ///   message-only exchange) echoing the received text.
+    /// A message that addresses no registered tool is refused with the spec's
+    /// `ContentTypeNotSupported` (`-32005`) error naming the accepted shape;
+    /// when it references an existing task, the task transitions to
+    /// `failed` carrying the same explanation.
     ///
     /// With `configuration.returnImmediately == false` (the default) the
     /// call blocks until the task reaches a terminal state and returns the
@@ -634,20 +661,16 @@ impl A2AServer {
 
         let configuration = params.configuration.clone().unwrap_or_default(); // Safe: config ownership for send flow
 
-        // Message-only exchange: no tool intent and no task reference.
+        // A message that addresses no registered tool and references no
+        // task has nothing to execute: reject it instead of opening a task
+        // that cannot make progress.
         if Self::extract_tool_intent(&params.message).is_none() && params.message.task_id.is_none()
         {
-            let reply = Message::agent(
-                Uuid::new_v4().to_string(),
-                vec![Part::text(Self::collect_message_text(&params.message))],
+            return Self::spec_error_with_message(
+                A2ASpecError::ContentTypeNotSupported,
+                NO_TOOL_INTENT_MESSAGE,
+                request.id,
             );
-            return match to_value(&reply) {
-                Ok(message) => Self::ok(json!({ "message": message }), request.id),
-                Err(e) => {
-                    error!("Failed to serialize A2A reply message: {e}");
-                    Self::a2a_error(-32603, "Failed to serialize reply message", request.id)
-                }
-            };
         }
 
         let prepared =
@@ -850,7 +873,7 @@ impl A2AServer {
     }
 
     /// Execute a prepared message against its task: transition to `working`,
-    /// run the tool intent (or echo), persist history/artifacts/status,
+    /// run the tool intent, persist history/artifacts/status,
     /// publish stream events, close the stream, and deliver push
     /// notifications. Infallible by design — failures land on the task as
     /// the `failed` state.
@@ -877,8 +900,9 @@ impl A2AServer {
                         SendOutcome::Tool(tool_name, result)
                     })
             }
-            // No tool intent: acknowledge with a real reply echoing the text.
-            None => SendOutcome::Echo,
+            // A message addressing no registered tool has nothing to run:
+            // the task fails with the shape the surface accepts.
+            None => SendOutcome::Failure(NO_TOOL_INTENT_MESSAGE.to_owned()),
         };
 
         match outcome {
@@ -902,18 +926,6 @@ impl A2AServer {
                     Some(artifact),
                     format!("Tool {tool_name} completed"),
                     Some(result),
-                )
-                .await;
-            }
-            SendOutcome::Echo => {
-                Self::finalize_completed(
-                    ctx,
-                    &task_id,
-                    &context_id,
-                    history,
-                    None,
-                    Self::collect_message_text(&user_message),
-                    None,
                 )
                 .await;
             }
@@ -1114,20 +1126,6 @@ impl A2AServer {
             }
         }
         None
-    }
-
-    /// Concatenate the text content of all `text` parts of a message.
-    #[must_use]
-    pub fn collect_message_text(message: &Message) -> String {
-        message
-            .parts
-            .iter()
-            .filter_map(|part| match &part.content {
-                PartContent::Text(text) => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
     }
 
     /// Execute a registered tool against the authenticated user's tenant.

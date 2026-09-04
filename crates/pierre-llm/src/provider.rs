@@ -30,6 +30,7 @@ use super::{
     GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider, OpenAiCompatibleProvider,
     OpenRouterProvider, Tool,
 };
+use crate::chain::chain_complete_with_tools;
 use crate::chain_guard::{CircuitTransition, CHAIN_GUARD};
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
@@ -703,26 +704,7 @@ impl ChatProvider {
                 Ok(with_tools_response(response))
             }
             Self::Chain { primary, secondary } => {
-                // Recursive async over `Self` requires Box::pin to satisfy
-                // the compiler's "recursive async fn must introduce
-                // indirection" rule.
-                let primary_call = Box::pin(primary.complete_with_tools(request, tools.clone()));
-                match primary_call.await {
-                    Ok(response) => Ok(response),
-                    Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
-                        warn!(
-                            primary = primary.name(),
-                            secondary = secondary.name(),
-                            error = %primary_err,
-                            "Primary LLM complete_with_tools() failed with retryable error; falling back"
-                        );
-                        let forwarded = request_for_secondary(request);
-                        let secondary_call =
-                            Box::pin(secondary.complete_with_tools(&forwarded, tools));
-                        secondary_call.await
-                    }
-                    Err(primary_err) => Err(primary_err),
-                }
+                chain_complete_with_tools(primary, secondary, request, tools).await
             }
         }
     }
@@ -917,7 +899,7 @@ impl fmt::Debug for ChatProvider {
 /// "model 'claude-opus-4.8' not found", collapsing the entire chain. Clearing
 /// `model` lets each tier fall back to the model it was configured with via
 /// `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` / `PIERRE_LLM_TERTIARY_PROVIDER_MODEL`.
-fn request_for_secondary(request: &ChatRequest) -> ChatRequest {
+pub fn request_for_secondary(request: &ChatRequest) -> ChatRequest {
     let mut forwarded = request.clone();
     forwarded.model = None;
     forwarded

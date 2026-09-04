@@ -630,49 +630,60 @@ impl UsageRepository for Database {
     ) -> AppResult<Vec<CoreRequestLog>> {
         let max_results: i32 = 1000;
 
+        // api_key_usage is the table the request path writes; api_keys is joined
+        // unconditionally so the log carries the key's real name. The join is
+        // total — api_key_usage.api_key_id is NOT NULL and references api_keys.
         let mut query = String::from(
-            r"SELECT id, user_id, api_key_id, timestamp, method, endpoint,
-                     status_code, response_time_ms, error_message
-              FROM request_logs
+            r"SELECT COALESCE(u.id, CAST(u.rowid AS TEXT)) as id,
+                     u.timestamp, u.api_key_id, k.name as api_key_name,
+                     u.endpoint as tool_name, u.status_code, u.response_time_ms,
+                     u.error_message, u.request_size_bytes, u.response_size_bytes
+              FROM api_key_usage u
+              JOIN api_keys k ON u.api_key_id = k.id
               WHERE 1=1",
         );
-        let mut bind_values: Vec<String> = vec![];
 
-        if let Some(uid) = user_id {
-            query.push_str(" AND user_id = ?");
-            bind_values.push(uid.to_string());
+        if user_id.is_some() {
+            query.push_str(" AND k.user_id = ?");
+        }
+        if api_key_id.is_some() {
+            query.push_str(" AND u.api_key_id = ?");
+        }
+        if start_time.is_some() {
+            query.push_str(" AND u.timestamp >= ?");
+        }
+        if end_time.is_some() {
+            query.push_str(" AND u.timestamp <= ?");
+        }
+        if status_filter.is_some() {
+            query.push_str(" AND CAST(u.status_code AS TEXT) LIKE ?");
+        }
+        if tool_filter.is_some() {
+            query.push_str(" AND u.endpoint LIKE ?");
         }
 
-        if let Some(key_id) = api_key_id {
-            query.push_str(" AND api_key_id = ?");
-            bind_values.push(key_id.to_owned());
-        }
+        query.push_str(" ORDER BY u.timestamp DESC LIMIT ?");
 
-        if let Some(start) = start_time {
-            query.push_str(" AND timestamp >= ?");
-            bind_values.push(start.to_rfc3339());
-        }
-
-        if let Some(end) = end_time {
-            query.push_str(" AND timestamp <= ?");
-            bind_values.push(end.to_rfc3339());
-        }
-
-        if let Some(status) = status_filter {
-            query.push_str(" AND CAST(status_code AS TEXT) LIKE ?");
-            bind_values.push(format!("{status}%"));
-        }
-
-        if let Some(tool) = tool_filter {
-            query.push_str(" AND endpoint LIKE ?");
-            bind_values.push(format!("%{tool}%"));
-        }
-
-        query.push_str(" ORDER BY timestamp DESC LIMIT ?");
-
+        // Timestamps bind as the same typed value the write path stored, so the
+        // range compares as an instant and not as two differently-spelled strings.
         let mut sql_query = sqlx::query(&query);
-        for value in &bind_values {
-            sql_query = sql_query.bind(value);
+        if let Some(uid) = user_id {
+            sql_query = sql_query.bind(uid.to_string());
+        }
+        if let Some(key_id) = api_key_id {
+            sql_query = sql_query.bind(key_id.to_owned());
+        }
+        if let Some(start) = start_time {
+            sql_query = sql_query.bind(start);
+        }
+        if let Some(end) = end_time {
+            sql_query = sql_query.bind(end);
+        }
+        if let Some(status) = status_filter {
+            sql_query = sql_query.bind(format!("{status}%"));
+        }
+        if let Some(tool) = tool_filter {
+            sql_query = sql_query.bind(format!("%{tool}%"));
         }
         sql_query = sql_query.bind(max_results);
 
@@ -683,22 +694,17 @@ impl UsageRepository for Database {
 
         let mut logs = Vec::with_capacity(rows.len());
         for row in rows {
-            let status_raw: i32 = row.get("status_code");
             logs.push(CoreRequestLog {
                 id: row.get("id"),
                 timestamp: row.get("timestamp"),
-                api_key_id: row
-                    .get::<Option<String>, _>("api_key_id")
-                    .unwrap_or_default(),
-                api_key_name: "Unknown".into(),
-                tool_name: row
-                    .get::<Option<String>, _>("endpoint")
-                    .unwrap_or_else(|| "Unknown".into()),
-                status_code: status_raw,
+                api_key_id: row.get("api_key_id"),
+                api_key_name: row.get("api_key_name"),
+                tool_name: row.get("tool_name"),
+                status_code: row.get("status_code"),
                 response_time_ms: row.get::<Option<i32>, _>("response_time_ms"),
                 error_message: row.get("error_message"),
-                request_size_bytes: None,
-                response_size_bytes: None,
+                request_size_bytes: row.get::<Option<i32>, _>("request_size_bytes"),
+                response_size_bytes: row.get::<Option<i32>, _>("response_size_bytes"),
             });
         }
 

@@ -17,7 +17,32 @@ use pierre_core::models::{AuditEvent, AuditEventType, AuditSeverity};
 use pierre_core::uuid_utils::parse_uuid;
 use sqlx::Row;
 use std::fmt::Write;
+use tracing::warn;
 use uuid::Uuid;
+
+impl PostgresDatabase {
+    /// Rewrite a plaintext `rsa_keypairs` row as AES-256-GCM ciphertext
+    ///
+    /// Rows written before the column carried ciphertext are upgraded the
+    /// first time they are read. A failure here leaves the row readable, so it
+    /// is logged rather than propagated: signing must keep working.
+    async fn upgrade_rsa_private_key_storage(&self, kid: &str, private_key_pem: &str) {
+        match shared::encryption::encrypt_rsa_private_key(self, kid, private_key_pem) {
+            Ok(encrypted) => {
+                if let Err(e) =
+                    sqlx::query("UPDATE rsa_keypairs SET private_key_pem = $1 WHERE kid = $2")
+                        .bind(&encrypted)
+                        .bind(kid)
+                        .execute(&self.pool)
+                        .await
+                {
+                    warn!("Failed to store RSA signing key as ciphertext for kid {kid}: {e}");
+                }
+            }
+            Err(e) => warn!("Failed to encrypt RSA signing key for kid {kid}: {e}"),
+        }
+    }
+}
 
 #[async_trait]
 impl SecurityRepository for PostgresDatabase {
@@ -26,6 +51,10 @@ impl SecurityRepository for PostgresDatabase {
     // ================================
 
     /// Save RSA keypair to database for persistence across restarts
+    ///
+    /// The private key is encrypted at rest with AES-256-GCM, bound by AAD to
+    /// the key id it is stored under. The public key stays plaintext — it is
+    /// published through JWKS.
     async fn save_rsa_keypair(
         &self,
         kid: &str,
@@ -35,6 +64,9 @@ impl SecurityRepository for PostgresDatabase {
         is_active: bool,
         key_size_bits: i32,
     ) -> AppResult<()> {
+        let encrypted_private_key =
+            shared::encryption::encrypt_rsa_private_key(self, kid, private_key_pem)?;
+
         sqlx::query(
             r"
             INSERT INTO rsa_keypairs (kid, private_key_pem, public_key_pem, created_at, is_active, key_size_bits)
@@ -46,7 +78,7 @@ impl SecurityRepository for PostgresDatabase {
             ",
         )
         .bind(kid)
-        .bind(private_key_pem)
+        .bind(&encrypted_private_key)
         .bind(public_key_pem)
         .bind(created_at)
         .bind(is_active)
@@ -57,6 +89,9 @@ impl SecurityRepository for PostgresDatabase {
     }
 
     /// Load all RSA keypairs from database
+    ///
+    /// Private keys are decrypted with the AAD context of the key id they are
+    /// stored under.
     async fn load_rsa_keypairs(
         &self,
     ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
@@ -68,7 +103,15 @@ impl SecurityRepository for PostgresDatabase {
         let mut keypairs = Vec::new();
         for row in rows {
             let kid: String = row.get("kid");
-            let private_key_pem: String = row.get("private_key_pem");
+            let stored_private_key: String = row.get("private_key_pem");
+            let private_key_pem =
+                if shared::encryption::is_plaintext_private_key_pem(&stored_private_key) {
+                    self.upgrade_rsa_private_key_storage(&kid, &stored_private_key)
+                        .await;
+                    stored_private_key
+                } else {
+                    shared::encryption::decrypt_rsa_private_key(self, &kid, &stored_private_key)?
+                };
             let public_key_pem: String = row.get("public_key_pem");
             let created_at: DateTime<Utc> = row.get("created_at");
             let is_active: bool = row.get("is_active");

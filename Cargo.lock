@@ -1361,8 +1361,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.7.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.7.0#d168773844b0ab3c268a207ab5c76205639b72c1"
+version = "0.7.1"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.7.1#a7384dc7a9688156b58679cf4b747ea5bd97955c"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1379,8 +1379,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.27"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.27#3f6ad87f12b513c1ccccf0f3b7378a406a6d5ac6"
+version = "0.4.28"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.28#9d8c1739a800bb15d6d6b401176e300b8f2a8a76"
 dependencies = [
  "async-trait",
  "chrono",

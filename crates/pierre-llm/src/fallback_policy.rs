@@ -19,7 +19,8 @@
 //!   used to have no such notion: an `Ok` response with no content took the
 //!   success path, recorded primary health, and never consulted the secondary,
 //!   so the athlete received the lost-turn apology while a working provider
-//!   sat unused (2026-08-31, carnet#165).
+//!   sat unused (2026-08-31, carnet#165). [`is_empty_tool_completion`] is the
+//!   same rule applied to the native function-calling response shape.
 //!
 //! Grouped here because they answer the same question and are read together
 //! when that question changes. `pierre-tool-runtime`'s headless loop bypasses
@@ -27,9 +28,9 @@
 //! predicates, which is why both are `pub`.
 
 use crate::errors::AppError;
-use crate::ChatResponse;
+use crate::{ChatResponse, ChatResponseWithTools};
 
-/// `true` when a completion carries nothing the caller can deliver.
+/// The emptiness rule both response shapes are judged by.
 ///
 /// Empty content **with tool calls is not empty** — that is an ordinary
 /// mid-loop turn where the model asked for a tool instead of speaking, and
@@ -37,13 +38,32 @@ use crate::ChatResponse;
 /// conversation, against a paid provider. Whitespace-only content *is* empty:
 /// every surface trims before rendering, so a reply of three spaces reaches the
 /// athlete as nothing at all.
+fn carries_nothing(content: &str, has_tool_calls: bool) -> bool {
+    content.trim().is_empty() && !has_tool_calls
+}
+
+/// `true` when a completion carries nothing the caller can deliver.
 ///
 /// An empty `tool_calls` vec reads the same as `None`; providers disagree on
 /// which they send, and treating `Some(vec![])` as "has tool calls" would
 /// silently restore the bug for whichever one serialises it that way.
 #[must_use]
 pub fn is_empty_completion(response: &ChatResponse) -> bool {
-    response.content.trim().is_empty() && response.tool_calls.as_ref().is_none_or(Vec::is_empty)
+    let has_calls = response.tool_calls.as_ref().is_some_and(|c| !c.is_empty());
+    carries_nothing(&response.content, has_calls)
+}
+
+/// [`is_empty_completion`] for the tool-calling response shape.
+///
+/// The native function-calling path returns [`ChatResponseWithTools`], which
+/// carries the same two facts under different names: `content` is optional
+/// rather than a `String`, and the calls live in `function_calls`. The rule is
+/// identical, so `carries_nothing` decides both cases —
+/// `has_function_calls()` already reads `Some(vec![])` as no calls.
+#[must_use]
+pub fn is_empty_tool_completion(response: &ChatResponseWithTools) -> bool {
+    let content = response.content.as_deref().unwrap_or_default();
+    carries_nothing(content, response.has_function_calls())
 }
 
 /// Whether a primary-provider error should trigger the runtime-fallback chain.

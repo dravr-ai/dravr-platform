@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::{TimeZone, Utc};
-use dravr_cageux::models::activity::{Activity, ActivityBuilder, Lap};
+use dravr_cageux::models::activity::{Activity, ActivityBuilder, Lap, TimeSeriesData};
 use dravr_cageux::models::sport::SportType;
 use pierre_fitness_compute::intervals::build_intervals;
 use pierre_fitness_compute::routes::{
@@ -86,6 +86,150 @@ fn intervals_synthesises_one_row_when_no_laps() {
     assert_eq!(row.avg_hr, Some(155));
     assert_eq!(row.normalized_power, Some(220.0));
     assert_eq!(row.intensity_factor, Some(220.0 / 250.0));
+}
+
+/// Three 60-second laps, each held at a constant power so a lap's own
+/// normalized power is exactly that power. Only lap 2 drifts its heart rate
+/// upward at constant speed, so only lap 2 decouples.
+fn three_lap_stream() -> TimeSeriesData {
+    let mut timestamps = Vec::with_capacity(180);
+    let mut power = Vec::with_capacity(180);
+    let mut heart_rate = Vec::with_capacity(180);
+    let mut speed = Vec::with_capacity(180);
+    for second in 0..180_u32 {
+        timestamps.push(second);
+        match second {
+            0..=59 => {
+                power.push(100);
+                heart_rate.push(140);
+                speed.push(3.0);
+            }
+            60..=119 => {
+                power.push(200);
+                heart_rate.push(if second < 90 { 150 } else { 165 });
+                speed.push(3.0);
+            }
+            _ => {
+                power.push(300);
+                heart_rate.push(170);
+                speed.push(4.0);
+            }
+        }
+    }
+    TimeSeriesData {
+        timestamps,
+        heart_rate: Some(heart_rate),
+        power: Some(power),
+        cadence: None,
+        speed: Some(speed),
+        altitude: None,
+        temperature: None,
+        gps_coordinates: None,
+    }
+}
+
+fn activity_with_stream(laps: Vec<Lap>, stream: TimeSeriesData) -> Activity {
+    ActivityBuilder::new(
+        "act-laps".to_owned(),
+        "Interval Session".to_owned(),
+        SportType::Run,
+        Utc.with_ymd_and_hms(2026, 4, 1, 12, 0, 0).unwrap(),
+        180,
+        "synthetic".to_owned(),
+    )
+    .distance_meters(900.0)
+    .laps(laps)
+    .time_series_data(stream)
+    .build()
+}
+
+#[test]
+fn intervals_compute_stream_metrics_over_each_lap_window() {
+    let laps = vec![
+        lap(1, 300.0, 60, 140, 100),
+        lap(2, 300.0, 60, 155, 200),
+        lap(3, 300.0, 60, 170, 300),
+    ];
+    let activity = activity_with_stream(laps, three_lap_stream());
+    let export = build_intervals(&activity, Some(250));
+    assert_eq!(export.intervals.len(), 3);
+
+    let np = |index: usize| export.intervals[index].normalized_power.unwrap();
+    let intensity = |index: usize| export.intervals[index].intensity_factor.unwrap();
+    let drift = |index: usize| export.intervals[index].decoupling_pct.unwrap();
+    let start = |index: usize| export.intervals[index].start_time;
+
+    // Each lap holds a constant power, so its own NP is that power. Reading
+    // the whole activity gives all three rows one blended number instead.
+    assert!((np(0) - 100.0).abs() < 1e-6, "lap 1 NP was {}", np(0));
+    assert!((np(1) - 200.0).abs() < 1e-6, "lap 2 NP was {}", np(1));
+    assert!((np(2) - 300.0).abs() < 1e-6, "lap 3 NP was {}", np(2));
+
+    assert!(
+        (intensity(0) - 0.4).abs() < 1e-6,
+        "lap 1 IF {}",
+        intensity(0)
+    );
+    assert!(
+        (intensity(1) - 0.8).abs() < 1e-6,
+        "lap 2 IF {}",
+        intensity(1)
+    );
+    assert!(
+        (intensity(2) - 1.2).abs() < 1e-6,
+        "lap 3 IF {}",
+        intensity(2)
+    );
+
+    // Constant HR at constant speed does not decouple; lap 2 drifts 150 → 165
+    // bpm across its halves at a fixed 3.0 m/s, which is exactly 10 %.
+    assert!(drift(0).abs() < 1e-6, "lap 1 drifted {}", drift(0));
+    assert!((drift(1) - 10.0).abs() < 1e-6, "lap 2 drift {}", drift(1));
+    assert!(drift(2).abs() < 1e-6, "lap 3 drifted {}", drift(2));
+
+    // Each lap starts where the previous one ended.
+    assert_eq!(
+        start(0),
+        Utc.with_ymd_and_hms(2026, 4, 1, 12, 0, 0).unwrap()
+    );
+    assert_eq!(
+        start(1),
+        Utc.with_ymd_and_hms(2026, 4, 1, 12, 1, 0).unwrap()
+    );
+    assert_eq!(
+        start(2),
+        Utc.with_ymd_and_hms(2026, 4, 1, 12, 2, 0).unwrap()
+    );
+}
+
+#[test]
+fn intervals_leave_stream_metrics_absent_for_a_lap_with_no_samples() {
+    let stream = TimeSeriesData {
+        timestamps: (0..60_u32).collect(),
+        heart_rate: Some(vec![140; 60]),
+        power: Some(vec![100; 60]),
+        cadence: None,
+        speed: Some(vec![3.0; 60]),
+        altitude: None,
+        temperature: None,
+        gps_coordinates: None,
+    };
+    let laps = vec![lap(1, 300.0, 60, 140, 100), lap(2, 300.0, 60, 150, 180)];
+    let activity = activity_with_stream(laps, stream);
+    let export = build_intervals(&activity, Some(250));
+
+    let rows = &export.intervals;
+    assert!((rows[0].normalized_power.unwrap() - 100.0).abs() < 1e-6);
+    assert!(
+        rows[1].normalized_power.is_none(),
+        "the second lap has no samples, so it must not borrow the first lap's power"
+    );
+    assert!(rows[1].intensity_factor.is_none());
+    assert!(rows[1].decoupling_pct.is_none());
+    assert_eq!(
+        rows[1].start_time,
+        Utc.with_ymd_and_hms(2026, 4, 1, 12, 1, 0).unwrap()
+    );
 }
 
 #[test]

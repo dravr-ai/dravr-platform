@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use pierre_mcp_server::a2a::agent_card::{
-    AgentCard, SecurityScheme, BINDING_HTTP_JSON, BINDING_JSONRPC,
+    AgentCard, SecurityScheme, BINDING_HTTP_JSON, BINDING_JSONRPC, OAUTH2_TOKEN_PATH,
 };
 
 #[test]
@@ -72,6 +72,44 @@ fn test_agent_card_skills() {
     }
 }
 
+/// `SendMessage` acts on a `data` part carrying `{tool_name, parameters}` and
+/// refuses anything else, so every advertised example must be written in
+/// that shape and name its own skill. A natural-language example would send
+/// a caller down a path the surface rejects.
+#[test]
+fn test_agent_card_skill_examples_are_executable_data_parts() {
+    let card = AgentCard::new();
+
+    for skill in &card.skills {
+        assert!(
+            !skill.examples.is_empty(),
+            "skill {} must show how to invoke it",
+            skill.id
+        );
+        for example in &skill.examples {
+            let parsed: serde_json::Value = serde_json::from_str(example).unwrap_or_else(|e| {
+                panic!("skill {} example is not a JSON data part: {e}", skill.id)
+            });
+            assert_eq!(
+                parsed["data"]["tool_name"], skill.id,
+                "skill {} example must invoke its own tool, got: {example}",
+                skill.id
+            );
+            assert!(
+                parsed["data"]["parameters"].is_object(),
+                "skill {} example must carry a parameters object, got: {example}",
+                skill.id
+            );
+        }
+    }
+
+    // The card declares only the media type the data part travels in.
+    assert_eq!(
+        card.default_input_modes,
+        vec!["application/json".to_owned()]
+    );
+}
+
 #[test]
 fn test_agent_card_serialization() {
     let card = AgentCard::new();
@@ -126,7 +164,19 @@ fn test_security_schemes() {
         .client_credentials
         .as_ref()
         .expect("clientCredentials flow");
-    assert!(flow.token_url.contains("/oauth/token"));
+    // The advertised token_url must be the route that actually serves the
+    // client_credentials grant. `/oauth/token` is the ROPC bridge and
+    // rejects every grant type but `password`, so a card pointing there
+    // hands agents a 400 unsupported_grant_type.
+    assert!(
+        flow.token_url.ends_with(OAUTH2_TOKEN_PATH),
+        "clientCredentials token_url must be the OAuth2 authorization server's token endpoint, got {}",
+        flow.token_url
+    );
+    assert!(
+        !flow.token_url.ends_with("/oauth/token"),
+        "the ROPC bridge at /oauth/token does not serve client_credentials"
+    );
     assert!(!flow.scopes.is_empty());
 
     // The card requires at least one satisfiable security requirement.
@@ -165,4 +215,63 @@ fn test_agent_card_with_custom_base_url() {
         .unwrap()
         .token_url
         .starts_with(base_url));
+}
+
+/// The agent card is the discovery contract for machine callers, so its
+/// advertised `clientCredentials` `token_url` must be the route that really
+/// dispatches the `client_credentials` grant. This pins the card against
+/// the three source facts that make that true: the authorization server
+/// mounts `/oauth2/token`, that server dispatches `client_credentials`, and
+/// the separate `/oauth/token` ROPC bridge rejects every grant but
+/// `password`.
+#[test]
+fn test_advertised_token_url_is_the_client_credentials_route() {
+    const IDENTITY_ROUTES: &str = include_str!("../../pierre-routes-identity/src/oauth2.rs");
+    const AUTHZ_SERVER: &str = include_str!("../../pierre-auth/src/oauth2_server/endpoints.rs");
+    const ROPC_ROUTES: &str = include_str!("../../pierre-routes-auth/src/lib.rs");
+    const ROPC_HANDLER: &str = include_str!("../../pierre-routes-auth/src/login.rs");
+
+    let base_url = "https://api.dravr.ai";
+    let card = AgentCard::with_base_url(base_url);
+    let schemes = card.security_schemes.as_ref().expect("securitySchemes");
+    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
+        panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
+    };
+    let token_url = &oauth2
+        .flows
+        .client_credentials
+        .as_ref()
+        .expect("clientCredentials flow")
+        .token_url;
+
+    let path = token_url
+        .strip_prefix(base_url)
+        .expect("token_url must be built from the card's base URL");
+    assert_eq!(path, OAUTH2_TOKEN_PATH);
+
+    // The advertised path is a mounted route of the OAuth 2.0 server...
+    assert!(
+        IDENTITY_ROUTES.contains(format!(r#".route("{path}", post(Self::handle_token))"#).as_str()),
+        "no OAuth2 route mounts the advertised token path {path}"
+    );
+    // ...and that server dispatches the client_credentials grant.
+    assert!(
+        AUTHZ_SERVER.contains(r#""client_credentials" => self.handle_client_credentials_grant"#),
+        "the OAuth2 authorization server no longer dispatches client_credentials"
+    );
+
+    // The ROPC bridge is a different route and accepts only the password
+    // grant, so advertising it would be a protocol-level dead end.
+    assert!(
+        ROPC_ROUTES.contains(r#".route("/oauth/token", post(login::handle_oauth2_token))"#),
+        "the ROPC bridge route moved; re-verify which route serves client_credentials"
+    );
+    assert!(
+        ROPC_HANDLER.contains(r#"if request.grant_type != "password""#),
+        "the ROPC bridge no longer restricts itself to the password grant"
+    );
+    assert_ne!(
+        path, "/oauth/token",
+        "the card must not advertise the password-only ROPC bridge for client_credentials"
+    );
 }

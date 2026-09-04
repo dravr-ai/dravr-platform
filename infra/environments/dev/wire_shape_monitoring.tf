@@ -140,6 +140,11 @@ resource "google_monitoring_alert_policy" "wire_shape_multi_system" {
     }
   }
 
+  # Routed to the same Slack channel as the job-failure and instance-floor
+  # policies (declared in monitoring.tf) — a silently dropped block produces no
+  # other signal, so the incident has to page rather than wait to be noticed.
+  notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
+
   # Closes itself once turns stop violating, so a one-off does not need manual
   # acknowledgement to stop nagging.
   alert_strategy {

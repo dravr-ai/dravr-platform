@@ -85,7 +85,7 @@ pub mod group_fitness;
 pub mod guardian;
 /// Streaming Copilot ACP turn execution, feeding the turn-event sink.
 #[cfg(feature = "client-chat")]
-mod headless_stream;
+pub mod headless_stream;
 pub mod implementations;
 /// Universal protocol envelope (types, executor, auth, format, provider helpers, handlers)
 pub mod protocol;
@@ -102,6 +102,12 @@ pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
 
+/// Request construction for the text-simulation CLI tool loop
+#[cfg(feature = "client-chat")]
+pub mod cli_loop;
+/// Translation between pierre-llm tool shapes and embacle tool_simulation
+#[cfg(feature = "client-chat")]
+mod embacle_bridge;
 /// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes).
 ///
 /// Three strategies share the same MCP executor infrastructure:

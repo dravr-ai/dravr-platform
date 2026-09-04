@@ -86,10 +86,18 @@ jobs:
   #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir, per push
   #   changed-server-tests — the pierre-server test files THIS push touched
   # PHASE 1: release-binary (depends on clippy)
+  #
+  # Every job below carries a `timeout-minutes`, sized to its observed duration
+  # with headroom. GitHub's default is 360 minutes, and a step-level bound cannot
+  # catch a hang in `Setup Rust environment` — the composite action this file
+  # shares with ci-postgres.yml, where shard 3/4 hung 212 minutes in that very
+  # step on 2026-08-19. A job bound catches a hang wherever it happens, and it
+  # has to live at job level: composite actions cannot bound their own steps.
   # ============================================================================
 
   detect-changes:
     name: Detect Changes
+    timeout-minutes: 5  # path filtering only; no toolchain, no compile
     runs-on: ubuntu-latest
     outputs:
       release-worthy: ${{ steps.set-outputs.outputs.release-worthy }}
@@ -124,6 +132,7 @@ jobs:
 
   fast-gate:
     name: Fast Gate (fmt + architecture + secrets + surfaces)
+    timeout-minutes: 15  # ~30s of compile-free gates plus rustfmt and an apt install
     runs-on: ubuntu-latest
 
     steps:
@@ -152,6 +161,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Architectural Validation (Custom Patterns + Security Skills)
+        env:
+          # The diff-scoped gates this script nests (file-size ratchet, migration
+          # idempotency) are invoked with no argument, so they read their base
+          # from here. It has to be the push's own before-sha: actions/checkout
+          # force-creates refs/heads/main from refs/remotes/origin/main, leaving
+          # origin/main == HEAD, and a gate diffing against that inspects nothing.
+          GATE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: ./scripts/ci/architectural-validation.sh --apply-skills
 
       - name: Secret Pattern Validation
@@ -180,6 +196,7 @@ jobs:
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
+    timeout-minutes: 25  # per-crate clippy on changed leaf crates, ~3-5 min
     runs-on: ubuntu-latest
     # No `needs` — fires immediately in parallel with fast-gate / clippy / deadlock.
     # Mirrors scripts/ci/pre-push-validate.sh Tier 2: per-crate clippy on the leaf
@@ -292,6 +309,7 @@ jobs:
 
   clippy:
     name: Clippy Linting (full workspace)
+    timeout-minutes: 45  # full-workspace clippy, ~10-12 min
     runs-on: ubuntu-latest
     # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy /
     # deadlock. The release-binary job downstream still gates on this job so the
@@ -338,6 +356,7 @@ jobs:
 
   deadlock-analysis:
     name: Static Deadlock Analysis (lockbud)
+    timeout-minutes: 45  # lockbud over the workspace, ~10 min
     runs-on: ubuntu-latest
     # No `needs` — fires immediately in parallel with the other linting gates.
     # Migrated from the standalone deadlock-detection.yml workflow so all
@@ -386,6 +405,7 @@ jobs:
 
   security-audit:
     name: Security Audit
+    timeout-minutes: 20  # cargo-deny / advisory database, minutes
     runs-on: ubuntu-latest
     needs: fast-gate
 
@@ -425,6 +445,7 @@ jobs:
 
   doc-tests:
     name: Doc Tests
+    timeout-minutes: 40  # compiles every crate's doc tests
     runs-on: ubuntu-latest
     needs: fast-gate
 
@@ -498,6 +519,7 @@ jobs:
   # runs alongside the ~10-12 min clippy job, so it costs no critical path.
   contremaitre-sync:
     name: Contremaitre Coupling Tests
+    timeout-minutes: 20  # four catalogue tests, ~5 min
     runs-on: ubuntu-latest
     needs: fast-gate
 
@@ -538,6 +560,7 @@ jobs:
 
   feature-profiles:
     name: Feature Profile Check (${{ matrix.name }})
+    timeout-minutes: 40  # cargo check per feature profile
     runs-on: ubuntu-latest
     needs: fast-gate
     # Every other job here builds pierre_mcp_server with the default feature set
@@ -608,6 +631,7 @@ jobs:
 
   backend-tests:
     name: Backend Tests (SQLite ${{ matrix.shard }}/4)
+    timeout-minutes: 90  # one SQLite shard of the full suite (cron only)
     runs-on: ubuntu-latest
     needs: fast-gate
     # SQLite shards run daily via cron (04:00 EDT) and on manual dispatch only.
@@ -716,6 +740,7 @@ jobs:
   # on an empty selection exactly as the PostgreSQL lane learned to.
   leaf-crate-tests:
     name: Leaf-Crate Tests (every crate but pierre-server)
+    timeout-minutes: 60  # the 45-min test step plus build; the step bound cannot catch a hang before it
     runs-on: ubuntu-latest
     needs: fast-gate
 
@@ -791,6 +816,7 @@ jobs:
   # validating against current main at land time, not by any per-push job.
   changed-server-tests:
     name: Changed Server Tests (this push's files)
+    timeout-minutes: 60  # the 45-min test step plus build; the step bound cannot catch a hang before it
     runs-on: ubuntu-latest
     needs: fast-gate
 
@@ -891,6 +917,7 @@ jobs:
 
   release-binary:
     name: Release Binary Validation
+    timeout-minutes: 90  # a full release build plus the size check
     runs-on: ubuntu-latest
     needs: [clippy, detect-changes]
     if: >-

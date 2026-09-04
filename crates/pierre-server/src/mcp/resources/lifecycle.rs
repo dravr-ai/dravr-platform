@@ -401,11 +401,20 @@ impl ServerContext {
         // tool) land in the same registry as the built-ins, so the
         // pipeline's tool dispatcher can route to them with zero
         // special-casing.
+        //
+        // The contremaitre tool-description registry is attached to the same
+        // registry instance so `tools/list`, `GET /mcp/tools`, the chat
+        // function-calling surface and the generated SDK types all serve the
+        // synced overlay. The overlay registry carries its own `RwLock`, so
+        // attaching the `Arc` once here is enough: every later webhook or poll
+        // sync writes through it and the next schema build reads the new text
+        // without a redeploy.
         let tool_registry = {
             let mut registry = Self::create_tool_registry();
             for tool in options.extra_tools {
                 registry.register(tool);
             }
+            registry.set_tool_descriptions(Arc::clone(&contremaitre_tool_desc_registry));
             Arc::new(registry)
         };
 

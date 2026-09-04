@@ -214,3 +214,145 @@ async fn test_api_key_expiration() {
         .expect("API key not found");
     assert!(!updated.is_active);
 }
+
+/// Request logs must carry what was persisted: the usage row's own id, the
+/// API key's real name, and the error text recorded with a failed call.
+#[tokio::test]
+async fn test_request_logs_return_persisted_values() {
+    let db = create_test_db()
+        .await
+        .expect("Failed to create test database");
+
+    let user = create_test_user(&db).await;
+
+    let manager = ApiKeyManager::new();
+    let (api_key, _) = manager
+        .create_api_key(
+            user.id,
+            CreateApiKeyRequest {
+                name: "Request Log Key".into(),
+                description: None,
+                tier: ApiKeyTier::Professional,
+                rate_limit_requests: Some(1000),
+                expires_in_days: None,
+            },
+        )
+        .expect("Failed to create API key");
+
+    let repos = db.repositories();
+    repos
+        .api_keys
+        .create(&api_key)
+        .await
+        .expect("Failed to store API key");
+
+    let now = Utc::now();
+    let succeeded = ApiKeyUsage {
+        id: None,
+        api_key_id: api_key.id.clone(),
+        timestamp: now - Duration::minutes(10),
+        tool_name: "get_activities".into(),
+        status_code: 200,
+        response_time_ms: Some(50),
+        request_size_bytes: Some(256),
+        response_size_bytes: Some(1024),
+        ip_address: Some("127.0.0.1".to_owned()),
+        user_agent: Some("TestAgent/1.0".into()),
+        error_message: None,
+    };
+    let failed = ApiKeyUsage {
+        id: None,
+        api_key_id: api_key.id.clone(),
+        timestamp: now,
+        tool_name: "get_athlete".into(),
+        status_code: 500,
+        response_time_ms: Some(1200),
+        request_size_bytes: Some(64),
+        response_size_bytes: Some(128),
+        ip_address: Some("127.0.0.1".to_owned()),
+        user_agent: Some("TestAgent/1.0".into()),
+        error_message: Some("upstream provider timed out".to_owned()),
+    };
+
+    for usage in [&succeeded, &failed] {
+        repos
+            .usage
+            .record_api_key(usage)
+            .await
+            .expect("Failed to record usage");
+    }
+
+    let logs = repos
+        .usage
+        .get_request_logs(Some(user.id), None, None, None, None, None)
+        .await
+        .expect("Failed to read request logs");
+
+    assert_eq!(logs.len(), 2, "both recorded calls must come back");
+
+    // Newest first.
+    let failure = &logs[0];
+    let success = &logs[1];
+
+    assert_eq!(failure.tool_name, "get_athlete");
+    assert_eq!(failure.status_code, 500);
+    assert_eq!(
+        failure.error_message.as_deref(),
+        Some("upstream provider timed out"),
+        "the recorded error text must survive the round trip"
+    );
+    assert_eq!(failure.response_time_ms, Some(1200));
+
+    assert_eq!(success.tool_name, "get_activities");
+    assert_eq!(success.status_code, 200);
+    assert_eq!(success.error_message, None);
+    assert_eq!(success.request_size_bytes, Some(256));
+    assert_eq!(success.response_size_bytes, Some(1024));
+
+    for log in &logs {
+        assert_eq!(
+            log.api_key_name, "Request Log Key",
+            "the API key's real name must be joined in, not a placeholder"
+        );
+        assert_eq!(log.api_key_id, api_key.id);
+        assert!(!log.id.is_empty(), "every log row needs an id");
+    }
+    assert_ne!(logs[0].id, logs[1].id, "ids must distinguish the two rows");
+
+    // The id identifies the row, so a second read hands back the same ones.
+    let again = repos
+        .usage
+        .get_request_logs(Some(user.id), None, None, None, None, None)
+        .await
+        .expect("Failed to re-read request logs");
+    let first_ids: Vec<&str> = logs.iter().map(|l| l.id.as_str()).collect();
+    let second_ids: Vec<&str> = again.iter().map(|l| l.id.as_str()).collect();
+    assert_eq!(
+        first_ids, second_ids,
+        "request log ids must be stable across reads"
+    );
+
+    // Filters resolve against the same rows.
+    let only_errors = repos
+        .usage
+        .get_request_logs(Some(user.id), None, None, None, Some("5"), None)
+        .await
+        .expect("Failed to filter request logs by status");
+    assert_eq!(only_errors.len(), 1, "only the 500 matches a 5xx filter");
+    assert_eq!(only_errors[0].tool_name, "get_athlete");
+
+    let only_activities = repos
+        .usage
+        .get_request_logs(
+            Some(user.id),
+            None,
+            None,
+            None,
+            None,
+            Some("get_activities"),
+        )
+        .await
+        .expect("Failed to filter request logs by tool");
+    assert_eq!(only_activities.len(), 1, "only one call used that tool");
+    assert_eq!(only_activities[0].status_code, 200);
+}

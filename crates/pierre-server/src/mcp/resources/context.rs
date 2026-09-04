@@ -31,10 +31,6 @@ use crate::services::user_approval_notifier::ApprovalNotifier;
 #[cfg(feature = "client-chat")]
 use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
 #[cfg(feature = "client-chat")]
-use dravr_contremaitre::system::{
-    STRUCTURED_OUTPUT as STRUCTURED_OUTPUT_DIRECTIVE, VISUAL_BLOCKS as VISUAL_BLOCKS_DIRECTIVE,
-};
-#[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::viz_blocks;
@@ -305,7 +301,7 @@ impl ServerContext {
     /// need (repos, data, tool registry, tool runtime, config, admin JWT
     /// secret, optional admin config, chat / LLM providers, contremaitre
     /// registries, SSE manager, optional sync orchestrator, group service,
-    /// LLM health, and the four prompt strings resolved through the
+    /// LLM health, and the prompt strings resolved through the
     /// hot-reloadable prompt registry).
     #[cfg(feature = "client-chat")]
     #[must_use]
@@ -361,8 +357,8 @@ impl ServerContext {
             pierre_system_prompt: self.pierre_system_prompt(),
             tool_discipline_prompt: self.tool_discipline_prompt(),
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),
-            structured_output_prompt: STRUCTURED_OUTPUT_DIRECTIVE.to_owned(),
-            visual_blocks_prompt: Self::visual_blocks_prompt(),
+            structured_output_prompt: self.mcp.prompt_registry.structured_output_prompt(),
+            visual_blocks_prompt: self.visual_blocks_prompt(),
             structured_output_schemas: Self::structured_output_schemas(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
             mcp_bridge,
@@ -379,13 +375,19 @@ impl ServerContext {
     /// series needs at least two points, so a coach writing a two-athlete
     /// comparison as one series per athlete had its block refused on every
     /// attempt while the athlete saw prose and no chart (2026-08-31).
+    ///
+    /// The prose comes from the hot-reload prompt registry, like every other
+    /// system prompt on this path, so an edit to `visual_blocks.md` reaches the
+    /// next turn through the webhook rather than through a rev bump and a
+    /// redeploy.
     #[cfg(feature = "client-chat")]
-    fn visual_blocks_prompt() -> String {
+    fn visual_blocks_prompt(&self) -> String {
+        let directive = self.mcp.prompt_registry.visual_blocks_prompt();
         let generated = viz_blocks::schema_contract(&Self::structured_output_schemas());
         if generated.is_empty() {
-            return VISUAL_BLOCKS_DIRECTIVE.to_owned();
+            return directive;
         }
-        format!("{VISUAL_BLOCKS_DIRECTIVE}\n\n{generated}")
+        format!("{directive}\n\n{generated}")
     }
 
     /// Every structured-output schema the pipeline can validate against, keyed

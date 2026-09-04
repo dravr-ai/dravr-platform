@@ -27,9 +27,10 @@ impl UsageRepository for PostgresDatabase {
     async fn record_api_key(&self, usage: &ApiKeyUsage) -> AppResult<()> {
         sqlx::query(
             r"
-            INSERT INTO api_key_usage (api_key_id, timestamp, endpoint, response_time_ms, status_code, 
-                                     method, request_size_bytes, response_size_bytes, ip_address, user_agent)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::inet, $10)
+            INSERT INTO api_key_usage (api_key_id, timestamp, endpoint, response_time_ms, status_code,
+                                     method, request_size_bytes, response_size_bytes, ip_address, user_agent,
+                                     error_message)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::inet, $10, $11)
             ",
         )
         .bind(&usage.api_key_id)
@@ -42,6 +43,7 @@ impl UsageRepository for PostgresDatabase {
         .bind(usage.response_size_bytes.map(|x| i32::try_from(x).unwrap_or(i32::MAX)))
         .bind(&usage.ip_address)
         .bind(&usage.user_agent)
+        .bind(&usage.error_message)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to record API key usage: {e}")))?;
@@ -217,41 +219,25 @@ impl UsageRepository for PostgresDatabase {
         status_filter: Option<&str>,
         tool_filter: Option<&str>,
     ) -> AppResult<Vec<RequestLog>> {
-        // Build query with proper column mapping for RequestLog struct.
-        // When user_id is provided, join with api_keys to scope by ownership.
-        let base_query = if user_id.is_some() {
-            r"SELECT
-                gen_random_uuid()::text as id,
+        // api_key_usage is the table the request path writes; api_keys is joined
+        // unconditionally so the log carries the key's real name. The join is
+        // total — api_key_usage.api_key_id is NOT NULL and references api_keys.
+        let base_query = r"SELECT
+                u.id::text as id,
                 u.timestamp,
                 u.api_key_id,
-                'Unknown' as api_key_name,
-                COALESCE(u.endpoint, 'unknown') as tool_name,
+                k.name as api_key_name,
+                u.endpoint as tool_name,
                 u.status_code::integer as status_code,
                 u.response_time_ms,
-                NULL::text as error_message,
+                u.error_message,
                 u.request_size_bytes,
                 u.response_size_bytes
               FROM api_key_usage u
               JOIN api_keys k ON u.api_key_id = k.id
-              WHERE 1=1"
-        } else {
-            r"SELECT
-                gen_random_uuid()::text as id,
-                timestamp,
-                api_key_id,
-                'Unknown' as api_key_name,
-                COALESCE(endpoint, 'unknown') as tool_name,
-                status_code::integer as status_code,
-                response_time_ms,
-                NULL::text as error_message,
-                request_size_bytes,
-                response_size_bytes
-              FROM api_key_usage
-              WHERE 1=1"
-        };
+              WHERE 1=1";
 
         let mut condition_strings = Vec::new();
-        let col_prefix = if user_id.is_some() { "u." } else { "" };
 
         let mut param_count = 0;
         if user_id.is_some() {
@@ -260,29 +246,27 @@ impl UsageRepository for PostgresDatabase {
         }
         if api_key_id.is_some() {
             param_count += 1;
-            condition_strings.push(format!(" AND {col_prefix}api_key_id = ${param_count}"));
+            condition_strings.push(format!(" AND u.api_key_id = ${param_count}"));
         }
         if start_time.is_some() {
             param_count += 1;
-            condition_strings.push(format!(" AND {col_prefix}timestamp >= ${param_count}"));
+            condition_strings.push(format!(" AND u.timestamp >= ${param_count}"));
         }
         if end_time.is_some() {
             param_count += 1;
-            condition_strings.push(format!(" AND {col_prefix}timestamp <= ${param_count}"));
+            condition_strings.push(format!(" AND u.timestamp <= ${param_count}"));
         }
         if status_filter.is_some() {
             param_count += 1;
-            condition_strings.push(format!(
-                " AND {col_prefix}status_code::text LIKE ${param_count}"
-            ));
+            condition_strings.push(format!(" AND u.status_code::text LIKE ${param_count}"));
         }
         if tool_filter.is_some() {
             param_count += 1;
-            condition_strings.push(format!(" AND {col_prefix}endpoint ILIKE ${param_count}"));
+            condition_strings.push(format!(" AND u.endpoint ILIKE ${param_count}"));
         }
 
         let full_query = format!(
-            "{}{} ORDER BY {col_prefix}timestamp DESC LIMIT 1000",
+            "{}{} ORDER BY u.timestamp DESC LIMIT 1000",
             base_query,
             condition_strings.join("")
         );

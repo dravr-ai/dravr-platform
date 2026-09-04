@@ -100,20 +100,7 @@ impl TenantIsolation {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<()> {
-        let role = self
-            .resources
-            .repos()
-            .tenants
-            .get_user_role(user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?;
-
-        if role.is_none() {
-            return Err(AppError::auth_invalid(format!(
-                "User {user_id} does not belong to tenant {tenant_id}"
-            )));
-        }
-
+        verified_tenant_role(self.resources.repos(), user_id, tenant_id).await?;
         Ok(())
     }
 
@@ -188,21 +175,7 @@ impl TenantIsolation {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<TenantRole> {
-        // Query tenant_users table for user's role in the tenant
-        let role_str = self
-            .resources
-            .repos()
-            .tenants
-            .get_user_role(user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
-            .ok_or_else(|| {
-                AppError::auth_invalid(format!(
-                    "User {user_id} does not belong to tenant {tenant_id}"
-                ))
-            })?;
-
-        Ok(TenantRole::from_db_string(&role_str))
+        verified_tenant_role(self.resources.repos(), user_id, tenant_id).await
     }
 
     /// Extract tenant context from request headers
@@ -357,6 +330,41 @@ pub struct JwtValidationResult {
     pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// The user's role in a tenant, read from the `tenant_users` junction table.
+///
+/// That table is the source of truth for membership: no row means the user is
+/// not a member of the tenant, which is an authorization failure and not a
+/// default role. Every membership lookup in this module funnels through here,
+/// so the same refusal applies whether the tenant was named explicitly, carried
+/// on a header, or resolved from the user's tenant list. A membership that has
+/// been revoked therefore stops granting a role as soon as the row is gone,
+/// even while a token minted earlier still names the tenant.
+///
+/// The result is the only value fit to hand to
+/// [`TenantContext::from_verified_membership`], whose contract is that the role
+/// came from this exact (user, tenant) pair.
+///
+/// # Errors
+/// Returns [`AppError::auth_invalid`] when the user has no membership row for
+/// the tenant, or [`AppError::database`] when the lookup itself fails.
+async fn verified_tenant_role(
+    repos: &pierre_database::RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<TenantRole> {
+    repos
+        .tenants
+        .get_user_role(user_id, tenant_id)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?
+        .map(|role| TenantRole::from_db_string(&role))
+        .ok_or_else(|| {
+            AppError::auth_invalid(format!(
+                "User {user_id} does not belong to tenant {tenant_id}"
+            ))
+        })
+}
+
 /// Extract tenant context from various sources (internal helper)
 ///
 /// Priority order:
@@ -364,8 +372,16 @@ pub struct JwtValidationResult {
 /// 2. `x-tenant-id` header
 /// 3. User's default tenant (from `tenant_users` table)
 ///
+/// A `user_id` paired with a tenant always costs a membership lookup against
+/// the `tenant_users` table; a tenant the user does not belong to is refused
+/// rather than resolved to a context with a default role. This is the same
+/// membership rule `pierre_runtime_context::resolve_tenant` applies when it
+/// selects a tenant id from an `active_tenant_id` claim — the two differ only
+/// in what they are handed, not in what they trust.
+///
 /// # Errors
-/// Returns an error if tenant extraction fails
+/// Returns an error if tenant extraction fails, or if `user_id` has no
+/// membership row for the resolved tenant
 pub async fn extract_tenant_context_internal(
     repos: &Arc<pierre_database::RepositoryRegistry>,
     user_id: Option<Uuid>,
@@ -374,22 +390,11 @@ pub async fn extract_tenant_context_internal(
 ) -> AppResult<Option<TenantContext>> {
     // Try to extract from explicit tenant ID first
     if let Some(tenant_id) = tenant_id {
-        // If user_id is provided, verify membership and get role
-        let resolved_role = if let Some(uid) = user_id {
-            let role_str = repos
-                .tenants
-                .get_user_role(uid, tenant_id)
-                .await
-                .map_err(|e| {
-                    AppError::database(format!("Failed to check tenant membership: {e}"))
-                })?;
-
-            Some((
-                role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r)),
-                uid,
-            ))
-        } else {
-            None
+        // A user paired with a named tenant must hold a membership row for it;
+        // absence is refused rather than resolved to a role.
+        let resolved_role = match user_id {
+            Some(uid) => Some((verified_tenant_role(repos, uid, tenant_id).await?, uid)),
+            None => None,
         };
 
         let tenant_name = match repos.tenants.get_by_id(tenant_id).await {
@@ -418,24 +423,14 @@ pub async fn extract_tenant_context_internal(
         if let Some(tenant_id_header) = headers.get("x-tenant-id") {
             if let Ok(tenant_id_str) = tenant_id_header.to_str() {
                 if let Ok(header_tenant_id) = TenantId::parse_str(tenant_id_str) {
-                    // If user_id is provided, verify membership
-                    let resolved_role = if let Some(uid) = user_id {
-                        let role_str = repos
-                            .tenants
-                            .get_user_role(uid, header_tenant_id)
-                            .await
-                            .map_err(|e| {
-                                AppError::database(format!(
-                                    "Failed to check tenant membership: {e}"
-                                ))
-                            })?;
-
-                        Some((
-                            role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r)),
+                    // A header naming a tenant carries no more trust than an
+                    // explicit argument: membership still has to be on record.
+                    let resolved_role = match user_id {
+                        Some(uid) => Some((
+                            verified_tenant_role(repos, uid, header_tenant_id).await?,
                             uid,
-                        ))
-                    } else {
-                        None
+                        )),
+                        None => None,
                     };
 
                     let tenant_name = match repos.tenants.get_by_id(header_tenant_id).await {
@@ -484,12 +479,7 @@ pub async fn extract_tenant_context_internal(
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
         if let Some(default_tenant) = tenants.first() {
-            let user_role = repos
-                .tenants
-                .get_user_role(user_id, default_tenant.id)
-                .await
-                .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
-                .map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));
+            let user_role = verified_tenant_role(repos, user_id, default_tenant.id).await?;
 
             return Ok(Some(TenantContext::from_verified_membership(
                 default_tenant.id,

@@ -31,12 +31,16 @@
 //! // masked will be "t***@d***.com"
 //! ```
 
+use axum::extract::{Request, State};
+use axum::middleware::Next;
+use axum::response::Response;
 use bitflags::bitflags;
+use http::Uri;
 use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 bitflags! {
     /// Redaction feature flags to control which types of data to redact
@@ -138,6 +142,34 @@ const SENSITIVE_FIELDS: &[&str] = &[
     "encryptionKey",
     "jwt_secret",
     "jwtSecret",
+];
+
+/// Query-string parameters whose value is a secret or a direct identifier.
+///
+/// The URL query is the one part of a request line that routinely carries live
+/// credentials: an `OAuth` authorization `code` and `state` on a provider
+/// callback, a password-reset or channel-link `token`, an API key on a
+/// machine-to-machine call. All of them are worth exactly as much to an
+/// attacker reading a log line as they are to the client that was issued them.
+const SENSITIVE_QUERY_PARAMS: &[&str] = &[
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth",
+    "client_secret",
+    "code",
+    "email",
+    "id_token",
+    "jwt",
+    "key",
+    "link_token",
+    "password",
+    "refresh_token",
+    "secret",
+    "session",
+    "signature",
+    "state",
+    "token",
 ];
 
 /// Redact sensitive HTTP headers
@@ -434,4 +466,101 @@ fn email_regex() -> Option<&'static Regex> {
             Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").ok()
         })
         .as_ref()
+}
+
+/// Redact secret and PII values out of a URL query string.
+///
+/// Parameter *names* survive — an operator needs to know a callback carried a
+/// `code` — while the value of any name in [`SENSITIVE_QUERY_PARAMS`] becomes
+/// the configured placeholder. Every other value still passes through
+/// [`mask_email`], so an address handed to an unlisted parameter is masked
+/// rather than logged whole.
+///
+/// # Examples
+///
+/// ```
+/// use pierre_middleware::redaction::{redact_query, RedactionConfig};
+///
+/// let config = RedactionConfig::default();
+/// assert_eq!(
+///     redact_query("code=abc123&provider=strava", &config),
+///     "code=[REDACTED]&provider=strava"
+/// );
+/// ```
+#[must_use]
+pub fn redact_query(query: &str, config: &RedactionConfig) -> String {
+    if config.is_disabled() {
+        return query.to_owned();
+    }
+
+    query
+        .split('&')
+        .map(|pair| {
+            let Some((name, value)) = pair.split_once('=') else {
+                return mask_email(pair);
+            };
+            if SENSITIVE_QUERY_PARAMS.contains(&name.to_lowercase().as_str()) {
+                format!("{name}={}", config.redaction_placeholder)
+            } else {
+                format!("{name}={}", mask_email(value))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// Build the log-safe request line for a URI: path plus redacted query.
+///
+/// The path itself is kept verbatim — it is the route, and routes are what an
+/// operator reads an alert for.
+#[must_use]
+pub fn redacted_request_line(uri: &Uri, config: &RedactionConfig) -> String {
+    let path = uri.path();
+    match uri.query() {
+        Some(query) if !query.is_empty() => format!("{path}?{}", redact_query(query, config)),
+        _ => path.to_owned(),
+    }
+}
+
+/// The log-safe request line [`redaction_middleware`] attaches to every request.
+///
+/// Anything that logs the endpoint of a request reads this instead of
+/// `Uri::to_string`, so a secret in the query never reaches a log sink.
+#[derive(Debug, Clone)]
+pub struct RedactedRequestLine(pub String);
+
+impl Display for RedactedRequestLine {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Axum middleware that attaches a PII-redacted request line to each request.
+///
+/// Installed outside the failure logger and the tower-http `TraceLayer` so both
+/// find [`RedactedRequestLine`] in the request extensions and log it in place of
+/// the raw URI. Without it the `OAuth` callback query — authorization `code`,
+/// `state` — and password-reset tokens land verbatim in `INFO`-level HTTP spans.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use axum::{Router, routing::get, middleware};
+/// use std::sync::Arc;
+/// use pierre_middleware::redaction::{redaction_middleware, RedactionConfig};
+///
+/// # async fn handler() -> &'static str { "" }
+/// let config = Arc::new(RedactionConfig::default());
+/// let app: Router<()> = Router::new()
+///     .route("/", get(handler))
+///     .layer(middleware::from_fn_with_state(config, redaction_middleware));
+/// ```
+pub async fn redaction_middleware(
+    State(config): State<Arc<RedactionConfig>>,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    let line = redacted_request_line(req.uri(), &config);
+    req.extensions_mut().insert(RedactedRequestLine(line));
+    next.run(req).await
 }
