@@ -576,7 +576,7 @@ Creates database file at path if not exists.
 DATABASE_URL="postgresql://user:pass@localhost:5432/pierre"
 
 # connection pool
-POSTGRES_MAX_CONNECTIONS=20       # max pool size (default: 20)
+POSTGRES_MAX_CONNECTIONS=10       # max pool size (default: 10; 3 when CI is set)
 POSTGRES_MIN_CONNECTIONS=2        # min pool size (default: 2)
 POSTGRES_ACQUIRE_TIMEOUT=30       # connection timeout seconds (default: 30)
 ```

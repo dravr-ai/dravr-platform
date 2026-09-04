@@ -272,7 +272,7 @@ git push --no-verify
 | Environment | Trigger | Database | Coverage |
 |-------------|---------|----------|----------|
 | SQLite | Every PR, main push | In-memory SQLite | Enabled |
-| PostgreSQL | Every PR, main push | PostgreSQL 16 | Enabled |
+| PostgreSQL | Full suite on `main`, schedule, dispatch and `feature/*`; 10-file smoke on other refs | PostgreSQL 16 | Enabled |
 | Frontend | Every PR, main push | N/A | Enabled |
 
 ## Troubleshooting
