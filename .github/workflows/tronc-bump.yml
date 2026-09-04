@@ -1,0 +1,63 @@
+# ABOUTME: Moves the platform onto a new dravr-tronc release — bump, CI gate, squash merge on green
+# ABOUTME: Ten lines of wiring; the chain itself lives in dravr-tronc/.github/workflows/consumer-bump.yml
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# The consumer half of the tronc release wire, the same file every satellite
+# carries. dravr-tronc's notify-consumers.yml fires `tronc-released` at every
+# live repo in the org; this file is what makes the platform answer, and adding
+# it is the whole enrolment step.
+#
+# The logic is a reusable workflow in dravr-tronc so a fix lands once instead of
+# eleven times. It runs HERE, in this repo's context, with this repo's
+# GITHUB_TOKEN — which is the only reason it can push at all. No token in the
+# org can push across repo boundaries; contremaitre-bump.yml records that
+# finding at its line 155. DRAVR_PRIVATE_DEPS_TOKEN is present on this repo, so
+# the chain's private-git-dep step arms for dravr-stripe and dravr-photograveur.
+#
+# Two things differ from a satellite. The gate is the three lanes
+# embacle-bump.yml already dispatches; on a fix/* branch ci-postgres runs the
+# eight-file smoke rather than the suite, so 45 minutes fits inside the chain's
+# 60-minute gate job. And a tronc minor is not always pin-only here — 0.10 and
+# 0.11 moved JsonSchema::properties to BTreeMap and forced fifteen source
+# files. A red gate then means source work, not a flake, and the stall issue
+# the chain files on the register says so.
+#
+# The schedule is a safety net for a dispatch that never arrived; offset off
+# the top of the hour and staggered against the other consumers.
+#
+# Filed under carnet#330.
+
+name: "Tronc: Bump"
+
+on:
+  repository_dispatch:
+    types: [tronc-released]
+  schedule:
+    - cron: "23 14 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "tronc version to move onto (defaults to tronc's latest release)"
+        required: false
+        type: string
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+
+concurrency:
+  # Two releases integrating at once would race on main, and the second would
+  # push a lockfile resolved against the first one's manifests.
+  group: tronc-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: dravr-ai/dravr-tronc/.github/workflows/consumer-bump.yml@main
+    with:
+      version: ${{ github.event.client_payload.version || inputs.version || '' }}
+      ci_workflows: "ci-backend.yml ci-postgres.yml integration-tests.yml"
+      gate_timeout_minutes: 45
+    secrets: inherit
