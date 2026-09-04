@@ -105,21 +105,21 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # package (chromium, chromium-common). Gated the dev deploy on 2026-09-03 on a
 # chat-pipeline commit that touched no Docker and no dependency — the cached
 # apt layer was still serving 151.0.7922.173, exactly the shape of the
-# 2026-08-31 entry above.
+# 2026-08-31 entry above. The nightly trivy DB refresh is what changes; the
+# image does not, until this line does.
 #
-# Bumping this line is NOT what fixed it, and the two entries above overstate
-# what a bump does. Deploy run 33816926276 built ecc8ab1f4 — the commit that
-# set this ARG to 2026-09-03 -- and still produced 151.0.7922.173, failing the
-# gate. Run 33818381552 built the SAME commit twenty minutes later and produced
-# 152.0.7977.75, passing. Same tree, both outcomes.
+# Bumping this line is the remedy, but the bump has to actually be BUILT, and a
+# deploy run reports a SHA it did not necessarily build. On 2026-09-03 run
+# 33816926276 reported headSha ecc8ab1f4 (this line already at 2026-09-03) while
+# resolving and checking out 19bc985c4, compiling "apt security epoch:
+# 2026-08-31" and failing on 151.0.7922.173. `workflow_run` deploys build the
+# triggering CI run's head_sha, which lags the branch tip that GitHub stamps on
+# the run — so a bump can look like it failed when it was never compiled.
 #
-# So a green gate here is not reproducible from the source tree alone, and a red
-# one is not evidence that this line is stale. Whether the cause is a buildcache
-# that served the old apt layer despite the changed ARG, or a Debian security
-# mirror that had not yet published the fixed package, is unresolved and is
-# carnet#261 -- the two imply opposite fixes. Before bumping this line again,
-# check the installed chromium version in the failing run against the fix
-# version trivy names. If they already match, the bump is not the remedy.
+# Before bumping this line a second time, confirm the first one was built:
+# grep the deploy log for "apt security epoch:" and compare it to the ARG in the
+# SHA the run claims. When those disagree, the run is not testing this tree.
+# See carnet#262.
 ARG APT_SECURITY_EPOCH=2026-09-03
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
