@@ -64,7 +64,7 @@ When working on `frontend-mobile/`:
 
 ```bash
 ./bin/start-server.sh     # Start backend (loads .envrc, port 8081)
-./bin/stop-server.sh      # Stop the whole dev stack (add --server-only for just the backend)
+./bin/stop-server.sh      # Stop this checkout's dev stack (add --server-only for just its backend)
 ./bin/start-frontend.sh   # Start web dashboard (port 5173)
 ./bin/start-tunnel.sh     # Start Cloudflare tunnel for mobile testing
 ```

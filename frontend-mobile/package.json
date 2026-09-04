@@ -7,7 +7,7 @@
     "preinstall": "node -e \"if(!process.env.npm_execpath || !process.env.npm_execpath.includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",
     "start": "expo start --go --port 8082",
     "tunnel": "../bin/start-tunnel.sh",
-    "tunnel:stop": "pkill -f 'cloudflared tunnel' && echo 'Tunnel stopped' || echo 'No tunnel running'",
+    "tunnel:stop": "../bin/stop-tunnel.sh",
     "start:tunnel": "../bin/start-tunnel.sh --start-expo",
     "android": "expo run:android --port 8082",
     "ios": "expo run:ios --port 8082",

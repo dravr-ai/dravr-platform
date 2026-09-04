@@ -91,8 +91,6 @@ pub struct InsertCoachNoteParams<'a> {
     pub scope: pierre_memory::MemoryScope,
     /// Free-form content.
     pub content: &'a str,
-    /// Optional embedding for recall.
-    pub embedding: Option<&'a [f32]>,
 }
 
 /// Parameters for scheduling a coach followup.
@@ -160,7 +158,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
     ) -> AppResult<Option<pierre_memory::UserFact>>;
 
     /// List user facts for recall. Filters by user, optional coach, and
-    /// optional kind; callers apply vector similarity on the returned set.
+    /// optional kind.
     async fn list_user_facts(
         &self,
         tenant_id: TenantId,

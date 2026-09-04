@@ -20,6 +20,11 @@ SCIOTTE_REPO="${SCIOTTE_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../dravr-s
 BASE="http://${HOST}:${PORT}"
 BIN="${SCIOTTE_REPO}/target/debug/dravr-sciotte-server"
 
+# Process identity for serve-bg. The library is the platform checkout's, so the
+# pid file it writes is the one bin/stop-all.sh reads when it stops `sciotte`.
+# shellcheck source=../bin/dev-processes.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/dev-processes.sh"
+
 # No auth material: a loopback-bound scraper serves unauthenticated (its
 # development mode — deployed instances require Google identity tokens).
 
@@ -108,33 +113,38 @@ cmd_serve() {
 }
 
 # Background variant of `serve` for the one-shot dev startup: launches the same
-# invocation detached with a log file and waits for /health, instead of the
-# foreground `exec`. Idempotent (a no-op if the service is already healthy) and
-# self-building (compiles the binary on demand) so the orchestrating startup
-# script needs no separate build/serve steps.
+# invocation in a process group of its own, records its pid where
+# bin/stop-all.sh reads it, and waits for the health endpoint to answer from
+# that pid. Idempotent (a no-op when this checkout's own service already holds
+# the port) and self-building (compiles the binary on demand) so the
+# orchestrating startup script needs no separate build/serve steps.
 cmd_serve_bg() {
   local -a args=()
   while IFS= read -r line; do args+=("${line}"); done < <(provider_args "${1:-}")
-  # /health is unauthenticated; skip a double-launch if one is already up.
-  if curl -s -m 2 "${BASE}/health" >/dev/null 2>&1; then
-    ok "sciotte service already healthy on ${BASE}"
-    return 0
+  local owned pid logdir logf
+  # A 200 on this port says the port answered, not whose service answered it:
+  # every worktree runs its own sciotte on 8091. The skip needs both halves — a
+  # live record of ours, and that recorded process behind the port.
+  if owned="$(dev_owned sciotte)"; then
+    read -r pid _ <<<"${owned}"
+    if dev_pid_owns_port "${pid}" "${PORT}"; then
+      ok "sciotte service already up on ${BASE} (pid ${pid})"
+      return 0
+    fi
   fi
   [ -x "${BIN}" ] || cmd_build
-  local logdir logf pid
   logdir="${SCIOTTE_LOCAL_LOGDIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/logs}"
   mkdir -p "${logdir}"
   logf="${logdir}/sciotte-service.log"
   info "Starting sciotte service (${1:-both providers}) on ${BASE} (log: ${logf})"
-  nohup "${BIN}" ${args[@]+"${args[@]}"} serve --host "${HOST}" --port "${PORT}" > "${logf}" 2>&1 &
-  pid=$!
-  for _ in $(seq 1 30); do
-    if curl -s -m 2 "${BASE}/health" >/dev/null 2>&1; then
-      ok "sciotte service healthy (pid ${pid}, log ${logf})"
-      return 0
-    fi
-    sleep 1
-  done
+  dev_stop sciotte "Sciotte scraper service" >/dev/null
+  dev_spawn sciotte "${logf}" \
+    "${BIN}" ${args[@]+"${args[@]}"} serve --host "${HOST}" --port "${PORT}"
+  pid="${DEV_SPAWNED_PID}"
+  if dev_wait_healthy "${PORT}" "${pid}" /health 30; then
+    ok "sciotte service healthy (pid ${pid}, log ${logf})"
+    return 0
+  fi
   err "sciotte service did not become healthy in 30s — see ${logf}"
   return 1
 }

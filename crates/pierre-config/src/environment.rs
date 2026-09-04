@@ -11,6 +11,7 @@
 
 use pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::redaction::redact_url;
 use pierre_intelligence::IntelligenceConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -398,5 +399,60 @@ impl ServerConfig {
             self.app_behavior.max_activities_fetch,
             self.app_behavior.default_activities_limit,
         )
+    }
+}
+
+/// Whether a `BASE_URL` names a Cloudflare quick tunnel.
+///
+/// The dev scripts in `bin/` create quick tunnels, whose hostname is allocated
+/// per `cloudflared` process and stops resolving when that process exits. A
+/// `BASE_URL` on one of those hosts is reachable only while that tunnel is up,
+/// so every OAuth callback and provider reconnect link built from it expires
+/// with the process — which is worth saying out loud at startup. A durable
+/// host, whether a deployment or an operator's own tunnel, is not this.
+///
+/// The match is on the host's suffix, matching `is_ephemeral_tunnel_base_url`
+/// in `bin/tunnel-env.sh` so the startup log and the script that resets
+/// `BASE_URL` agree about which hosts are ephemeral. A substring test would
+/// also accept `trycloudflare.com.example.net`, where the label is part of a
+/// different domain.
+#[must_use]
+pub fn is_ephemeral_tunnel_base_url(base_url: &str) -> bool {
+    let without_scheme = base_url
+        .split_once("://")
+        .map_or(base_url, |(_, rest)| rest);
+    let host = without_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(without_scheme);
+    let host = host.rsplit_once('@').map_or(host, |(_, after)| after);
+    let host = host.split_once(':').map_or(host, |(before, _)| before);
+    host.strip_suffix('.')
+        .unwrap_or(host)
+        .to_ascii_lowercase()
+        .ends_with(".trycloudflare.com")
+}
+
+/// Report the address the server hands out, beside the one it listens on.
+///
+/// The listen address is where the process accepts connections; `BASE_URL` is
+/// what goes into OAuth callbacks and the provider reconnect links an athlete
+/// taps. A quick tunnel's hostname stops resolving the moment its `cloudflared`
+/// process exits, so a `BASE_URL` still naming one is reported at WARN and is
+/// greppable in `logs/pierre-server.log` instead of surfacing only as "server
+/// can't be found" in a browser. The value goes through the canonical
+/// log-boundary redactor: `BASE_URL` is operator-set and the URL grammar admits
+/// `https://user:pass@host`.
+pub fn log_effective_base_url(base_url: &str) {
+    if is_ephemeral_tunnel_base_url(base_url) {
+        warn!(
+            base_url = %redact_url(base_url),
+            "BASE_URL names a Cloudflare quick tunnel; OAuth callbacks and reconnect links resolve only while that tunnel is up"
+        );
+    } else {
+        info!(
+            base_url = %redact_url(base_url),
+            "BASE_URL in effect for OAuth callbacks and reconnect links"
+        );
     }
 }

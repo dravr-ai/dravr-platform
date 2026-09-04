@@ -45,6 +45,8 @@ done
 # Project paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$SCRIPT_DIR/dev-processes.sh"
+. "$SCRIPT_DIR/tunnel-env.sh"
 cd "$PROJECT_ROOT"
 
 # Log directory
@@ -55,12 +57,7 @@ mkdir -p "$LOG_DIR"
 SERVER_LOG="$LOG_DIR/pierre-server.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
 EXPO_LOG="$LOG_DIR/expo.log"
-
-# Ports
-SERVER_PORT=8081
-FRONTEND_PORT=5173
-EXPO_PORT=8082
-FIXTURE_PORT=9555  # dev fixture API serving seeded Strava/Garmin activities
+METRO_LOG="$LOG_DIR/metro.log"  # --native runs the Xcode build and Metro side by side
 
 # Credentials - use .envrc values or defaults
 # These are set after sourcing .envrc below
@@ -91,6 +88,12 @@ echo -e "  Native build:    $( [ "$NATIVE_BUILD" = "true" ] && echo "${GREEN}yes
 echo -e "  Tunnel:          $( [ "$START_TUNNEL" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo -e "  Stream logs:     $( [ "$STREAM_LOGS" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo ""
+
+# Ports named on the command line outrank the ones .envrc pins. `set -a; source`
+# below overwrites the environment it is given, so the caller's values are held
+# here and reasserted after the load.
+HTTP_PORT_REQUESTED="${HTTP_PORT:-}"
+EXPO_PORT_REQUESTED="${EXPO_PORT:-}"
 
 # Load environment
 if [ ! -f "$PROJECT_ROOT/.envrc" ]; then
@@ -127,25 +130,25 @@ fi
 echo -e "${GREEN}Environment validated successfully${NC}"
 echo ""
 
+# Ports, resolved after .envrc is loaded. HTTP_PORT and EXPO_PORT are the
+# overrides the rest of bin/ already honours, so a second checkout can bring its
+# whole stack up beside a first instead of fighting for 8081.
+SERVER_PORT="${HTTP_PORT_REQUESTED:-${HTTP_PORT:-8081}}"
+FRONTEND_PORT=5173
+EXPO_PORT="${EXPO_PORT_REQUESTED:-${EXPO_PORT:-8082}}"
+FIXTURE_PORT=9555  # dev fixture API serving seeded Strava/Garmin activities
+# The server binary and stop-all.sh both read HTTP_PORT from the environment, so
+# the resolved port has to reach them and not just this script's own variable.
+export HTTP_PORT="$SERVER_PORT"
+export EXPO_PORT
+
 # Admin credentials from .envrc (with fallback defaults)
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-AdminPassword123}"
 
-# Step 1: Stop all services
+# Step 1: Stop this checkout's services
 print_step 1 "Stopping existing services..."
-"$SCRIPT_DIR/stop-all.sh" 2>/dev/null || {
-    # Fallback if stop-all.sh doesn't exist yet
-    pkill -f "pierre-mcp-server" 2>/dev/null || true
-    pkill -f "dravr-sciotte-server" 2>/dev/null || true
-    pkill -f "pierre-dev-fixture" 2>/dev/null || true
-    pkill -f "node_modules/.bin/vite" 2>/dev/null || true
-    pkill -f "node_modules/@esbuild" 2>/dev/null || true
-    pkill -f "expo start" 2>/dev/null || true
-    pkill -f "jest-worker/build/workers/processChild" 2>/dev/null || true
-    pkill -f "nativewind.*child" 2>/dev/null || true
-    pkill -f "cloudflared tunnel" 2>/dev/null || true
-    sleep 2
-}
+"$SCRIPT_DIR/stop-all.sh" || true
 echo "    Done"
 
 # Step 2: Reset database
@@ -256,19 +259,14 @@ echo "    All seeders complete"
 # Step 4b: Start the dev fixture API (serves seeded Strava/Garmin activities).
 FIXTURE_LOG="$LOG_DIR/fixture.log"
 echo "    Starting dev fixture API (port $FIXTURE_PORT)..."
-pkill -f "pierre-dev-fixture" 2>/dev/null || true
-FIXTURE_PORT="$FIXTURE_PORT" ./target/$TARGET_DIR/pierre-dev-fixture > "$FIXTURE_LOG" 2>&1 &
-FIXTURE_PID=$!
-for i in {1..15}; do
-    if curl -s -f "http://127.0.0.1:$FIXTURE_PORT/health" > /dev/null 2>&1; then
-        echo "    Fixture ready (PID: $FIXTURE_PID)"
-        break
-    fi
-    if [ $i -eq 15 ]; then
-        echo -e "${YELLOW}    Fixture did not become healthy; activities may not load. Check: tail -f $FIXTURE_LOG${NC}"
-    fi
-    sleep 1
-done
+dev_stop fixture "Dev Fixture API"
+dev_spawn fixture "$FIXTURE_LOG" env FIXTURE_PORT="$FIXTURE_PORT" "./target/$TARGET_DIR/pierre-dev-fixture"
+FIXTURE_PID=$DEV_SPAWNED_PID
+if dev_wait_healthy "$FIXTURE_PORT" "$FIXTURE_PID" /health 15; then
+    echo "    Fixture ready (PID: $FIXTURE_PID)"
+else
+    echo -e "${YELLOW}    Fixture did not become healthy; activities may not load. Check: tail -f $FIXTURE_LOG${NC}"
+fi
 # Point the real Strava/Garmin providers at the local fixture (dev only).
 # Production never sets these, so it always hits the real provider APIs.
 export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
@@ -287,8 +285,10 @@ export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
 # must be up; unset => the in-process path and this block is skipped entirely
 # (dev loop unchanged). Delegates to sciotte-local.sh so the serve invocation
 # has a single source of truth. Never fatal: a missing ../dravr-sciotte checkout
-# or a failed build warns and skips so the core stack always comes up; teardown
-# is handled by stop-all.sh (dravr-sciotte-server + port 8091).
+# or a failed build warns and skips so the core stack always comes up. The
+# service is spawned through the same pid-file machinery as the rest of this
+# stack, so stop-all.sh stops it by its `sciotte` record, and only this
+# checkout's.
 if [ -n "${DRAVR_SCIOTTE_REMOTE_URL:-}" ]; then
     echo -e "${CYAN}    Starting sciotte scraper service (ADR-021 -> $DRAVR_SCIOTTE_REMOTE_URL)...${NC}"
     if [ -d "$PROJECT_ROOT/../dravr-sciotte" ]; then
@@ -306,21 +306,24 @@ fi
 
 # Step 5: Start Pierre server
 print_step 5 "Starting Pierre MCP Server (port $SERVER_PORT)..."
-RUST_LOG=info ./target/$TARGET_DIR/pierre-mcp-server > "$SERVER_LOG" 2>&1 &
-SERVER_PID=$!
+# Step 1 stopped this checkout's stack; a listener still on the port belongs to
+# someone else. A start owns the port it was asked for, so the single listener
+# is named — pid, directory, command — and then that one pid is signalled.
+if ! dev_take_port "$SERVER_PORT" "Pierre MCP Server"; then
+    echo -e "${RED}    Port $SERVER_PORT is still held. Re-run with HTTP_PORT=8091 to use another port.${NC}"
+    exit 1
+fi
+dev_spawn pierre-server "$SERVER_LOG" env RUST_LOG=info "./target/$TARGET_DIR/pierre-mcp-server"
+SERVER_PID=$DEV_SPAWNED_PID
 
-# Wait for health check
-for i in {1..30}; do
-    if curl -s -f "http://127.0.0.1:$SERVER_PORT/health" > /dev/null 2>&1; then
-        echo "    Server ready (PID: $SERVER_PID)"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo -e "${RED}    Server failed to start. Check: tail -f $SERVER_LOG${NC}"
-        exit 1
-    fi
-    sleep 1
-done
+# Healthy AND ours. A 200 proves the port answered; this server can be exiting
+# on "Address already in use" while a neighbour's answers it on the same port.
+if ! dev_wait_healthy "$SERVER_PORT" "$SERVER_PID"; then
+    echo -e "${RED}    Server failed to start. Check: tail -f $SERVER_LOG${NC}"
+    tail -5 "$SERVER_LOG"
+    exit 1
+fi
+echo "    Server ready (PID: $SERVER_PID)"
 
 # Step 5b: Start Cloudflare tunnel (if --tunnel)
 if [ "$START_TUNNEL" = "true" ]; then
@@ -330,12 +333,16 @@ if [ "$START_TUNNEL" = "true" ]; then
         echo -e "${YELLOW}    Skipping tunnel setup${NC}"
     else
         TUNNEL_LOG="$LOG_DIR/tunnel.log"
-        cloudflared tunnel --url http://localhost:$SERVER_PORT > "$TUNNEL_LOG" 2>&1 &
-        TUNNEL_PID=$!
+        # 127.0.0.1, never `localhost`: the server binds IPv4 (HOST="localhost"
+        # is not a SocketAddr, so multitenant.rs falls back to 127.0.0.1), while
+        # localhost resolves ::1 first on macOS. An explicit loopback literal
+        # leaves cloudflared no address to dial but the one the server is on.
+        dev_spawn tunnel "$TUNNEL_LOG" cloudflared tunnel --url "http://127.0.0.1:$SERVER_PORT"
+        TUNNEL_PID=$DEV_SPAWNED_PID
 
         # Wait for tunnel URL
         TUNNEL_URL=""
-        for i in {1..30}; do
+        for _ in $(seq 1 30); do
             TUNNEL_URL=$(grep -ao 'https://[a-z0-9-]*\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -1) || true
             if [ -n "$TUNNEL_URL" ]; then
                 break
@@ -346,37 +353,32 @@ if [ "$START_TUNNEL" = "true" ]; then
         if [ -n "$TUNNEL_URL" ]; then
             echo "    Tunnel URL: $TUNNEL_URL"
 
-            # Update BASE_URL in .envrc
-            if grep -q '^export BASE_URL=' "$PROJECT_ROOT/.envrc" 2>/dev/null; then
-                sed -i.bak "s|^export BASE_URL=.*|export BASE_URL=\"$TUNNEL_URL\"|" "$PROJECT_ROOT/.envrc"
-                rm -f "$PROJECT_ROOT/.envrc.bak"
-            else
-                echo "export BASE_URL=\"$TUNNEL_URL\"" >> "$PROJECT_ROOT/.envrc"
-            fi
-
-            # Update mobile .env
-            echo "EXPO_PUBLIC_API_URL=\"$TUNNEL_URL\"" > "$PROJECT_ROOT/frontend-mobile/.env"
-            echo "    Updated .envrc and frontend-mobile/.env"
+            # One anchored line in each file: .envrc holds every secret this
+            # project has, and frontend-mobile/.env holds the Firebase and
+            # Google client ids beside the API base.
+            tunnel_env_arm "$PROJECT_ROOT" "$TUNNEL_URL"
+            echo "    .envrc and frontend-mobile/.env point at the tunnel"
 
             # Restart server so it picks up BASE_URL for OAuth callbacks
-            kill $SERVER_PID 2>/dev/null || true
-            sleep 1
+            dev_stop pierre-server "Pierre MCP Server"
             set -a
+            # shellcheck disable=SC1091  # path is resolved at runtime from PROJECT_ROOT
             source "$PROJECT_ROOT/.envrc"
             set +a
             # Re-assert the dev fixture overrides — re-sourcing .envrc must not
-            # send the providers back to the real Strava/Garmin APIs.
+            # send the providers back to the real Strava/Garmin APIs — and the
+            # port, which .envrc pins and the caller may have overridden.
             export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
             export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-            RUST_LOG=info ./target/$TARGET_DIR/pierre-mcp-server > "$SERVER_LOG" 2>&1 &
-            SERVER_PID=$!
-            for i in {1..15}; do
-                if curl -s -f "http://127.0.0.1:$SERVER_PORT/health" > /dev/null 2>&1; then
-                    echo "    Server restarted with tunnel BASE_URL (PID: $SERVER_PID)"
-                    break
-                fi
-                sleep 1
-            done
+            export HTTP_PORT="$SERVER_PORT"
+            dev_spawn pierre-server "$SERVER_LOG" env RUST_LOG=info "./target/$TARGET_DIR/pierre-mcp-server"
+            SERVER_PID=$DEV_SPAWNED_PID
+            if dev_wait_healthy "$SERVER_PORT" "$SERVER_PID" /health 15; then
+                echo "    Server restarted with tunnel BASE_URL (PID: $SERVER_PID)"
+            else
+                echo -e "${RED}    Server did not come back after the tunnel restart. Check: tail -f $SERVER_LOG${NC}"
+                exit 1
+            fi
         else
             echo -e "${RED}    Failed to get tunnel URL. Check: tail -f $TUNNEL_LOG${NC}"
             TUNNEL_URL=""
@@ -402,8 +404,8 @@ cd "$PROJECT_ROOT"
 print_step 7 "Starting Web Frontend (port $FRONTEND_PORT)..."
 if [ -d "$PROJECT_ROOT/frontend" ]; then
     cd "$PROJECT_ROOT/frontend"
-    bun run dev > "$FRONTEND_LOG" 2>&1 &
-    FRONTEND_PID=$!
+    dev_spawn vite "$FRONTEND_LOG" bun run dev
+    FRONTEND_PID=$DEV_SPAWNED_PID
     cd "$PROJECT_ROOT"
     echo "    Frontend starting (PID: $FRONTEND_PID)"
 else
@@ -419,18 +421,19 @@ if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
     if [ "$NATIVE_BUILD" = "true" ]; then
         # --native flag: build native app with Xcode (for speech recognition, native MMKV)
         echo "    Native build requested — using bin/build-native-app.sh..."
-        "$PROJECT_ROOT/bin/build-native-app.sh" --no-bundler > "$EXPO_LOG" 2>&1 &
-        EXPO_PID=$!
+        dev_spawn expo-build "$EXPO_LOG" "$PROJECT_ROOT/bin/build-native-app.sh" --no-bundler
         echo "    Building native iOS app (this may take several minutes)..."
         echo "    Watch progress: tail -f $EXPO_LOG"
-        # Start Metro in dev-client mode since native build uses --no-bundler
-        npx expo start --dev-client --port "$EXPO_PORT" >> "$EXPO_LOG" 2>&1 &
+        # Start Metro in dev-client mode since native build uses --no-bundler.
+        # Metro is what holds $EXPO_PORT, so it is the pid the summary checks.
+        dev_spawn expo "$METRO_LOG" npx expo start --dev-client --port "$EXPO_PORT"
+        EXPO_PID=$DEV_SPAWNED_PID
     else
         # Default: use Expo Go (fast, no Xcode needed)
         # --ios installs Expo Go if missing and launches on simulator
         # --go forces Expo Go mode (not dev client)
-        npx expo start --ios --go --port "$EXPO_PORT" > "$EXPO_LOG" 2>&1 &
-        EXPO_PID=$!
+        dev_spawn expo "$EXPO_LOG" npx expo start --ios --go --port "$EXPO_PORT"
+        EXPO_PID=$DEV_SPAWNED_PID
     fi
 
     cd "$PROJECT_ROOT"
@@ -442,7 +445,7 @@ fi
 
 # Step 9: Generate admin token
 print_step 9 "Generating admin API token..."
-ADMIN_LOGIN=$(curl -s -X POST "http://localhost:$SERVER_PORT/oauth/token" \
+ADMIN_LOGIN=$(curl -s -X POST "http://127.0.0.1:$SERVER_PORT/oauth/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -d "grant_type=password&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD")
 ADMIN_TOKEN=$(echo "$ADMIN_LOGIN" | jq -r '.access_token // empty')
@@ -488,26 +491,32 @@ echo ""
 printf "%-15s %-35s %-10s %-8s\n" "Service" "URL" "Status" "PID"
 printf "%-15s %-35s %-10s %-8s\n" "───────────────" "───────────────────────────────────" "──────────" "────────"
 
+# Every row asks whether the process THIS run started is the one behind the
+# port, not merely whether the port answers: a neighbour's server on the same
+# port answers identically, and would print "Running" beside a pid whose log
+# ends in "Address already in use". The check spans process groups, so bun's and
+# Expo's forked listeners count as their recorded supervisor's.
+
 # Check server
-if curl -s -f "http://127.0.0.1:$SERVER_PORT/health" > /dev/null 2>&1; then
+if dev_pid_owns_port "$SERVER_PID" "$SERVER_PORT"; then
     printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "Pierre Server" "http://localhost:$SERVER_PORT" "Running" "$SERVER_PID"
 else
     printf "%-15s %-35s ${RED}%-10s${NC} %-8s\n" "Pierre Server" "http://localhost:$SERVER_PORT" "Down" "-"
 fi
 
-# Check frontend (port-based: bun/vite may spawn child processes with different PIDs)
+# Check frontend
 if [ -z "$FRONTEND_PID" ]; then
     printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Web Frontend" "http://localhost:$FRONTEND_PORT" "Skipped" "-"
-elif curl -s -o /dev/null --connect-timeout 2 "http://localhost:$FRONTEND_PORT" 2>/dev/null; then
+elif dev_pid_owns_port "$FRONTEND_PID" "$FRONTEND_PORT"; then
     printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "Web Frontend" "http://localhost:$FRONTEND_PORT" "Running" "$FRONTEND_PID"
 else
     printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Web Frontend" "http://localhost:$FRONTEND_PORT" "Starting" "$FRONTEND_PID"
 fi
 
-# Check Expo (port-based: bun spawns Metro as a child process with a different PID)
+# Check Expo
 if [ -z "$EXPO_PID" ]; then
     printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Expo Mobile" "http://localhost:$EXPO_PORT" "Skipped" "-"
-elif curl -s -o /dev/null --connect-timeout 2 "http://localhost:$EXPO_PORT" 2>/dev/null; then
+elif dev_pid_owns_port "$EXPO_PID" "$EXPO_PORT"; then
     printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "Expo Mobile" "http://localhost:$EXPO_PORT" "Running" "$EXPO_PID"
 else
     printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Expo Mobile" "http://localhost:$EXPO_PORT" "Starting" "$EXPO_PID"
@@ -523,7 +532,14 @@ echo -e "${CYAN}=== Log Files ===${NC}"
 echo ""
 echo "  Pierre Server:  tail -f $SERVER_LOG"
 echo "  Web Frontend:   tail -f $FRONTEND_LOG"
-echo "  Expo Mobile:    tail -f $EXPO_LOG"
+if [ "$NATIVE_BUILD" = "true" ]; then
+    # --native runs two mobile processes: the Xcode build writes $EXPO_LOG and
+    # Metro writes $METRO_LOG. Both are named because both are watched.
+    echo "  Native build:   tail -f $EXPO_LOG"
+    echo "  Metro bundler:  tail -f $METRO_LOG"
+else
+    echo "  Expo Mobile:    tail -f $EXPO_LOG"
+fi
 echo "  All logs:       tail -f $LOG_DIR/*.log"
 echo ""
 echo -e "${CYAN}=== Quick Commands ===${NC}"
@@ -539,5 +555,7 @@ echo ""
 if [ "$STREAM_LOGS" = "true" ]; then
     echo -e "${CYAN}Streaming all logs (Ctrl+C to stop)...${NC}"
     echo ""
-    tail -f "$SERVER_LOG" "$FRONTEND_LOG" "$EXPO_LOG" 2>/dev/null
+    STREAMED_LOGS=("$SERVER_LOG" "$FRONTEND_LOG" "$EXPO_LOG")
+    [ "$NATIVE_BUILD" = "true" ] && STREAMED_LOGS+=("$METRO_LOG")
+    tail -f "${STREAMED_LOGS[@]}" 2>/dev/null
 fi

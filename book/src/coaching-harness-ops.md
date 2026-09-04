@@ -277,11 +277,7 @@ days despite having prior rows in the tenant. Most likely causes:
 1. **LLM provider down.** Check `services::memory_extraction` logs
    for `reqwest::Error` spans. Rotate the LLM credential in
    LLM Settings if the provider revoked it.
-2. **Embedding provider down.** Tier 2 extraction writes rows without
-   embeddings via `UpsertUserFactParams { embedding: None, .. }`, so
-   this should not block extraction — but it does block recall,
-   which might surface as "coach suddenly lost memory of the user".
-3. **Extractor prompt drift.** Check
+2. **Extractor prompt drift.** Check
    `crates/pierre-llm/src/prompts/memory_extraction.md` for recent
    changes. A malformed JSON schema in the prompt can silently drop
    all extractions.

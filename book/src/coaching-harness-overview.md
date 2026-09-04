@@ -34,7 +34,7 @@ is independently shippable and observable.
 |---|---|---|---|
 | 0 | Memory foundations | `pierre-memory` crate + DB schema for compaction blocks, user facts, coach notes, coach followups, coach sessions, claim verdicts | `pierre-database::HarnessMemoryRepository`, migrations under `migrations/20260413000002_harness_memory_foundations.sql` |
 | 1 | Conversation compaction | Summarize older turns when the context window fills | `chat_orchestration::apply_tier1_compaction`, `services::conversation_compaction` |
-| 2 | Semantic user memory | Background extraction of `UserFact` rows from turns; recall at prompt build time | `services::memory_extraction`, `services::memory_recall`, Gemini text-embedding-004 provider |
+| 2 | Semantic user memory | Background extraction of `UserFact` rows from turns; recall at prompt build time | `services::memory_extraction`, `services::memory_recall` |
 | 3 | Coach-authored memory tools | `coach_note_add`, `coach_followup_schedule`, `remember_fact`, `recall_user_memory` MCP tools the coach can call to write its own memory | `tools/implementations/memory.rs`, `tools-memory` feature flag |
 | 4 | Cross-channel coach sessions | One logical session per (user, coach) pair, spanning conversations and messaging channels | `services::chat_orchestration::ensure_coach_session_attached`, `coach_sessions` table |
 | 5 | Evaluation harness | `pierre-evals` crate with deterministic + LLM-judge + multi-turn evaluators, golden fixtures in JSONL | `crates/pierre-evals/`, `fixtures/injury_triage.jsonl` |
@@ -122,7 +122,7 @@ so the detector sees the final user-visible reply.
 Seven new tables land with the harness. All are tenant-scoped.
 
 - `compaction_blocks` — Tier 1 summaries replacing older conversation turns
-- `user_facts` — Tier 2 extracted semantic memory, with embeddings
+- `user_facts` — Tier 2 extracted semantic memory
 - `coach_notes` — Tier 3 coach-authored notes about users
 - `coach_followups` — Tier 3 promised future check-ins
 - `coach_sessions` — Tier 4 long-lived (user, coach) containers above conversations

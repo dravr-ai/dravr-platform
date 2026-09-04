@@ -142,8 +142,8 @@ recommendations.
 | Command | Effect |
 |---|---|
 | `./bin/start-server.sh` | start Pierre alone |
-| `./bin/stop-server.sh` | stop the whole dev stack; `--server-only` stops just the backend |
-| `./bin/stop-all.sh` | stop every service the setup script started |
+| `./bin/stop-server.sh` | stop this checkout's dev stack; `--server-only` stops just its backend |
+| `./bin/stop-all.sh` | stop every service this checkout started; a peer worktree's stack is left running |
 | `./bin/dev-logs.sh` | tail dev logs |
 
 ## Troubleshooting

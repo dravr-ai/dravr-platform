@@ -244,6 +244,44 @@ fi
 INSPECTOR_OUT="$(mktemp)"
 INSPECTOR_ERR="$(mktemp)"
 
+# `npx --yes` downloads the inspector and its dependency tree on first use, and
+# every probe below runs under INSPECTOR_TIMEOUT. Without this step the first
+# probe is timing a ~4MB package install plus its tree against a budget meant
+# for a wedged protocol call, and the two probes after it are fast only because
+# the first one paid. That difference is the whole spread: the same probe has
+# measured 17s and 141s against a 180s bound on unchanged tool schemas, and has
+# timed out at 180s, purely on registry latency.
+#
+# Fetching it here leaves the probe timeout measuring the protocol call. The
+# bound is separate and generous because a slow registry is not a compliance
+# failure; if it fails, the probes still run and simply pay the download as
+# before, so this can only make the lane more accurate, never less.
+echo -e "${BLUE}==== Fetching the MCP inspector before the timed probes... ====${NC}"
+# Generous, because the fetch is the slow part and its duration is the registry's
+# to decide: 432s measured on a runner where the probe itself then took 3.8s.
+INSPECTOR_FETCH_TIMEOUT=900
+if [ -n "$TIMEOUT_CMD" ]; then
+    INSPECTOR_FETCH_CMD="${TIMEOUT_CMD%% *} --kill-after=30 $INSPECTOR_FETCH_TIMEOUT"
+else
+    INSPECTOR_FETCH_CMD=""
+fi
+fetch_start=$(date +%s)
+fetch_code=0
+CI=true $INSPECTOR_FETCH_CMD npx --yes "$MCP_INSPECTOR_PKG" --cli --help \
+    >/dev/null 2>&1 || fetch_code=$?
+fetch_secs=$(($(date +%s) - fetch_start))
+if [ "$fetch_code" -eq 124 ] || [ "$fetch_code" -eq 137 ]; then
+    # Only a timeout tells us the cache is unpopulated. Say so: the probes below
+    # will pay the download inside their own budget and may time out for that
+    # reason rather than a protocol one, and that must not read as a schema fault.
+    echo -e "${YELLOW}[WARN] Inspector fetch hit its ${INSPECTOR_FETCH_TIMEOUT}s bound${NC}"
+    echo -e "${YELLOW}       A probe timeout below is the registry, not the server${NC}"
+else
+    # Any other exit is --help's own business; the cache is populated either way,
+    # which is all this step is for.
+    echo -e "${GREEN}[OK] Inspector cached in ${fetch_secs}s${NC}"
+fi
+
 # $1 = label, $2 = expected exit code, rest = inspector arguments.
 # CI=true makes the bridge use encrypted file storage instead of keytar, which
 # otherwise blocks on a headless runner.

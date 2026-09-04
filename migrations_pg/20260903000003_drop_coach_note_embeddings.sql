@@ -1,0 +1,22 @@
+-- ABOUTME: Drops coach_notes.embedding, a column no writer has ever filled
+-- ABOUTME: The Postgres half of the same cleanup
+
+-- Nothing has ever written this column. `insert_coach_note` is the only
+-- statement that inserts into `coach_notes`, and it binds whatever
+-- `InsertCoachNoteParams.embedding` carries. That parameter has exactly one
+-- production caller — the coach note-writing tool in
+-- `crates/pierre-tool-runtime/src/implementations/memory.rs` — and it passes
+-- `None`. Every other caller is a test, and each passes `None` too. So the
+-- column is NULL on every row of every database, on both backends, since the
+-- 2026-04-13 migration created it.
+--
+-- Nothing reads it either: `CoachNote.embedding` was decoded out of the row
+-- and consumed by no caller anywhere in the workspace.
+--
+-- Conversation compaction writes `compaction_blocks`, a different table with
+-- no embedding column, so dropping this one takes nothing with it. That
+-- corrects `20260903000002_drop_fact_embeddings.sql`, which kept this column
+-- on the stated ground that compaction writes it. Its files are applied and
+-- sqlx checksums them whole, comments included, so the sentence cannot be
+-- fixed where it stands; this migration removes what it was justifying.
+ALTER TABLE coach_notes DROP COLUMN IF EXISTS embedding;

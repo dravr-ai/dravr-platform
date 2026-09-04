@@ -21,6 +21,7 @@ use chrono::Utc;
 use pierre_auth::api_keys::ApiKeyUsage;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::tenant::TenantContext;
+use pierre_config::environment::log_effective_base_url;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
@@ -631,6 +632,8 @@ impl ProviderToolRouter {
             .parse()
             .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], port)));
         info!("HTTP server (Axum) listening on http://{}", addr);
+
+        log_effective_base_url(&resources.common.config.base_url);
 
         // Start the Axum server with ConnectInfo for IP extraction (rate limiting)
         let listener = TcpListener::bind(addr)

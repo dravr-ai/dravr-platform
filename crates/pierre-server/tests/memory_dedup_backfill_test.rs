@@ -42,31 +42,27 @@ async fn seed_the_reported_pile(resources: &Arc<ServerContext>, tenant_id: Tenan
             "Un ultra de 26 km au Mont Albert en Gaspésie",
             1.0_f32,
             FactSource::Onboarding,
-            [1.0_f32, 0.0, 0.0],
         ),
         (
             PredicateCode::TrainingFor,
             "a 26 km ultra at Mont Albert in Gaspésie",
             0.7,
             FactSource::Conversation,
-            [0.99, 0.14, 0.0],
         ),
         (
             PredicateCode::WorkingToward,
             "  un ultra de 26 KM au Mont Albert en Gaspésie.  ",
             0.8,
             FactSource::Conversation,
-            [1.0_f32, 0.0, 0.0],
         ),
         (
             PredicateCode::TrainingFor,
             "a 26 km trail outing at Mont Albert",
             0.6,
             FactSource::Conversation,
-            [0.98, 0.2, 0.0],
         ),
     ];
-    for (predicate_code, object, confidence, source, _embedding) in rows {
+    for (predicate_code, object, confidence, source) in rows {
         memory
             .upsert_user_fact(&UpsertUserFactParams {
                 tenant_id,
@@ -219,9 +215,9 @@ async fn two_real_goals_are_left_alone() {
     let user = user_id.to_string();
     let memory = repos.memory.clone();
 
-    for (object, _embedding) in [
-        ("Un ultra de 26 km au Mont Albert", [1.0_f32, 0.0, 0.0]),
-        ("nager 2 km sans m'arrêter", [0.0, 1.0, 0.0]),
+    for object in [
+        "Un ultra de 26 km au Mont Albert",
+        "nager 2 km sans m'arrêter",
     ] {
         memory
             .upsert_user_fact(&UpsertUserFactParams {

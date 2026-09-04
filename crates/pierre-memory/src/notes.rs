@@ -32,8 +32,6 @@ pub struct CoachNote {
     pub scope: MemoryScope,
     /// Free-form note content (plain text, no markup).
     pub content: String,
-    /// Optional embedding vector for semantic recall.
-    pub embedding: Option<Vec<f32>>,
     /// When the note was written.
     pub created_at: DateTime<Utc>,
     /// When the note was last edited (rare — notes are mostly append-only).

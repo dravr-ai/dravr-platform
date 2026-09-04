@@ -80,7 +80,6 @@ async fn suppressed_notes_are_excluded_from_memory_recall() -> Result<()> {
             conversation_id: None,
             scope: MemoryScope::User,
             content: "user mentioned they want to qualify for Boston in 2027",
-            embedding: None,
         })
         .await?;
     assert!(!note.suppressed);
@@ -130,7 +129,6 @@ async fn suppress_then_unsuppress_restores_recall() -> Result<()> {
             conversation_id: None,
             scope: MemoryScope::User,
             content: "marathon time goal: sub-3:00",
-            embedding: None,
         })
         .await?;
 
@@ -170,7 +168,6 @@ async fn set_suppressed_is_idempotent() -> Result<()> {
             conversation_id: None,
             scope: MemoryScope::User,
             content: "needs hydration reminders before long runs",
-            embedding: None,
         })
         .await?;
 
@@ -201,7 +198,6 @@ async fn set_suppressed_returns_false_for_missing_or_wrong_tenant() -> Result<()
             conversation_id: None,
             scope: MemoryScope::User,
             content: "tenant a only",
-            embedding: None,
         })
         .await?;
 

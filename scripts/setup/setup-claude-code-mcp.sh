@@ -16,6 +16,8 @@ NC='\033[0m'
 # Find project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=../../bin/dev-processes.sh
+. "$PROJECT_ROOT/bin/dev-processes.sh"
 
 cd "$PROJECT_ROOT"
 
@@ -23,10 +25,17 @@ echo -e "${BLUE}=== Pierre MCP Server - Claude Code Session Setup ===${NC}"
 echo -e "Project root: ${PROJECT_ROOT}"
 echo ""
 
+# A port named on the command line outranks the one .envrc pins. `set -a;
+# source` below overwrites the environment it is given, so the caller's value is
+# held here and reasserted after — the same order bin/start-server.sh resolves,
+# which is what makes the port this script probes the port that script binds.
+HTTP_PORT_REQUESTED="${HTTP_PORT:-}"
+
 # Load current .envrc
 ENVRC_PATH="$PROJECT_ROOT/.envrc"
 if [ -f "$ENVRC_PATH" ]; then
     set -a
+    # shellcheck disable=SC1090  # path is resolved at runtime from PROJECT_ROOT
     source "$ENVRC_PATH"
     set +a
 else
@@ -34,14 +43,26 @@ else
     exit 1
 fi
 
-# Step 1: Check if server is running
+export HTTP_PORT="${HTTP_PORT_REQUESTED:-${HTTP_PORT:-8081}}"
+SERVER_PORT="$HTTP_PORT"
+
+# Step 1: Check whether THIS checkout's server is running
 echo -e "${BLUE}Step 1: Checking server status...${NC}"
-if curl -s http://127.0.0.1:8081/health > /dev/null 2>&1; then
-    echo -e "${GREEN}  Server is running${NC}"
-    SERVER_RUNNING=true
-else
-    echo -e "${YELLOW}  Server not running${NC}"
-    SERVER_RUNNING=false
+# A 200 on this port says the port answered, not whose server answered it —
+# several worktrees of this repo run their own stack. Reading a neighbour's 200
+# as "already running" skips the launch below and then mints and verifies an MCP
+# token against a stranger's process. Both halves are asked here: a live pid
+# this checkout recorded, and that recorded process behind the port.
+SERVER_RUNNING=false
+if SERVER_OWNED="$(dev_owned pierre-server)"; then
+    read -r RECORDED_PID _ <<<"$SERVER_OWNED"
+    if dev_pid_owns_port "$RECORDED_PID" "$SERVER_PORT"; then
+        echo -e "${GREEN}  Server is running (pid $RECORDED_PID, port $SERVER_PORT)${NC}"
+        SERVER_RUNNING=true
+    fi
+fi
+if [ "$SERVER_RUNNING" = false ]; then
+    echo -e "${YELLOW}  No server recorded by this checkout on port $SERVER_PORT${NC}"
 fi
 
 # Step 2: Validate current token
@@ -99,35 +120,10 @@ fi
 # Step 3: Start server if needed
 if [ "$SERVER_RUNNING" = false ]; then
     echo -e "${BLUE}Step 3: Starting Pierre MCP server...${NC}"
-
-    # Ensure data directory exists
-    mkdir -p "$PROJECT_ROOT/data"
-
-    # Set defaults
-    export RUST_LOG="${RUST_LOG:-info}"
-    export HTTP_PORT="${HTTP_PORT:-8081}"
-
-    # Kill any zombie processes
-    pkill -f "pierre-mcp-server" 2>/dev/null || true
-    sleep 1
-
-    # Start server in background
-    echo -e "  Starting server on port ${HTTP_PORT}..."
-    nohup cargo run --quiet --bin pierre-mcp-server > "$PROJECT_ROOT/server.log" 2>&1 &
-
-    # Wait for server to be ready
-    echo -e "  Waiting for server to be ready..."
-    for i in {1..30}; do
-        if curl -s http://127.0.0.1:8081/health > /dev/null 2>&1; then
-            echo -e "${GREEN}  Server started successfully${NC}"
-            break
-        fi
-        sleep 1
-        if [ $i -eq 30 ]; then
-            echo -e "${RED}  Server failed to start - check server.log${NC}"
-            exit 1
-        fi
-    done
+    # bin/start-server.sh is the one way the dev server starts: it records the
+    # binary's own pid, so a stop later reaches this checkout's server and only
+    # this checkout's, and it refuses to report a stranger's 200 as success.
+    "$PROJECT_ROOT/bin/start-server.sh" || exit 1
 else
     echo -e "${BLUE}Step 3: Server already running - skipped${NC}"
 fi
@@ -158,7 +154,7 @@ if [ "$TOKEN_VALID" = false ]; then
             FALLBACK_CHECK=$(curl -s -w "%{http_code}" -o /dev/null \
                 -H "Authorization: Bearer $PIERRE_JWT_TOKEN" \
                 -H "Content-Type: application/json" \
-                http://localhost:8081/mcp -X POST \
+                "http://127.0.0.1:$SERVER_PORT/mcp" -X POST \
                 -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}' 2>/dev/null)
 
             if [ "$FALLBACK_CHECK" = "200" ]; then
@@ -213,7 +209,7 @@ echo -e "${BLUE}Step 6: Verifying setup...${NC}"
 VERIFY_RESULT=$(curl -s -w "%{http_code}" -o /tmp/mcp_verify.json \
     -H "Authorization: Bearer $PIERRE_JWT_TOKEN" \
     -H "Content-Type: application/json" \
-    http://localhost:8081/mcp -X POST \
+    "http://127.0.0.1:$SERVER_PORT/mcp" -X POST \
     -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}')
 
 if [ "$VERIFY_RESULT" = "200" ]; then
@@ -221,7 +217,7 @@ if [ "$VERIFY_RESULT" = "200" ]; then
     echo -e "${GREEN}  MCP endpoint responding - ${TOOL_COUNT} tools available${NC}"
 else
     echo -e "${RED}  MCP endpoint returned HTTP ${VERIFY_RESULT}${NC}"
-    echo -e "${RED}  Check server.log for details${NC}"
+    echo -e "${RED}  Check logs/pierre-server.log for details${NC}"
     exit 1
 fi
 
@@ -248,8 +244,8 @@ fi
 
 echo ""
 echo -e "${GREEN}=== Setup Complete ===${NC}"
-echo -e "Server: http://localhost:8081"
-echo -e "MCP endpoint: http://localhost:8081/mcp"
+echo -e "Server: http://localhost:$SERVER_PORT"
+echo -e "MCP endpoint: http://localhost:$SERVER_PORT/mcp"
 echo -e "Pierre Token: Valid for 7 days"
 echo -e "Stitch Token: Valid for ~1 hour"
 echo ""

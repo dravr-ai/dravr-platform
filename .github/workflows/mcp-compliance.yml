@@ -6,12 +6,19 @@ on:
   # (tenant_isolation.rs), so a change there alters MCP behaviour without
   # touching pierre-server/src/mcp/. Watching only the latter let a
   # tenant-resolution change ship without the compliance suite ever running.
+  #
+  # packages/mcp-types is watched for the same reason one directory over: the
+  # job installs and runs the SDK, and sdk/package.json declares @pierre/mcp-types
+  # as a dependency, so the suite compiles against it. Its edits usually ride
+  # with the crates/pierre-server/src/mcp change that regenerated it; the entry
+  # covers the mcp-types-only edit, which nothing else here would trigger.
   push:
     branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'crates/pierre-server/src/mcp/**'
       - 'crates/pierre-mcp-transport/**'
       - 'sdk/**'
+      - 'packages/mcp-types/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'
   pull_request:
@@ -20,6 +27,7 @@ on:
       - 'crates/pierre-server/src/mcp/**'
       - 'crates/pierre-mcp-transport/**'
       - 'sdk/**'
+      - 'packages/mcp-types/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'
   workflow_dispatch:

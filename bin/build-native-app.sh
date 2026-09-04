@@ -8,10 +8,8 @@ set -e
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
 NC='\033[0m'
 
-NATIVE_BUNDLE_ID="ai.dravr.app"
 EXPO_PORT="${EXPO_PORT:-8082}"
 
 # Parse args

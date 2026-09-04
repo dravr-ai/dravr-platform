@@ -43,11 +43,12 @@ persistence layer for everything the higher tiers need to store.
   The `feedback_pg_awareness.md` memory file documents the rule:
   "never implement SQLite-only; always add the Postgres backend in
   the same PR".
-- **Embeddings as BLOB/BYTEA.** Vector columns use raw little-endian
-  `f32` sequences, not `pgvector`. Both backends decode via shared
-  helpers. This avoids a hard dependency on pgvector while keeping
-  the option open to upgrade the column type later without touching
-  the repository trait.
+- **Recall without vectors.** Memory carries no embedding column on
+  either backend. Recall filters by user, coach and kind, and the
+  extractor's own judgement decides whether two facts are the same
+  one; a cosine threshold could not separate them, because two
+  different race goals score closer together than one goal restated
+  in another language scores to itself.
 - **Parameter structs over positional args.** Repository methods that
   would otherwise take 7+ arguments take a borrowed params struct
   (`UpsertUserFactParams`, `InsertCoachNoteParams`,
@@ -58,8 +59,6 @@ persistence layer for everything the higher tiers need to store.
 
 **What tests lock in**
 
-- `crates/pierre-database/src/database/memory.rs` unit tests:
-  embedding roundtrip, invalid length error.
 - `crates/pierre-server/tests/memory_worker_metrics_test.rs`:
   `count_user_facts_metrics` returns zero for empty tenants,
   aggregates by kind, is tenant-scoped.
@@ -113,8 +112,6 @@ and sessions, without stuffing the whole history into every prompt.
 
 **Key files**
 
-- `crates/pierre-llm/src/embeddings.rs` — `EmbeddingProvider` trait +
-  `GeminiEmbeddingProvider` (text-embedding-004, 768 dims).
 - `crates/pierre-server/src/services/memory_extraction.rs` —
   fire-and-forget `tokio::spawn` worker that runs after each assistant
   turn. Asks an LLM to decompose the turn into structured facts and

@@ -37,9 +37,17 @@ If any workflow on main has been red for 2+ runs, STOP and ask the user "Should 
 | Command | What it does |
 |---|---|
 | `./bin/start-server.sh` | Start server (loads `.envrc`, background, health check) |
-| `./bin/stop-server.sh` | Stop the whole dev stack — server, dev fixture, Vite, Expo, tunnel |
-| `./bin/stop-server.sh --server-only` | Stop only the backend, leaving the frontend up (simulates an outage) |
-| `curl http://localhost:8081/health` | Health check |
+| `./bin/stop-server.sh` | Stop **this checkout's** dev stack — server, dev fixture, Vite, Expo, tunnel. A peer worktree's stack is left running |
+| `./bin/stop-server.sh --server-only` | Stop only this checkout's backend, leaving the frontend up (simulates an outage) |
+| `curl http://127.0.0.1:8081/health` | Health check |
+
+Every dev script identifies a process by the pid file this checkout wrote plus the process's
+kernel start time, never by name or by "whoever holds the port" — several sessions run this
+repo from different worktrees at once, and a name matches all of them. A stack started before
+that landed has no pid file, so nothing in the repo can stop it; kill it once by hand.
+`HTTP_PORT=8091 ./bin/start-server.sh` moves this checkout off the shared port. A **start**
+still takes the port it needs, killing the single listener holding it and naming that
+process first — starting has priority; a stop does not.
 
 To reset the dev DB, re-run `./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh` — it
 recreates the database from scratch and runs every seeder.
@@ -254,7 +262,8 @@ Frontend/mobile/SDK validation tiers (run from each subdir):
 
 - **Port 8082 only for Expo** — `bun start` is configured for it. NEVER `expo start` without a port (defaults to 8081, which is the reserved Pierre port). If "Port 8081 in use" appears, the Pierre server is running correctly — use 8082.
 - Styling: NativeWind classes via `className` (no inline styles). State: React Query + Context. Navigation: drawer/stack patterns in `src/navigation/`. Reusable UI in `src/components/ui/`. Props need explicit types; prefer `unknown` + type guards over `any`.
-- **Physical-device testing via Cloudflare tunnel:** `bun run tunnel` (URL only), `bun run start:tunnel` (tunnel + Expo), `bun run tunnel:stop`. The tunnel points at localhost:8081 and rewrites `BASE_URL` in `.envrc` + `EXPO_PUBLIC_API_URL` in `frontend-mobile/.env`. After starting: `direnv allow`, then restart Pierre. When `BASE_URL` is set, OAuth redirect URIs use it instead of `http://localhost:8081`.
+- **Physical-device testing via Cloudflare tunnel:** `bun run tunnel` (URL only), `bun run start:tunnel` (tunnel + Expo), `bun run tunnel:stop`. The tunnel points at `127.0.0.1:8081` — the server binds IPv4 only, and `localhost` resolves IPv6-first, which cloudflared reports as `connection refused` against an origin a local `curl` answers. It rewrites `BASE_URL` in `.envrc` + `EXPO_PUBLIC_API_URL` in `frontend-mobile/.env`, one anchored line each. After starting: `direnv allow`, then restart Pierre. When `BASE_URL` is set, OAuth redirect URIs use it instead of `http://localhost:8081`.
+- **A quick-tunnel hostname is ephemeral, so `tunnel:stop` resets `BASE_URL` back to the local default.** The reset fires on any `*.trycloudflare.com` value, including one left behind by a tunnel that died on its own, and leaves a hand-set `BASE_URL` (a named tunnel, an ngrok, a LAN IP) alone. The server logs its effective `BASE_URL` at startup, so a dead one is visible in `logs/pierre-server.log` rather than only as an unreachable OAuth link on someone's phone.
 </important>
 
 <important if="you need an API key, token, or credential for a service">

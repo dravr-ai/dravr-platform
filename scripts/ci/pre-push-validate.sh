@@ -47,6 +47,9 @@ HAS_MCP_TYPES_CHANGES=false
 HAS_I18N_CATALOGUE_CHANGES=false
 HAS_API_CLIENT_CHANGES=false
 HAS_SHARED_PACKAGE_CHANGES=false
+HAS_WEB_INPUT_PACKAGE_CHANGES=false
+HAS_MOBILE_INPUT_PACKAGE_CHANGES=false
+HAS_SDK_INPUT_PACKAGE_CHANGES=false
 
 # Track which crates have changes (folder name under crates/)
 declare -A CHANGED_CRATES
@@ -78,6 +81,17 @@ while IFS= read -r file; do
         infra/modules/*) HAS_INFRA_CHANGES=true; HAS_INFRA_MODULE_CHANGES=true ;;
         infra/*) HAS_INFRA_CHANGES=true ;;
     esac
+    # Which client a shared package feeds. The clients compile against packages/
+    # as directly as against their own src: frontend/src/i18n reads its whole
+    # locale corpus out of packages/i18n, design-system-validation.sh reads
+    # packages/shared-constants, and the mobile integration specs assert against
+    # locale JSON. packages/mcp-types is the SDK's alone — no client imports it.
+    # Anything else added under packages/ feeds both clients, which is the
+    # direction that fails safe.
+    case "$file" in
+        packages/mcp-types/*) HAS_SDK_INPUT_PACKAGE_CHANGES=true ;;
+        packages/*) HAS_WEB_INPUT_PACKAGE_CHANGES=true; HAS_MOBILE_INPUT_PACKAGE_CHANGES=true ;;
+    esac
 done <<< "$CHANGED_FILES"
 
 HAS_RUST_CHANGES=false
@@ -85,18 +99,41 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_CARGO_CHANGES" == "true" 
     HAS_RUST_CHANGES=true
 fi
 
+# Tier selection follows the dependency edge, not the directory the diff sits
+# in: a client tier runs for that client's own sources AND for the shared
+# packages it compiles against.
+RUN_WEB_TIER=false
+if [[ "$HAS_FRONTEND_CHANGES" == "true" ]] || [[ "$HAS_WEB_INPUT_PACKAGE_CHANGES" == "true" ]]; then
+    RUN_WEB_TIER=true
+fi
+
+RUN_MOBILE_TIER=false
+if [[ "$HAS_MOBILE_CHANGES" == "true" ]] || [[ "$HAS_MOBILE_INPUT_PACKAGE_CHANGES" == "true" ]]; then
+    RUN_MOBILE_TIER=true
+fi
+
+RUN_SDK_TIER=false
+if [[ "$HAS_SDK_CHANGES" == "true" ]] || [[ "$HAS_SDK_INPUT_PACKAGE_CHANGES" == "true" ]]; then
+    RUN_SDK_TIER=true
+fi
+
+CHANGED_PACKAGE_DIRS=$(echo "$CHANGED_FILES" | grep '^packages/' | cut -d/ -f2 | sort -u | tr '\n' ' ' | sed 's/ $//' || true)
+
 echo "Changed file types:"
 echo "   Rust src: $HAS_RUST_SRC_CHANGES"
 echo "   Cargo config: $HAS_CARGO_CHANGES"
-echo "   Frontend: $HAS_FRONTEND_CHANGES"
-echo "   SDK: $HAS_SDK_CHANGES"
+echo "   Frontend: $HAS_FRONTEND_CHANGES (tier runs: $RUN_WEB_TIER)"
+echo "   SDK: $HAS_SDK_CHANGES (tier runs: $RUN_SDK_TIER)"
 echo "   MCP types: $HAS_MCP_TYPES_CHANGES"
 echo "   API client: $HAS_API_CLIENT_CHANGES"
 echo "   Shared packages: $HAS_SHARED_PACKAGE_CHANGES"
-echo "   Mobile: $HAS_MOBILE_CHANGES"
+echo "   Mobile: $HAS_MOBILE_CHANGES (tier runs: $RUN_MOBILE_TIER)"
 echo "   Infra: $HAS_INFRA_CHANGES"
 if [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then
     echo "   Changed crates: ${!CHANGED_CRATES[*]}"
+fi
+if [[ -n "$CHANGED_PACKAGE_DIRS" ]]; then
+    echo "   Changed packages: $CHANGED_PACKAGE_DIRS"
 fi
 echo ""
 
@@ -389,9 +426,9 @@ if [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; then
 fi
 
 # ============================================================================
-# TIER 5: Frontend Validation (if changed)
+# TIER 5: Frontend Validation (frontend/ or a shared package it compiles against)
 # ============================================================================
-if [[ "$HAS_FRONTEND_CHANGES" == "true" ]]; then
+if [[ "$RUN_WEB_TIER" == "true" ]]; then
     echo "Tier 5: Frontend Validation"
     echo "---------------------------"
     if [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-frontend-tests.sh" ]]; then
@@ -411,7 +448,7 @@ fi
 # Compile-free token/primitive conformance. Runs on either platform's changes
 # because the ratchets span both — DESIGN.md is one system with two renderers.
 # ============================================================================
-if [[ "$HAS_FRONTEND_CHANGES" == "true" || "$HAS_MOBILE_CHANGES" == "true" ]]; then
+if [[ "$RUN_WEB_TIER" == "true" || "$RUN_MOBILE_TIER" == "true" ]]; then
     echo "Tier 5b: Design System Validation"
     echo "---------------------------------"
     if [[ -f "$PROJECT_ROOT/scripts/ci/design-system-validation.sh" ]]; then
@@ -426,9 +463,9 @@ if [[ "$HAS_FRONTEND_CHANGES" == "true" || "$HAS_MOBILE_CHANGES" == "true" ]]; t
 fi
 
 # ============================================================================
-# TIER 6: SDK Validation (if changed)
+# TIER 6: SDK Validation (sdk/ or packages/mcp-types)
 # ============================================================================
-if [[ "$HAS_SDK_CHANGES" == "true" ]]; then
+if [[ "$RUN_SDK_TIER" == "true" ]]; then
     echo "Tier 6: SDK Validation"
     echo "----------------------"
     if [[ -d "$PROJECT_ROOT/sdk/node_modules" ]]; then
@@ -490,9 +527,9 @@ if [[ "$HAS_SDK_CHANGES" == "true" ]]; then
 fi
 
 # ============================================================================
-# TIER 7: Mobile Validation (if changed)
+# TIER 7: Mobile Validation (frontend-mobile/ or a shared package it compiles against)
 # ============================================================================
-if [[ "$HAS_MOBILE_CHANGES" == "true" ]]; then
+if [[ "$RUN_MOBILE_TIER" == "true" ]]; then
     echo "Tier 7: Mobile Validation"
     echo "-------------------------"
     if [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh" ]]; then

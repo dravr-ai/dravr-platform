@@ -1,5 +1,5 @@
 // ABOUTME: PostgreSQL implementation of the coaching harness HarnessMemoryRepository trait
-// ABOUTME: Mirrors the SQLite path; embeddings stored as BYTEA for parity with sqlite-vec fallback
+// ABOUTME: Mirrors the SQLite path row for row so both backends return identical domain types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,45 +24,11 @@ use crate::repositories::{
     InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
 
-// Embeddings are serialized as little-endian f32 sequences in BYTEA to keep
-// SQLite and Postgres on identical byte formats. A follow-up migration can
-// promote the column to `pgvector::vector` in environments where the
-// extension is available.
-
 /// Clamp a signed row count from a `COUNT`/`SUM` query to `u64`, folding
 /// impossible negative values to `0`. Aggregate counts are domain-guaranteed
 /// non-negative but `sqlx` decodes them as `i64`.
 fn i64_to_u64_saturating(v: i64) -> u64 {
     u64::try_from(v).unwrap_or(0)
-}
-
-fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(embedding.len() * 4);
-    for v in embedding {
-        bytes.extend_from_slice(&v.to_le_bytes());
-    }
-    bytes
-}
-
-fn bytes_to_embedding(bytes: &[u8]) -> AppResult<Vec<f32>> {
-    if !bytes.len().is_multiple_of(4) {
-        return Err(AppError::internal(format!(
-            "Invalid embedding bytea length: {} bytes is not a multiple of 4",
-            bytes.len()
-        )));
-    }
-    let mut out = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-    Ok(out)
-}
-
-fn optional_embedding(row: &PgRow) -> AppResult<Option<Vec<f32>>> {
-    let bytes: Option<Vec<u8>> = row
-        .try_get("embedding")
-        .map_err(|e| AppError::database(format!("Failed to read embedding column: {e}")))?;
-    bytes.as_deref().map(bytes_to_embedding).transpose()
 }
 
 fn row_to_compaction_block(row: &PgRow) -> AppResult<CompactionBlock> {
@@ -131,7 +97,6 @@ fn row_to_coach_note(row: &PgRow) -> AppResult<CoachNote> {
         conversation_id: row.get("conversation_id"),
         scope,
         content: row.get("content"),
-        embedding: optional_embedding(row)?,
         created_at,
         updated_at,
         suppressed,
@@ -613,15 +578,14 @@ impl HarnessMemoryRepository for PostgresDatabase {
     async fn insert_coach_note(&self, params: &InsertCoachNoteParams<'_>) -> AppResult<CoachNote> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
-        let embedding_bytes = params.embedding.map(embedding_to_bytes);
 
         sqlx::query(
             r"
             INSERT INTO coach_notes (
                 id, tenant_id, user_id, coach_id, conversation_id,
-                scope, content, embedding, created_at, updated_at
+                scope, content, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
             ",
         )
         .bind(&id)
@@ -631,7 +595,6 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(params.conversation_id)
         .bind(params.scope.as_str())
         .bind(params.content)
-        .bind(embedding_bytes)
         .bind(now)
         .execute(&self.pool)
         .await
@@ -645,7 +608,6 @@ impl HarnessMemoryRepository for PostgresDatabase {
             conversation_id: params.conversation_id.map(ToOwned::to_owned),
             scope: params.scope,
             content: params.content.to_owned(),
-            embedding: params.embedding.map(<[f32]>::to_vec),
             created_at: now,
             updated_at: now,
             suppressed: false,

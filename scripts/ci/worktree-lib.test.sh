@@ -50,6 +50,7 @@ resolved_feature="$(cd "$feature" && pwd -P)"
 run_in() { # $1 = dir, $2 = function to call, $3... = args
   local dir="$1"
   shift
+  # shellcheck source=../../.claude/skills/lib/worktree.sh
   ( cd "$dir" && . "$UNDER_TEST" && "$@" )
 }
 

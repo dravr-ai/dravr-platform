@@ -24,6 +24,7 @@ ENVRC_PATH="$PROJECT_ROOT/.envrc"
 if [ -f "$ENVRC_PATH" ]; then
     echo -e "${GREEN}Loading environment from: ${ENVRC_PATH}${NC}"
     set -a
+    # shellcheck disable=SC1090  # path is resolved at runtime from PROJECT_ROOT
     source "$ENVRC_PATH"
     set +a
 else

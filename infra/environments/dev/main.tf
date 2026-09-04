@@ -509,15 +509,33 @@ module "backend" {
 
       # Detail-page enrichment. The all-activities N+1 (navigate to each detail
       # page) ran ~4.5 min and timed out on a real coaching turn, handing the
-      # coach 0 activities — so it's OFF by default. The list page already carries
-      # type, date, distance, and elevation (dénivelé), and ambient temperature is
+      # coach 0 activities — so it's OFF. The list page already carries type,
+      # date, distance, and elevation (dénivelé), and ambient temperature is
       # filled by the weather backfill, so coaching has what it needs without it.
-      # Enrichment only adds precise UTC start-time + HR/power/cadence. With
-      # dravr-sciotte v0.7.1, flipping ENRICH_DETAILS to "true" now enriches only
-      # the most recent ENRICH_LIMIT activities (bounded), so it no longer runs
-      # minutes — opt in once the list-only path is confirmed.
+      # Enrichment only adds precise UTC start-time + HR/power/cadence.
+      #
+      # LIMITATION(registre#321): PIERRE_SCIOTTE_ENRICH_DETAILS is an unbounded
+      # switch against this deployment — "true" costs one detail-page navigation
+      # per scraped activity, the ~4.5 min above, with no ceiling. The scrape runs
+      # on dravr-sciotte-server since the ADR-021 Phase 4 cutover, and its
+      # GET /api/activities accepts limit, sport_type, detail, after and before —
+      # no per-request enrich cap (ActivityQuery in dravr-sciotte-server's
+      # router.rs). Its activities_handler fills ActivityParams from defaults, so
+      # the scraper's enrich_limit is always None and it falls back to the full
+      # activity count. A cap sent from the platform is discarded in silence:
+      # ActivityQuery carries no deny_unknown_fields and axum decodes it through
+      # serde_urlencoded. Bounding this means an upstream field plus a handler
+      # passthrough, a rebuilt image, and a forced Cloud Run revision first.
+      #
+      # The ration that does exist bounds a different axis.
+      # EXPENSIVE_DETAIL_PROMOTION_BUDGET (pierre-core's config::fitness, spent in
+      # pierre-tool-runtime's implementations::data) caps the separate
+      # GET /api/activities/{id} calls the tool runtime issues after the list
+      # returns. It never reaches the navigations performed inside one
+      # /api/activities scrape, which is what this flag turns on, so it is no
+      # ceiling on flipping this to "true". carnet#321 carries the exact
+      # references, where a stale line number is expected rather than misleading.
       PIERRE_SCIOTTE_ENRICH_DETAILS = "false"
-      PIERRE_SCIOTTE_ENRICH_LIMIT   = "5"
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {

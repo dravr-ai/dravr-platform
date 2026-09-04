@@ -35,7 +35,7 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
     let memory = repos.memory.as_ref();
     let user = user_id.to_string();
 
-    // The athlete's own words, from onboarding, with an embedding.
+    // The athlete's own words, from onboarding.
     let anchor = memory
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
@@ -92,7 +92,7 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
 }
 
 #[tokio::test]
-async fn a_merge_raises_confidence_and_backfills_a_missing_embedding() {
+async fn a_merge_raises_the_confidence_of_the_anchor() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
@@ -111,7 +111,7 @@ async fn a_merge_raises_confidence_and_backfills_a_missing_embedding() {
     let memory = repos.memory.as_ref();
     let user = user_id.to_string();
 
-    // A row written before embeddings existed, stated with low confidence.
+    // The athlete said it once, hesitantly — a low-confidence anchor.
     let anchor = memory
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id,

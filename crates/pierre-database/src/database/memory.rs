@@ -24,44 +24,6 @@ use crate::repositories::{
     InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
 
-// ============================================================================
-// Binary embedding helpers
-// ============================================================================
-//
-// Embeddings are stored as little-endian f32 sequences in a BLOB column so
-// the schema stays the same whether the target backend is SQLite (BLOB) or
-// Postgres (BYTEA). Both backends can decode the same bytes back to
-// `Vec<f32>` via the helpers below.
-
-fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(embedding.len() * 4);
-    for v in embedding {
-        bytes.extend_from_slice(&v.to_le_bytes());
-    }
-    bytes
-}
-
-fn bytes_to_embedding(bytes: &[u8]) -> AppResult<Vec<f32>> {
-    if !bytes.len().is_multiple_of(4) {
-        return Err(AppError::internal(format!(
-            "Invalid embedding blob length: {} bytes is not a multiple of 4",
-            bytes.len()
-        )));
-    }
-    let mut out = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-    Ok(out)
-}
-
-fn optional_embedding(row: &SqliteRow) -> AppResult<Option<Vec<f32>>> {
-    let bytes: Option<Vec<u8>> = row
-        .try_get("embedding")
-        .map_err(|e| AppError::database(format!("Failed to read embedding column: {e}")))?;
-    bytes.map(|b| bytes_to_embedding(&b)).transpose()
-}
-
 /// Clamp a signed row count to `u64`, folding impossible negatives to `0`.
 /// Counts from aggregate queries are domain-guaranteed non-negative but
 /// `sqlx` decodes them as `i64`.
@@ -154,7 +116,6 @@ fn row_to_coach_note(row: &SqliteRow) -> AppResult<CoachNote> {
         conversation_id: row.get("conversation_id"),
         scope,
         content: row.get("content"),
-        embedding: optional_embedding(row)?,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
         suppressed: suppressed_int != 0,
@@ -639,15 +600,14 @@ impl HarnessMemoryRepository for Database {
     async fn insert_coach_note(&self, params: &InsertCoachNoteParams<'_>) -> AppResult<CoachNote> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
-        let embedding_bytes = params.embedding.map(embedding_to_bytes);
 
         sqlx::query(
             r"
             INSERT INTO coach_notes (
                 id, tenant_id, user_id, coach_id, conversation_id,
-                scope, content, embedding, created_at, updated_at
+                scope, content, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
             ",
         )
         .bind(&id)
@@ -657,7 +617,6 @@ impl HarnessMemoryRepository for Database {
         .bind(params.conversation_id)
         .bind(params.scope.as_str())
         .bind(params.content)
-        .bind(embedding_bytes)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -671,7 +630,6 @@ impl HarnessMemoryRepository for Database {
             conversation_id: params.conversation_id.map(ToOwned::to_owned),
             scope: params.scope,
             content: params.content.to_owned(),
-            embedding: params.embedding.map(<[f32]>::to_vec),
             created_at: parse_datetime(&now)?,
             updated_at: parse_datetime(&now)?,
             suppressed: false,
@@ -1025,39 +983,5 @@ impl HarnessMemoryRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to archive coach session: {e}")))?;
 
         Ok(result.rows_affected() > 0)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{bytes_to_embedding, embedding_to_bytes};
-    use pierre_core::errors::AppResult;
-    use std::f32::consts::PI;
-
-    #[test]
-    fn embedding_roundtrip_empty() -> AppResult<()> {
-        let v: Vec<f32> = Vec::new();
-        let bytes = embedding_to_bytes(&v);
-        assert!(bytes.is_empty());
-        assert_eq!(bytes_to_embedding(&bytes)?, v);
-        Ok(())
-    }
-
-    #[test]
-    fn embedding_roundtrip_nontrivial() -> AppResult<()> {
-        let v: Vec<f32> = vec![0.0, 1.0, -1.0, PI, 1e-9, 1e9];
-        let bytes = embedding_to_bytes(&v);
-        assert_eq!(bytes.len(), v.len() * 4);
-        let back = bytes_to_embedding(&bytes)?;
-        for (a, b) in v.iter().zip(back.iter()) {
-            assert!((a - b).abs() < f32::EPSILON);
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn invalid_length_errors() {
-        let bad = vec![1u8, 2, 3]; // not a multiple of 4
-        assert!(bytes_to_embedding(&bad).is_err());
     }
 }

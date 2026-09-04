@@ -82,7 +82,6 @@ fn note_params<'a>(
         conversation_id: None,
         scope: MemoryScope::User,
         content,
-        embedding: None,
     }
 }
 

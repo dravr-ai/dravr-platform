@@ -8,10 +8,21 @@
 #![allow(missing_docs)]
 
 use pierre_config::environment::{
-    BackupConfig, DatabaseConfig, DatabaseUrl, Environment, LogLevel, OAuthConfig,
-    OAuthProviderConfig, SecurityConfig, ServerConfig, SqlxConfig, TokioRuntimeConfig,
+    is_ephemeral_tunnel_base_url, log_effective_base_url, BackupConfig, DatabaseConfig,
+    DatabaseUrl, Environment, LogLevel, OAuthConfig, OAuthProviderConfig, SecurityConfig,
+    ServerConfig, SqlxConfig, TokioRuntimeConfig,
 };
+use std::collections::HashMap;
 use std::env;
+use std::fmt::Debug as FmtDebug;
+use std::sync::{Arc, Mutex};
+use tracing::field::{Field, Visit};
+use tracing::subscriber::DefaultGuard;
+use tracing::Subscriber;
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 // Tests for public configuration types
 
@@ -370,5 +381,155 @@ fn outbound_email_disabled_when_credentials_blank_or_missing() {
     assert_eq!(
         config_with_resend(Some("re_test_key"), None, false).outbound_email_credentials(),
         None
+    );
+}
+
+// The hostname below is the one from the reported outage: a quick tunnel that
+// had already died while .envrc still named it, so every provider reconnect
+// link the server built reached a browser that could not resolve the host.
+#[test]
+fn ephemeral_tunnel_base_url_is_told_apart_from_a_durable_one() {
+    assert!(is_ephemeral_tunnel_base_url(
+        "https://plymouth-animation-tigers-grid.trycloudflare.com"
+    ));
+    assert!(!is_ephemeral_tunnel_base_url("http://localhost:8081"));
+    assert!(!is_ephemeral_tunnel_base_url("http://localhost:8091"));
+    assert!(!is_ephemeral_tunnel_base_url("https://api.dravr.ai"));
+
+    // The same host set `bin/tunnel-env.sh` pins, so the startup log and the
+    // script that resets `BASE_URL` cannot disagree about which host is
+    // ephemeral. Each of these carries the label without being one of those
+    // hosts: as a different domain's prefix, as userinfo, and as a bare apex.
+    assert!(!is_ephemeral_tunnel_base_url(
+        "https://trycloudflare.com.evil.example"
+    ));
+    assert!(!is_ephemeral_tunnel_base_url(
+        "https://a.trycloudflare.com.attacker.net/callback"
+    ));
+    assert!(!is_ephemeral_tunnel_base_url(
+        "https://x.trycloudflare.com@api.dravr.ai"
+    ));
+    assert!(!is_ephemeral_tunnel_base_url("https://trycloudflare.com"));
+
+    // A real quick tunnel still reads as one through a port, a path and a
+    // trailing dot, because the host is what decides.
+    assert!(is_ephemeral_tunnel_base_url(
+        "https://plymouth-animation-tigers-grid.trycloudflare.com:443/oauth/callback"
+    ));
+    assert!(is_ephemeral_tunnel_base_url(
+        "https://PLYMOUTH-ANIMATION.TryCloudflare.com."
+    ));
+}
+
+// `log_effective_base_url` is the startup announcement itself, so the assertions
+// below read the event it emitted — its level, its message and its `base_url`
+// field — rather than re-deriving what it should have said.
+
+#[derive(Clone, Debug)]
+struct CapturedEvent {
+    level: tracing::Level,
+    message: String,
+    fields: HashMap<String, String>,
+}
+
+#[derive(Clone, Default)]
+struct CaptureLayer {
+    events: Arc<Mutex<Vec<CapturedEvent>>>,
+}
+
+#[derive(Default)]
+struct FieldVisitor {
+    message: String,
+    fields: HashMap<String, String>,
+}
+
+impl Visit for FieldVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
+        let rendered = format!("{value:?}");
+        if field.name() == "message" {
+            self.message.clone_from(&rendered);
+        }
+        self.fields.insert(field.name().to_owned(), rendered);
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "message" {
+            value.clone_into(&mut self.message);
+        }
+        self.fields
+            .insert(field.name().to_owned(), value.to_owned());
+    }
+}
+
+impl<S> Layer<S> for CaptureLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+        let mut visitor = FieldVisitor::default();
+        event.record(&mut visitor);
+        self.events.lock().unwrap().push(CapturedEvent {
+            level: *event.metadata().level(),
+            message: visitor.message,
+            fields: visitor.fields,
+        });
+    }
+}
+
+fn capture_base_url_log(base_url: &str) -> CapturedEvent {
+    let capture = CaptureLayer::default();
+    let events = Arc::clone(&capture.events);
+    {
+        let _guard: DefaultGuard = tracing_subscriber::registry().with(capture).set_default();
+        log_effective_base_url(base_url);
+    }
+    let captured = events.lock().unwrap().clone();
+    assert_eq!(
+        captured.len(),
+        1,
+        "log_effective_base_url emits exactly one event, got {captured:?}"
+    );
+    captured.into_iter().next().unwrap()
+}
+
+#[test]
+fn a_quick_tunnel_base_url_is_announced_as_expiring_with_its_process() {
+    let event = capture_base_url_log("https://plymouth-animation-tigers-grid.trycloudflare.com");
+    assert_eq!(event.level, tracing::Level::WARN);
+    assert_eq!(
+        event.message,
+        "BASE_URL names a Cloudflare quick tunnel; OAuth callbacks and reconnect links resolve only while that tunnel is up"
+    );
+    assert_eq!(
+        event.fields.get("base_url").map(String::as_str),
+        Some("https://plymouth-animation-tigers-grid.trycloudflare.com")
+    );
+}
+
+#[test]
+fn a_durable_base_url_is_announced_at_info() {
+    let event = capture_base_url_log("https://api.dravr.ai");
+    assert_eq!(event.level, tracing::Level::INFO);
+    assert_eq!(
+        event.message,
+        "BASE_URL in effect for OAuth callbacks and reconnect links"
+    );
+    assert_eq!(
+        event.fields.get("base_url").map(String::as_str),
+        Some("https://api.dravr.ai")
+    );
+}
+
+#[test]
+fn base_url_credentials_never_reach_the_emitted_event() {
+    let event = capture_base_url_log("https://ops:s3cret@api.dravr.ai");
+    assert_eq!(event.level, tracing::Level::INFO);
+    assert_eq!(
+        event.fields.get("base_url").map(String::as_str),
+        Some("https://***:***@api.dravr.ai")
+    );
+    assert!(
+        !format!("{event:?}").contains("s3cret"),
+        "the emitted event carried the password: {event:?}"
     );
 }

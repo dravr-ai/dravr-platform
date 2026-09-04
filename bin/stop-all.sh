@@ -1,6 +1,6 @@
 #!/bin/bash
-# ABOUTME: Stops all Pierre development services (server, frontend, mobile, tunnel)
-# ABOUTME: Kills processes by name pattern and by port as fallback to prevent stale processes
+# ABOUTME: Stops this checkout's Pierre development services (server, fixture, frontend, mobile, tunnel)
+# ABOUTME: Every process it stops is one this checkout recorded; a peer worktree's stack is named and left running
 
 set -e
 
@@ -9,70 +9,53 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-echo -e "${YELLOW}=== Stopping All Pierre Services ===${NC}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+. "$SCRIPT_DIR/dev-processes.sh"
+. "$SCRIPT_DIR/tunnel-env.sh"
 
-killed=0
+echo -e "${YELLOW}=== Stopping This Checkout's Pierre Services ===${NC}"
 
-kill_by_pattern() {
-    local pattern="$1"
-    local label="$2"
-    if pgrep -f "$pattern" > /dev/null 2>&1; then
-        pkill -f "$pattern" 2>/dev/null || true
-        echo "  Stopped: $label"
-        killed=$((killed + 1))
-    fi
-}
+# Each name below is a pid file this checkout wrote. Stopping the recorded
+# process group takes its children with it, so the esbuild, Metro and
+# NativeWind workers need no names of their own — naming them would match
+# every other worktree's workers as well.
+dev_stop pierre-server "Pierre MCP Server"
+dev_stop fixture "Dev Fixture API"
+dev_stop sciotte "Sciotte scraper service"
+dev_stop vite "Vite dev server"
+dev_stop expo "Expo / Metro"
+dev_stop expo-build "Native app build"
+dev_stop tunnel "Cloudflare tunnel"
 
-kill_by_port() {
-    local port="$1"
-    local label="$2"
-    local pid
-    pid=$(lsof -ti :"$port" 2>/dev/null | head -1) || true
-    if [ -n "$pid" ]; then
-        kill "$pid" 2>/dev/null || true
-        echo "  Stopped: $label (port $port, PID $pid)"
-        killed=$((killed + 1))
-    fi
-}
+# The ports this checkout's own start scripts were pinned to: a caller override
+# first, then what .envrc declares, then the default — the order the start
+# scripts resolve. Run without direnv, the ambient environment carries neither
+# variable, and the bare default is a DIFFERENT checkout's port: a worktree
+# pinned to 8091 would reclaim 8081 and leave its own server up.
+SERVER_PORT="${HTTP_PORT:-$(tunnel_env_declared_port "$PROJECT_ROOT/.envrc" HTTP_PORT 8081)}"
+METRO_PORT="${EXPO_PORT:-$(tunnel_env_declared_port "$PROJECT_ROOT/.envrc" EXPO_PORT 8082)}"
 
-# Pierre backend
-kill_by_pattern "pierre-mcp-server" "Pierre MCP Server"
-kill_by_pattern "cargo.*pierre-mcp-server" "Cargo (server build)"
-
-# Sciotte scraper service (ADR-021 dedicated headless-Chrome service on :8091).
-# Only running locally when DRAVR_SCIOTTE_REMOTE_URL points the platform at it
-# (started via scripts/sciotte-local.sh); a no-op otherwise.
-kill_by_pattern "dravr-sciotte-server" "Sciotte scraper service"
-
-# Dev fixture API (serves seeded Strava/Garmin activities in dev)
-kill_by_pattern "pierre-dev-fixture" "Dev Fixture API"
-
-# Vite frontend — match the actual binary path, not "vite.*frontend"
-kill_by_pattern "node_modules/.bin/vite" "Vite dev server(s)"
-kill_by_pattern "node_modules/@esbuild" "esbuild (Vite companion)"
-
-# Expo / Metro
-kill_by_pattern "expo start" "Expo CLI"
-kill_by_pattern "node_modules/.bin/expo" "Expo binary"
-kill_by_pattern "jest-worker/build/workers/processChild" "Metro workers"
-kill_by_pattern "nativewind.*child" "NativeWind worker"
-
-# Cloudflare tunnel
-kill_by_pattern "cloudflared tunnel" "Cloudflare tunnel"
-
-# Give processes time to exit
-sleep 1
-
-# Fallback: kill anything still holding our ports
-kill_by_port 8081 "Pierre server (port fallback)"
-kill_by_port 8091 "Sciotte scraper service (port fallback)"
-kill_by_port 5173 "Vite frontend (port fallback)"
-kill_by_port 8082 "Expo/Metro (port fallback)"
-
-if [ "$killed" -eq 0 ]; then
-    echo -e "${YELLOW}  No running services found${NC}"
-else
-    echo ""
+# A stack started before this checkout kept pid files leaves a listener with no
+# record. Reclaim it when it resolves to this worktree; name it and leave it
+# alone when it belongs to another.
+foreign=0
+dev_reclaim_port "$SERVER_PORT" "Pierre MCP Server" || foreign=1
+dev_reclaim_port 8091 "Sciotte scraper service" || foreign=1
+dev_reclaim_port 5173 "Vite dev server" || foreign=1
+dev_reclaim_port "$METRO_PORT" "Expo / Metro" || foreign=1
+dev_reclaim_port 9555 "Dev Fixture API" || foreign=1
+if [ "$foreign" -eq 1 ]; then
+    echo -e "${YELLOW}  Ports above belong to another checkout and were left running.${NC}"
 fi
 
-echo -e "${GREEN}All services stopped${NC}"
+# A quick tunnel's hostname stops resolving the moment its process dies, so the
+# files that name one are pointed back at the local server here — whether or not
+# there was a tunnel left to stop, since the reported outage was a tunnel that
+# died on its own. A BASE_URL an operator set by hand is left as it is.
+if tunnel_env_reset "$PROJECT_ROOT"; then
+    echo "  BASE_URL and EXPO_PUBLIC_API_URL reset to the local server"
+    echo "  Run 'direnv allow' and restart Pierre to pick it up"
+fi
+
+echo -e "${GREEN}This checkout's services stopped${NC}"

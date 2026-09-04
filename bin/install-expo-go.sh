@@ -70,7 +70,7 @@ npx expo start --ios --go --port "$EXPO_PORT" &
 METRO_PID=$!
 
 # Wait for Expo Go to appear on the simulator (up to 60 seconds)
-for i in {1..60}; do
+for _ in $(seq 1 60); do
     INSTALLED=$(xcrun simctl listapps "$BOOTED_UDID" 2>/dev/null \
         | plutil -convert json -o - - 2>/dev/null \
         | python3 -c "

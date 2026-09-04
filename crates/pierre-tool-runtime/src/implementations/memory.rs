@@ -168,7 +168,6 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                 conversation_id: conv_ref.as_deref(),
                 scope: MemoryScope::User,
                 content: &body,
-                embedding: None,
             };
             let note = context
                 .resources
