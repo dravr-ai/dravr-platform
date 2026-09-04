@@ -45,9 +45,16 @@ case "$tool" in
     Edit|Write|MultiEdit|NotebookEdit) ;;
     Bash)
         cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+        # Discard redirects to /dev/null before classifying. `2>/dev/null` is the
+        # commonest idiom in a READ, and it contains a `>`, so the redirect test
+        # below counted every quiet read as a write: `git status -sb` claimed
+        # nothing while `git log ... 2>/dev/null` claimed everything pending.
+        # Four issues were taken that way in a day, one of them a peer's, off a
+        # message that only NAMED the number.
+        probe=$(printf '%s' "$cmd" | sed -E 's/(^|[[:space:]&])[0-9]*>>?[[:space:]]*\/dev\/null//g')
         # A write-shaped command: a redirect into a file, an in-place edit, or git recording
         # something. Anything else is a read, and a read claims nothing.
-        printf '%s' "$cmd" | grep -qE '>>?[[:space:]]*[^&|[:space:]]|sed -i|(^|[|;&[:space:]])tee[[:space:]]|(^|[|;&[:space:]])(mv|cp|rm|mkdir|touch|install)[[:space:]]|git[[:space:]]+(commit|add|apply|am|merge|rebase|revert|cherry-pick|checkout|restore|reset)' || exit 0
+        printf '%s' "$probe" | grep -qE '>>?[[:space:]]*[^&|[:space:]]|sed -i|(^|[|;&[:space:]])tee[[:space:]]|(^|[|;&[:space:]])(mv|cp|rm|mkdir|touch|install)[[:space:]]|git[[:space:]]+(commit|add|apply|am|merge|rebase|revert|cherry-pick|checkout|restore|reset)' || exit 0
         ;;
     *) exit 0 ;;
 esac

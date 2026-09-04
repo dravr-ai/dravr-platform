@@ -387,6 +387,23 @@ assert_eq "a read-shaped Bash claims nothing" "$(wc -c < "$S/calls.log" | tr -d 
 auto_claim "$(bash_payload 'git status --short')"
 assert_eq "git status claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
 
+# Suppressing stderr is the commonest idiom in a read, and `2>/dev/null` contains
+# a `>`. Classifying it as a write made every quiet read claim — four issues were
+# taken that way in a day, one of them a peer's, off a message that only NAMED it.
+auto_claim "$(bash_payload 'git log --oneline -1 abc123 2>/dev/null')"
+assert_eq "a read that suppresses stderr claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+auto_claim "$(bash_payload 'gh run list --json status -q ".[]" 2>/dev/null')"
+assert_eq "gh with 2>/dev/null claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+auto_claim "$(bash_payload 'ls -la >/dev/null')"
+assert_eq "stdout to /dev/null claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+auto_claim "$(bash_payload 'make check &>/dev/null')"
+assert_eq "&>/dev/null claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+
+# ...but a redirect into a real file is still an edit, /dev/null nearby or not.
+reset; set_pending 42
+auto_claim "$(bash_payload 'grep -rn TODO src/ 2>/dev/null > findings.txt')"
+assert_grep "a real redirect still claims, even beside 2>/dev/null" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+
 # A write-shaped Bash command is an edit — this session edits through bash.
 reset; set_pending 42
 auto_claim "$(bash_payload "sed -i '' s/a/b/ f.txt")"
