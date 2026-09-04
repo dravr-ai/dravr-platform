@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use chrono::{Duration, TimeZone, Utc};
 use chrono_tz::UTC;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_intelligence::{PatternDetector, RiskLevel};
@@ -128,5 +128,65 @@ fn test_volume_spike_detection() {
     assert!(
         !pattern.spike_weeks.is_empty(),
         "Expected spike weeks to be non-empty"
+    );
+}
+
+/// The zone actually reaches the histograms.
+///
+/// Every other call site in this file passes `UTC`, which is the same frame the
+/// fixture builds its days in — so reverting the conversion inside
+/// `detect_weekly_schedule` would leave the whole suite green and carnet#252
+/// would be unmeasured (registre#258).
+///
+/// Six evening sessions at 21:30 America/Toronto, which is 01:30 UTC the
+/// following day: the local reading and the server reading disagree on both the
+/// weekday and the hour, so this fails the moment the conversion stops
+/// happening.
+#[test]
+fn the_athletes_zone_reaches_both_histograms() {
+    use chrono_tz::America::Toronto;
+
+    let activities: Vec<Activity> = (0..6)
+        .map(|w| {
+            let start = Utc
+                .with_ymd_and_hms(2026, 9, 2, 1, 30, 0)
+                .single()
+                .expect("valid instant")
+                - Duration::weeks(w);
+            ActivityBuilder::new(
+                format!("evening-{w}"),
+                "Evening ride",
+                SportType::Ride,
+                start,
+                7_200,
+                "strava",
+            )
+            .build()
+        })
+        .collect();
+
+    let local = PatternDetector::detect_weekly_schedule(&activities, Toronto);
+    let server = PatternDetector::detect_weekly_schedule(&activities, UTC);
+
+    assert_eq!(
+        local.most_common_days.first(),
+        Some(&chrono::Weekday::Tue),
+        "21:30 Tuesday in Toronto is Tuesday training: {:?}",
+        local.most_common_days
+    );
+    assert_eq!(
+        local.most_common_times.first(),
+        Some(&21),
+        "and 21:00 is the hour they ride: {:?}",
+        local.most_common_times
+    );
+    assert_ne!(
+        local.most_common_days, server.most_common_days,
+        "the two frames must disagree here, or this test cannot detect the \
+         conversion being removed"
+    );
+    assert_ne!(
+        local.most_common_times, server.most_common_times,
+        "same for the hour histogram, which was shifted by the whole offset"
     );
 }

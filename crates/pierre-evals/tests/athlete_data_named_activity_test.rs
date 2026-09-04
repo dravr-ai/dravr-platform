@@ -184,16 +184,44 @@ fn an_elevation_figure_is_checked_against_the_record() {
 }
 
 /// A milligram dose is not elevation. The bare `m` unit must not swallow it.
+///
+/// Asserted on the PROVIDERLESS record, not a connected one. A connected
+/// athlete's figure path can only ever return Supported or Unverifiable, so the
+/// old `!= Contradicted` assertion held no matter what the unit table did — it
+/// could not fail (registre#258). With no provider, any extracted figure IS
+/// contradicted, so the assertion now turns on exactly one thing: whether "400
+/// mg" was read as a figure at all.
 #[test]
 fn a_bare_m_does_not_eat_other_units() {
     let outcome = check(
         &claim("Prends 400 mg de caféine avant le départ."),
-        &raphs_week(),
-    );
+        &AthleteRecord::providerless(),
+    )
+    .expect("the layer must adjudicate its own category");
 
-    assert!(
-        outcome.is_none_or(|v| v.status != ClaimStatus::Contradicted),
-        "mg is not m, and a supplement dose is not a claim about the record"
+    assert_ne!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "mg is not m: reading it as 400 metres of climb makes a supplement dose          into a claim about the record, and with no provider that is a          fabrication verdict: {}",
+        outcome.explanation
+    );
+}
+
+/// Elevation IS read on the same path, so the test above is not passing merely
+/// because nothing is extracted.
+#[test]
+fn the_metres_unit_is_read_at_all() {
+    let outcome = check(
+        &claim("Tu as fait 2391 m de dénivelé."),
+        &AthleteRecord::providerless(),
+    )
+    .expect("the layer must adjudicate its own category");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "a metres figure with no provider behind it is invented, and saying so          is what proves the unit is parsed: {}",
+        outcome.explanation
     );
 }
 
@@ -246,5 +274,113 @@ fn a_two_letter_activity_name_is_never_matched() {
     assert!(
         outcome.is_none_or(|v| v.status != ClaimStatus::Contradicted),
         "a two-letter name appears inside ordinary prose by accident"
+    );
+}
+
+// ============================================================================
+// registre#258 — the false positives the pre-merge review reproduced
+// ============================================================================
+
+/// Ordinary words are not weekday claims.
+///
+/// The reading vocabulary carried three-letter abbreviations, which are
+/// homographs of common words in every locale we ship. A verifier compiled a
+/// replication and reproduced all five of these: each one resolved to a weekday,
+/// disagreed with the record, and produced a `Contradicted` at 0.9 confidence —
+/// a warning banner on a reply that asserted no day at all.
+///
+/// French `mon` is a possessive, `jeu` a game, `mer` the sea; English `sun` is
+/// the star; the bare Portuguese ordinals are just numbers.
+#[test]
+fn a_homograph_of_a_weekday_abbreviation_is_not_a_weekday_claim() {
+    for text in [
+        "Ta sortie Road 2 AUS confirme mon impression: tu montes bien.",
+        "Road 2 AUS, tu as fini la montée in the sun.",
+        "Road 2 AUS c'était le jeu des relances tout du long.",
+        "Road 2 AUS longeait la mer sur vingt bornes.",
+        "Na quarta série de Road 2 AUS tu tenais encore.",
+        "En Road 2 AUS bordeaste el mar todo el rato.",
+    ] {
+        let outcome = check(&claim(text), &raphs_week());
+        assert!(
+            outcome
+                .as_ref()
+                .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+            "no day is asserted here, so nothing may be contradicted: {text:?} \
+             gave {outcome:?}"
+        );
+    }
+}
+
+/// The full names still work — narrowing the vocabulary must not disarm the
+/// check the issue was filed for.
+#[test]
+fn a_real_weekday_name_is_still_read() {
+    let outcome = check(
+        &claim("Dimanche, ta sortie Road 2 AUS était la plus grosse de la semaine."),
+        &raphs_week(),
+    )
+    .expect("the layer must adjudicate its own category");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "Road 2 AUS is on record for Tuesday: {}",
+        outcome.explanation
+    );
+}
+
+/// Polysemous sport words are not sport claims.
+///
+/// `course` is an errand, `marche` is "it works", and an English `run`/`ride`/
+/// `trail` appears in ordinary prose constantly. Each of these named one of the
+/// athlete's activities and a word that resolved to a sport, and contradicted a
+/// sentence making no claim about sport at all.
+#[test]
+fn a_polysemous_sport_word_is_not_a_sport_claim() {
+    for text in [
+        "Passion rando, tu l'as casée entre deux course en ville.",
+        "Passion rando: la stratégie de ravito marche bien pour toi.",
+        "Passion rando gave you a long run of good days.",
+        "Passion rando was a rough ride mentally.",
+    ] {
+        let outcome = check(&claim(text), &raphs_week());
+        assert!(
+            outcome
+                .as_ref()
+                .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+            "no sport is asserted here: {text:?} gave {outcome:?}"
+        );
+    }
+}
+
+/// A session name is matched as a word, not as a substring.
+///
+/// `lower.contains(name)` let a longer word "name" an activity, and everything
+/// downstream then adjudicated a weekday that was never about it.
+#[test]
+fn an_activity_name_inside_a_longer_word_does_not_name_it() {
+    let record = AthleteRecord {
+        has_provider: true,
+        activities: vec![RecordedActivity {
+            date: day(1),
+            sport: SportType::Ride,
+            name: "Cote".to_owned(),
+            distance_km: Some(30.0),
+            duration_min: 90.0,
+            elevation_m: Some(500.0),
+        }],
+    };
+
+    let outcome = check(
+        &claim("Dimanche tu as bien géré les cotes du parcours."),
+        &record,
+    );
+
+    assert!(
+        outcome
+            .as_ref()
+            .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+        "'cotes' is not the session called 'Cote': {outcome:?}"
     );
 }

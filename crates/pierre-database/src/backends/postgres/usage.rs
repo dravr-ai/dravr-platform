@@ -441,12 +441,17 @@ impl UsageCounterRepository for PostgresDatabase {
     ) -> AppResult<UsageCounterRecord> {
         let now = Utc::now();
 
-        sqlx::query(
+        // RETURNING, not a follow-up SELECT — see the SQLite twin for why. Two
+        // concurrent turns can both land their increments before either reads,
+        // and both then see 2, so a caller claiming a once-per-window slot on
+        // `value == 1` gets neither turn showing the notice (registre#258).
+        let row: (String, String, String, String, i64, DateTime<Utc>) = sqlx::query_as(
             r"
             INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (tenant_id, user_id, counter_key, period)
             DO UPDATE SET value = usage_counters.value + EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            RETURNING tenant_id, user_id, counter_key, period, value, updated_at
             ",
         )
         .bind(tenant_id)
@@ -455,12 +460,18 @@ impl UsageCounterRepository for PostgresDatabase {
         .bind(period)
         .bind(amount)
         .bind(now)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
 
-        self.get_counter(tenant_id, user_id, counter_key, period)
-            .await
+        Ok(UsageCounterRecord {
+            tenant_id: row.0,
+            user_id: row.1,
+            counter_key: row.2,
+            period: row.3,
+            value: row.4,
+            updated_at: row.5.to_rfc3339(),
+        })
     }
 
     async fn get_counter(

@@ -34,7 +34,7 @@
 //! is error-prone)"*. This module applies the identical reasoning to weekdays:
 //! the server knows the answer, so the server says it.
 
-use chrono::{DateTime, Datelike, Utc, Weekday};
+use chrono::{DateTime, Datelike, NaiveTime, Utc, Weekday};
 use chrono_tz::Tz;
 
 /// Resolve a stored `users.timezone` into a zone, falling back to UTC.
@@ -82,22 +82,42 @@ pub fn weekday_short(weekday: Weekday, locale: &str) -> &'static str {
     names[locale_index(locale)]
 }
 
-/// Every written form of `weekday`, lowercased, across the five shipped
-/// locales — long and short.
+/// Every UNAMBIGUOUS written form of `weekday`, lowercased, across the five
+/// shipped locales.
 ///
 /// For *reading* a weekday out of text rather than writing one: a claim that
 /// says "dimanche" is asserting a day, and the athlete-data verifier has to
-/// recognise it before it can check it (registre#249). Lowercased and
-/// unaccented-tolerant only insofar as the source is, so callers lowercase the
+/// recognise it before it can check it (registre#249). Callers lowercase the
 /// haystack and compare.
+///
+/// ## Why there are no abbreviations here
+///
+/// [`weekday_short`] writes `lun`/`mer`/`jeu`; this reads. The two jobs have
+/// opposite failure costs, and the short forms are homographs of ordinary words
+/// in every locale we ship: French `mon` is a possessive, `jeu` a game, `mer`
+/// the sea; English `sun` is the star and `sat` a past tense; Spanish and
+/// Portuguese `mar` is the sea, and the bare Portuguese ordinals `segunda`,
+/// `quarta`, `quinta`, `sexta` are just numbers.
+///
+/// With them in the table, *"ta sortie Road 2 AUS confirme **mon** impression"*
+/// read as a Monday claim and the layer contradicted a sentence that asserted
+/// no day at all — a warning banner on a true reply, which is the exact
+/// false-positive class this verifier exists to prevent (registre#258).
+///
+/// Missing a coach who writes "mar." costs one unchecked claim. Contradicting a
+/// coach who wrote "la mer" costs the athlete's trust. Only full names, and the
+/// Portuguese `-feira` compounds that disambiguate the ordinals, are listed.
 #[must_use]
 pub fn weekday_forms(weekday: Weekday) -> &'static [&'static str] {
     match weekday {
-        Weekday::Mon => &[
-            "lundi", "monday", "lunes", "montag", "segunda", "lun", "mon",
-        ],
+        Weekday::Mon => &["lundi", "monday", "lunes", "montag", "segunda-feira"],
         Weekday::Tue => &[
-            "mardi", "tuesday", "martes", "dienstag", "terça", "terca", "mar", "tue",
+            "mardi",
+            "tuesday",
+            "martes",
+            "dienstag",
+            "terça-feira",
+            "terca-feira",
         ],
         Weekday::Wed => &[
             "mercredi",
@@ -105,26 +125,12 @@ pub fn weekday_forms(weekday: Weekday) -> &'static [&'static str] {
             "miércoles",
             "miercoles",
             "mittwoch",
-            "quarta",
-            "mer",
-            "wed",
+            "quarta-feira",
         ],
-        Weekday::Thu => &[
-            "jeudi",
-            "thursday",
-            "jueves",
-            "donnerstag",
-            "quinta",
-            "jeu",
-            "thu",
-        ],
-        Weekday::Fri => &[
-            "vendredi", "friday", "viernes", "freitag", "sexta", "ven", "fri",
-        ],
-        Weekday::Sat => &[
-            "samedi", "saturday", "sábado", "sabado", "samstag", "sáb", "sam", "sat",
-        ],
-        Weekday::Sun => &["dimanche", "sunday", "domingo", "sonntag", "dim", "sun"],
+        Weekday::Thu => &["jeudi", "thursday", "jueves", "donnerstag", "quinta-feira"],
+        Weekday::Fri => &["vendredi", "friday", "viernes", "freitag", "sexta-feira"],
+        Weekday::Sat => &["samedi", "saturday", "sábado", "sabado", "samstag"],
+        Weekday::Sun => &["dimanche", "sunday", "domingo", "sonntag"],
     }
 }
 
@@ -146,6 +152,16 @@ pub const ALL_WEEKDAYS: [Weekday; 7] = [
 /// to compute.
 #[must_use]
 pub fn format_local_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> String {
+    // A date-only row has no time of day to convert, so it keeps its own date
+    // and renders 00:00 rather than being pulled back a day (registre#258).
+    if is_date_only(instant) {
+        let date = instant.date_naive();
+        return format!(
+            "{} {} 00:00",
+            date.format("%Y-%m-%d"),
+            weekday_short(date.weekday(), locale)
+        );
+    }
     let local = instant.with_timezone(&zone);
     format!(
         "{} {} {}",
@@ -158,19 +174,47 @@ pub fn format_local_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> Str
 /// `2026-09-01 lun` — the day-only shape, for surfaces that quote no time.
 #[must_use]
 pub fn format_local_day(instant: DateTime<Utc>, zone: Tz, locale: &str) -> String {
-    let local = instant.with_timezone(&zone);
+    // Via `local_date`, so a date-only row keeps the day its provider named
+    // instead of being shifted back one (registre#258).
+    let date = local_date(instant, zone);
     format!(
         "{} {}",
-        local.format("%Y-%m-%d"),
-        weekday_short(local.weekday(), locale)
+        date.format("%Y-%m-%d"),
+        weekday_short(date.weekday(), locale)
     )
+}
+
+/// Whether an instant is a date-only provider row rather than a real clock
+/// reading.
+///
+/// Several sources carry no time of day and render at midnight UTC of the
+/// workout day — `RosterActivity::start` documents exactly that for
+/// Strava-mirror scrapes. Such a value asserts a DAY, not a moment, and
+/// converting it into a negative-offset zone moves it onto the previous
+/// calendar day: midnight UTC is 20:00 the day before in `America/Toronto`.
+///
+/// A genuine session starting at exactly 00:00:00 UTC is indistinguishable and
+/// vanishingly rare; treating it as date-only costs at most a day-boundary
+/// nudge, where the alternative costs every date-only row a wrong weekday.
+#[must_use]
+pub fn is_date_only(instant: DateTime<Utc>) -> bool {
+    instant.time() == NaiveTime::MIN
 }
 
 /// The athlete's local calendar date for a UTC instant.
 ///
 /// The bucketing primitive: a 21:00 `America/Toronto` session belongs to the
 /// day the athlete trained, not to the UTC day it lands in four hours later.
+///
+/// A date-only row ([`is_date_only`]) is returned unconverted. It already names
+/// the day the provider means, and shifting it into the athlete's zone would
+/// move it backwards — which is how the first version of this fix made
+/// registre#200 worse on exactly the provider the 2026-09-02 athlete used
+/// (registre#258).
 #[must_use]
 pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> chrono::NaiveDate {
+    if is_date_only(instant) {
+        return instant.date_naive();
+    }
     instant.with_timezone(&zone).date_naive()
 }

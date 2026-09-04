@@ -274,8 +274,13 @@ const MIN_MATCHABLE_NAME: usize = 4;
 fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOutcome> {
     let lower = text.to_lowercase();
 
+    // Word-bounded, like every other token this function matches. A raw
+    // `contains` let a longer word "name" an activity — a session called "Cote"
+    // matched inside "cotes" — and everything downstream then contradicted a
+    // weekday that was never about it (registre#258).
     let mut named = record.activities.iter().filter(|a| {
-        a.name.chars().count() >= MIN_MATCHABLE_NAME && lower.contains(&a.name.to_lowercase())
+        a.name.chars().count() >= MIN_MATCHABLE_NAME
+            && contains_word(&lower, &a.name.to_lowercase())
     });
     let activity = named.next()?;
     if named.next().is_some() {
@@ -342,10 +347,28 @@ fn sole_sport(lower: &str) -> Option<SportType> {
     // by stripping separators but NOT accents, so "course à pied" resolves to
     // nothing while the bare "course" resolves to Run — which is why the
     // multi-word French form is not in this list.
-    const CANDIDATES: [&str; 21] = [
-        "course", "running", "run", "jogging", "trail", "vélo", "velo", "bike", "cycling", "ride",
-        "vtt", "mtb", "gravel", "natation", "swim", "marche", "walk", "rando", "hike", "ski",
-        "raquette",
+    // Only words that mean a sport and nothing else in the locale that uses
+    // them. Dropped as homographs (registre#258): English "run"/"ride"/"trail"
+    // (a run of days, a ride home, a trail of), French "course" (an errand),
+    // "marche" (it works) and "marche" the noun, "ski" (resolves to
+    // AlpineSkiing, which `sport_family_head` gives no family, so a coach
+    // naming a ski discipline exactly right was contradicted).
+    //
+    // The asymmetry is the same one the weekday table follows: a missed sport
+    // check costs one unverified claim, a false one costs a warning banner on a
+    // true sentence.
+    const CANDIDATES: [&str; 11] = [
+        "running",
+        "jogging",
+        "vélo",
+        "velo",
+        "cycling",
+        "vtt",
+        "mtb",
+        "gravel",
+        "natation",
+        "swimming",
+        "course à pied",
     ];
     let mut found: Option<SportType> = None;
     for candidate in CANDIDATES {

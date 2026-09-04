@@ -125,3 +125,57 @@ fn without_a_timezone_the_roster_states_the_utc_weekday() {
         card.summary_text
     );
 }
+
+/// A date-only provider row keeps the day its provider named.
+///
+/// `RosterActivity::start` says it plainly: *"Date-only sources (e.g.
+/// Strava-mirror scrapes) render at midnight UTC of the workout day."* Midnight
+/// UTC is 20:00 the PREVIOUS day in `America/Toronto`, so converting such a row
+/// into the athlete's zone prints the previous weekday — carnet#200 made worse,
+/// not better, on exactly the provider the 2026-09-02 athlete used.
+///
+/// The value asserts a day, not a moment, so there is nothing to convert
+/// (registre#258).
+#[test]
+fn a_date_only_row_is_not_shifted_back_a_day() {
+    let mut snapshot = snapshot_in(Some("America/Toronto"));
+    snapshot.recent_activities = vec![RosterActivity {
+        // Midnight UTC on Tuesday the 1st — the date-only sentinel.
+        start: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+        sport: "Ride".to_owned(),
+        distance_km: Some(161.0),
+        duration_minutes: 372,
+        name: "Road 2 AUS".to_owned(),
+        city: None,
+        start_latitude: None,
+        start_longitude: None,
+        elevation_gain_m: Some(2391.0),
+    }];
+
+    let card = WeeklyDigestSummarizer.summarize_member(&snapshot);
+
+    assert!(
+        card.summary_text.contains("2026-09-01 Tue"),
+        "the provider said Tuesday the 1st and there is no time of day to \
+         convert; shifting it to Monday the 31st is the defect: {}",
+        card.summary_text
+    );
+    assert!(
+        !card.summary_text.contains("2026-08-31"),
+        "converting midnight UTC into a negative-offset zone lands on the \
+         previous day: {}",
+        card.summary_text
+    );
+}
+
+/// A row that carries a real clock reading is still converted.
+#[test]
+fn a_timed_row_is_still_read_on_the_athletes_clock() {
+    let card = WeeklyDigestSummarizer.summarize_member(&snapshot_in(Some("America/Toronto")));
+
+    assert!(
+        card.summary_text.contains("2026-09-01 Tue"),
+        "21:30 local on the 1st stays the 1st: {}",
+        card.summary_text
+    );
+}

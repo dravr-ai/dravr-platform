@@ -28,7 +28,7 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
         .replace(['_', '-', ' ', '\''], "");
     Some(match normalised.as_str() {
         // Run / Walk / Hike
-        "run" | "running" | "course" | "courseapied" | "jogging" => SportType::Run,
+        "run" | "running" | "course" | "courseapied" | "courseàpied" | "jogging" => SportType::Run,
         "trailrun" | "trailrunning" | "trail" | "courseentrail" => SportType::TrailRunning,
         "walk" | "walking" | "marche" | "marcheapied" => SportType::Walk,
         "hike" | "hiking" | "rando" | "randonnée" | "randonnee" => SportType::Hike,

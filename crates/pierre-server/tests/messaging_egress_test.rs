@@ -675,8 +675,13 @@ fn the_burst_notice_never_prints_the_over_limit_comparison() {
 #[test]
 fn approaching_and_burst_are_different_sentences() {
     for locale in LOCALES {
+        // Identical counters on both sides. Varying `current` between the two
+        // renders made this pass on the pre-fix code, where both levels shared
+        // one template and only the substituted number differed — the test
+        // asserted the arguments were different, not the sentences
+        // (registre#258).
         assert_ne!(
-            quota_notice(QuotaLevel::Approaching, 45, 50, locale),
+            quota_notice(QuotaLevel::Approaching, 60, 50, locale),
             quota_notice(QuotaLevel::Burst, 60, 50, locale),
             "{locale}: burst must not reuse the approaching wording"
         );

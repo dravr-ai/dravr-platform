@@ -107,7 +107,13 @@ pub async fn check_pre_chat_quotas_scoped(
 ///
 /// `increment_counter` is an atomic upsert returning the new value, so the turn
 /// that sees `1` is the only one that can — no read-then-write race, and no new
-/// table. The counter is keyed on `resets_at` rather than on a date, because
+/// table. That was only true of the doc comment when this landed: both backends
+/// ran the upsert with `.execute()` and then a separate `SELECT`, so two
+/// concurrent turns could land both increments before either read and BOTH see
+/// 2 — neither claiming the slot, and the athlete never told about their budget
+/// at all. Both now use `RETURNING` (registre#258).
+///
+/// The counter is keyed on `resets_at` rather than on a date, because
 /// that string IS the window's identity: it is constant for the life of the
 /// budget period and changes the moment the period rolls, which is exactly when
 /// the athlete should hear about their budget again.

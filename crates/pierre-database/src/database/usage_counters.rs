@@ -26,12 +26,20 @@ impl Database {
     ) -> AppResult<UsageCounterRecord> {
         let now = chrono::Utc::now().to_rfc3339();
 
-        sqlx::query(
+        // RETURNING, not a follow-up SELECT. The upsert and the read must be one
+        // statement or the value a caller sees is not the value its own
+        // increment produced: two concurrent turns can both land their
+        // increments before either reads, and both then see 2. A caller using
+        // `value == 1` to claim a once-per-window slot — the quota notice does
+        // exactly that — would have BOTH turns decline it, and the athlete is
+        // never told about their budget at all (registre#258).
+        let row: (String, String, String, String, i64, String) = sqlx::query_as(
             r"
             INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (tenant_id, user_id, counter_key, period)
             DO UPDATE SET value = usage_counters.value + excluded.value, updated_at = excluded.updated_at
+            RETURNING tenant_id, user_id, counter_key, period, value, updated_at
             ",
         )
         .bind(tenant_id)
@@ -40,13 +48,18 @@ impl Database {
         .bind(period)
         .bind(amount)
         .bind(&now)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
 
-        // Read back the current value after upsert
-        self.get_usage_counter_impl(tenant_id, user_id, counter_key, period)
-            .await
+        Ok(UsageCounterRecord {
+            tenant_id: row.0,
+            user_id: row.1,
+            counter_key: row.2,
+            period: row.3,
+            value: row.4,
+            updated_at: row.5,
+        })
     }
 
     /// Get the current value of a usage counter (inherent implementation)

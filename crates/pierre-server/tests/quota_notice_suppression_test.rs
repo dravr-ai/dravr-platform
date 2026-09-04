@@ -165,3 +165,43 @@ async fn the_slot_is_per_athlete() {
         "a shared room must not spend one member's notice on another"
     );
 }
+
+/// Concurrent turns cannot both lose the slot.
+///
+/// The suppression rests on exactly one caller seeing `value == 1`. Both
+/// backends used to run the upsert with `.execute()` and then a separate
+/// `SELECT`, so two turns landing their increments before either read would
+/// both see 2 — neither claims it, and the athlete is never told about their
+/// budget for the whole window. `RETURNING` makes the increment and the read
+/// one statement (registre#258).
+#[tokio::test]
+async fn exactly_one_of_two_concurrent_turns_claims_the_slot() {
+    let db = create_test_db().await.expect("test db");
+    let counters = db.repositories().usage_counters;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+
+    let (a, b) = tokio::join!(
+        claim_notice_slot(
+            counters.as_ref(),
+            tenant,
+            user,
+            QuotaLevel::Approaching,
+            WINDOW
+        ),
+        claim_notice_slot(
+            counters.as_ref(),
+            tenant,
+            user,
+            QuotaLevel::Approaching,
+            WINDOW
+        ),
+    );
+
+    assert_eq!(
+        usize::from(a) + usize::from(b),
+        1,
+        "exactly one turn shows the notice — not two (spam) and not zero \
+         (silence): got a={a}, b={b}"
+    );
+}
