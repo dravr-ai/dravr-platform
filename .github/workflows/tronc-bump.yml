@@ -16,13 +16,19 @@
 # finding at its line 155. DRAVR_PRIVATE_DEPS_TOKEN is present on this repo, so
 # the chain's private-git-dep step arms for dravr-stripe and dravr-photograveur.
 #
-# Two things differ from a satellite. The gate is the three lanes
+# Three things differ from a satellite. The gate is the three lanes
 # embacle-bump.yml already dispatches; on a fix/* branch ci-postgres runs the
 # eight-file smoke rather than the suite, so 45 minutes fits inside the chain's
-# 60-minute gate job. And a tronc minor is not always pin-only here — 0.10 and
+# 60-minute gate job. A tronc minor is not always pin-only here — 0.10 and
 # 0.11 moved JsonSchema::properties to BTreeMap and forced fifteen source
-# files. A red gate then means source work, not a flake, and the stall issue
-# the chain files on the register says so.
+# files; a red gate then means source work, not a flake, and the stall issue
+# the chain files on the register says so. And embacle moves in lockstep:
+# embacle-tool-host pins tronc itself and ships from crates.io, so a tronc
+# bump that leaves it behind resolves two tronc versions and hard-fails the
+# duplicate gate — which blocked the platform on 2026-08-31 and 2026-09-03.
+# The chain bumps embacle and embacle-tool-host to their latest release in
+# the same commit, after checking that release is on the target tronc; if it
+# is not, the run says which crate to release first and rewrites nothing.
 #
 # The schedule is a safety net for a dispatch that never arrived; offset off
 # the top of the hour and staggered against the other consumers.
@@ -42,6 +48,11 @@ on:
         description: "tronc version to move onto (defaults to tronc's latest release)"
         required: false
         type: string
+      dry_run:
+        description: "Rewrite, resolve and assert on the runner, then stop — no branch, gates, merge or register issue"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write # push the bump branch and the squash merge
@@ -60,4 +71,6 @@ jobs:
       version: ${{ github.event.client_payload.version || inputs.version || '' }}
       ci_workflows: "ci-backend.yml ci-postgres.yml integration-tests.yml"
       gate_timeout_minutes: 45
+      lockstep_crates: "embacle embacle-tool-host"
+      dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
