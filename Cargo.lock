@@ -156,7 +156,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -167,7 +167,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1313,7 +1313,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1515,8 +1515,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.1.13"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.13#25e4cbd682a899bd1abfc1c16f4f1f0cba3c53cb"
+version = "0.1.14"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.14#afbd8b1b67cd4b48f21b4d9bd2ca16641d0c0fff"
 dependencies = [
  "chrono",
  "dravr-tronc",
@@ -1533,9 +1533,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "0.11.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882ff418ef1bda6dbc8c62ca0dae496b1db5d22e4b63c59cba0d738b42d78de8"
+checksum = "c3e0447172d6e89d97069727259f32290cf49db459f3522493a80f3897e95a7d"
 dependencies = [
  "async-trait",
  "axum",
@@ -1646,9 +1646,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70a227a4887fc74c281743402d62437bbbc48af49b730f40c6083fd15e6e489f"
+checksum = "d7315470942db08adb7dac24a6b83cccdd28d70d3d0793cc759764c1ab5e7522"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1667,9 +1667,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6254016a782ea1ee0f7a273bf3502dca80f9c34529393e8e80a55df2a5ac7c86"
+checksum = "6e80a8f3287b0d4e0adf5460f9dc29ee4267f8dfb2e443944d54d3693b451b7a"
 dependencies = [
  "async-trait",
  "axum",
@@ -1731,7 +1731,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2409,7 +2409,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -2629,7 +2629,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3049,7 +3049,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4766,7 +4766,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4805,7 +4805,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -5264,7 +5264,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5322,7 +5322,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5761,7 +5761,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6137,7 +6137,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7070,7 +7070,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

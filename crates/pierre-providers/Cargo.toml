@@ -57,7 +57,7 @@ subtle = "2.6"
 hex = "0.4"
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.5" }
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.9.1", optional = true }
-dravr-tronc = { version = "0.11.0", features = ["google-iam"], optional = true }
+dravr-tronc = { version = "1.0.0", features = ["google-iam"], optional = true }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }
 
 [dev-dependencies]
