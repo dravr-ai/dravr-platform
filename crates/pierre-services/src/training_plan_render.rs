@@ -19,6 +19,7 @@
 use chrono::NaiveDate;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantId, WorkoutStep};
+use pierre_core::untrusted::{cap, flatten_line};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_memory::FactKind;
@@ -153,17 +154,11 @@ const MAX_PROMPT_STEPS: usize = 12;
 /// any leading structural punctuation is then stripped, backticks are
 /// defanged, and the field is length-capped.
 fn sanitize_prompt_field(s: &str, max_len: usize) -> String {
-    let collapsed = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    let stripped = collapsed
+    let stripped = flatten_line(s)
         .trim_start_matches(['#', '>', '*', '-', '`'])
-        .trim();
-    let cleaned = stripped.replace('`', "'");
-    if cleaned.chars().count() > max_len {
-        let head: String = cleaned.chars().take(max_len.saturating_sub(1)).collect();
-        format!("{head}…")
-    } else {
-        cleaned
-    }
+        .trim()
+        .replace('`', "'");
+    cap(&stripped, max_len)
 }
 
 /// One clause naming a structured day's steps — `Warm-up 15min Z1; Work 8min

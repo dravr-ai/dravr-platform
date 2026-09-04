@@ -13,6 +13,7 @@
 
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalTool};
 use crate::protocols::{ProtocolError, ProtocolType};
+use pierre_core::untrusted::{cap, defang_for_display, flatten_line};
 use pierre_mcp_schema::{Content, Tool, ToolCall, ToolResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,6 +46,13 @@ pub struct ActivitiesResponse {
     /// List of activities
     pub activities: Vec<ActivityResponse>,
 }
+
+/// How much of one provider-controlled field survives into rendered prose.
+///
+/// An activity title is a phrase. A field far longer than one is either noise
+/// or an attempt to bury the surrounding line, and either way the listing is
+/// unreadable once one row runs to a paragraph.
+const MAX_RENDERED_FIELD_CHARS: usize = 120;
 
 /// Athlete profile response from fitness platforms
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +124,26 @@ impl ProtocolConverter {
         }
     }
 
+    /// Neutralize one provider-controlled field before a client renders it.
+    ///
+    /// [`Self::format_response_content`] composes prose the server invented —
+    /// a numbered listing, a labelled profile — and drops provider strings into
+    /// it. Those strings are an activity title from Strava or Garmin: whatever
+    /// the athlete, or anyone who can write to their account, typed. A newline
+    /// in one forges an extra numbered row; markup in one forges interface in
+    /// the client that renders it.
+    ///
+    /// Only the composed branches need this. The default branch pretty-prints
+    /// JSON, where the same text is a quoted string value and the escaping is
+    /// the delimiter — and the machine-readable copy rides `structured_content`
+    /// regardless, so nothing that parses the result loses anything here.
+    fn renderable(raw: &str) -> String {
+        cap(
+            &defang_for_display(&flatten_line(raw)),
+            MAX_RENDERED_FIELD_CHARS,
+        )
+    }
+
     /// Format response content into human-readable text
     fn format_response_content(result: Option<&Value>) -> String {
         let Some(data) = result else {
@@ -129,14 +157,14 @@ impl ProtocolConverter {
 
             for (i, activity) in activities_resp.activities.iter().enumerate().take(10) {
                 let name = if activity.name.is_empty() {
-                    "Unnamed Activity"
+                    "Unnamed Activity".to_owned()
                 } else {
-                    &activity.name
+                    Self::renderable(&activity.name)
                 };
                 let activity_type = if activity.sport_type.is_empty() {
-                    "Unknown"
+                    "Unknown".to_owned()
                 } else {
-                    &activity.sport_type
+                    Self::renderable(&activity.sport_type)
                 };
                 let distance = activity
                     .distance_meters
@@ -154,9 +182,9 @@ impl ProtocolConverter {
                     },
                 );
                 let activity_id = if activity.id.is_empty() {
-                    "unknown"
+                    "unknown".to_owned()
                 } else {
-                    &activity.id
+                    Self::renderable(&activity.id)
                 };
 
                 writeln!(
@@ -182,13 +210,11 @@ impl ProtocolConverter {
 
         // Try to deserialize as athlete response
         if let Ok(athlete) = serde_json::from_value::<AthleteResponse>(data.clone()) {
-            let name = format!("{} {}", athlete.firstname, athlete.lastname)
-                .trim()
-                .to_owned();
+            let name = Self::renderable(&format!("{} {}", athlete.firstname, athlete.lastname));
             let username = if athlete.username.is_empty() {
-                "N/A"
+                "N/A".to_owned()
             } else {
-                &athlete.username
+                Self::renderable(&athlete.username)
             };
 
             return format!(

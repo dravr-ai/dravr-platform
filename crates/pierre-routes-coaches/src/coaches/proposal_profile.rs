@@ -8,17 +8,22 @@ use std::collections::HashSet;
 
 use pierre_config::coach_recommendations::CoachRecommendationConfig;
 use pierre_core::models::{Dossier, Pillar, SportProfile};
+use pierre_core::untrusted::{cap, flatten_line};
 use pierre_services::activity_sports::{sport_label, MessagingStringsRegistry};
 use pierre_services::coaches::sport_code;
 
 use super::types::{SportProfileSummary, SportShare};
 
+/// How much of one untrusted fact reaches the re-rank prompt.
+///
+/// A North Star is a sentence, not an essay; the re-rank only needs enough to
+/// match a coach against. Capping here bounds what one long fact can spend of
+/// the prompt, and bounds what a hostile one can say.
+const MAX_FACT_PROMPT_CHARS: usize = 120;
+
 /// Clamp + flatten untrusted fact text before it enters the re-rank LLM prompt.
 fn sanitize_for_prompt(s: &str) -> String {
-    s.chars()
-        .take(120)
-        .collect::<String>()
-        .replace(['\n', '\r'], " ")
+    cap(&flatten_line(s), MAX_FACT_PROMPT_CHARS)
 }
 
 /// Build a short coach-matching context line from the user's onboarding facts.

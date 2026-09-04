@@ -75,6 +75,9 @@ pub mod chunking;
 /// HTML escaping utilities for XSS prevention in server-rendered templates
 pub mod html;
 
+/// Neutralizing untrusted text before it is interpolated into a structured destination
+pub mod untrusted;
+
 /// Authorization header parsing helpers (bearer token extraction, API key detection)
 pub mod auth_header;
 

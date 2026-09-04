@@ -24,6 +24,7 @@ use tracing::warn;
 use crate::memory_facts::SentenceRenderer;
 use pierre_core::models::{Dossier, DossierFact, Pillar};
 use pierre_core::tokens::estimate_context_tokens;
+use pierre_core::untrusted::{cap, flatten_line};
 
 /// Soft token budget for the rendered bundle. A little above the flat-recall
 /// budget because the bundle now spans North Star + up to six pillars + medical.
@@ -78,10 +79,7 @@ impl Section {
 /// defeats the case- and whitespace-variant fence forgeries (`</USER_FACT>`,
 /// `< /user_fact>`) that targeted substring matching would miss.
 fn sanitize_untrusted(s: &str) -> String {
-    s.chars()
-        .take(MAX_FACT_CHARS)
-        .collect::<String>()
-        .replace(['\n', '\r'], " ")
+    cap(&flatten_line(s), MAX_FACT_CHARS)
         .replace('<', "‹")
         .replace('>', "›")
 }
