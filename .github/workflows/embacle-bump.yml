@@ -171,6 +171,7 @@ jobs:
     if: needs.resolve.outputs.needed == 'true'
     outputs:
       branch: ${{ steps.push.outputs.branch }}
+      stand_down: ${{ steps.bump.outputs.stand_down }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -254,6 +255,30 @@ jobs:
 
           cargo update -p embacle -p embacle-tool-host
 
+          # A release that moved embacle onto a new dravr-tronc cannot be
+          # integrated by this chain alone. embacle-tool-host pins tronc itself,
+          # and the platform's own tronc pins still hold the old one, so the
+          # lockfile now carries two dravr-tronc versions and Security Audit would
+          # hard-fail the branch — the duplicate that blocked the platform on
+          # 2026-08-31 and 2026-09-03. tronc-bump.yml moves tronc and embacle
+          # together (its lockstep_crates), so this run stands down rather than
+          # pushing a branch that cannot merge and filing a stall for it. An
+          # embacle release on the tronc the platform already has resolves to one
+          # tronc and proceeds as before.
+          TRONC_ENTRIES=$(grep -c '^name = "dravr-tronc"$' Cargo.lock || true)
+          if [ "${TRONC_ENTRIES}" != "1" ]; then
+            echo "::notice::embacle ${VERSION} moved dravr-tronc — Cargo.lock would hold ${TRONC_ENTRIES} versions. tronc-bump.yml integrates this release in lockstep; standing down."
+            {
+              echo "### Stood down — embacle ${VERSION} moved dravr-tronc"
+              echo ""
+              echo "This chain moves embacle alone, and that leaves \`${TRONC_ENTRIES}\` dravr-tronc versions in the lockfile."
+              echo "Run **Tronc: Bump** (tronc-bump.yml) — it moves tronc and embacle together."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "stand_down=true" >> "$GITHUB_OUTPUT"
+            git checkout -- .
+            exit 0
+          fi
+
           # Assert the lockfile holds exactly one of each, both at the version just
           # pinned. Borrowed from the sciotte chain, which learned it the expensive
           # way: the platform depends on dravr-sciotte directly and again through
@@ -282,6 +307,7 @@ jobs:
 
       - name: Push the branch and dispatch the gates onto it
         id: push
+        if: steps.bump.outputs.stand_down != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.resolve.outputs.version }}
@@ -316,6 +342,9 @@ jobs:
     name: Wait for CI on the bump branch
     runs-on: ubuntu-latest
     needs: [resolve, bump]
+    # A stood-down bump pushed no branch; merge and deploy follow this job by
+    # `needs`, so skipping here skips the whole tail without a failure to report.
+    if: needs.bump.outputs.stand_down != 'true'
     timeout-minutes: 60
     steps:
       - name: Poll until every gate reaches a terminal status
