@@ -332,7 +332,7 @@ hex = "0.4"
 subtle = "2.6"
 ed25519-dalek = "2.2"
 # Stripe billing webhook integration test signs payloads against StripeClient.
-dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.12" }
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.13" }
 
 # Flamegraph profiler hook for criterion benches (`-- --profile-time N`).
 # pprof builds on libc signals and does not compile on Windows, and cargo

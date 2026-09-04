@@ -126,7 +126,7 @@ dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag
 # feature so the trait-only `billing` feature stays vendor-free. The
 # StripeProvider adapter in src/billing/stripe.rs maps these types onto the
 # BillingProvider trait DTOs.
-dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.12", optional = true }
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.13", optional = true }
 
 # SHA-256 for system-prompt fingerprinting (safety::prompt_fingerprint) and
 # admin JWT hashing. Non-optional because prompt fingerprinting is part of
