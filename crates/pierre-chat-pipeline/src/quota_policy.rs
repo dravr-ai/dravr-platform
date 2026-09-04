@@ -35,6 +35,7 @@ use uuid::Uuid;
 pub use pierre_services::quota_policy::PreChatScope;
 
 use crate::envelope::{QuotaLevel, QuotaState, QuotaWarningState};
+use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
 /// Check every pre-turn cap and return where the athlete stands.
@@ -82,28 +83,78 @@ pub async fn check_pre_chat_quotas_scoped(
         QuotaLevel::Approaching
     };
 
-    // Once per level per budget window. Without this the notice rode under
-    // every reply for as long as the athlete stayed over the threshold: five
-    // consecutive turns on 2026-09-02, four of them already past the cap, and
-    // they landed under the replies where he was disputing the coach's facts
-    // about his own training (registre#251).
-    if claim_notice_slot(
+    // A *candidate* notice. Whether it is actually shown is decided by
+    // [`settle_quota_notice`], on the turn's way out — see its doc for why the
+    // decision cannot be taken here.
+    Ok(QuotaState::Warning(warning_state(level, &check)))
+}
+
+/// [`settle_quota_notice`] for a coaching turn, reading the ids off the input.
+///
+/// [`crate::turn_service::execute`] measured the athlete's standing before the
+/// turn ran and carried it on the input; the envelope surfaces it as a notice
+/// block, and a hard breach never reaches a turn at all, having refused it
+/// already. What is left to decide is whether THIS turn is the one that spends
+/// the window's single notice, and that cannot be known until a reply exists —
+/// which is why both reply paths call this immediately before building their
+/// envelope, and neither decides it at the top of the ladder.
+///
+/// Both paths settle at the same point for the same reason, so they call one
+/// line rather than repeating the argument list and drifting apart.
+pub async fn settle_turn_notice(ctx: &ChatPipelineContext, input: &TurnInput) -> QuotaState {
+    settle_quota_notice(
         ctx.repos.usage_counters.as_ref(),
+        input.tool_tenant_id,
+        &input.user_id,
+        input.quota.clone(),
+    )
+    .await
+}
+
+/// Decide whether this turn is the one that shows the notice, and take the slot
+/// if so.
+///
+/// Called once a reply exists and is persisted, which is the earliest point the
+/// notice is known to reach the athlete. Claiming it at quota-check time — the
+/// top of the ladder, before the model has been called — spent the athlete's
+/// one notice for the whole budget window on a turn that then died in the
+/// pipeline or was interrupted: the slot was gone and nothing had been said
+/// (registre#260).
+///
+/// Anything but a [`QuotaState::Warning`] passes through untouched; there is no
+/// slot to take.
+pub async fn settle_quota_notice(
+    counters: &dyn UsageCounterRepository,
+    tenant_id: TenantId,
+    user_id: &str,
+    quota: QuotaState,
+) -> QuotaState {
+    let QuotaState::Warning(warning) = &quota else {
+        return quota;
+    };
+    if claim_notice_slot(
+        counters,
         tenant_id,
         user_id,
-        level,
-        &check.resets_at,
+        warning.level,
+        &warning.resets_at,
     )
     .await
     {
-        Ok(QuotaState::Warning(warning_state(level, &check)))
+        quota
     } else {
-        Ok(QuotaState::Ok)
+        QuotaState::Ok
     }
 }
 
 /// Take the one notice slot for `(level, window)`, returning whether this turn
 /// got it.
+///
+/// Once per level per budget window. Without it the notice rode under every
+/// reply for as long as the athlete stayed over the threshold: five consecutive
+/// turns on 2026-09-02, four of them already past the cap, and they landed
+/// under the replies where he was disputing the coach's facts about his own
+/// training (registre#251).
 ///
 /// `increment_counter` is an atomic upsert returning the new value, so the turn
 /// that sees `1` is the only one that can — no read-then-write race, and no new
@@ -127,7 +178,7 @@ pub async fn check_pre_chat_quotas_scoped(
 pub async fn claim_notice_slot(
     counters: &dyn UsageCounterRepository,
     tenant_id: TenantId,
-    user_id: Uuid,
+    user_id: &str,
     level: QuotaLevel,
     resets_at: &str,
 ) -> bool {
@@ -136,13 +187,7 @@ pub async fn claim_notice_slot(
         QuotaLevel::Burst => "quota_notice_burst",
     };
     match counters
-        .increment_counter(
-            &tenant_id.to_string(),
-            &user_id.to_string(),
-            key,
-            resets_at,
-            1,
-        )
+        .increment_counter(&tenant_id.to_string(), user_id, key, resets_at, 1)
         .await
     {
         Ok(record) => record.value == 1,

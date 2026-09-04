@@ -102,7 +102,8 @@ impl AthleteRecord {
             .filter_map(|a| match unit {
                 Unit::Kilometres => a.distance_km,
                 Unit::Minutes => Some(a.duration_min),
-                Unit::Metres => a.elevation_m,
+                Unit::ElevationMetres => a.elevation_m,
+                Unit::DistanceMetres => a.distance_km.map(|km| km * 1000.0),
             })
             .collect()
     }
@@ -129,7 +130,15 @@ enum Unit {
     /// Metres of ascent. Every elevation figure in the 2026-09-02 conversation
     /// — 2391 m, 895 m, 414 m — was unfalsifiable because this unit did not
     /// exist (registre#249).
-    Metres,
+    ElevationMetres,
+    /// Metres of distance — a pool set, a track rep, a 400 m interval.
+    ///
+    /// Split from [`Unit::ElevationMetres`] because one `Metres` variant held
+    /// only `elevation_m`, so *"tu as tenu tes 400 m"* was adjudicated against
+    /// the session's total ascent: two quantities that share a symbol and
+    /// nothing else. Which one a figure means is decided by
+    /// [`mentions_elevation`], not by the unit token (registre#260).
+    DistanceMetres,
 }
 
 /// Check a claim about the athlete's own records.
@@ -253,12 +262,200 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
     })
 }
 
-/// Shortest activity name this layer will match on.
+/// Shortest token in an activity name this layer will match on.
 ///
 /// A provider name of three characters or fewer ("Am", "PM", "🚴") appears
 /// inside ordinary prose by accident, and a false match here produces a
 /// confident contradiction about the wrong session.
 const MIN_MATCHABLE_NAME: usize = 4;
+
+/// Nouns that name a training session generically, in every locale we reply in.
+///
+/// Read by two checks, and both fail *safe* on a word that arguably should not
+/// be here: the effect is always to decline an adjudication, never to add a
+/// contradiction. That inverts the asymmetry the weekday and sport tables
+/// carry — a homograph there manufactured a false contradiction, which is why
+/// those tables had to be narrowed (registre#258). A false member here costs
+/// one unadjudicated claim, so this list is deliberately generous.
+const GENERIC_SESSION_NOUNS: &[&str] = &[
+    // French
+    "sortie",
+    "sorties",
+    "séance",
+    "seance",
+    "séances",
+    "seances",
+    "entraînement",
+    "entrainement",
+    "entraînements",
+    "entrainements",
+    "footing",
+    // English
+    "ride",
+    "rides",
+    "run",
+    "runs",
+    "session",
+    "sessions",
+    "workout",
+    "workouts",
+    "training",
+    "activity",
+    // Spanish
+    "salida",
+    "salidas",
+    "sesión",
+    "sesion",
+    "entrenamiento",
+    // German
+    "einheit",
+    "ausfahrt",
+    "lauf",
+    // Portuguese
+    "treino",
+    "treinos",
+    "saída",
+    "saida",
+    "sessão",
+    "sessao",
+];
+
+/// Adjectives and times of day that qualify a session without identifying one.
+///
+/// Separate from [`GENERIC_SESSION_NOUNS`] because only a *noun* can be the
+/// second referent a weekday attaches to. Both lists decide whether a provider
+/// name is distinctive; only the nouns decide whether the text names a second
+/// session.
+const GENERIC_SESSION_MODIFIERS: &[&str] = &[
+    // French
+    "longue",
+    "longues",
+    "facile",
+    "récup",
+    "recup",
+    "matin",
+    "soir",
+    "midi",
+    "dure",
+    // English
+    "long",
+    "easy",
+    "hard",
+    "tempo",
+    "recovery",
+    "morning",
+    "afternoon",
+    "evening",
+    "lunch",
+    "night",
+    "indoor",
+    "outdoor",
+    // Spanish
+    "larga",
+    "suave",
+    "mañana",
+    "manana",
+    "tarde",
+    "noche",
+    // German
+    "lang",
+    "locker",
+    "abend",
+    "morgen",
+    // Portuguese
+    "longo",
+    "longa",
+    "leve",
+    "manhã",
+    "manha",
+    "noite",
+];
+
+/// Whether `word` is generic session vocabulary rather than a session's identity.
+fn is_generic_session_word(word: &str) -> bool {
+    GENERIC_SESSION_NOUNS.contains(&word) || GENERIC_SESSION_MODIFIERS.contains(&word)
+}
+
+/// Every alphanumeric token in `text`, in order, with its byte span.
+fn word_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut start: Option<usize> = None;
+    for (idx, ch) in text.char_indices() {
+        if ch.is_alphanumeric() {
+            start.get_or_insert(idx);
+        } else if let Some(s) = start.take() {
+            spans.push((s, idx));
+        }
+    }
+    if let Some(s) = start {
+        spans.push((s, text.len()));
+    }
+    spans
+}
+
+/// Whether a provider name identifies *one* session rather than describing any
+/// session at all.
+///
+/// Strava names an unedited activity "Morning Ride", "Afternoon Run", "Lunch
+/// Ride"; an athlete names one "Sortie" or "Long Run". Each of those is long
+/// enough to clear [`MIN_MATCHABLE_NAME`] and word-bounded inside any sentence
+/// mentioning the same ordinary words — so every claim containing "morning
+/// ride" named that session, and the weekday and sport checks then adjudicated
+/// a sentence that was never about it (registre#260).
+///
+/// Distinctive means: at least one token long enough to matter that is not
+/// generic session vocabulary. "Road 2 AUS" keeps `road`; "Morning Ride" keeps
+/// nothing.
+fn is_distinctive_name(lower_name: &str) -> bool {
+    word_spans(lower_name).into_iter().any(|(a, b)| {
+        let token = &lower_name[a..b];
+        token.chars().count() >= MIN_MATCHABLE_NAME && !is_generic_session_word(token)
+    })
+}
+
+/// How many whole words separate two spans of the same text.
+///
+/// The unit of "is this generic noun part of the named session, or a second
+/// session of its own?". See [`generic_referent_between`].
+fn words_between(text: &str, a: (usize, usize), b: (usize, usize)) -> usize {
+    let (lo, hi) = if b.0 >= a.1 { (a.1, b.0) } else { (b.1, a.0) };
+    text.get(lo..hi).map_or(0, |gap| word_spans(gap).len())
+}
+
+/// Determiners and copulas may sit between a session's generic head noun and
+/// its provider name; a clause may not.
+///
+/// *"ta sortie Road 2 AUS"* is one session named twice — `sortie` is its head
+/// noun, the name is its apposition, and nothing separates them but a
+/// determiner. *"Road 2 AUS était plus dure que ta sortie de mardi"* is two
+/// sessions, and five words lie between the name and the second one.
+const ATTACHED_WORD_GAP: usize = 1;
+
+/// Whether the text names a *second*, unnamed session between the named
+/// activity and the day or sport being asserted.
+///
+/// This is the syntax this layer does not have, approximated by position. A
+/// single sentence can name one activity and correctly date a different one —
+/// *"Road 2 AUS était plus dure que ta sortie de mardi"* asserts nothing at all
+/// about which day Road 2 AUS fell on, and contradicting it put a warning
+/// banner on a true sentence (registre#260).
+///
+/// A generic noun *attached* to the name is the same session under its head
+/// noun, so it is not a second referent and is ignored.
+fn generic_referent_between(text: &str, name: (usize, usize), claim: (usize, usize)) -> bool {
+    let (lo, hi) = if claim.0 >= name.1 {
+        (name.1, claim.0)
+    } else {
+        (claim.1, name.0)
+    };
+    let Some(gap) = text.get(lo..hi) else {
+        return false;
+    };
+    GENERIC_SESSION_NOUNS.iter().any(|noun| {
+        find_word(gap, noun)
+            .is_some_and(|(a, b)| words_between(text, name, (lo + a, lo + b)) > ATTACHED_WORD_GAP)
+    })
+}
 
 /// Check a claim that names one of the athlete's own activities.
 ///
@@ -278,26 +475,31 @@ fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOut
     // `contains` let a longer word "name" an activity — a session called "Cote"
     // matched inside "cotes" — and everything downstream then contradicted a
     // weekday that was never about it (registre#258).
-    let mut named = record.activities.iter().filter(|a| {
-        a.name.chars().count() >= MIN_MATCHABLE_NAME
-            && contains_word(&lower, &a.name.to_lowercase())
+    let mut named = record.activities.iter().filter_map(|a| {
+        let name = a.name.to_lowercase();
+        if !is_distinctive_name(&name) {
+            return None;
+        }
+        find_word(&lower, &name).map(|span| (a, span))
     });
-    let activity = named.next()?;
+    let (activity, name_span) = named.next()?;
     if named.next().is_some() {
         // More than one of their activities is named; which one the weekday
         // belongs to is not decidable from the text.
         return None;
     }
 
-    // Scan the text with the activity's own name removed. "Passion rando"
-    // carries the word `rando`, so leaving it in had the record contradict
-    // itself — the layer read the athlete's own session title as the coach's
-    // claim about its sport.
-    let residual = lower.replace(&activity.name.to_lowercase(), " ");
+    // Blank the activity's own name, keeping every other byte where it was.
+    // Removing it was necessary — "Passion rando" carries the word `rando`, so
+    // leaving it in had the record contradict itself, the layer reading the
+    // athlete's own session title as the coach's claim about its sport. Doing
+    // it by `replace` also moved every offset after it, and the checks below
+    // need the name's position to decide what a weekday is attached to.
+    let residual = blank_span(&lower, name_span);
 
-    if let Some(claimed) = sole_weekday(&residual) {
+    if let Some((claimed, span)) = sole_weekday(&residual) {
         let actual = activity.date.weekday();
-        if claimed != actual {
+        if claimed != actual && !generic_referent_between(&residual, name_span, span) {
             return Some(contradicted(format!(
                 "Places \"{}\" on {}, but it is on record for {} ({}).",
                 activity.name,
@@ -308,8 +510,10 @@ fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOut
         }
     }
 
-    if let Some(claimed) = sole_sport(&residual) {
-        if !same_family(&claimed, &activity.sport) {
+    if let Some((claimed, span)) = sole_sport(&residual) {
+        if !same_family(&claimed, &activity.sport)
+            && !generic_referent_between(&residual, name_span, span)
+        {
             return Some(contradicted(format!(
                 "Calls \"{}\" a {:?}, but it is on record as a {:?}.",
                 activity.name, claimed, activity.sport
@@ -320,29 +524,45 @@ fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOut
     None
 }
 
-/// The one weekday the text names, or `None` when it names none or several.
-fn sole_weekday(lower: &str) -> Option<chrono::Weekday> {
+/// `text` with `span` overwritten by spaces, so every other byte keeps its
+/// offset.
+///
+/// The replaced bytes become ASCII spaces and `span` comes from a word-bounded
+/// match, so the result is always valid UTF-8; the fallback exists to keep this
+/// total rather than to describe a reachable case.
+fn blank_span(text: &str, span: (usize, usize)) -> String {
+    let mut bytes = text.as_bytes().to_vec();
+    if let Some(slice) = bytes.get_mut(span.0..span.1) {
+        slice.fill(b' ');
+    }
+    String::from_utf8(bytes).unwrap_or_else(|_| text.to_owned())
+}
+
+/// The one weekday the text names and where it says it, or `None` when it
+/// names none or several.
+fn sole_weekday(lower: &str) -> Option<(chrono::Weekday, (usize, usize))> {
     let mut found = None;
     for day in ALL_WEEKDAYS {
-        if weekday_forms(day)
+        let Some(span) = weekday_forms(day)
             .iter()
-            .any(|form| contains_word(lower, form))
-        {
-            if found.is_some() {
-                return None;
-            }
-            found = Some(day);
+            .find_map(|form| find_word(lower, form))
+        else {
+            continue;
+        };
+        if found.is_some() {
+            return None;
         }
+        found = Some((day, span));
     }
     found
 }
 
-/// The one sport the text names, or `None` when it names none or several
-/// unrelated ones.
+/// The one sport the text names and where it says it, or `None` when it names
+/// none or several unrelated ones.
 ///
 /// Resolution goes through [`resolve_sport_type`], the same alias table the
 /// tools accept from the LLM, so this reads no vocabulary of its own.
-fn sole_sport(lower: &str) -> Option<SportType> {
+fn sole_sport(lower: &str) -> Option<(SportType, (usize, usize))> {
     // Surface forms that `resolve_sport_type` actually accepts. It normalises
     // by stripping separators but NOT accents, so "course à pied" resolves to
     // nothing while the bare "course" resolves to Run — which is why the
@@ -370,17 +590,17 @@ fn sole_sport(lower: &str) -> Option<SportType> {
         "swimming",
         "course à pied",
     ];
-    let mut found: Option<SportType> = None;
+    let mut found: Option<(SportType, (usize, usize))> = None;
     for candidate in CANDIDATES {
-        if !contains_word(lower, candidate) {
+        let Some(span) = find_word(lower, candidate) else {
             continue;
-        }
+        };
         let Some(sport) = resolve_sport_type(candidate) else {
             continue;
         };
         match &found {
-            None => found = Some(sport),
-            Some(existing) if same_family(existing, &sport) => {}
+            None => found = Some((sport, span)),
+            Some((existing, _)) if same_family(existing, &sport) => {}
             Some(_) => return None,
         }
     }
@@ -395,29 +615,32 @@ fn same_family(a: &SportType, b: &SportType) -> bool {
     head(a) == head(b)
 }
 
-/// Whether `needle` appears in `haystack` bounded by non-alphanumerics.
+/// Where `needle` first appears in `haystack` bounded by non-alphanumerics.
 ///
-/// Substring alone matches "mar" inside "marathon" and "run" inside "brunch",
-/// which would attribute a weekday or a sport the athlete never named.
-fn contains_word(haystack: &str, needle: &str) -> bool {
+/// Substring alone matches "vtt" inside "vttiste" and "velo" inside
+/// "vélodrome", which would attribute a sport the athlete never named. The span
+/// is returned rather than a bare yes/no because
+/// [`generic_referent_between`] decides what a weekday is attached to by where
+/// it sits.
+fn find_word(haystack: &str, needle: &str) -> Option<(usize, usize)> {
     let mut from = 0;
-    while let Some(rel) = haystack[from..].find(needle) {
+    while let Some(rel) = haystack.get(from..)?.find(needle) {
         let start = from + rel;
         let end = start + needle.len();
-        let before_ok = haystack[..start]
-            .chars()
-            .next_back()
+        let before_ok = haystack
+            .get(..start)
+            .and_then(|s| s.chars().next_back())
             .is_none_or(|c| !c.is_alphanumeric());
-        let after_ok = haystack[end..]
-            .chars()
-            .next()
+        let after_ok = haystack
+            .get(end..)
+            .and_then(|s| s.chars().next())
             .is_none_or(|c| !c.is_alphanumeric());
         if before_ok && after_ok {
-            return true;
+            return Some((start, end));
         }
         from = end;
     }
-    false
+    None
 }
 
 /// The shared shape of a contradiction this layer can prove from the record.
@@ -471,7 +694,11 @@ fn describe(figures: &[AssertedFigure]) -> String {
         .map(|f| match f.unit {
             Unit::Kilometres => format!("{} km", trim_float(f.value)),
             Unit::Minutes => format!("{} min", trim_float(f.value)),
-            Unit::Metres => format!("{} m", trim_float(f.value)),
+            // The operator reading this in the admin console needs to know
+            // which quantity the layer adjudicated, because the two share a
+            // symbol and are checked against different fields.
+            Unit::ElevationMetres => format!("{} m D+", trim_float(f.value)),
+            Unit::DistanceMetres => format!("{} m", trim_float(f.value)),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -494,6 +721,9 @@ fn trim_float(v: f64) -> String {
 /// record.
 fn extract_figures(text: &str) -> Vec<AssertedFigure> {
     let lower = text.to_lowercase();
+    // Whether "m" in this claim means climbing or distance is a property of the
+    // sentence, not of the token, so it is resolved once for the whole text.
+    let elevation_cued = mentions_elevation(&lower);
     let mut out = Vec::new();
     let bytes = lower.as_bytes();
     let mut i = 0;
@@ -504,6 +734,7 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
             continue;
         }
         let start = i;
+        let mut digits = String::new();
         // `,` counts as a decimal separator only between digits, which is how
         // every French reply writes distance ("21,4 km"). Scanning digits alone
         // would end the number at the comma, then re-enter the loop at `4` and
@@ -517,7 +748,35 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
                     && bytes[i + 1].is_ascii_digit()
                     && i > start))
         {
+            digits.push(char::from(bytes[i]));
             i += 1;
+        }
+        // Thousands written with a separating space. The digit scan stopped at
+        // the space, so "2 391 m" yielded 391 — harmless while the units were
+        // kilometres and minutes, where a value over 999 barely occurs, and
+        // exactly wrong for metres of climbing, which is where four-digit
+        // values live (registre#260).
+        //
+        // Only a group of exactly three digits, only after a leading group of
+        // at most three, and only when no fourth digit follows — the shape of a
+        // grouped number and of very little else. It does read "3 400 m" as
+        // 3400 rather than as three 400s; that ambiguity is real in the text
+        // itself, and the cost of taking it the wrong way is one `Unverifiable`
+        // verdict, never a contradiction.
+        if digits.len() <= 3 && digits.bytes().all(|b| b.is_ascii_digit()) {
+            while let Some(sep) = thousands_separator_at(bytes, i) {
+                let group = i + sep;
+                let Some(next) = lower.get(group..group + 3) else {
+                    break;
+                };
+                if !next.bytes().all(|b| b.is_ascii_digit())
+                    || bytes.get(group + 3).is_some_and(u8::is_ascii_digit)
+                {
+                    break;
+                }
+                digits.push_str(next);
+                i = group + 3;
+            }
         }
         // A `:` on either side means this is a clock or pace token ("5:00
         // min/km", "1:32:40"), not a plain quantity. The seconds half would
@@ -528,7 +787,7 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
         if preceded_by_colon || followed_by_colon {
             continue;
         }
-        let Ok(value) = lower[start..i]
+        let Ok(value) = digits
             .trim_end_matches('.')
             .replace(',', ".")
             .parse::<f64>()
@@ -536,8 +795,8 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
             continue;
         };
         // The unit may be glued to the number ("21km") or follow a space.
-        let tail = lower[i..].trim_start();
-        if let Some((unit, to_canonical)) = leading_unit(tail) {
+        let tail = lower.get(i..).unwrap_or_default().trim_start();
+        if let Some((unit, to_canonical)) = leading_unit(tail, elevation_cued) {
             out.push(AssertedFigure {
                 value: value * to_canonical,
                 unit,
@@ -561,13 +820,22 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
 /// `"k "`, because requiring the trailing space loses every "10k" that ends a
 /// sentence or is followed by punctuation — the most common way the idiom is
 /// actually written.
-fn leading_unit(tail: &str) -> Option<(Unit, f64)> {
+fn leading_unit(tail: &str, elevation_cued: bool) -> Option<(Unit, f64)> {
     const KM: [&str; 4] = ["kilometres", "kilometers", "kilomètres", "km"];
     const MIN: [&str; 4] = ["minutes", "minute", "mins", "min"];
     const HOURS: [&str; 4] = ["hours", "hour", "heures", "hrs"];
     // Elevation. Checked AFTER minutes so "min" is never read as a bare "m",
     // and the longest forms lead as everywhere else here.
-    const METRES: [&str; 4] = ["mètres", "metres", "meters", "m+"];
+    const METRES: [&str; 3] = ["mètres", "metres", "meters"];
+
+    // A metres token means climbing when the sentence says so, and distance
+    // otherwise. Nothing in "400 m" itself distinguishes a track rep from a
+    // hill (registre#260).
+    let metres = if elevation_cued {
+        Unit::ElevationMetres
+    } else {
+        Unit::DistanceMetres
+    };
 
     for form in KM {
         if tail.starts_with(form) {
@@ -584,9 +852,14 @@ fn leading_unit(tail: &str) -> Option<(Unit, f64)> {
             return Some((Unit::Minutes, 60.0));
         }
     }
+    // `m+` is its own cue: the symbol means metres of ascent and nothing else,
+    // so it does not wait on the sentence to say "dénivelé".
+    if tail.starts_with("m+") {
+        return Some((Unit::ElevationMetres, 1.0));
+    }
     for form in METRES {
         if tail.starts_with(form) {
-            return Some((Unit::Metres, 1.0));
+            return Some((metres, 1.0));
         }
     }
     if bare_form(tail, 'k') {
@@ -599,9 +872,52 @@ fn leading_unit(tail: &str) -> Option<(Unit, f64)> {
     // prefixes, and `bare_form` refuses anything with a letter after it, so a
     // weight in "80 mg" or a pace in "5 min" cannot land here.
     if bare_form(tail, 'm') {
-        return Some((Unit::Metres, 1.0));
+        return Some((metres, 1.0));
     }
     None
+}
+
+/// A separating space between thousands, and how many bytes it occupies.
+///
+/// All three are written in practice: a plain space by anyone typing, and the
+/// two non-breaking forms by every number formatter that respects French
+/// typography.
+fn thousands_separator_at(bytes: &[u8], at: usize) -> Option<usize> {
+    match bytes.get(at)? {
+        b' ' => Some(1),
+        // U+00A0 NO-BREAK SPACE
+        0xC2 if bytes.get(at + 1) == Some(&0xA0) => Some(2),
+        // U+202F NARROW NO-BREAK SPACE
+        0xE2 if bytes.get(at + 1) == Some(&0x80) && bytes.get(at + 2) == Some(&0xAF) => Some(3),
+        _ => None,
+    }
+}
+
+/// Whether the claim is about climbing, in any locale the coach replies in.
+///
+/// Deliberately substring tests on stems, like [`mentions_sleep`]: `dénivel`
+/// covers "dénivelé"/"dénivelés"/"dénivellation", `grimp` covers
+/// "grimpé"/"grimpette", `altimetr` covers "altimetria"/"altimetría". A false
+/// positive routes a distance figure to the elevation field and yields
+/// `Unverifiable`; a false negative does the same in the other direction. Both
+/// are cheap, and neither can manufacture a contradiction for a connected
+/// athlete.
+fn mentions_elevation(lower: &str) -> bool {
+    const STEMS: [&str; 12] = [
+        "dénivel",
+        "denivel",
+        "d+",
+        "m+",
+        "montée",
+        "montee",
+        "grimp",
+        "ascent",
+        "elevation",
+        "climb",
+        "höhenmeter",
+        "desnivel",
+    ];
+    STEMS.iter().any(|s| lower.contains(s))
 }
 
 /// Whether `tail` begins with the single-letter unit `letter` standing alone —

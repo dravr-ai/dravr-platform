@@ -218,3 +218,26 @@ pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> chrono::NaiveDate {
     }
     instant.with_timezone(&zone).date_naive()
 }
+
+/// Today, on the athlete's clock.
+///
+/// Deliberately NOT [`local_date`]. That one refuses to convert a midnight-UTC
+/// instant, because a date-only provider row uses exactly that as its sentinel
+/// for "a day, not a moment" (registre#258). A reading of the wall clock is
+/// always a real moment, so it always converts — and a rollup window built with
+/// `local_date` would rewind a day for every athlete ahead of UTC on the one
+/// instant per day the sentinel guard fires.
+///
+/// It exists because the distinction cost a whole civil day of training data:
+/// the daily rollup buckets each activity on the athlete's civil date but
+/// bounded its window with `Utc::now().date_naive()`, so for any zone ahead of
+/// UTC the athlete's current day sat past the end of the window and was
+/// dropped — from the CTL/ATL/TSB series and from every answer built on it
+/// (registre#260).
+///
+/// Takes the instant rather than reading the clock itself so the boundary it
+/// exists for is testable.
+#[must_use]
+pub fn clock_date(instant: DateTime<Utc>, zone: Tz) -> chrono::NaiveDate {
+    instant.with_timezone(&zone).date_naive()
+}

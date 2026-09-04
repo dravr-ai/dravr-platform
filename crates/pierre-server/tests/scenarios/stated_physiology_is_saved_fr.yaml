@@ -26,6 +26,15 @@ notes: "Tool-discipline regression — registre#250, Telegram 2026-09-02"
 # INVOCATION, and the local nightly grader (qwen2.5:7b, CPU-only) does
 # not call tools. Runs under CHAT_SCENARIO_INCLUDE_ONDEMAND=1 or against
 # a stronger model.
+#
+# That left the rule measured by nothing on an ordinary day, which is how
+# it would have rotted (registre#260). It is now carried by the
+# `stated_physiology` episode in live_incident_eval_test.rs — the nightly
+# lane that drives the real, tool-capable provider chain — and that
+# episode asserts the OUTCOME rather than the call: the athlete's stored
+# profile must hold 380 W afterwards. A reply that quotes the number back
+# and saves nothing is exactly what happened live, and it satisfies every
+# substring assertion. This file stays as the structural probe.
 nightly_gate: false
 provider_state:
   providers:

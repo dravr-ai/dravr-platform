@@ -107,3 +107,74 @@ fn set_physiology_is_reachable_from_a_chat_turn() {
          there cannot save it at all"
     );
 }
+
+/// The write rule must say WHOSE profile it writes.
+///
+/// `set_physiology` takes no subject: it writes the profile of the athlete
+/// whose turn is executing. In a DM that is unambiguous, but the directive is
+/// appended to group-room turns too, and a group prompt carries other members'
+/// messages — so "if the athlete states a physiological value" pointed at
+/// several people at once while the tool could only ever mean one of them. A
+/// coach that took Phil's FTP out of the transcript and saved it would have
+/// written it onto whoever was speaking, and the wrong athlete's zones are
+/// worse than no zones: they are wrong with the same confidence as right ones.
+///
+/// Nothing pinned this. The verifier called it "probably safe", which is not a
+/// test (registre#260).
+#[test]
+fn the_write_rule_names_whose_profile_it_touches() {
+    assert!(
+        TURN_DIRECTIVE.contains("the athlete addressing you"),
+        "in a group room 'the athlete' is several people; the rule must point \
+         at the one whose turn this is: {TURN_DIRECTIVE}"
+    );
+
+    // Said this way on purpose. The first draft read "the athlete you are
+    // answering", which trips `the_turn_directive_asserts_no_identity`: "you
+    // are" is banned outright in this block, because identity text here was
+    // present in every leaking run and adding more of it never closed the leak.
+    // The scoping is a task, and has to be phrased as one.
+    assert!(
+        !TURN_DIRECTIVE.to_lowercase().contains("you are"),
+        "scoping the rule must not smuggle an identity assertion into the \
+         turn directive: {TURN_DIRECTIVE}"
+    );
+    assert!(
+        TURN_DIRECTIVE.contains("someone else"),
+        "and it must refuse the other direction explicitly — a value read out \
+         of another member's message is not this athlete's: {TURN_DIRECTIVE}"
+    );
+}
+
+/// The tool really does take no subject, which is what makes the wording load
+/// bearing rather than decorative.
+///
+/// If a future schema grows an athlete argument, this fails and the directive
+/// should be revisited rather than left describing a constraint that no longer
+/// holds.
+#[test]
+fn set_physiology_writes_the_calling_athlete_and_takes_no_subject() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let schema = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .find(|t| t.name == "set_physiology")
+        .expect("set_physiology is chat-callable");
+
+    let properties = schema
+        .input_schema
+        .properties
+        .as_ref()
+        .expect("the tool declares an object schema with properties");
+
+    for subject in ["user_id", "athlete", "athlete_id", "member", "member_id"] {
+        assert!(
+            !properties.contains_key(subject),
+            "set_physiology exposes `{subject}`, so it CAN write another \
+             athlete's profile — the directive's wording is then not enough on \
+             its own and the tool needs the guard: {:?}",
+            properties.keys().collect::<Vec<_>>()
+        );
+    }
+}

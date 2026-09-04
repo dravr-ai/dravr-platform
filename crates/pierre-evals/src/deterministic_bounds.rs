@@ -139,22 +139,22 @@ fn extract_number_near_lowercased(lower: &str, keyword: &str) -> Option<f64> {
     let mut best: Option<(f64, usize)> = None;
     let mut buf = String::new();
     let mut token_start: Option<usize> = None;
-    // The character before the one being examined, so a `-` can be told apart
-    // from a hyphen inside a range.
-    let mut prev: Option<char> = None;
 
     for (offset, ch) in window.char_indices() {
         // A leading sign, and only a leading one. TSB is the metric that is
         // routinely negative, and without this the scanner read «ton TSB est à
         // -77» as a claim of +77 — so a coach stating the athlete's true form
         // was scored Contradicted and earned a warning banner on a correct
-        // sentence, while a coach stating +77 scored identically. Requiring the
-        // previous character not to be a digit keeps a range ("5-15", "zone
-        // 2-3", "5:00-5:15/km") from being read as a negative number.
-        let is_sign = matches!(ch, '-' | '\u{2212}')
-            && buf.is_empty()
-            && !prev.is_some_and(|c| c.is_ascii_digit());
-        prev = Some(ch);
+        // sentence, while a coach stating +77 scored identically.
+        //
+        // `buf.is_empty()` is also what keeps a range a range: in "5-15", "zone
+        // 2-3" and "5:00-5:15/km" the hyphen arrives with digits already
+        // buffered, so it is never read as a sign. A second guard here compared
+        // the PREVIOUS character against a digit, which reads like the rule
+        // that does that work and is not: every path where the previous
+        // character is a digit leaves `buf` non-empty, so it could not fire and
+        // deleting it left the whole suite green (registre#260).
+        let is_sign = matches!(ch, '-' | '\u{2212}') && buf.is_empty();
         if (ch.is_ascii_digit() || ch == '.' || is_sign) && !kw_span_in_window.contains(&offset) {
             if buf.is_empty() {
                 token_start = Some(offset);

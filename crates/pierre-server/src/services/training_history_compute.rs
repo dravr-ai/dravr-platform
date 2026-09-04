@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use chrono::{Duration, NaiveDate, Utc};
+use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_fitness_compute::training_history_compute::{
@@ -134,7 +135,21 @@ pub async fn compute_default_window(
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> AppResult<usize> {
-    let to = Utc::now().date_naive();
+    // "Today" is the athlete's, not the server's. The rollup buckets each
+    // activity on the athlete's civil date, so a window ending on the UTC date
+    // put their current local day past `to` for every zone ahead of UTC — the
+    // session they just finished was dropped from the series that answers
+    // "how am I doing" (registre#260).
+    let zone = resolve_zone(
+        resources
+            .repos()
+            .users
+            .get_global(user_id)
+            .await?
+            .and_then(|u| u.timezone)
+            .as_deref(),
+    );
+    let to = clock_date(Utc::now(), zone);
     let from = to - Duration::days(DEFAULT_BACKFILL_DAYS);
     compute_and_persist_history(resources, tenant_id, user_id, from, to).await
 }

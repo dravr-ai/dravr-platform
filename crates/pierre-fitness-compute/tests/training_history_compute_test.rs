@@ -14,6 +14,7 @@ use dravr_cageux::models::sport::SportType;
 use pierre_fitness_compute::training_history_compute::{
     compute_training_history, AthleteInputs, MAX_BACKFILL_DAYS,
 };
+use std::slice::from_ref;
 
 /// Default algorithm config (EMA 42/7) for the dense training-history rollup.
 fn algos() -> AlgorithmConfig {
@@ -262,5 +263,72 @@ fn ramp_rate_positive_under_progressive_load() {
     assert!(
         ramp >= 0.0,
         "ramp_rate should be non-negative under progressive load, got {ramp}"
+    );
+}
+
+/// The window's end must be the athlete's civil day, not the server's.
+///
+/// The rollup buckets each activity on the athlete's own date, and then drops
+/// anything past `to`. So a caller that bounds the window with
+/// `Utc::now().date_naive()` silently loses the current day for every athlete
+/// ahead of UTC — the session they just finished never reaches CTL, ATL, TSB,
+/// or any answer built on them (registre#260).
+///
+/// This is the coupling, stated as a test: the same activity, the same zone,
+/// two window ends one day apart.
+#[test]
+fn a_utc_window_end_drops_the_athletes_current_civil_day() {
+    // 23:00 UTC on the 3rd is 09:00 on the 4th in Sydney.
+    let start = Utc.with_ymd_and_hms(2026, 9, 3, 23, 0, 0).unwrap();
+    let morning_ride = ActivityBuilder::new(
+        "syd-1".to_owned(),
+        "this morning".to_owned(),
+        SportType::Run,
+        start,
+        3_600,
+        "synthetic".to_owned(),
+    )
+    .distance_meters(10_000.0)
+    .average_heart_rate(165)
+    .build();
+
+    let from = NaiveDate::from_ymd_opt(2026, 8, 25).unwrap();
+    let server_today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
+    let athlete_today = NaiveDate::from_ymd_opt(2026, 9, 4).unwrap();
+    let zone = Some("Australia/Sydney");
+
+    let bounded_by_the_server = compute_training_history(
+        from_ref(&morning_ride),
+        athlete_with_lthr(),
+        from,
+        server_today,
+        &algos(),
+        zone,
+    );
+    assert!(
+        bounded_by_the_server
+            .iter()
+            .all(|r| r.daily_load.abs() < f64::EPSILON),
+        "the ride buckets onto the athlete's 4th, which is past a window \
+         ending on the server's 3rd — so every row is empty and the day is \
+         simply gone"
+    );
+
+    let bounded_by_the_athlete = compute_training_history(
+        from_ref(&morning_ride),
+        athlete_with_lthr(),
+        from,
+        athlete_today,
+        &algos(),
+        zone,
+    );
+    let carried = bounded_by_the_athlete
+        .iter()
+        .find(|r| r.date == athlete_today)
+        .expect("the athlete's own day must be a row in their own window");
+    assert!(
+        carried.daily_load > 0.0,
+        "bounded on the athlete's clock the ride is counted: {}",
+        carried.daily_load
     );
 }

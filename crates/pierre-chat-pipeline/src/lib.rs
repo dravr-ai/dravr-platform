@@ -61,7 +61,7 @@ pub use hooks::{
     AgUiRun, PipelineHooks, ProgressKind, ResponsePostProcess, ScenePublishRequest, ScenePublisher,
     TurnEvent, TurnEventSink, TurnProgress, STAGE_STATUS_FINISHED, STAGE_STATUS_STARTED,
 };
-pub use quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
+pub use quota_policy::{check_pre_chat_quotas_scoped, settle_turn_notice, PreChatScope};
 pub use stages::command_persistence::{CommandPersistence, PersistedCommandReply};
 pub use surface_profile::{
     BlockSupport, MessagingTransportCaps, ModelPolicy, ProgressiveSupport, ProseFormat,
@@ -802,11 +802,6 @@ async fn run_turn(
     profile: &SurfaceProfile,
     hooks: &PipelineHooks<'_>,
 ) -> AppResult<TurnEnvelope> {
-    // The standing [`turn_service::execute`]'s pre-turn check measured, carried
-    // on the input. The envelope surfaces it as a notice block; a hard breach
-    // never reaches here, having refused the turn already.
-    let quota = input.quota.clone();
-
     let database = ctx.repos.chat.as_ref();
 
     // Stage 2: Resolve the prompt this turn answers. Persisted as the
@@ -1042,6 +1037,10 @@ async fn run_turn(
             &profile.locale,
         )
     };
+
+    // Settled here, with a reply persisted for the notice to ride under — see
+    // `settle_turn_notice` for why it cannot be decided any earlier.
+    let quota = settle_turn_notice(ctx, &input).await;
 
     Ok(build_envelope(
         profile,

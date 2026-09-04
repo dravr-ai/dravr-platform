@@ -130,14 +130,32 @@ fn a_french_threshold_pace_claim_is_probed() {
     );
 }
 
-/// A range is not a negative number. Without this the sign fix would read
-/// «zone 2-3» as -3 and «5:00-5:15/km» as a negative pace.
+/// A range is not a negative number, and a negative number is not a range.
+///
+/// `is_sign` accepts a `-` only when no digits are buffered yet, which is the
+/// whole of what separates the two. The test used to name a second guard as
+/// well — the previous character not being a digit — and could not have caught
+/// its removal: every path that leaves a digit behind also leaves the buffer
+/// non-empty, so that clause never fired and deleting it left the suite green.
+/// It is gone; this is the condition that actually does the work, asserted in
+/// both directions (registre#260).
 #[test]
 fn a_hyphen_between_digits_is_still_a_range() {
+    // Drop the emptiness condition and "70-77" accumulates as one unparseable
+    // token, so the probe finds no number at all and returns None.
     assert_eq!(
         check("Ton indice de fatigue est à 70-77 cette semaine."),
         Some(ClaimStatus::Contradicted),
         "70 is the nearer token and is positive; a range must not silently \
          become a negative number"
+    );
+
+    // The other direction, and the reason `is_sign` exists: the athlete's real
+    // TSB is -77, so a leading minus must still be read as one.
+    assert_eq!(
+        check("Ton indice de fatigue est à -77 cette semaine."),
+        Some(ClaimStatus::Supported),
+        "a genuine leading minus is a sign; refusing every hyphen would score \
+         a correct statement of the athlete's form as wrong"
     );
 }

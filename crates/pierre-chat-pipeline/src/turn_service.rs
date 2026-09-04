@@ -45,7 +45,7 @@ use uuid::Uuid;
 
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
-use crate::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
+use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
 use crate::stages::coach_mention::resolve_coach_mention;
 use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
@@ -264,6 +264,16 @@ pub async fn execute(
     )
     .await?
     {
+        // A command answered, so the notice has somewhere to ride. It spends
+        // no budget, but it is as good a moment as any to tell the athlete
+        // theirs is nearly gone (registre#260).
+        let quota = settle_quota_notice(
+            ctx.repos.usage_counters.as_ref(),
+            request.tool_tenant_id,
+            &user_id_str,
+            quota,
+        )
+        .await;
         return Ok(ServedTurn::Command {
             command: Box::new(command),
             quota,

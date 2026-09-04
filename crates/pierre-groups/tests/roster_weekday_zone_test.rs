@@ -101,14 +101,41 @@ fn the_date_moves_with_the_weekday() {
 
 /// A member on the other side of the date line, so a single hard-coded offset
 /// cannot pass this file.
+///
+/// It used to read the same 01:30 UTC instant as every other test here, which
+/// is 11:30 the SAME day in Sydney — so it rendered the identical string as
+/// `without_a_timezone_the_roster_states_the_utc_weekday`, and would have
+/// passed with the zone ignored entirely. The instant now straddles midnight
+/// UTC, where the member's civil day and the server's genuinely differ
+/// (registre#260).
 #[test]
 fn each_member_is_read_on_their_own_clock() {
-    let card = WeeklyDigestSummarizer.summarize_member(&snapshot_in(Some("Australia/Sydney")));
+    let mut snapshot = snapshot_in(Some("Australia/Sydney"));
+    snapshot.recent_activities = vec![RosterActivity {
+        // 23:00 UTC Tuesday the 1st — 09:00 Wednesday the 2nd in Sydney.
+        start: Utc.with_ymd_and_hms(2026, 9, 1, 23, 0, 0).unwrap(),
+        sport: "Ride".to_owned(),
+        distance_km: Some(40.0),
+        duration_minutes: 75,
+        name: "Commute".to_owned(),
+        city: None,
+        start_latitude: None,
+        start_longitude: None,
+        elevation_gain_m: Some(120.0),
+    }];
+
+    let card = WeeklyDigestSummarizer.summarize_member(&snapshot);
 
     assert!(
         card.summary_text.contains("2026-09-02 Wed"),
-        "01:30 UTC is Wednesday mid-morning in Sydney; the same instant is a \
+        "23:00 UTC is Wednesday morning in Sydney; the same instant is a \
          different civil day for a different member: {}",
+        card.summary_text
+    );
+    assert!(
+        !card.summary_text.contains("2026-09-01"),
+        "the server is still on Tuesday the 1st — printing that is the shift \
+         this file exists to catch: {}",
         card.summary_text
     );
 }

@@ -23,7 +23,7 @@
 //! false, so the personalized layer stays silent.
 
 use chrono::{Duration, Utc};
-use pierre_core::civil_time::{local_date, resolve_zone};
+use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_evals::AthleteMetrics;
@@ -158,7 +158,11 @@ pub async fn build_athlete_metrics(
             resting_hr: profile.as_ref().and_then(|p| p.resting_hr.map(f64::from)),
             weight_kg: profile.as_ref().and_then(|p| p.weight),
         };
-        let today = now.date_naive();
+        // The window's end is the athlete's civil day, because the rollup
+        // buckets each activity on theirs. Bounding it with the server's put
+        // the current local day past `to` for every zone ahead of UTC, and the
+        // series simply lost it (registre#260).
+        let today = clock_date(now, zone);
         let states = compute_training_history(
             &activities,
             inputs,

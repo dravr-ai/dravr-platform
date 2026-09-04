@@ -240,18 +240,37 @@ fn two_named_activities_is_not_adjudicated_on_weekday() {
     );
 }
 
-/// "mar" must not be found inside "marathon", nor "run" inside "brunch".
+/// A weekday or a sport found inside a longer word is not a claim.
+///
+/// This gated nothing for a year and a half of its short life. It read *"Road 2
+/// AUS était un vrai effort de marathon"* and asserted that "mar" was not a
+/// Tuesday — but registre#258 had already narrowed the vocabulary to full
+/// weekday names, so "mardi" is not in "marathon" by any rule, and the day it
+/// would have resolved to was the day the record already held. Deleting the
+/// boundary check left it green (registre#260).
+///
+/// Where the boundary check IS load-bearing is words that genuinely contain
+/// one: `vélo` inside `vélodrome`, `vtt` inside `vttiste`, `sonntag` inside
+/// `Sonntagsfahrer` — a slow driver, not a Sunday. Each of these resolves,
+/// disagrees with the record, and contradicts a sentence asserting nothing.
 #[test]
-fn a_weekday_abbreviation_is_not_matched_inside_another_word() {
-    let outcome = check(
-        &claim("Road 2 AUS était un vrai effort de marathon."),
-        &raphs_week(),
-    );
-
-    assert!(
-        outcome.is_none_or(|v| v.status != ClaimStatus::Contradicted),
-        "'mar' inside 'marathon' is not a Tuesday claim"
-    );
+fn a_weekday_or_sport_inside_a_longer_word_is_not_a_claim() {
+    for text in [
+        // Passion rando is on record as a run; `vélo` would call it cycling.
+        "Passion rando, tu tournais comme au vélodrome.",
+        "Passion rando, tu cours mieux que bien des vttistes.",
+        // Road 2 AUS is on record for Tuesday; `sonntag` would place it Sunday.
+        "Bei Road 2 AUS warst du kein Sonntagsfahrer.",
+    ] {
+        let outcome = check(&claim(text), &raphs_week());
+        assert!(
+            outcome
+                .as_ref()
+                .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+            "the word merely contains one; it does not assert it: {text:?} \
+             gave {outcome:?}"
+        );
+    }
 }
 
 /// A name too short to be distinctive is not matched at all.
@@ -382,5 +401,274 @@ fn an_activity_name_inside_a_longer_word_does_not_name_it() {
             .as_ref()
             .is_none_or(|v| v.status != ClaimStatus::Contradicted),
         "'cotes' is not the session called 'Cote': {outcome:?}"
+    );
+}
+
+// ============================================================================
+// registre#260 — what the same review found still standing after #258
+// ============================================================================
+
+/// A sentence may name one session and correctly date a *different* one.
+///
+/// *"Road 2 AUS était plus dure que ta sortie de dimanche"* asserts nothing
+/// whatever about which day Road 2 AUS fell on — the Sunday belongs to the
+/// other ride, the one the sentence does not name. The layer read the two as
+/// one claim and contradicted a true sentence at 0.9 confidence.
+///
+/// The distinction is syntactic and this layer has no syntax, so it is
+/// approximated by position: a generic session noun standing between the name
+/// and the day is a second referent, and the layer declines.
+#[test]
+fn a_weekday_belonging_to_a_second_session_is_not_attributed_to_the_named_one() {
+    let outcome = check(
+        &claim("Road 2 AUS était plus dure que ta sortie de dimanche."),
+        &raphs_week(),
+    );
+
+    assert!(
+        outcome
+            .as_ref()
+            .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+        "the Sunday is the other ride's; Road 2 AUS is given no day here: \
+         {outcome:?}"
+    );
+}
+
+/// The same shape on the sport check, which had the identical hole.
+#[test]
+fn a_sport_belonging_to_a_second_session_is_not_attributed_to_the_named_one() {
+    let outcome = check(
+        &claim("Passion rando était plus dure que ta sortie de vélo."),
+        &raphs_week(),
+    );
+
+    assert!(
+        outcome
+            .as_ref()
+            .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+        "the bike session is the other one; Passion rando is called nothing \
+         here: {outcome:?}"
+    );
+}
+
+/// The guard must not disarm the check it guards.
+///
+/// *"ta sortie Road 2 AUS"* is one session named twice — `sortie` is its head
+/// noun and the name is its apposition — so the weekday is the named session's
+/// and the contradiction stands. `placing_a_named_activity_on_the_wrong_weekday`
+/// asserts the same thing; this states the reason, so a guard that swallowed
+/// everything would be read as a deliberate change rather than a regression.
+#[test]
+fn a_head_noun_beside_the_name_is_the_same_session() {
+    let outcome = check(
+        &claim("Dimanche, ta sortie Road 2 AUS était la plus grosse."),
+        &raphs_week(),
+    )
+    .expect("the layer must adjudicate its own category");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "one session, named twice, placed on the wrong day: {}",
+        outcome.explanation
+    );
+}
+
+/// An activity whose name IS ordinary training vocabulary names nothing.
+///
+/// Four characters and word-bounded was the whole test, so a session the
+/// athlete called "Sortie" was named by every claim containing that word — and
+/// the weekday check then adjudicated a sentence that was never about it.
+#[test]
+fn a_session_named_for_an_ordinary_training_word_is_not_matched() {
+    let record = AthleteRecord {
+        has_provider: true,
+        activities: vec![RecordedActivity {
+            date: day(1),
+            sport: SportType::Ride,
+            name: "Sortie".to_owned(),
+            distance_km: Some(40.0),
+            duration_min: 90.0,
+            elevation_m: Some(300.0),
+        }],
+    };
+
+    let outcome = check(&claim("Dimanche, ta sortie était courte."), &record);
+
+    assert!(
+        outcome
+            .as_ref()
+            .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+        "'sortie' describes any session; it identifies none: {outcome:?}"
+    );
+}
+
+/// Strava's default names are the common case of the above.
+///
+/// An unedited activity is called "Morning Ride", "Afternoon Run", "Lunch
+/// Ride". Nothing about those words picks out a session, and an athlete with
+/// one of them on file had every claim mentioning the same ordinary words
+/// adjudicated against it.
+#[test]
+fn a_default_provider_name_is_not_matched() {
+    for name in ["Morning Ride", "Afternoon Run", "Long Run"] {
+        let record = AthleteRecord {
+            has_provider: true,
+            activities: vec![RecordedActivity {
+                date: day(1),
+                sport: SportType::Ride,
+                name: name.to_owned(),
+                distance_km: Some(40.0),
+                duration_min: 90.0,
+                elevation_m: Some(300.0),
+            }],
+        };
+
+        let outcome = check(
+            &claim("Sunday's long run was your best morning ride in weeks."),
+            &record,
+        );
+
+        assert!(
+            outcome
+                .as_ref()
+                .is_none_or(|v| v.status != ClaimStatus::Contradicted),
+            "{name:?} is a description, not an identity: {outcome:?}"
+        );
+    }
+}
+
+/// A distinctive name still identifies its session — the guard above must not
+/// have disarmed the whole check.
+#[test]
+fn a_distinctive_name_is_still_matched() {
+    let outcome = check(
+        &claim("Dimanche, Road 2 AUS était la plus grosse de la semaine."),
+        &raphs_week(),
+    )
+    .expect("the layer must adjudicate its own category");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "'road' is nobody's generic vocabulary: {}",
+        outcome.explanation
+    );
+}
+
+/// Metres of distance are not metres of climbing.
+///
+/// Every metres token routed to the elevation field, so *"tu as tenu tes 400
+/// m"* — a track rep — was checked against the session's total ascent. With
+/// 400 m of climbing on file it came back **Supported**: the layer corroborated
+/// a claim about an interval using a hill.
+#[test]
+fn a_distance_in_metres_is_not_checked_against_climbing() {
+    let record = AthleteRecord {
+        has_provider: true,
+        activities: vec![RecordedActivity {
+            date: day(1),
+            sport: SportType::Run,
+            name: "Piste".to_owned(),
+            distance_km: Some(12.0),
+            duration_min: 55.0,
+            elevation_m: Some(400.0),
+        }],
+    };
+
+    let outcome = check(&claim("Tu as tenu tes 400 m."), &record)
+        .expect("the layer must adjudicate its own category");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Unverifiable,
+        "400 m of climbing is not evidence about a 400 m rep: {}",
+        outcome.explanation
+    );
+}
+
+/// And the same figure IS matched against distance when that is what it is.
+#[test]
+fn a_distance_in_metres_is_matched_against_distance() {
+    let record = AthleteRecord {
+        has_provider: true,
+        activities: vec![RecordedActivity {
+            date: day(1),
+            sport: SportType::Swim,
+            name: "Piscine".to_owned(),
+            distance_km: Some(1.5),
+            duration_min: 40.0,
+            elevation_m: None,
+        }],
+    };
+
+    let outcome = check(&claim("Tu as fait 1500 m."), &record)
+        .expect("the layer must adjudicate its own category");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Supported,
+        "1.5 km on record IS 1500 m; routing every metres figure to elevation \
+         made this unfalsifiable: {}",
+        outcome.explanation
+    );
+}
+
+/// An elevation cue in the sentence keeps the climbing reading — the split must
+/// not cost registre#249 its fix.
+#[test]
+fn an_elevation_cue_still_routes_metres_to_climbing() {
+    for text in [
+        "Cette sortie t'a fait 2391 m de dénivelé.",
+        "Tu as grimpé 2391 m.",
+        "Belle journée: 2391 m+.",
+    ] {
+        let outcome =
+            check(&claim(text), &raphs_week()).expect("the layer must adjudicate its own category");
+        assert_eq!(
+            outcome.status,
+            ClaimStatus::Supported,
+            "2391 m of ascent is on record: {text:?} gave {}",
+            outcome.explanation
+        );
+    }
+}
+
+/// Thousands separated by a space are one number, not its last group.
+///
+/// The digit scan stopped at the space, so "2 391 m" was read as 391 — and the
+/// unit where four-digit values actually live is exactly the one this broke.
+#[test]
+fn space_grouped_thousands_are_one_number() {
+    for text in [
+        "Cette sortie t'a fait 2 391 m de dénivelé.",
+        // U+202F, what a French number formatter emits.
+        "Cette sortie t'a fait 2\u{202f}391 m de dénivelé.",
+        // U+00A0.
+        "Cette sortie t'a fait 2\u{a0}391 m de dénivelé.",
+    ] {
+        let outcome =
+            check(&claim(text), &raphs_week()).expect("the layer must adjudicate its own category");
+        assert_eq!(
+            outcome.status,
+            ClaimStatus::Supported,
+            "2 391 m is the 2391 m on record, not 391: {text:?} gave {}",
+            outcome.explanation
+        );
+    }
+}
+
+/// Grouping must not merge two unrelated numbers.
+#[test]
+fn a_space_between_two_figures_does_not_group_them() {
+    let outcome = check(&claim("Tu as fait 26 km en 200 minutes."), &raphs_week())
+        .expect("the layer must adjudicate its own category");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Supported,
+        "26 km and 200 min are both on record for Passion rando; reading them \
+         as one number would lose both: {}",
+        outcome.explanation
     );
 }

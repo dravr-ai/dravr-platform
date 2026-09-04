@@ -49,7 +49,7 @@ async fn the_notice_is_claimed_once_per_window() {
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            user,
+            &user.to_string(),
             QuotaLevel::Approaching,
             WINDOW
         )
@@ -62,7 +62,7 @@ async fn the_notice_is_claimed_once_per_window() {
             !claim_notice_slot(
                 counters.as_ref(),
                 tenant,
-                user,
+                &user.to_string(),
                 QuotaLevel::Approaching,
                 WINDOW
             )
@@ -86,18 +86,32 @@ async fn crossing_into_burst_earns_its_own_notice() {
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            user,
+            &user.to_string(),
             QuotaLevel::Approaching,
             WINDOW
         )
         .await
     );
     assert!(
-        claim_notice_slot(counters.as_ref(), tenant, user, QuotaLevel::Burst, WINDOW).await,
+        claim_notice_slot(
+            counters.as_ref(),
+            tenant,
+            &user.to_string(),
+            QuotaLevel::Burst,
+            WINDOW
+        )
+        .await,
         "passing the cap is a different fact and must be said once"
     );
     assert!(
-        !claim_notice_slot(counters.as_ref(), tenant, user, QuotaLevel::Burst, WINDOW).await,
+        !claim_notice_slot(
+            counters.as_ref(),
+            tenant,
+            &user.to_string(),
+            QuotaLevel::Burst,
+            WINDOW
+        )
+        .await,
         "but only once"
     );
 }
@@ -114,7 +128,7 @@ async fn the_next_window_tells_them_again() {
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            user,
+            &user.to_string(),
             QuotaLevel::Approaching,
             WINDOW
         )
@@ -124,7 +138,7 @@ async fn the_next_window_tells_them_again() {
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            user,
+            &user.to_string(),
             QuotaLevel::Approaching,
             NEXT_WINDOW
         )
@@ -147,7 +161,7 @@ async fn the_slot_is_per_athlete() {
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            raph,
+            &raph.to_string(),
             QuotaLevel::Approaching,
             WINDOW
         )
@@ -157,7 +171,7 @@ async fn the_slot_is_per_athlete() {
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            phil,
+            &phil.to_string(),
             QuotaLevel::Approaching,
             WINDOW
         )
@@ -181,18 +195,21 @@ async fn exactly_one_of_two_concurrent_turns_claims_the_slot() {
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
 
+    // Bound rather than inlined: a `&x.to_string()` temporary inside `join!`
+    // is freed at the end of the statement while both futures still borrow it.
+    let same_user = user.to_string();
     let (a, b) = tokio::join!(
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            user,
+            &same_user,
             QuotaLevel::Approaching,
             WINDOW
         ),
         claim_notice_slot(
             counters.as_ref(),
             tenant,
-            user,
+            &same_user,
             QuotaLevel::Approaching,
             WINDOW
         ),

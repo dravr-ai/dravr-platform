@@ -298,6 +298,17 @@ mod live_incident_eval {
         NoRawVizFence,
         /// An LLM judge is asked one yes/no question about the reply.
         Honest { question: &'static str },
+        /// The athlete's stored profile carries this FTP once the turn is done.
+        ///
+        /// The only expectation here that reads STATE rather than text, and
+        /// deliberately so. What failed on 2026-09-02 was never the wording:
+        /// the coach acknowledged the number — «tu l'as mentionné à 380W plus
+        /// tôt» — and hand-computed a threshold from it in prose. It simply
+        /// wrote nothing, so the next conversation opened on the same flat "je
+        /// n'ai pas accès à tes zones" and the derived zones never existed
+        /// (registre#250). A reply that quotes 380 W back perfectly and saves
+        /// nothing satisfies every substring assertion anyone could write.
+        FtpSaved { watts: u32 },
     }
 
     impl Expect {
@@ -315,6 +326,7 @@ mod live_incident_eval {
                 Self::ChartDelivered => "chart_missing",
                 Self::NoRawVizFence => "raw_fence",
                 Self::Honest { .. } => "judge",
+                Self::FtpSaved { .. } => "physiology_not_saved",
             }
         }
 
@@ -520,6 +532,27 @@ mod live_incident_eval {
                 Turn {
                     user: "Et comment ça se compare à la semaine d'avant?",
                     expect: &[Expect::NonEmpty { min_chars: 120 }],
+                },
+            ],
+        },
+        Episode {
+            name: "stated_physiology",
+            incident: "2026-09-02 «tu l'as mentionné à 380W plus tôt» — acknowledged, used in prose, never saved",
+            group: false,
+            turns: &[
+                Turn {
+                    // He asked first, and was told no. Answering the capability
+                    // question is fine; what follows is the part that failed.
+                    user: "As-tu accès à mes zones de puissance?",
+                    expect: &[],
+                },
+                Turn {
+                    user: "Mon FTP est à 380W.",
+                    expect: &[
+                        Expect::FtpSaved { watts: 380 },
+                        // And the tool name never reaches the athlete.
+                        Expect::NoneOf(&["set_physiology"]),
+                    ],
                 },
             ],
         },
@@ -1456,6 +1489,8 @@ mod live_incident_eval {
         delivered: &Delivered,
         user: &str,
         judge_provider: &dyn LlmProvider,
+        resources: &Arc<ServerContext>,
+        fixture: &Fixture,
     ) -> Option<String> {
         let lower = delivered.body.to_lowercase();
         match expect {
@@ -1488,6 +1523,25 @@ mod live_incident_eval {
             Expect::NoRawVizFence => lower
                 .contains("```dravr-viz")
                 .then(|| "raw dravr-viz fence survived into the delivered body".to_owned()),
+            Expect::FtpSaved { watts } => {
+                let stored = resources
+                    .common
+                    .repos
+                    .user_physiological_profile
+                    .get_user_physiological_profile(fixture.athlete_tenant, fixture.athlete)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|p| p.ftp_watts);
+                match stored {
+                    Some(v) if v == watts => None,
+                    Some(v) => Some(format!("profile holds {v} W, the athlete said {watts} W")),
+                    None => Some(format!(
+                        "the athlete stated {watts} W and the profile holds no FTP at all — \
+                         the value was used in the reply and never written"
+                    )),
+                }
+            }
             Expect::Honest { question } => {
                 match judge(
                     judge_provider,
@@ -1971,8 +2025,15 @@ mod live_incident_eval {
                     sleep(turn_delay()).await;
 
                     for expect in UNIVERSAL.iter().chain(turn.expect) {
-                        if let Some(detail) =
-                            check(*expect, &delivered, turn.user, provider.as_ref()).await
+                        if let Some(detail) = check(
+                            *expect,
+                            &delivered,
+                            turn.user,
+                            provider.as_ref(),
+                            &resources,
+                            &fixture,
+                        )
+                        .await
                         {
                             println!("    FINDING: {detail}");
                             findings.push(Finding {

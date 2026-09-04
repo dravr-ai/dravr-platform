@@ -22,6 +22,7 @@ use pierre_core::models::AddMessageParams;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
 use crate::envelope::{build_envelope, TurnEnvelope, TurnState, TurnTelemetry};
+use crate::quota_policy::settle_turn_notice;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
@@ -125,6 +126,10 @@ pub async fn deliver(
     )
     .await;
 
+    // Same rule as the model path: the slot is taken only once a reply exists
+    // (registre#260).
+    let quota = settle_turn_notice(ctx, input).await;
+
     Ok(build_envelope(
         profile,
         TurnState {
@@ -144,7 +149,7 @@ pub async fn deliver(
                 usage: None,
                 identity_leak: None,
             },
-            quota: input.quota.clone(),
+            quota,
             reconnect: None,
             verdict_chips: Vec::new(),
             scene_images: Vec::new(),

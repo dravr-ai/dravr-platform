@@ -165,10 +165,11 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
      Ground every recommendation in something specific you know about them — their volume, \
      their injury history, their event, or what they told you earlier in this conversation.\n\
      If you need data you do not have, call one tool and then answer.\n\
-     If the athlete states a physiological value about themselves — FTP or threshold power, \
-     max or resting heart rate, lactate threshold, weight, VO2max — call `set_physiology` on \
-     that same turn before you use it. A number you only quote back is gone by the next \
-     conversation, and the zones derived from it never exist.\n\
+     If the athlete addressing you states a physiological value about themselves — FTP or \
+     threshold power, max or resting heart rate, lactate threshold, weight, VO2max — call \
+     `set_physiology` on that same turn before using it; it writes to their profile, so never \
+     call it for a number someone else in the room stated. A value only quoted back is gone by \
+     the next conversation, and the zones derived from it never exist.\n\
      Do not restate the question, and do not list assumptions in place of an answer.";
 
 /// Voice anchor for a coach-bound turn, placed just ahead of the
