@@ -19,19 +19,31 @@ inputs:
   cache-save:
     description: Override rust-cache save behavior (auto uses main-branch-only default, false disables saving)
     default: 'auto'
+  reclaim-android:
+    description: Remove the Android SDK while freeing disk space (measured 55.5s of the step)
+    default: 'true'
+  reclaim-large-packages:
+    description: Remove large apt packages while freeing disk space (measured 46.0s of the step)
+    default: 'true'
 
 runs:
   using: composite
   steps:
+    # Reclaiming disk costs wall clock on every job that asks for it. Instrumented
+    # on run 33884377634: the whole step took 111.9s, of which removing the Android
+    # SDK was 55.5s and the apt large-packages sweep 46.0s. dotnet and haskell give
+    # up 9 G for 10.3s, so they stay on unconditionally. A caller that has measured
+    # its own headroom against its own peak usage turns the two expensive sweeps off
+    # and keeps the 101.5s; the defaults reproduce the behaviour every caller has.
     - name: Free Disk Space (Ubuntu)
       if: inputs.free-disk-space == 'true'
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: false
-        android: true
+        android: ${{ inputs.reclaim-android == 'true' }}
         dotnet: true
         haskell: true
-        large-packages: true
+        large-packages: ${{ inputs.reclaim-large-packages == 'true' }}
         docker-images: ${{ inputs.keep-docker != 'true' }}
         swap-storage: true
 

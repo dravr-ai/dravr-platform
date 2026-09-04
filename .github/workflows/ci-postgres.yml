@@ -125,6 +125,29 @@ jobs:
         with:
           free-disk-space: 'true'
           keep-docker: 'true'
+          # Run 33884377634 instrumented this lane end to end: the runner starts
+          # with 86 G free of 145 G, and this suite's peak footprint is a 22 G
+          # target/ (109 G before the suite, 88 G after). The headroom is already
+          # there, so removing the Android SDK (55.5s) and running the apt
+          # large-packages sweep (46.0s) spent 101.5s per shard, on four shards a
+          # run, reclaiming space nothing in this job touches. dotnet and haskell
+          # stay on: 9 G for 10.3s. The step below asserts the 86 G is still there,
+          # so a shrinking runner image fails loudly instead of running out of disk
+          # 60 minutes into the suite.
+          reclaim-android: 'false'
+          reclaim-large-packages: 'false'
+
+      - name: Assert disk headroom for the suite
+        # 22 G measured peak, 86 G measured available, so 40 G is a floor with
+        # room either side: it cannot fire on today's runner and it fires well
+        # before the suite can exhaust the disk. Costs one df.
+        run: |
+          AVAIL_G=$(df --output=avail -BG "$GITHUB_WORKSPACE" | tail -1 | tr -dc '0-9')
+          echo "Free disk on the workspace filesystem: ${AVAIL_G} G (suite peak: 22 G; measured at runner start: 86 G)"
+          if [ "${AVAIL_G:-0}" -lt 40 ]; then
+            echo "::error::${AVAIL_G} G free before the suite, which needs 22 G for target/. Set reclaim-android and reclaim-large-packages back to 'true' on the rust-setup step above, or find what is consuming the runner image."
+            exit 1
+          fi
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v7
@@ -192,12 +215,38 @@ jobs:
         # partitioned round-robin across 4 shards; an empty selection fails
         # the job rather than reporting green over zero tests.
         #
-        # The shard's binaries are built in one `cargo test --no-run` first,
-        # then each file runs on its own: a monolithic `cargo test` over all
-        # ~500 binaries was OOM-killed on one runner (~11min, no output),
+        # The shard's binaries are built in one `cargo test --no-run` and are
+        # then executed directly, one at a time: a monolithic `cargo test` over
+        # all ~500 binaries was OOM-killed on one runner (~11min, no output),
         # while building only a shard's quarter and running one binary at a
-        # time keeps memory bounded. Building first rather than per file
-        # removes ~170 cargo start-ups from every shard.
+        # time keeps memory bounded.
+        #
+        # The build emits `--message-format=json-render-diagnostics`, which
+        # names the executable cargo produced for each test target while still
+        # rendering compile errors to stderr — plain `json` would bury them in
+        # the redirected artifact file. The run phase execs those
+        # paths rather than re-entering cargo once per file. Re-entry costs a
+        # measured 0.37s of resolver and lock work per invocation (n=139) —
+        # ~51s per shard, ~202s across the lane — to select a binary the build
+        # has already produced.
+        #
+        # Each binary runs from its package directory, because that is where
+        # cargo runs it and tests depend on it: `contremaitre_test` resolves
+        # `src/tools/implementations` and `../pierre-tool-runtime/src/implementations`
+        # against the working directory, and reads an empty tool set from
+        # anywhere else. CARGO_HOME is exported for the same reason — cargo
+        # injects it into the test process, `personas_endpoint_test` reads it
+        # to locate the dravr-contremaitre checkout, and an exec inherits only
+        # what this shell exports. `env!("CARGO_MANIFEST_DIR")`, which the rest
+        # of the path-sensitive tests use, is baked in at compile time and
+        # needs nothing.
+        #
+        # A target name is not unique across the workspace — `redaction_test`
+        # and `dek_versioning_test` each exist in two crates — so binaries are
+        # keyed by package as well as by name, and every match runs: the same
+        # set `cargo test --test <name>` runs from this virtual workspace root.
+        # A selected file whose owning crate produced no binary fails the shard
+        # instead of reporting green over a test file that never ran.
         # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
         run: |
           SHARD=${{ matrix.shard }}
@@ -234,33 +283,152 @@ jobs:
             exit 0
           fi
           printf '  %s\n' "${SHARD_TESTS[@]}"
+          RUN_TESTS=("${SHARD_TESTS[@]}")
+          DB_TESTS=()
+          PKGS=()
           if [ "$SHARD" -eq 1 ]; then
             # pierre-database's own suite carries the test-database factory's
             # contract test — the one that proves a PostgreSQL DATABASE_URL
             # yields PostgreSQL. It is the only crate suite outside
             # pierre-server that opens a database, so it rides on shard 1
-            # rather than paying for a fifth service container.
-            echo "::group::pierre-database crate tests"
-            if ! cargo test -p pierre-database --features postgresql -- --test-threads=4; then
-              echo "::error::pierre-database crate tests failed"
+            # rather than paying for a fifth service container — and it rides
+            # inside the shard's own build and run loop rather than in a
+            # `-p pierre-database` cargo invocation of its own.
+            #
+            # A lone `-p pierre-database --features postgresql` resolves a
+            # narrower feature graph than the shard build: 38 dependencies come
+            # out with fewer features — tokio without io-std/process/signal,
+            # reqwest without default-tls/h2/http2/stream, hyper without server,
+            # axum and tower-http bare, serde_json without preserve_order, uuid
+            # on v4 instead of v5, and pierre-core without billing/http-client/
+            # llm. A feature set is an input to a unit's -C metadata hash, so
+            # that invocation recompiled most of the tree into artifacts the
+            # shard build behind it could not reuse: 79 measured seconds on the
+            # shard that carries this lane's critical path. One shared package
+            # selection makes the two resolutions identical, so pierre-database's
+            # binaries link the artifacts the shard already needs.
+            #
+            # The selection names three packages because a `--test` filter
+            # matches every selected package owning that target name, and three
+            # of these names are multiply owned: smoke_test by ten crates,
+            # dek_versioning_test by pierre-database and pierre-server,
+            # redaction_test by pierre-core and pierre-server. Naming
+            # pierre_mcp_server, pierre-database and pierre-core resolves
+            # smoke_test to pierre-database's alone while keeping both copies of
+            # dek_versioning_test and redaction_test running wherever the
+            # round-robin puts them. No other pierre-server test-file name is
+            # owned by a crate outside these three, so the restriction drops no
+            # binary; the per-owner check below fails the shard if one ever does.
+            #
+            # A `--test` filter selects integration tests, so the crate's
+            # doctests run in ci-backend.yml's `cargo test --workspace --doc`
+            # job, which fires on every push and fails on a failed or an ignored
+            # doctest. No pierre-database doctest is gated on the postgresql
+            # feature, so that job covers the same set. pierre-database has no
+            # `#[cfg(test)]` in src/, so its lib target carries no unit tests.
+            PKGS=(-p pierre_mcp_server -p pierre-database -p pierre-core)
+            # That selection is only safe while no pierre-server test-file name
+            # is also owned by a crate outside it: such a name resolves to two
+            # binaries today and would resolve to one here, retiring the other
+            # copy from this lane with nothing going red. No name collides
+            # today; this asks the filesystem rather than trusting that. The
+            # pierre-database names are deliberately not checked — smoke_test is
+            # owned by ten crates and resolving it to pierre-database's alone is
+            # the point of the selection.
+            mapfile -t FOREIGN_NAMES < <(
+              find crates -maxdepth 3 -path '*/tests/*.rs' -printf '%p\n' \
+                | grep -v -E '^crates/(pierre-server|pierre-database|pierre-core)/' \
+                | sed 's|.*/||; s|\.rs$||' \
+                | sort -u
+            )
+            COLLIDING=()
+            for foreign_name in "${FOREIGN_NAMES[@]}"; do
+              case " ${SHARD_TESTS[*]} " in
+                *" $foreign_name "*) COLLIDING+=("$foreign_name") ;;
+              esac
+            done
+            if [ "${#COLLIDING[@]}" -ne 0 ]; then
+              printf '::error::%s is a pierre-server test name also owned by a crate outside the -p selection; that crate copy would stop running on this shard. Add its package to PKGS.\n' "${COLLIDING[@]}"
               exit 1
             fi
-            echo "::endgroup::"
+            mapfile -t DB_TESTS < <(
+              find crates/pierre-database/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
+                | sed 's/\.rs$//' \
+                | sort
+            )
+            if [ "${#DB_TESTS[@]}" -eq 0 ]; then
+              echo "::error::pierre-database has no test files — refusing to report green."
+              exit 1
+            fi
+            echo "=== plus pierre-database: ${#DB_TESTS[@]} crate test files ==="
+            printf '  %s\n' "${DB_TESTS[@]}"
+            # dek_versioning_test exists in both crates, so it can already be in
+            # SHARD_TESTS. Listing it once keeps one --test flag per name; both
+            # crates' binaries are still built and both still run.
+            EXTRA_TESTS=()
+            for db_test in "${DB_TESTS[@]}"; do
+              case " ${SHARD_TESTS[*]} " in
+                *" $db_test "*) ;;
+                *) EXTRA_TESTS+=("$db_test") ;;
+              esac
+            done
+            RUN_TESTS=("${EXTRA_TESTS[@]}" "${SHARD_TESTS[@]}")
           fi
           echo "::group::build shard binaries"
           TEST_ARGS=()
-          for test_file in "${SHARD_TESTS[@]}"; do
+          for test_file in "${RUN_TESTS[@]}"; do
             TEST_ARGS+=(--test "$test_file")
           done
-          cargo test --features postgresql --no-run "${TEST_ARGS[@]}"
+          ARTIFACT_JSON="$RUNNER_TEMP/pg-shard-artifacts.json"
+          BINARY_MAP="$RUNNER_TEMP/pg-shard-binaries.tsv"
+          cargo test "${PKGS[@]}" --features postgresql --no-run \
+            --message-format=json-render-diagnostics "${TEST_ARGS[@]}" > "$ARTIFACT_JSON"
+          jq -R -r '
+            fromjson?
+            | select(.reason == "compiler-artifact" and .executable != null)
+            | select(.target.kind | index("test") != null)
+            | [.target.name, (.manifest_path | rtrimstr("/Cargo.toml")), .executable]
+            | @tsv
+          ' < "$ARTIFACT_JSON" > "$BINARY_MAP"
+          declare -A TEST_BINARIES=()
+          while IFS=$'\t' read -r target_name package_dir executable; do
+            TEST_BINARIES["$target_name"]+="${package_dir}"$'\t'"${executable}"$'\n'
+          done < "$BINARY_MAP"
           echo "::endgroup::"
-          FAILED=0
+          # Each selected file names a crate that must have produced a binary:
+          # the pierre-server files enumerated for this shard, and on shard 1 the
+          # pierre-database files enumerated above. A name resolving to the other
+          # crate's copy alone would otherwise report green over a file that
+          # never ran.
+          UNMAPPED=()
           for test_file in "${SHARD_TESTS[@]}"; do
+            case "${TEST_BINARIES[$test_file]:-}" in
+              *"/crates/pierre-server"$'\t'*) ;;
+              *) UNMAPPED+=("crates/pierre-server/tests/${test_file}.rs") ;;
+            esac
+          done
+          for test_file in "${DB_TESTS[@]}"; do
+            case "${TEST_BINARIES[$test_file]:-}" in
+              *"/crates/pierre-database"$'\t'*) ;;
+              *) UNMAPPED+=("crates/pierre-database/tests/${test_file}.rs") ;;
+            esac
+          done
+          if [ "${#UNMAPPED[@]}" -ne 0 ]; then
+            printf '::error::no test binary was built for %s — refusing to report green over a test file that did not run.\n' "${UNMAPPED[@]}"
+            exit 1
+          fi
+          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+          FAILED=0
+          for test_file in "${RUN_TESTS[@]}"; do
             echo "::group::$test_file"
-            if ! cargo test --features postgresql --test "$test_file" -- --test-threads=4; then
-              echo "::error::PostgreSQL test file $test_file failed"
-              FAILED=1
-            fi
+            while IFS=$'\t' read -r package_dir executable; do
+              [ -n "$executable" ] || continue
+              echo "     Running ${package_dir#"$PWD"/}/tests/${test_file}.rs (${executable#"$PWD"/})"
+              if ! ( cd "$package_dir" && "$executable" --test-threads=4 ); then
+                echo "::error::PostgreSQL test file $test_file failed"
+                FAILED=1
+              fi
+            done <<< "${TEST_BINARIES[$test_file]}"
             echo "::endgroup::"
           done
           exit $FAILED
