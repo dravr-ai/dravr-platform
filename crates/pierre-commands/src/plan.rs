@@ -64,9 +64,11 @@ pub struct PlanShowHandler;
 /// Bare `/plan` is answered privately in a shared room because a plan is the
 /// caller's own state. Typing the share variant is the athlete's consent to
 /// post it, granted per invocation and legible in the room as their own turn;
-/// on a messaging room the reply opens with a header naming whose plan it is.
-/// Only ever the caller's own plan: nobody can publish another athlete's plan
-/// into a room, which is the leak the private default exists to prevent.
+/// on a messaging room a reply that carries a plan opens with a header naming
+/// whose it is. With nothing saved there is nothing to share, so the reply is
+/// the empty-state nudge alone, header-free. Only ever the caller's own plan:
+/// nobody can publish another athlete's plan into a room, which is the leak
+/// the private default exists to prevent.
 pub struct PlanShareHandler;
 
 /// What the selected weeks know about one date.
@@ -404,14 +406,17 @@ fn requested_view(ctx: &PlatformCommandContext) -> PlanView {
     PlanView::parse(ctx.args.first().map(|s| s.trim().to_lowercase()).as_deref())
 }
 
+/// The empty-state line: what every surface answers when nothing is saved.
+fn empty_plan_notice(ctx: &PlatformCommandContext) -> String {
+    ctx.ctx
+        .messaging_strings_registry()
+        .render(KEY_PLAN_EMPTY, &ctx.locale, &[])
+}
+
 /// The plan body, or the empty-state line when nothing is saved.
 async fn plan_body(ctx: &PlatformCommandContext, today: NaiveDate) -> Result<String, AppError> {
     let rendered = render_plan_reply(ctx, requested_view(ctx), today).await?;
-    Ok(rendered.unwrap_or_else(|| {
-        ctx.ctx
-            .messaging_strings_registry()
-            .render(KEY_PLAN_EMPTY, &ctx.locale, &[])
-    }))
+    Ok(rendered.unwrap_or_else(|| empty_plan_notice(ctx)))
 }
 
 #[async_trait]
@@ -432,7 +437,16 @@ impl CommandHandler for PlanShowHandler {
 impl CommandHandler for PlanShareHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let user = caller_record(ctx).await;
-        let body = plan_body(ctx, caller_today(user.as_ref())).await?;
+        let today = caller_today(user.as_ref());
+        // With nothing saved there is nothing to share: the empty-state nudge
+        // goes out alone, because a "shared with the room" header above it
+        // announces a plan that never follows. The reply still reaches the
+        // room — delivery is the command's, decided by name at the ingress —
+        // and hangs off the caller's own `/plan share` line, which is what
+        // attributes it.
+        let Some(body) = render_plan_reply(ctx, requested_view(ctx), today).await? else {
+            return Ok(CommandResponse::rich_text(empty_plan_notice(ctx)));
+        };
         // The header renders only where the reply is actually posted to a
         // room: a messaging channel (a sender id) in a shared chat. A DM has
         // no room to share with, and an in-app group thread persists the

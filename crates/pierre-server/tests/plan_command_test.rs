@@ -1395,10 +1395,13 @@ async fn plan_share_on_the_in_app_surface_renders_no_header() -> Result<()> {
     Ok(())
 }
 
-/// An athlete with nothing saved still shares legibly: the room learns whose
-/// (absent) plan it is reading rather than an unattributed empty state.
+/// An athlete with nothing saved shares nothing, so the room must not be told
+/// a plan was shared: the reply is the empty-state nudge alone, with neither
+/// the "shared with the room" banner nor the name the banner carries. The
+/// reply still lands in the room, threaded onto the athlete's own `/plan
+/// share` line, which is what attributes it.
 #[tokio::test]
-async fn plan_share_with_no_plan_in_a_room_still_names_the_athlete() -> Result<()> {
+async fn plan_share_with_no_plan_in_a_room_skips_the_shared_header() -> Result<()> {
     let (resources, user_id, tenant, _dm) = setup().await?;
     resources
         .common
@@ -1425,8 +1428,14 @@ async fn plan_share_with_no_plan_in_a_room_still_names_the_athlete() -> Result<(
         .text;
 
     assert!(
-        text.contains("**Phil Tremblay**") && text.contains("No plan saved yet"),
-        "header then the empty state: {text}"
+        text.contains("No plan saved yet"),
+        "the empty state must name the gap: {text}"
+    );
+    assert!(
+        !text.contains(SHARED_MARKER)
+            && !text.contains("**Phil Tremblay**")
+            && !text.starts_with("📋"),
+        "nothing was shared, so no share may be announced: {text}"
     );
     Ok(())
 }
