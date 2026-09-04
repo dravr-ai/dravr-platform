@@ -37,6 +37,7 @@
 
 mod common;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -835,7 +836,9 @@ async fn loopback_get_activities(
     acp_turn_token: &str,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let executor = UniversalExecutor::new(runtime).with_turn_token(acp_turn_token.to_owned());
+    let executor = UniversalExecutor::new(runtime)
+        .with_scopes(OAuthScope::self_grant())
+        .with_turn_token(acp_turn_token.to_owned());
     let response = executor
         .execute_tool(UniversalRequest {
             tool_name: "get_activities".to_owned(),
@@ -871,8 +874,11 @@ async fn finish_headless_turn(
     acp_turn_token: &str,
 ) -> ToolLoopResult {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let executor =
-        Arc::new(UniversalExecutor::new(runtime).with_turn_token(acp_turn_token.to_owned()));
+    let executor = Arc::new(
+        UniversalExecutor::new(runtime)
+            .with_scopes(OAuthScope::self_grant())
+            .with_turn_token(acp_turn_token.to_owned()),
+    );
     // The assembly reads the provider for its name alone; the ACP runner below
     // is the one that served the turn.
     let provider = ChatProvider::Custom(Arc::new(ActivitiesThenAnswer::new()));

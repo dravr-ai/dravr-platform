@@ -22,6 +22,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{ConversationTurnId, UserTier};
 use pierre_core::models::{OAuthNotification, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::NotificationRepository;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse};
@@ -29,6 +30,7 @@ use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
 use pierre_services::usage_counter::{increment_counter, UsageCounterService};
+use pierre_tool_runtime::context::GRANTED_SCOPES;
 use pierre_tool_runtime::guardian::{self, DenyReason, GateOutcome, TurnKey};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
@@ -167,8 +169,21 @@ impl ToolHandlers {
             tenant_context: &tenant_context,
             tool_context,
         };
-        let response =
-            Self::route_tool_call(tool_name, &args, request_id, user_id, &routing_context).await;
+        // Bind the caller's grant here rather than in `run_dispatch`: this is the
+        // level EVERY caller funnels through, including ones that reach it
+        // directly (the dispatch benchmark, the MCP e2e tests). Bound at the
+        // transport instead, a direct caller would arrive with the empty grant
+        // and be refused every tool — which is what the benchmark hit.
+        //
+        // Read off the `ToolContext` the auth hook resolved, so the grant and
+        // the identity it was issued against travel together.
+        let granted = OAuthScope::parse_granted(&tool_context.scopes.join(" "));
+        let response = GRANTED_SCOPES
+            .scope(
+                granted,
+                Self::route_tool_call(tool_name, &args, request_id, user_id, &routing_context),
+            )
+            .await;
 
         let response = Self::append_oauth_notifications_to_response(
             response,
@@ -670,6 +685,9 @@ impl ToolHandlers {
             // passes the Guardian chokepoint and resolves identity/admin/tenant
             // consistently via `build_tool_context`.
             // Guardian turn key only — a `/mcp` caller has no chat turn.
+            // The caller's grant is already bound as a task-local by
+            // `run_dispatch`, so `UniversalToolExecutor::new` inherits it — one
+            // carrier, set once at the authenticated dispatch boundary.
             let executor = ctx.tenant_context.session_id.clone().map_or_else(
                 || UniversalToolExecutor::new(ctx.resources.clone()),
                 |turn| UniversalToolExecutor::new(ctx.resources.clone()).with_turn_token(turn),

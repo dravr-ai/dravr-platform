@@ -34,6 +34,7 @@
 //!    through and reject a disproven one, then re-verify any numeric claim
 //!    it makes about a peer against the evidence that was just fetched.
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::fmt::Write as _;
 use std::mem;
 use std::sync::Arc;
@@ -355,6 +356,8 @@ async fn fetch_peer_subjects(
     let group_id = conversation_group_id(deps, input).await;
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&deps.ctx.tool_runtime))
+            // Athlete's own turn — see stage 9's binding.
+            .with_scopes(OAuthScope::self_grant())
             .with_conversation_id(input.conversation_id.clone())
             .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             .with_turn_token(input.turn_id.0.to_string()),

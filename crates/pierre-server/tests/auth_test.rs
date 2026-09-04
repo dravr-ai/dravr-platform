@@ -453,7 +453,7 @@ fn test_generate_oauth_access_token() {
     let jwks_manager = common::get_shared_test_jwks();
 
     let token_result =
-        auth_manager.generate_oauth_access_token(&jwks_manager, &user_id, &scopes, None);
+        auth_manager.generate_oauth_access_token(&jwks_manager, &user_id, &scopes, &[], None);
     assert!(token_result.is_ok());
 
     let token = token_result.unwrap();

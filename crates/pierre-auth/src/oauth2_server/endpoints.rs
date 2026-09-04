@@ -18,6 +18,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
 use sha2::{Digest, Sha256};
@@ -314,7 +315,7 @@ impl OAuth2AuthorizationServer {
 
         match request.grant_type.as_str() {
             "authorization_code" => self.handle_authorization_code_grant(request).await,
-            "client_credentials" => self.handle_client_credentials_grant(request),
+            "client_credentials" => self.handle_client_credentials_grant(request).await,
             "refresh_token" => self.handle_refresh_token_grant(request).await,
             _ => Err(OAuth2Error::unsupported_grant_type()),
         }
@@ -350,6 +351,7 @@ impl OAuth2AuthorizationServer {
                 Some(auth_code.user_id),
                 auth_code.scope.as_deref(),
             )
+            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate access token for client_id={}: {:#}",
@@ -397,7 +399,7 @@ impl OAuth2AuthorizationServer {
     }
 
     /// Handle client credentials grant
-    fn handle_client_credentials_grant(
+    async fn handle_client_credentials_grant(
         &self,
         request: TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
@@ -408,6 +410,7 @@ impl OAuth2AuthorizationServer {
                 None, // No user for client credentials
                 request.scope.as_deref(),
             )
+            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate client credentials access token for client_id={}: {:#}",
@@ -446,6 +449,7 @@ impl OAuth2AuthorizationServer {
                 Some(old_refresh_token.user_id),
                 old_refresh_token.scope.as_deref(),
             )
+            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate access token from refresh for client_id={}: {:#}",
@@ -680,8 +684,36 @@ impl OAuth2AuthorizationServer {
         Ok(auth_code)
     }
 
-    /// Generate JWT access token with RS256 asymmetric signing
-    fn generate_access_token(
+    /// The scopes this server advertises in both metadata documents.
+    ///
+    /// Served from the vocabulary rather than a literal list, so a scope cannot
+    /// be published without being enforceable or enforced without being
+    /// published — which is how the three names this replaces came to mean
+    /// nothing.
+    #[must_use]
+    pub fn supported_scopes() -> Vec<&'static str> {
+        OAuthScope::all_as_str()
+    }
+
+    /// The grant shown on the consent screen when the client requested none.
+    ///
+    /// The same [`OAuthScope::default_grant`] the registration endpoint issues,
+    /// so what the athlete is shown and what the client receives cannot
+    /// disagree — they were two separate literals before, and both still named
+    /// a scope this server never checked.
+    #[must_use]
+    pub fn default_scope_display() -> String {
+        OAuthScope::render_granted(&OAuthScope::default_grant())
+    }
+
+    /// Generate JWT access token with RS256 asymmetric signing.
+    ///
+    /// Async because a user-bound token has to carry the athlete's real
+    /// connected providers. That field used to be filled with the granted
+    /// scopes, which is how an OAuth-minted token came to report `fitness:read`
+    /// as a connected provider; the grant now rides in the token's own `scope`
+    /// claim and `providers` means what it means everywhere else.
+    async fn generate_access_token(
         &self,
         client_id: &str,
         user_id: Option<Uuid>,
@@ -699,29 +731,36 @@ impl OAuth2AuthorizationServer {
             |s| s.split(' ').map(str::to_owned).collect::<Vec<_>>(),
         );
 
-        user_id.map_or_else(
-            || {
-                self.auth_manager
-                    .generate_client_credentials_token(
-                        &self.jwks_manager,
-                        client_id,
-                        &scopes,
-                        None, // tenant_id for client credentials
-                    )
-                    .map_err(|e| {
-                        AppError::internal(format!(
-                            "Failed to generate client credentials token: {e}"
-                        ))
-                    })
-            },
-            |uid| {
-                self.auth_manager
-                    .generate_oauth_access_token(&self.jwks_manager, &uid, &scopes, None)
-                    .map_err(|e| {
-                        AppError::internal(format!("Failed to generate OAuth access token: {e}"))
-                    })
-            },
-        )
+        let Some(uid) = user_id else {
+            return self
+                .auth_manager
+                .generate_client_credentials_token(
+                    &self.jwks_manager,
+                    client_id,
+                    &scopes,
+                    None, // tenant_id for client credentials
+                )
+                .map_err(|e| {
+                    AppError::internal(format!("Failed to generate client credentials token: {e}"))
+                });
+        };
+
+        // SECURITY: Global lookup — OAuth2 token minting, no tenant context.
+        // A user who cannot be read has no providers to report; the token is
+        // still minted, because the grant is what authorizes it and the
+        // provider list is descriptive.
+        let providers = self
+            .users
+            .get_global(uid)
+            .await
+            .ok()
+            .flatten()
+            .map(|user| user.available_providers())
+            .unwrap_or_default();
+
+        self.auth_manager
+            .generate_oauth_access_token(&self.jwks_manager, &uid, &scopes, &providers, None)
+            .map_err(|e| AppError::internal(format!("Failed to generate OAuth access token: {e}")))
     }
 
     /// Generate random string for codes
@@ -937,11 +976,13 @@ impl OAuth2AuthorizationServer {
             .consume_and_rotate_refresh_token(refresh_token_value, &refresh_token_data)
             .await?;
 
-        let new_access_token = self.generate_access_token(
-            &refresh_token_data.client_id,
-            Some(refresh_token_data.user_id),
-            refresh_token_data.scope.as_deref(),
-        )?;
+        let new_access_token = self
+            .generate_access_token(
+                &refresh_token_data.client_id,
+                Some(refresh_token_data.user_id),
+                refresh_token_data.scope.as_deref(),
+            )
+            .await?;
 
         info!(
             "Refresh token rotated via validate_and_refresh for user {}",

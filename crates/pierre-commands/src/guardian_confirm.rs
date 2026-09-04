@@ -27,6 +27,7 @@
 //! after the claim: a confirmed draft becomes a coach, a confirmed tool call
 //! is re-dispatched.
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::fmt::Display;
 
 use async_trait::async_trait;
@@ -163,6 +164,7 @@ pub(crate) async fn resolve_pending(
 /// arguments.
 async fn execute_confirmed(ctx: &PlatformCommandContext, action: &PendingGuardianAction) -> bool {
     let mut executor = UniversalExecutor::new(ctx.tool_runtime.clone())
+        .with_scopes(OAuthScope::self_grant())
         .with_turn_token(format!("confirm-{}", action.id));
     if let Some(conversation_id) = action.conversation_id.clone() {
         // The conversation tenant for this re-dispatch is the one the /confirm

@@ -22,6 +22,7 @@
 
 mod common;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
@@ -53,6 +54,7 @@ fn surface_with_budget(
 ) -> TurnToolSurface {
     let executor = Arc::new(
         UniversalToolExecutor::new(resources.clone())
+            .with_scopes(OAuthScope::self_grant())
             .with_conversation_id("conv-under-test".into()),
     );
     TurnToolSurface::new(

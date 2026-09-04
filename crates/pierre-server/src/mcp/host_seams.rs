@@ -43,6 +43,7 @@ use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskS
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_schema::McpResponse;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_tool_runtime::context::AuthMethod;
@@ -50,6 +51,7 @@ use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
+use pierre_tool_runtime::scopes::missing_scope;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use serde_json::{Map, Value};
 use tokio::task::{JoinError, JoinHandle};
@@ -104,6 +106,16 @@ fn build_context(
         .with_auth_method(method.as_str())
         .as_admin(is_admin);
 
+    // The grant the credential carried, on the context every MCP handler
+    // already threads. This is what the dispatch chokepoint's scope gate reads:
+    // a delegated OAuth token stays as narrow as it was issued, a first-party
+    // session carries its full self grant.
+    ctx.scopes = auth_method
+        .scopes
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
+
     if let Some(req_id) = request_id {
         ctx = ctx.with_request_id(req_id);
     }
@@ -141,6 +153,20 @@ fn www_authenticate_challenge(base_url: &str, error: Option<&str>) -> String {
     )
 }
 
+/// Build the RFC 6750 §3.1 `insufficient_scope` challenge naming the grant the
+/// caller is missing.
+///
+/// The `scope` parameter is the whole point of this error code: a client that
+/// reads it knows exactly which grant to re-request and can recover, where a
+/// bare 403 tells it only that it lost. `resource_metadata` rides along so the
+/// client also knows *which* authorization server to ask.
+fn insufficient_scope_challenge(base_url: &str, missing: OAuthScope) -> String {
+    let metadata_url = format!("{base_url}/.well-known/oauth-protected-resource");
+    format!(
+        "Bearer resource_metadata=\"{metadata_url}\", error=\"insufficient_scope\", scope=\"{missing}\""
+    )
+}
+
 /// Single-source authentication for the MCP HTTP transport.
 ///
 /// The transport injects the HTTP `Authorization` bearer into
@@ -150,6 +176,29 @@ fn www_authenticate_challenge(base_url: &str, error: Option<&str>) -> String {
 pub struct PierreAuthHook {
     /// Shared server resources for auth + tenant resolution.
     pub resources: Arc<ServerContext>,
+}
+
+impl PierreAuthHook {
+    /// The scope this request's tool needs and the caller does not hold.
+    ///
+    /// `None` for anything that is not a `tools/call` — `initialize`,
+    /// `tools/list` and the rest disclose nothing an authenticated caller is
+    /// not entitled to, and the catalog is already filtered per principal.
+    /// `None` too for a tool the registry does not know: an unknown name is the
+    /// dispatcher's error to report, and answering `insufficient_scope` here
+    /// would tell an unauthorized caller which names exist.
+    fn missing_scope_for(
+        &self,
+        request: &JsonRpcRequest,
+        granted: &[OAuthScope],
+    ) -> Option<OAuthScope> {
+        if request.method != "tools/call" {
+            return None;
+        }
+        let name = request.params.as_ref()?.get("name")?.as_str()?;
+        let capabilities = self.resources.mcp.tool_registry.get(name)?.capabilities();
+        missing_scope(granted, capabilities)
+    }
 }
 
 #[async_trait]
@@ -218,13 +267,35 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                     .flatten()
                     .is_some_and(|user| user.is_admin);
 
-                Ok(build_context(
+                let ctx = build_context(
                     auth_result.user_id,
                     tenant_ctx.tenant_id,
                     is_admin,
                     &auth_result,
                     request.id.clone(),
-                ))
+                );
+
+                // Scope refusal, rendered here rather than at the chokepoint,
+                // because only the transport can answer with a status code —
+                // RFC 6750 wants 403 carrying the challenge, and the chokepoint
+                // can only raise an in-band JSON-RPC error. It reads the SAME
+                // `missing_scope` derivation the chokepoint enforces, so this
+                // is one predicate with two renderings, not a second gate: a
+                // caller who slipped past here is still refused there.
+                if let Some(missing) = self.missing_scope_for(request, &auth_result.scopes) {
+                    debug!(
+                        missing_scope = %missing,
+                        "MCP request rejected: the caller's grant does not cover this tool"
+                    );
+                    return Err(AuthError::InsufficientScope {
+                        www_authenticate: insufficient_scope_challenge(base_url, missing),
+                        reason: format!(
+                            "The grant does not cover this tool; '{missing}' is required"
+                        ),
+                    });
+                }
+
+                Ok(ctx)
             }
             Ok(None) => Err(AuthError::Forbidden {
                 reason: "User must be assigned to a tenant to execute tools".to_owned(),
@@ -278,6 +349,9 @@ async fn run_dispatch(
         return ToolResponse::error("Missing or invalid tenant identity in context".to_owned());
     };
 
+    // The grant is bound inside `dispatch_tool_call`, which is the level every
+    // caller funnels through — including the benchmark and the e2e tests, which
+    // reach it without passing here.
     ToolHandlers::dispatch_tool_call(
         &resources, &state, &ctx, user_id, tenant_id, &name, arguments,
     )

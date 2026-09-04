@@ -110,7 +110,7 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
 
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(properties),
+            properties: Some(properties.into_iter().collect()),
             // `place` XOR (`latitude`+`longitude`) is enforced at runtime in
             // execute(); the schema presents all params as optional.
             required: None,

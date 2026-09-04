@@ -11,6 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::env;
 
 use anyhow::Result;
@@ -474,7 +475,7 @@ async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
         })
         .await?;
 
-    let executor = UniversalToolExecutor::new(resources);
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
 
     let created = executor
         .execute_tool(UniversalRequest {

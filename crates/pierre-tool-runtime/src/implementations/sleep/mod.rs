@@ -17,7 +17,7 @@
 
 pub(crate) mod inner;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -368,7 +368,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
                 description: Some("Array of sleep data objects (minimum 7 days)".to_owned()),
                 items: Some(Box::new(PropertySchema {
                     property_type: "object".to_owned(),
-                    properties: Some(HashMap::from([
+                    properties: Some(BTreeMap::from([
                         (
                             "date".to_owned(),
                             PropertySchema {

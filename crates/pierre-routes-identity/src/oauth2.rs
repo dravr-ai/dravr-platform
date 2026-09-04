@@ -182,7 +182,7 @@ impl OAuth2Routes {
                 "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token"],
                 "response_types_supported": ["code"],
                 "token_endpoint_auth_methods_supported": ["client_secret_post"],
-                "scopes_supported": ["fitness:read", "activities:read", "profile:read"],
+                "scopes_supported": OAuth2AuthorizationServer::supported_scopes(),
                 "response_modes_supported": ["query"],
                 "code_challenge_methods_supported": ["S256"]
             })
@@ -217,7 +217,7 @@ impl OAuth2Routes {
                 "resource": issuer_url,
                 "authorization_servers": [issuer_url],
                 "jwks_uri": format!("{issuer_url}/.well-known/jwks.json"),
-                "scopes_supported": ["fitness:read", "activities:read", "profile:read"],
+                "scopes_supported": OAuth2AuthorizationServer::supported_scopes(),
                 "bearer_methods_supported": ["header"]
             })
         })
@@ -790,9 +790,9 @@ impl OAuth2Routes {
     pub fn generate_login_html(params: LoginHtmlParams<'_>) -> String {
         // Use embedded template - zero filesystem IO, guaranteed to exist at compile-time
         let displayed_scope = if params.scope.is_empty() {
-            "fitness:read activities:read profile:read"
+            OAuth2AuthorizationServer::default_scope_display()
         } else {
-            params.scope
+            params.scope.to_owned()
         };
 
         Self::OAUTH_LOGIN_TEMPLATE
@@ -806,7 +806,7 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.response_type),
             )
             .replace("{{STATE}}", &escape_html_attribute(params.state))
-            .replace("{{SCOPE}}", &escape_html_attribute(displayed_scope))
+            .replace("{{SCOPE}}", &escape_html_attribute(&displayed_scope))
             .replace(
                 "{{CODE_CHALLENGE}}",
                 &escape_html_attribute(params.code_challenge),
@@ -831,9 +831,9 @@ impl OAuth2Routes {
         use std::fmt::Write;
 
         let displayed_scope = if params.scope.is_empty() {
-            "fitness:read activities:read profile:read"
+            OAuth2AuthorizationServer::default_scope_display()
         } else {
-            params.scope
+            params.scope.to_owned()
         };
         // Each scope token becomes a list item; the token text is HTML-escaped
         // before the (literal) <li> markup is substituted into the template.
@@ -856,7 +856,7 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.response_type),
             )
             .replace("{{STATE}}", &escape_html_attribute(params.state))
-            .replace("{{SCOPE}}", &escape_html_attribute(displayed_scope))
+            .replace("{{SCOPE}}", &escape_html_attribute(&displayed_scope))
             .replace(
                 "{{CODE_CHALLENGE}}",
                 &escape_html_attribute(params.code_challenge),

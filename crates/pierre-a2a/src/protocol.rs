@@ -30,6 +30,7 @@ use crate::{push, A2AErrorResponse, A2ARequest, A2AResponse};
 use chrono::SecondsFormat;
 use pierre_core::models::a2a::A2APushNotificationConfig;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -89,6 +90,7 @@ pub struct A2AServer {
 struct AuthPrincipal {
     user_id: Uuid,
     client_id: Option<String>,
+    scopes: Vec<OAuthScope>, // the token's own grant; see OAuthScope::parse_granted
 }
 
 /// Resolved state shared by the blocking, non-blocking, and streaming
@@ -277,6 +279,7 @@ impl A2AServer {
             return Ok(AuthPrincipal {
                 user_id,
                 client_id: None,
+                scopes: OAuthScope::parse_granted(&claims.scope),
             });
         }
 
@@ -289,7 +292,8 @@ impl A2AServer {
             )));
         };
 
-        Self::resolve_client_principal(client_id, resources, request_id).await
+        let granted = OAuthScope::parse_granted(&claims.scope);
+        Self::resolve_client_principal(client_id, granted, resources, request_id).await
     }
 
     /// Resolve a client-credentials subject into its acting principal: the
@@ -297,6 +301,7 @@ impl A2AServer {
     /// registering user with the client identity kept for task scoping.
     async fn resolve_client_principal(
         client_id: &str,
+        scopes: Vec<OAuthScope>,
         resources: &A2AResources,
         request_id: Value,
     ) -> Result<AuthPrincipal, Box<A2AResponse>> {
@@ -327,6 +332,7 @@ impl A2AServer {
         Ok(AuthPrincipal {
             user_id: client.user_id,
             client_id: Some(client.id),
+            scopes,
         })
     }
 
@@ -708,22 +714,16 @@ impl A2AServer {
 
             let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
             let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
-            let user_id = principal.user_id;
             let handle = tokio::spawn(async move {
-                Self::run_task_message(&ctx, &tool_runtime, user_id, prepared).await;
+                Self::run_task_message(&ctx, &tool_runtime, principal, prepared).await;
             });
             drop(handle); // Detached by design: progress is observable via GetTask/SubscribeToTask.
 
             return Self::send_message_task_response(&snapshot, request.id);
         }
 
-        Self::run_task_message(
-            &resources.ctx,
-            &resources.tool_runtime,
-            principal.user_id,
-            prepared,
-        )
-        .await;
+        let (ctx, runtime) = (&resources.ctx, &resources.tool_runtime);
+        Self::run_task_message(ctx, runtime, principal.clone(), prepared).await;
 
         match Self::load_owned_task(resources, &task_id, &principal, request.id.as_ref()).await {
             Ok(record) => {
@@ -877,10 +877,11 @@ impl A2AServer {
     /// publish stream events, close the stream, and deliver push
     /// notifications. Infallible by design — failures land on the task as
     /// the `failed` state.
+    // Takes the principal, not a user id: it carries the caller's grant.
     async fn run_task_message(
         ctx: &Arc<dyn A2ACtx>,
         tool_runtime: &Arc<dyn ToolRuntime>,
-        user_id: Uuid,
+        principal: AuthPrincipal,
         prepared: PreparedSend,
     ) {
         let PreparedSend {
@@ -893,12 +894,10 @@ impl A2AServer {
         Self::transition_status(ctx, &task_id, &context_id, TaskState::Working, None).await;
 
         let outcome = match Self::extract_tool_intent(&user_message) {
-            Some((tool_name, tool_params)) => {
-                Self::execute_registered_tool(ctx, tool_runtime, user_id, &tool_name, tool_params)
+            Some((tool_name, params)) => {
+                Self::execute_registered_tool(ctx, tool_runtime, &principal, &tool_name, params)
                     .await
-                    .map_or_else(SendOutcome::Failure, |result| {
-                        SendOutcome::Tool(tool_name, result)
-                    })
+                    .map_or_else(SendOutcome::Failure, |r| SendOutcome::Tool(tool_name, r))
             }
             // A message addressing no registered tool has nothing to run:
             // the task fails with the shape the surface accepts.
@@ -1134,10 +1133,11 @@ impl A2AServer {
     async fn execute_registered_tool(
         ctx: &Arc<dyn A2ACtx>,
         tool_runtime: &Arc<dyn ToolRuntime>,
-        user_id: Uuid,
+        principal: &AuthPrincipal,
         tool_name: &str,
         tool_params: Value,
     ) -> Result<Value, String> {
+        let user_id = principal.user_id;
         // Resolve tenant context — required for all A2A tool execution.
         let tenant_context =
             match extract_tenant_context_internal(ctx.repos(), Some(user_id), None, None).await {
@@ -1155,8 +1155,9 @@ impl A2AServer {
 
         // Route through the unified executor so A2A tool calls pass the Guardian
         // chokepoint and resolve admin/tenant context exactly like the MCP and
-        // chat paths.
-        let executor = UniversalToolExecutor::new(tool_runtime.clone()); // Safe: Arc clone for executor
+        // chat paths, under the client's own grant — unbound, it refuses.
+        let executor = UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
+            .with_scopes(principal.scopes.clone());
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,
@@ -1259,9 +1260,8 @@ impl A2AServer {
 
         let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
         let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
-        let user_id = principal.user_id;
         let handle = tokio::spawn(async move {
-            Self::run_task_message(&ctx, &tool_runtime, user_id, prepared).await;
+            Self::run_task_message(&ctx, &tool_runtime, principal, prepared).await;
         });
         drop(handle); // Detached by design: completion is signalled by stream closure.
 

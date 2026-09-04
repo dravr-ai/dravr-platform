@@ -23,6 +23,7 @@
 
 mod common;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::collections::VecDeque;
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -146,7 +147,11 @@ async fn harness(caps: LlmCapabilities, responses: &[&str], turn: &str) -> Harne
     Harness {
         provider: ChatProvider::Custom(scripted.clone()),
         scripted,
-        executor: Arc::new(UniversalToolExecutor::new(resources).with_turn_token(turn.to_owned())),
+        executor: Arc::new(
+            UniversalToolExecutor::new(resources)
+                .with_scopes(OAuthScope::self_grant())
+                .with_turn_token(turn.to_owned()),
+        ),
         user_id: user_id.to_string(),
         tenant: TenantId::from_uuid(Uuid::new_v4()),
     }

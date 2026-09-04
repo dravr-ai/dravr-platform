@@ -34,7 +34,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::task::yield_now;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::mcp::{
     host_seams::{build_mcp_server, PierreAuthHook, PierreToolDispatcher},
@@ -139,6 +139,28 @@ impl McpRoutes {
             }
             Err(AuthError::Forbidden { reason }) => {
                 return (StatusCode::FORBIDDEN, Json(json!({ "error": reason }))).into_response();
+            }
+            // RFC 6750 §3.1: a scope refusal is a 403 that still carries the
+            // challenge, so the client reads which grant it needs off the
+            // header instead of only learning that it was refused.
+            Err(AuthError::InsufficientScope {
+                www_authenticate,
+                reason,
+            }) => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    [(header::WWW_AUTHENTICATE, www_authenticate)],
+                    Json(json!({ "error": "insufficient_scope", "error_description": reason })),
+                )
+                    .into_response();
+            }
+            // `AuthError` is `#[non_exhaustive]` from tronc 0.11.0, so a future
+            // rejection reason reaches here rather than breaking the build. Deny
+            // by default: an unrecognised refusal is still a refusal.
+            Err(other) => {
+                warn!(error = ?other, "MCP tools discovery rejected for an unrecognised reason");
+                return (StatusCode::FORBIDDEN, Json(json!({ "error": "forbidden" })))
+                    .into_response();
             }
         };
 

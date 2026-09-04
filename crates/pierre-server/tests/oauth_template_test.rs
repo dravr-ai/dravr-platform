@@ -15,6 +15,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::permissions::scopes::OAuthScope;
 mod common;
 
 use pierre_routes_identity::OAuth2Routes;
@@ -238,10 +239,20 @@ async fn test_generate_login_html_empty_scope() {
         default_password: "",
     });
 
-    // Verify default scope is used when scope is empty
+    // An empty request renders the grant it will actually be ISSUED —
+    // `OAuthScope::default_grant`, the same list the registration endpoint
+    // applies — so the athlete consents to what the client receives. Asserted
+    // against the vocabulary rather than a literal: the two were separate
+    // literals before, and both still named `activities:read`, a scope this
+    // server never checked.
+    let expected = OAuthScope::render_granted(&OAuthScope::default_grant());
     assert!(
-        html.contains("fitness:read activities:read profile:read"),
-        "Empty scope should be replaced with default scope"
+        html.contains(&expected),
+        "an empty scope must render the default grant, expected {expected:?}"
+    );
+    assert!(
+        !html.contains("activities:read"),
+        "activities:read was removed from the vocabulary; nothing should still render it"
     );
     assert!(
         !html.contains("{{SCOPE}}"),

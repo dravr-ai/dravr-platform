@@ -1533,9 +1533,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6d6e7c0ce302c7deca6561bd4aee1534f2f841543f793afc57dda63b3347bb2"
+checksum = "882ff418ef1bda6dbc8c62ca0dae496b1db5d22e4b63c59cba0d738b42d78de8"
 dependencies = [
  "async-trait",
  "axum",
@@ -1646,9 +1646,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.23.0"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79fad46663ba9188187a73fa2159af505736764bc551df260fcd704424ce08f2"
+checksum = "70a227a4887fc74c281743402d62437bbbc48af49b730f40c6083fd15e6e489f"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1667,9 +1667,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.23.0"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5d43bee8459bbeb9957c29fcff33bb81116f9d424c853edaa16727f2fa680e0"
+checksum = "6254016a782ea1ee0f7a273bf3502dca80f9c34529393e8e80a55df2a5ac7c86"
 dependencies = [
  "async-trait",
  "axum",
@@ -7070,7 +7070,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

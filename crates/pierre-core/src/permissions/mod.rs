@@ -13,6 +13,9 @@ use uuid::Uuid;
 /// Impersonation system for super admins to act as other users
 pub mod impersonation;
 
+/// The OAuth scope vocabulary this server publishes and enforces
+pub mod scopes;
+
 /// User roles in order of privilege (higher ordinal = more access)
 ///
 /// The role hierarchy is: `SuperAdmin` > `Admin` > `User`

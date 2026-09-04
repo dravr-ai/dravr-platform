@@ -33,6 +33,7 @@
 //!    an honest "can't fetch right now" during a real outage must reach the
 //!    athlete.
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::Arc;
 
 use serde_json::json;
@@ -581,6 +582,8 @@ pub(super) async fn run_verification_fetch(
     // detached-work routing, per-utterance turn token so Guardian budget
     // accumulates on THIS message and resets next one.
     let executor = UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
+        // Athlete's own turn — see stage 9's binding.
+        .with_scopes(OAuthScope::self_grant())
         .with_conversation_id(input.conversation_id.clone())
         .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
         .with_turn_token(input.turn_id.0.to_string());
@@ -817,6 +820,8 @@ async fn fetch_peer_evidence(
     // detached-work routing, per-utterance turn token for Guardian budget.
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&deps.ctx.tool_runtime))
+            // Athlete's own turn — see stage 9's binding.
+            .with_scopes(OAuthScope::self_grant())
             .with_conversation_id(input.conversation_id.clone())
             .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             .with_turn_token(input.turn_id.0.to_string()),

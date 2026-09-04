@@ -10,6 +10,7 @@
 use anyhow::Result;
 use base64::prelude::*;
 use pierre_core::models::CoachingPersona;
+use pierre_core::permissions::scopes::OAuthScope;
 use rand::Rng;
 use serde_json::json;
 use serial_test::serial;
@@ -294,7 +295,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         .await,
     );
 
-    let executor = UniversalToolExecutor::new(server_resources);
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
     Ok(executor)
 }
 

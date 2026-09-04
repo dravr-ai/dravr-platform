@@ -16,6 +16,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig as MemoryCacheConfig};
 use pierre_config::environment::*;
 use pierre_core::models::User;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
@@ -232,7 +233,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         .await,
     );
 
-    Ok(UniversalToolExecutor::new(server_resources))
+    Ok(UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()))
 }
 
 #[tokio::test]

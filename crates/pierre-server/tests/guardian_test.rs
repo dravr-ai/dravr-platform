@@ -418,6 +418,7 @@ fn turn_scoped_claim_gates_the_guardian_turn_token() {
         impersonator_id: None,
         impersonation_session_id: None,
         turn_scoped: None,
+        scope: String::new(),
     };
     // A reused session token → no per-turn key (each call keyed independently).
     assert_eq!(session_token.guardian_turn_token(), None);

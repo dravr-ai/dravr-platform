@@ -28,7 +28,7 @@
 //! `calculate_personalized_zones` derives the identical boundaries for display
 //! from the same functions in [`super::configuration`].
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -450,8 +450,8 @@ pub struct SetPhysiologyTool;
 
 impl SetPhysiologyTool {
     /// Field descriptions for the tool schema, kept beside the parser.
-    fn properties() -> HashMap<String, PropertySchema> {
-        let mut properties = HashMap::new();
+    fn properties() -> BTreeMap<String, PropertySchema> {
+        let mut properties = BTreeMap::new();
         for (name, property_type, description) in [
             (
                 "ftp_watts",

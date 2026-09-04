@@ -53,7 +53,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
 pierre-tools-core = { version = "0.3.0", path = "../pierre-tools-core" }
-dravr-tronc = "0.9.0"
+dravr-tronc = "0.11.0"
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }

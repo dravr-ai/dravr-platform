@@ -96,6 +96,8 @@ pub mod reconnect;
 pub mod registry;
 pub mod runtime;
 pub mod schema_canonical;
+/// The capability -> OAuth scope derivation and the check the chokepoint reads.
+pub mod scopes;
 /// Guardian security classification: the egress/trust axis every tool declares
 /// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
 pub mod security;

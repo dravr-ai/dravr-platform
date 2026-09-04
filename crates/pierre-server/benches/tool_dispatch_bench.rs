@@ -45,6 +45,7 @@ use dravr_tronc::mcp::host::ToolDispatcher;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::{TenantId, User};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::host_seams::{PierreAuthHook, PierreToolDispatcher};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
@@ -124,11 +125,18 @@ impl DispatchFixture {
 
 /// Per-call context as [`PierreAuthHook`] would resolve it for a JWT bearer.
 fn ctx_for(user: &User, tenant: TenantId, is_admin: bool) -> ToolContext {
-    ToolContext::new()
+    let mut ctx = ToolContext::new()
         .with_user(user.id.to_string())
         .with_tenant(tenant.to_string())
         .with_auth_method(AuthMethod::JwtBearer.as_str())
-        .as_admin(is_admin)
+        .as_admin(is_admin);
+    // The benchmark measures dispatch overhead, so it has to get past the scope
+    // gate: a first-party session's grant, which is what this fixture models.
+    ctx.scopes = OAuthScope::self_grant()
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
+    ctx
 }
 
 /// Pure in-memory registry operations — the sync floor under every dispatch.

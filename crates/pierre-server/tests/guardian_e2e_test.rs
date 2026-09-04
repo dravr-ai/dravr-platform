@@ -17,6 +17,7 @@
 
 mod common;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::env;
 
 use common::{create_test_server_resources, create_test_user};
@@ -64,8 +65,9 @@ async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     // One executor = one turn; its turn token is the Guardian's per-turn key.
-    let executor =
-        UniversalToolExecutor::new(resources.clone()).with_turn_token("e2e-turn".to_owned());
+    let executor = UniversalToolExecutor::new(resources.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_turn_token("e2e-turn".to_owned());
 
     // (a) An IRREVERSIBLE tool is denied at the chokepoint by the zero budget —
     //     before the tool body ever runs. `disconnect_provider` is classified

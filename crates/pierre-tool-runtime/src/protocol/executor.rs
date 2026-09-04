@@ -5,7 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
-use crate::context::{AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GUARDIAN_TURN_TOKEN};
+use crate::context::{
+    AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
+};
 use crate::conversions::RAISED_ERROR_CODE_KEY;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
 use crate::protocol::provider_helpers::no_provider_refusal;
@@ -13,6 +15,7 @@ use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::reconnect::offer_in_payload;
 use crate::runtime::ToolRuntime;
+use crate::scopes::missing_scope;
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::schema::{Content, ToolResponse};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
@@ -20,6 +23,7 @@ use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_config::environment::default_provider;
 use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::models::{Activity, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_database::repositories::PendingGuardianAction;
 use pierre_intelligence::physiological_constants::business_thresholds::{
@@ -180,6 +184,17 @@ pub struct UniversalExecutor {
     /// falls back to a per-call nonce, so those independent calls accumulate
     /// nothing — see [`crate::guardian::TurnKey`].
     turn_token: Option<String>,
+    /// The OAuth grant authorizing every call this executor dispatches.
+    ///
+    /// Empty for an executor built without [`Self::with_scopes`], which refuses
+    /// every tool that reads or writes at the dispatch chokepoint. A transport
+    /// that forgets to bind the caller's grant therefore fails at the first
+    /// tool call instead of quietly serving a third party everything.
+    ///
+    /// Inherited from [`GRANTED_SCOPES`] when this executor is built inside a
+    /// tool body, so a nested dispatch runs under exactly what authorized its
+    /// parent — carried down, never widened.
+    scopes: Vec<OAuthScope>,
 }
 
 impl UniversalExecutor {
@@ -201,6 +216,13 @@ impl UniversalExecutor {
             // (top-level executors set their token explicitly via
             // `with_turn_token`).
             turn_token: GUARDIAN_TURN_TOKEN.try_with(Clone::clone).ok().flatten(),
+            // Inherit the caller's grant for a nested dispatch; empty (refusing
+            // everything that reads or writes) for a top-level executor, which
+            // binds its grant explicitly via `with_scopes`.
+            scopes: GRANTED_SCOPES
+                .try_with(Clone::clone)
+                .ok()
+                .unwrap_or_default(),
         }
     }
 
@@ -210,6 +232,24 @@ impl UniversalExecutor {
     #[must_use]
     pub fn with_turn_token(mut self, turn_token: String) -> Self {
         self.turn_token = Some(turn_token);
+        self
+    }
+
+    /// Bind the OAuth grant the calling credential carries.
+    ///
+    /// A property of the caller, like the turn token beside it — not of each
+    /// tool request, which is why it lives here and not on
+    /// [`UniversalRequest`](crate::protocol::types::UniversalRequest). The
+    /// executor is also the last object both an authenticated transport and an
+    /// internal caller share before the dispatch chokepoint.
+    ///
+    /// An executor built without this refuses every tool that reads or writes,
+    /// because [`Self::new`] starts from the empty grant. That is deliberate: a
+    /// transport that forgets to narrow a third party's reach should fail
+    /// loudly at the first tool call, not silently serve it everything.
+    #[must_use]
+    pub fn with_scopes(mut self, scopes: Vec<OAuthScope>) -> Self {
+        self.scopes = scopes;
         self
     }
 
@@ -489,6 +529,18 @@ impl UniversalExecutor {
         let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
             ProtocolError::InternalError(format!("malformed user id in request: {e}"))
         })?;
+        // The scope gate runs first, and is its own gate rather than an arm of
+        // `authorization_refusal`: the two answer different questions and both
+        // must pass. The role gate asks WHO this caller is; this asks HOW MUCH
+        // of themselves they delegated. A third party granted only
+        // `fitness:read` is refused a write tool here even though the athlete
+        // behind it is perfectly entitled to run it.
+        //
+        // First, because an unauthorized caller should not learn anything the
+        // later refusals would tell them — a tenant's tool-disable config,
+        // say — and because the credential's reach is the outermost question.
+        scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
+
         if let Some(refusal) = self
             .authorization_refusal(
                 &tool_name,
@@ -573,7 +625,13 @@ impl UniversalExecutor {
                     self.conversation_tenant_id,
                     GUARDIAN_TURN_TOKEN.scope(
                         Some(resolved_turn_token.clone()),
-                        tool.execute(&self.resources, &ctx, args),
+                        // The grant travels with the turn token for the same
+                        // reason: a nested dispatch must run under exactly what
+                        // authorized this call, never wider.
+                        GRANTED_SCOPES.scope(
+                            self.scopes.clone(),
+                            tool.execute(&self.resources, &ctx, args),
+                        ),
                     ),
                 ),
             )
@@ -897,6 +955,35 @@ fn tenant_disabled_response(tool_name: &str) -> UniversalResponse {
 /// `is_admin` flag, not the per-tenant role: being a tenant owner makes a user
 /// admin *of their tenant*, which must not grant system-wide admin powers. A
 /// global-lookup failure defaults to non-admin (deny-by-default).
+/// Refuse a tool the caller's grant does not cover.
+///
+/// Required scopes are derived from the tool's own capability flags
+/// ([`required_scopes`](crate::scopes::required_scopes)), never from a table,
+/// so they cannot fall out of step with what the tool declares.
+///
+/// A [`ProtocolError`], because this is the transport-agnostic chokepoint every
+/// transport funnels through. The HTTP transport renders the same refusal as
+/// RFC 6750's 403 + `insufficient_scope` challenge before dispatch, reading
+/// this same derivation — one predicate, two renderings, no second source of
+/// truth, and a caller who slipped past the transport is still refused here.
+fn scope_refusal(
+    tool_name: &str,
+    capabilities: ToolCapabilities,
+    granted: &[OAuthScope],
+) -> Result<(), ProtocolError> {
+    if let Some(missing) = missing_scope(granted, capabilities) {
+        warn!(
+            tool_name = %tool_name,
+            missing_scope = %missing,
+            "tool denied: the caller's grant does not cover it"
+        );
+        return Err(ProtocolError::InvalidParameters(format!(
+            "Permission denied: '{tool_name}' requires the '{missing}' scope"
+        )));
+    }
+    Ok(())
+}
+
 async fn build_tool_context(
     resources: &Arc<dyn ToolRuntime>,
     request: &UniversalRequest,

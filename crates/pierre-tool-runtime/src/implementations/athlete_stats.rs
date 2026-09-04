@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
 
-use crate::capabilities::PROVIDER_READ;
+use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
@@ -90,7 +90,10 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+        // PROFILE: this returns who the athlete IS — name, sex, weight,
+        // preferences — not the training they have accumulated, so it is
+        // reached under `profile:read` and not `fitness:read`.
+        capabilities_to_tronc(PROVIDER_READ | ToolCapabilities::PROFILE)
     }
 
     async fn execute(

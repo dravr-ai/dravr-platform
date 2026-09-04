@@ -11,6 +11,7 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{Activity, SportType, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::training_history_compute::{compute_training_history, AthleteInputs};
 use pierre_intelligence::AlgorithmConfig;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
@@ -26,7 +27,9 @@ async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
-    Ok(Arc::new(UniversalToolExecutor::new(resources)))
+    Ok(Arc::new(
+        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+    ))
 }
 
 async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {

@@ -134,7 +134,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
 
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(properties),
+            properties: Some(properties.into_iter().collect()),
             // `place` XOR (`latitude`+`longitude`) is enforced at runtime in
             // execute() — JsonSchema has no "one-of" construct that maps cleanly
             // through our existing PropertySchema abstraction, so the LLM sees

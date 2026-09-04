@@ -15,7 +15,7 @@
 //! - `DeleteRecipeTool` - Delete a recipe
 //! - `SearchRecipesTool` - Search recipes
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -160,7 +160,7 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
                 description: Some("Array of {name, amount, unit}".to_owned()),
                 items: Some(Box::new(PropertySchema {
                     property_type: "object".to_owned(),
-                    properties: Some(HashMap::from([
+                    properties: Some(BTreeMap::from([
                         (
                             "name".to_owned(),
                             PropertySchema {
@@ -272,7 +272,7 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
                 description: Some("Array of {name, amount, unit}".to_owned()),
                 items: Some(Box::new(PropertySchema {
                     property_type: "object".to_owned(),
-                    properties: Some(HashMap::from([
+                    properties: Some(BTreeMap::from([
                         (
                             "name".to_owned(),
                             PropertySchema {

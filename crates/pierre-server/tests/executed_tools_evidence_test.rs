@@ -22,6 +22,7 @@ mod common;
 
 use common::{create_test_server_resources, create_test_user};
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::FunctionCall;
 use pierre_tool_runtime::function_dispatch::execute_function_calls;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
@@ -39,7 +40,8 @@ async fn a_call_that_did_not_run_is_not_recorded_as_having_run() {
         .await
         .expect("test user");
     let tenant_id = TenantId::from_uuid(Uuid::new_v4());
-    let executor = UniversalToolExecutor::new(resources.clone());
+    let executor =
+        UniversalToolExecutor::new(resources.clone()).with_scopes(OAuthScope::self_grant());
 
     let calls = vec![
         FunctionCall {

@@ -17,6 +17,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -33,7 +34,9 @@ async fn create_misc_test_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
-    Ok(Arc::new(UniversalToolExecutor::new(resources)))
+    Ok(Arc::new(
+        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+    ))
 }
 
 async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {

@@ -15,6 +15,7 @@ use pierre_auth::user_status::enforce_user_status;
 use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 // Trait methods dispatched through repos.api_keys / repos.messaging / repos.tenants / repos.usage / repos.users
 use pierre_database::RepositoryRegistry;
@@ -304,6 +305,10 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
+            // The athlete acting directly, not a third party acting for them,
+            // so the credential is not a narrowed delegation. The role gate
+            // still decides admin independently.
+            scopes: OAuthScope::self_grant(),
             session_id: None,
         })
     }
@@ -438,6 +443,10 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
+            // The athlete acting directly, not a third party acting for them,
+            // so the credential is not a narrowed delegation. The role gate
+            // still decides admin independently.
+            scopes: OAuthScope::self_grant(),
             session_id: None,
         })
     }
@@ -520,6 +529,13 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
+            // Whatever the token was minted with. A first-party session was
+            // minted with the full self grant; a delegated OAuth token stays as
+            // narrow as the athlete consented to. A token minted before the
+            // `scope` claim existed parses to the empty grant and is refused
+            // every tool that reads or writes — deliberate, and the reason this
+            // ships with a re-authentication rather than a compatibility path.
+            scopes: OAuthScope::parse_granted(&claims.scope),
             // The Guardian turn token: the `jti` only for a per-turn (ACP) token;
             // `None` for a reused session token so a stateless MCP client is keyed
             // per-call, not across its whole session (#2).

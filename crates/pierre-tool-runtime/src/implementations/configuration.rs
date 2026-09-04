@@ -14,7 +14,7 @@
 //! - `CalculatePersonalizedZonesTool` - Calculate training zones
 //! - `ValidateConfigurationTool` - Validate configuration values
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -537,7 +537,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: None,
             ..Default::default()
         };
@@ -581,7 +581,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: None,
             ..Default::default()
         };
@@ -640,7 +640,7 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: None,
             ..Default::default()
         };
@@ -654,7 +654,11 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::PROFILE,
+        )
     }
 
     async fn execute(
@@ -755,7 +759,11 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::WRITES_DATA
+                | ToolCapabilities::PROFILE,
+        )
     }
 
     async fn execute(
@@ -884,7 +892,7 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
         );
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(properties),
+            properties: Some(properties.into_iter().collect()),
             // Nothing is required: every input falls back to the athlete's
             // saved physiology, and a zone family whose inputs are unknown is
             // reported as unavailable rather than invented.

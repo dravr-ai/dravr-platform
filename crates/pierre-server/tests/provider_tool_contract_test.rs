@@ -25,6 +25,7 @@
 
 mod common;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -191,8 +192,11 @@ async fn a_contract_provider_completes_a_tool_round_trip_through_the_generic_loo
         Scripted::Answers("Tu es connecté."),
     ]));
     let chat_provider = ChatProvider::Custom(provider.clone());
-    let executor =
-        Arc::new(UniversalToolExecutor::new(resources).with_turn_token("contract-turn".to_owned()));
+    let executor = Arc::new(
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_turn_token("contract-turn".to_owned()),
+    );
     let tools = advertised_tools();
     let user = user_id.to_string();
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -273,8 +277,11 @@ async fn a_contract_provider_that_calls_nothing_answers_directly() {
 
     let provider = Arc::new(ContractProvider::new(vec![Scripted::Answers("Bonjour.")]));
     let chat_provider = ChatProvider::Custom(provider.clone());
-    let executor =
-        Arc::new(UniversalToolExecutor::new(resources).with_turn_token("contract-none".to_owned()));
+    let executor = Arc::new(
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_turn_token("contract-none".to_owned()),
+    );
     let tools = advertised_tools();
     let user = user_id.to_string();
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -336,8 +343,11 @@ async fn a_parameters_argument_envelope_is_lifted_before_dispatch() {
         Scripted::Answers("Phil n'est pas dans ton groupe."),
     ]));
     let chat_provider = ChatProvider::Custom(provider.clone());
-    let executor =
-        Arc::new(UniversalToolExecutor::new(resources).with_turn_token("contract-env".to_owned()));
+    let executor = Arc::new(
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_turn_token("contract-env".to_owned()),
+    );
     let tools = advertised_tools();
     let user = user_id.to_string();
     let tenant = TenantId::from_uuid(Uuid::new_v4());

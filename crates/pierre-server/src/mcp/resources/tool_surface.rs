@@ -41,6 +41,7 @@ use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, Tool
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::McpBridgeProvider;
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -339,8 +340,16 @@ impl HostedToolBridge {
         // is only scoped around a tool body, and this runs in the pipeline
         // task. Without it every loopback call would mint its own turn key and
         // start from a virgin budget with no taint carried over.
+        // A chat turn is the athlete acting on their own data through their own
+        // session, not a third party acting for them, so it carries the self
+        // grant. Scopes exist to narrow a THIRD PARTY's reach, and that
+        // narrowing happens at the OAuth and A2A boundaries, where one actually
+        // enters. Bound here for the same reason as the turn token above: this
+        // runs in the pipeline task, where there is no tool-body task-local to
+        // inherit from.
         let executor = Arc::new(
             UniversalToolExecutor::new(self.tool_runtime.clone())
+                .with_scopes(OAuthScope::self_grant())
                 .with_conversation_id(conversation_id.to_owned())
                 .with_turn_token(turn_id.0.to_string()),
         );

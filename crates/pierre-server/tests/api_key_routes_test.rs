@@ -26,6 +26,7 @@ use pierre_config::environment::{
     WeatherServiceConfig,
 };
 use pierre_core::models::User;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::{
@@ -38,6 +39,7 @@ use uuid::Uuid;
 /// Helper function to create an `AuthResult` for testing
 fn create_test_auth_result(user_id: Uuid) -> AuthResult {
     AuthResult {
+        scopes: OAuthScope::self_grant(),
         session_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {

@@ -12,6 +12,7 @@ use chrono::Utc;
 use pierre_core::models::{
     Activity, ActivityBuilder, GuidedFlow, OnboardingState, Pillar, SportType, TenantId,
 };
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
@@ -101,7 +102,9 @@ async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
-    Ok(Arc::new(UniversalToolExecutor::new(resources)))
+    Ok(Arc::new(
+        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+    ))
 }
 
 async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
@@ -1149,6 +1152,7 @@ async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()>
     // Scope the conversation the way the chat pipeline does, so the tool sees it.
     let scoped = Arc::new(
         UniversalExecutor::new(Arc::clone(&executor.resources))
+            .with_scopes(OAuthScope::self_grant())
             .with_conversation_id(conversation.id.clone()),
     );
     let refused = scoped

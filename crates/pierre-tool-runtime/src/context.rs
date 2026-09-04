@@ -16,6 +16,7 @@
 //! tool execution chains and provides consistent access to resources.
 
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_intelligence::IntelligenceConfig;
 use std::fmt;
 use std::sync::Arc;
@@ -73,6 +74,19 @@ tokio::task_local! {
     /// Constant for the executor's per-turn lifetime; absent for a top-level
     /// executor built outside any tool body (which sets its token explicitly).
     pub static GUARDIAN_TURN_TOKEN: Option<String>;
+
+    /// The OAuth grant authorizing the in-flight tool call.
+    ///
+    /// Scoped by the executor around `McpTool::execute` for the same reason as
+    /// [`GUARDIAN_TURN_TOKEN`]: a tool that dispatches NESTED calls builds a
+    /// child [`crate::protocol::executor::UniversalExecutor`] via `new`, which
+    /// does not call `with_scopes`. Without inheritance that child would start
+    /// from the empty grant and refuse its parent's own sub-reads.
+    ///
+    /// It carries the grant DOWN, never widens it: a nested call runs under
+    /// exactly what authorized the outer one, so a narrowly-granted third party
+    /// cannot reach further by calling a tool that calls another tool.
+    pub static GRANTED_SCOPES: Vec<OAuthScope>;
 }
 
 /// How the user authenticated for this request.

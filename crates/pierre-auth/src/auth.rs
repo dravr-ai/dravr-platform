@@ -36,6 +36,7 @@ use pierre_core::constants::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
 
@@ -190,6 +191,25 @@ pub struct Claims {
     /// to avoid accumulating budget/taint across the whole session (finding #2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_scoped: Option<bool>,
+    /// The grant this token carries, space-delimited (RFC 9068 §2.2.3).
+    ///
+    /// Every token gets one, first-party sessions included. An unscoped token
+    /// would be a bypass of the gate rather than an exemption from it: the
+    /// resource server cannot tell "this caller was granted everything" from
+    /// "this caller predates scopes" without one, and would have to let the
+    /// second through to keep the first working.
+    ///
+    /// Before this claim existed, `generate_oauth_access_token` wrote the grant
+    /// into [`Self::providers`] — a field that everywhere else holds fitness
+    /// provider slugs — so an OAuth-minted token reported `fitness:read` as one
+    /// of the athlete's connected providers.
+    ///
+    /// `#[serde(default)]` so a token minted before this claim still decodes;
+    /// it decodes to the empty grant, which the gate refuses for any tool that
+    /// reads or writes. That is the intended direction for an expiring
+    /// credential — tokens turn over within hours.
+    #[serde(default)]
+    pub scope: String,
 }
 
 impl Claims {
@@ -223,6 +243,16 @@ pub struct AuthResult {
     /// the MCP/headless path — the ACP bridge mints one token per chat turn, so
     /// every native tool call in that turn shares this id.
     pub session_id: Option<String>,
+    /// The grant this credential carries, for the scope gate at the dispatch
+    /// chokepoint.
+    ///
+    /// A JWT's comes from its own `scope` claim, so a delegated OAuth token
+    /// stays as narrow as it was issued. Every other credential — the athlete's
+    /// own API key, a linked messaging channel — is the athlete acting
+    /// directly, not a delegation, so it carries
+    /// [`OAuthScope::self_grant`]. That is not a way in: the role gate runs
+    /// independently and still refuses an admin tool to a non-admin.
+    pub scopes: Vec<OAuthScope>,
 }
 
 /// Authentication method used
@@ -309,6 +339,17 @@ impl Clone for AuthManager {
 }
 
 impl AuthManager {
+    /// The grant a first-party session token carries: [`OAuthScope::self_grant`].
+    ///
+    /// Spelled once, here, so the session minters cannot drift apart — a minter
+    /// that quietly issued a narrower grant would refuse tools the athlete owns.
+    /// It takes no `is_admin`: `admin` is in every self grant and confers no
+    /// admin, because the role gate decides that independently and both axes
+    /// have to pass.
+    fn session_scope() -> String {
+        OAuthScope::render_granted(&OAuthScope::self_grant())
+    }
+
     /// Create a new authentication manager
     #[must_use]
     pub const fn new(token_expiry_hours: i64) -> Self {
@@ -393,6 +434,7 @@ impl AuthManager {
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
             providers: user.available_providers(),
+            scope: Self::session_scope(),
             aud: MCP.to_owned(),
             active_tenant_id,
             impersonator_id: None,
@@ -444,6 +486,7 @@ impl AuthManager {
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
             providers: target_user.available_providers(),
+            scope: Self::session_scope(),
             aud: MCP.to_owned(),
             active_tenant_id,
             impersonator_id: Some(impersonator_id.to_string()),
@@ -803,6 +846,7 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         user_id: &Uuid,
         scopes: &[String],
+        providers: &[String],
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
         let now = Utc::now();
@@ -815,7 +859,13 @@ impl AuthManager {
             exp: expiry.timestamp(),
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
-            providers: scopes.to_vec(),
+            // The athlete's connected fitness providers — what this field
+            // means everywhere else it is written. It used to receive `scopes`
+            // here, so a token minted at the token endpoint reported
+            // `fitness:read` as a connected provider; the grant now rides in
+            // `scope`, where a resource server can read it.
+            providers: providers.to_vec(),
+            scope: scopes.join(" "),
             aud: MCP.to_owned(),
             active_tenant_id,
             impersonator_id: None,
@@ -867,7 +917,11 @@ impl AuthManager {
             exp: expiry.timestamp(),
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
-            providers: scopes.to_vec(),
+            // Empty because a client-credentials token belongs to a machine
+            // client, not to an athlete, so there are no connected providers to
+            // report — not a placeholder. The grant rides in `scope`.
+            providers: Vec::new(),
+            scope: scopes.join(" "),
             aud: MCP.to_owned(),
             active_tenant_id,
             impersonator_id: None,

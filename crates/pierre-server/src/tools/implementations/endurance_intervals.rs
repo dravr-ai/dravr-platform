@@ -105,7 +105,7 @@ fn activity_id_schema() -> JsonSchema {
     );
     JsonSchema {
         schema_type: "object".to_owned(),
-        properties: Some(properties),
+        properties: Some(properties.into_iter().collect()),
         required: Some(vec!["activity_id".to_owned()]),
         ..Default::default()
     }

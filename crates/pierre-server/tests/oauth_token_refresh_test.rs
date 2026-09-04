@@ -163,6 +163,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
     ConnectionType, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
 };
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
@@ -476,7 +477,9 @@ async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
         )
         .await,
     );
-    let executor = Arc::new(UniversalToolExecutor::new(server_resources));
+    let executor = Arc::new(
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()),
+    );
 
     (executor, database)
 }
@@ -535,7 +538,9 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
         )
         .await,
     );
-    let executor = Arc::new(UniversalToolExecutor::new(server_resources));
+    let executor = Arc::new(
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()),
+    );
 
     (executor, database)
 }

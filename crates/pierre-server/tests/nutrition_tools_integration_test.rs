@@ -19,6 +19,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::json;
 use std::env;
@@ -41,7 +42,7 @@ async fn create_nutrition_test_executor() -> Result<UniversalToolExecutor> {
     common::init_test_http_clients();
 
     let resources = common::create_test_server_resources().await?;
-    Ok(UniversalToolExecutor::new(resources))
+    Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
 }
 
 /// Create a test request with given parameters

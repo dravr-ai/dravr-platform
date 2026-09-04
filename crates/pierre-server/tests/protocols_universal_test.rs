@@ -17,6 +17,7 @@ use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{self, *};
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{ConnectionType, Tenant, User};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_intelligence::insights::{Insight, InsightType};
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics, TimeOfDay,
@@ -256,7 +257,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         )
         .await,
     );
-    let executor = UniversalToolExecutor::new(server_resources);
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
     Ok(executor)
 }
 
@@ -709,7 +711,8 @@ async fn test_set_goal_tool() -> Result<()> {
         )
         .await,
     );
-    let executor = UniversalToolExecutor::new(server_resources);
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
 
     let request = UniversalRequest {
         tool_name: "set_goal".to_owned(),
@@ -1488,7 +1491,8 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         )
         .await,
     );
-    let executor = UniversalToolExecutor::new(server_resources);
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
     let tenant = Tenant::new(
         "Disconnect Provider Tenant".to_owned(),
         "disconnect-provider-tenant".to_owned(),

@@ -15,7 +15,7 @@
 //!
 //! All tools use direct intelligence module and USDA API access.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -640,7 +640,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
                 ),
                 items: Some(Box::new(PropertySchema {
                     property_type: "object".to_owned(),
-                    properties: Some(HashMap::from([
+                    properties: Some(BTreeMap::from([
                         (
                             "fdc_id".to_owned(),
                             PropertySchema {

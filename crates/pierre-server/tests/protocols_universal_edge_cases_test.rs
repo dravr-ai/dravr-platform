@@ -16,6 +16,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_config::environment::*;
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{ConnectionType, Tenant, User, UserOAuthToken};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -200,7 +201,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         )
         .await,
     );
-    Ok(UniversalToolExecutor::new(server_resources))
+    Ok(UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()))
 }
 
 /// Create executor with missing OAuth configuration
@@ -257,7 +258,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
         .await,
     );
 
-    Ok(UniversalToolExecutor::new(server_resources))
+    Ok(UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()))
 }
 
 /// Test OAuth configuration errors

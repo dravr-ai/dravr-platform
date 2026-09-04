@@ -16,6 +16,7 @@
 
 mod common;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::env;
 use std::sync::Arc;
 
@@ -147,8 +148,9 @@ async fn chokepoint_parks_the_call_and_the_claim_is_single_use() {
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let turn_token = "confirm-e2e-turn";
-    let executor =
-        UniversalToolExecutor::new(resources.clone()).with_turn_token(turn_token.to_owned());
+    let executor = UniversalToolExecutor::new(resources.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_turn_token(turn_token.to_owned());
 
     // Seed taint for this turn deterministically (no dependency on which read
     // tools happen to carry UNTRUSTED_OUTPUT in the registry).

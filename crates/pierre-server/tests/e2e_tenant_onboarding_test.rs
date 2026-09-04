@@ -27,6 +27,7 @@ use pierre_auth::{
 use pierre_config::environment::{OAuthConfig, OAuthProviderConfig, ServerConfig};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{OAuthApp, Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
@@ -277,7 +278,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         )
         .await,
     );
-    let executor = UniversalToolExecutor::new(server_resources);
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
 
     // Step 8: Test tenant-aware tool execution for Acme
     let acme_context = TenantContext::from_verified_membership(

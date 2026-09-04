@@ -22,6 +22,7 @@
 
 mod common;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -465,7 +466,9 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
     registry.set_default_config(INTERVALS_ICU, config);
     let mut context = (*resources).clone();
     context.fitness.provider_registry = Arc::new(registry);
-    let executor = Arc::new(UniversalToolExecutor::new(Arc::new(context)));
+    let executor = Arc::new(
+        UniversalToolExecutor::new(Arc::new(context)).with_scopes(OAuthScope::self_grant()),
+    );
     let resources = &executor.resources;
 
     let email = format!("prescribe_test_{}@example.com", Uuid::new_v4());

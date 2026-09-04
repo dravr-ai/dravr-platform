@@ -45,6 +45,18 @@ bitflags! {
         const ADMIN_ONLY = 0b0100_0000_0000;
         /// Tool handles sleep/recovery data
         const SLEEP_RECOVERY = 0b1000_0000_0000;
+        /// Tool reads or writes who the athlete IS — profile fields,
+        /// configuration, which providers are linked — rather than the fitness
+        /// data they have accumulated.
+        ///
+        /// Sits beside `READS_DATA`/`WRITES_DATA` rather than replacing them: a
+        /// profile tool still reads or writes, and this says *what*. Together
+        /// the pair picks the OAuth scope the caller must hold, which is the
+        /// split a consent screen has to be able to state — an integration may
+        /// legitimately need an athlete's training history without needing
+        /// their identity, or the reverse. Folded together, a grant for one is
+        /// a grant for both.
+        const PROFILE = 0b0001_0000_0000_0000;
     }
 }
 

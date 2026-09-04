@@ -114,7 +114,7 @@ pub fn object_schema<S: BuildHasher>(
 
 /// Map the platform's host capability flags to tronc's generic capability set.
 ///
-/// Only the six host-agnostic flags cross over. The fitness domain flags
+/// Only the seven host-agnostic flags cross over. The fitness domain flags
 /// (`ANALYTICS`, `GOALS`, `CONFIGURATION`, `RECIPES`, `COACHES`, `SLEEP_RECOVERY`)
 /// are intentionally dropped: tronc models domain taxonomy as registry string
 /// categories, which `register_builtin_tools` supplies via `register_with_category`.
@@ -138,6 +138,9 @@ pub fn capabilities_to_tronc(caps: ToolCapabilities) -> TroncCapabilities {
     }
     if caps.contains(ToolCapabilities::ADMIN_ONLY) {
         out |= TroncCapabilities::ADMIN_ONLY;
+    }
+    if caps.contains(ToolCapabilities::PROFILE) {
+        out |= TroncCapabilities::PROFILE;
     }
     out
 }

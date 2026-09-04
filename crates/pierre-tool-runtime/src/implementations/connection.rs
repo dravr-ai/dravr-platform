@@ -262,7 +262,18 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::REQUIRES_TENANT)
+        // WRITES_DATA was missing: linking a provider writes an OAuth
+        // grant onto the athlete's account. Its own twin,
+        // `disconnect_provider`, has always declared the write — one half
+        // of a pair declaring it and the other not is the evidence this
+        // was an oversight rather than a decision. PROFILE because what
+        // changes is which accounts are linked, i.e. who the athlete is.
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::WRITES_DATA
+                | ToolCapabilities::PROFILE,
+        )
     }
 
     async fn execute(
@@ -453,7 +464,11 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::PROFILE,
+        )
     }
 
     async fn execute(
@@ -609,7 +624,11 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::WRITES_DATA
+                | ToolCapabilities::PROFILE,
+        )
     }
 
     async fn execute(

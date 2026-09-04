@@ -14,6 +14,7 @@ use argon2::{
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::OAuth2ServerRepository;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::env;
@@ -102,9 +103,14 @@ impl ClientRegistrationManager {
             // RFC 7591: client_uri is OPTIONAL but Claude Code requires it to be non-null
             // Provide actual server URL when not specified by the client
             client_uri: request.client_uri.or(Some(default_client_uri)),
+            // RFC 7591 §3.1.1: a client that requests no scope gets the
+            // server's default. Read-only, and read-only deliberately — a
+            // client that never asked for anything has not been consented to
+            // writing. `activities:read` is gone from the default with the rest
+            // of the vocabulary: it named a grant this server never checked.
             scope: request
                 .scope
-                .or_else(|| Some("fitness:read activities:read profile:read".to_owned())),
+                .or_else(|| Some(OAuthScope::render_granted(&OAuthScope::default_grant()))),
         })
     }
 

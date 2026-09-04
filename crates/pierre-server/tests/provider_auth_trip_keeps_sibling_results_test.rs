@@ -20,6 +20,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::env;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -179,7 +180,9 @@ async fn an_auth_trip_keeps_the_window_a_sibling_call_already_served() {
     let provider = Arc::new(BatchingProvider::new());
     let chat_provider = ChatProvider::Custom(provider);
     let executor = Arc::new(
-        UniversalToolExecutor::new(resources).with_turn_token("auth-trip-turn".to_owned()),
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_turn_token("auth-trip-turn".to_owned()),
     );
     let tools = advertised_tools();
     let user_id_str = user_id.to_string();

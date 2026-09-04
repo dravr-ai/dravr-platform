@@ -17,7 +17,7 @@
 //! [`date_range_properties`] and parsed by [`parse_date_range`] /
 //! [`apply_format`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -111,8 +111,8 @@ fn apply_format(payload: Value, data_key: &str, format: OutputFormat) -> Value {
 /// health-data queries (sleep, recovery, snapshots). Inferred from the
 /// handler bodies in `handlers/health_data.rs`, which read `start`, `end`,
 /// and `format` from `request.parameters`.
-fn date_range_properties() -> HashMap<String, PropertySchema> {
-    let mut properties = HashMap::new();
+fn date_range_properties() -> BTreeMap<String, PropertySchema> {
+    let mut properties = BTreeMap::new();
     properties.insert(
         "start".to_owned(),
         PropertySchema {

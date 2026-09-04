@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::slice;
 use std::sync::Arc;
 
@@ -319,7 +319,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: Some(Vec::new()),
             ..Default::default()
         };
@@ -404,7 +404,7 @@ fn session_schema() -> PropertySchema {
             "A structured session you authored, for anything the cornerstones do not express."
                 .to_owned(),
         ),
-        properties: Some(p),
+        properties: Some(p.into_iter().collect()),
         required: Some(vec![
             "name".to_owned(),
             "sport".to_owned(),

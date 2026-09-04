@@ -168,6 +168,7 @@ use pierre_config::environment::{
     SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
     WeatherServiceConfig,
 };
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_dashboard::service::DashboardRoutes;
@@ -429,6 +430,7 @@ impl DashboardTestSetup {
         use UnifiedRateLimitInfo;
 
         AuthResult {
+            scopes: OAuthScope::self_grant(),
             session_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
@@ -563,6 +565,7 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_dashboard_overview(AuthResult {
+            scopes: OAuthScope::self_grant(),
             session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
@@ -585,6 +588,7 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_dashboard_overview(AuthResult {
+            scopes: OAuthScope::self_grant(),
             session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
@@ -607,6 +611,7 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_dashboard_overview(AuthResult {
+            scopes: OAuthScope::self_grant(),
             session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
@@ -815,6 +820,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
 
     let (user_id, _) = common::create_test_user(&database).await?;
     let auth_result = AuthResult {
+        scopes: OAuthScope::self_grant(),
         session_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {
@@ -926,6 +932,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_usage_analytics(
             AuthResult {
+                scopes: OAuthScope::self_grant(),
                 session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
@@ -950,6 +957,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_usage_analytics(
             AuthResult {
+                scopes: OAuthScope::self_grant(),
                 session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
@@ -1053,6 +1061,7 @@ async fn test_get_rate_limit_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_rate_limit_overview(AuthResult {
+            scopes: OAuthScope::self_grant(),
             session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
@@ -1074,6 +1083,7 @@ async fn test_get_rate_limit_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_rate_limit_overview(AuthResult {
+            scopes: OAuthScope::self_grant(),
             session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
@@ -1353,6 +1363,7 @@ async fn test_get_request_stats_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_request_stats(
             AuthResult {
+                scopes: OAuthScope::self_grant(),
                 session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
@@ -1378,6 +1389,7 @@ async fn test_get_request_stats_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_request_stats(
             AuthResult {
+                scopes: OAuthScope::self_grant(),
                 session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
@@ -1474,6 +1486,7 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_tool_usage_breakdown(
             AuthResult {
+                scopes: OAuthScope::self_grant(),
                 session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
@@ -1499,6 +1512,7 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_tool_usage_breakdown(
             AuthResult {
+                scopes: OAuthScope::self_grant(),
                 session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
@@ -1546,6 +1560,7 @@ async fn test_dashboard_with_malformed_jwt() -> Result<()> {
         let result = setup
             .dashboard_routes
             .get_dashboard_overview(AuthResult {
+                scopes: OAuthScope::self_grant(),
                 session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
@@ -1581,6 +1596,7 @@ async fn test_dashboard_with_different_user() -> Result<()> {
     let (other_user_id, _) =
         common::create_test_user_with_email(&setup.database, "other@example.com").await?;
     let other_auth_result = AuthResult {
+        scopes: OAuthScope::self_grant(),
         session_id: None,
         user_id: other_user_id,
         auth_method: AuthMethod::JwtToken {

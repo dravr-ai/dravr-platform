@@ -10,6 +10,7 @@
 use anyhow::Result;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::constants::tools::*;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
@@ -127,6 +128,10 @@ impl MockMcpHandler {
             auth_method: Some("jwt_bearer".to_owned()),
             request_id: Some(json!(1)),
             is_admin: false,
+            scopes: OAuthScope::self_grant()
+                .iter()
+                .map(|scope| scope.as_str().to_owned())
+                .collect(),
             ..Default::default()
         };
         let response = ToolHandlers::dispatch_tool_call(

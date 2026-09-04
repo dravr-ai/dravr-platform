@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -112,6 +113,10 @@ pub(crate) async fn dispatch_llm_with_tools(
     // can route a completion notice back to the channel that triggered it.
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
+            // A chat turn is the athlete acting on their own data through their
+            // own session, not a third party acting for them, so it carries the
+            // self grant. Narrowing happens at the OAuth and A2A boundaries.
+            .with_scopes(OAuthScope::self_grant())
             .with_conversation_id(input.conversation_id.clone())
             .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             // Guardian turn key = the per-utterance turn_id, so taint/budget

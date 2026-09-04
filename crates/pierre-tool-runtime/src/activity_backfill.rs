@@ -18,6 +18,7 @@
 //! the provider's global scrape-concurrency permit, so they cannot stampede
 //! Chrome.
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::collections::HashSet;
 use std::env;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
@@ -425,7 +426,11 @@ async fn record_backfill_coverage(
 /// All failures are logged and mapped — the detached spawn path drops the
 /// outcome, the inline path surfaces it to the caller.
 async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome {
-    let executor = UniversalExecutor::new(job.resources.clone());
+    // Bound explicitly, not inherited: this path is reached from a detached
+    // `tokio::spawn`, which a task-local does not cross. The job runs the
+    // athlete's own backfill, so it carries the self grant.
+    let executor =
+        UniversalExecutor::new(job.resources.clone()).with_scopes(OAuthScope::self_grant());
     let activities = match fetch_backfill_activities(job, &executor).await {
         BackfillFetch::Activities(activities) => activities,
         BackfillFetch::AuthRequired => {

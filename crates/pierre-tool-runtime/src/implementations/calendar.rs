@@ -216,7 +216,7 @@ pub(super) fn step_schema() -> PropertySchema {
     PropertySchema {
         property_type: "object".to_owned(),
         description: Some("One step of the session.".to_owned()),
-        properties: Some(p),
+        properties: Some(p.into_iter().collect()),
         required: Some(vec![
             "label".to_owned(),
             "duration_seconds".to_owned(),

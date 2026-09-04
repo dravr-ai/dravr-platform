@@ -69,7 +69,7 @@ fn object_prop(
     PropertySchema {
         property_type: "object".to_owned(),
         description: Some(description.to_owned()),
-        properties: Some(properties),
+        properties: Some(properties.into_iter().collect()),
         required: Some(required),
         ..Default::default()
     }

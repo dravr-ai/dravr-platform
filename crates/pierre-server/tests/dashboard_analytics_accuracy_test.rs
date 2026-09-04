@@ -21,6 +21,7 @@ use chrono::{Duration, NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, init_server_config};
 use pierre_auth::auth::{AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::seed_models::SeedLlmUsageRecord;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_dashboard::service::DashboardRoutes;
@@ -134,6 +135,7 @@ impl AnalyticsFixture {
 
     fn auth(&self) -> AuthResult {
         AuthResult {
+            scopes: OAuthScope::self_grant(),
             session_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {

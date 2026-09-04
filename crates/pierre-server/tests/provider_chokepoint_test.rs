@@ -29,6 +29,7 @@ mod common;
 
 use common::{create_test_server_resources, create_test_tenant, create_test_tenant_with_provider};
 use pierre_core::models::UserOAuthToken;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocol::{
     auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
     META_AUTH_REQUIRED_PROVIDER,
@@ -76,7 +77,7 @@ async fn a_providerless_dispatch_is_refused_with_recovery_metadata() {
         .unwrap();
     let tenant_id = tenants.first().unwrap().id.to_string();
 
-    let executor = UniversalToolExecutor::new(resources);
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
     let resp = executor
         .execute_tool(request(user.id, &tenant_id))
         .await
@@ -127,7 +128,7 @@ async fn a_connected_dispatch_reaches_the_tool_body() {
         .unwrap();
     let tenant_id = tenants.first().unwrap().id.to_string();
 
-    let executor = UniversalToolExecutor::new(resources);
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
     let resp = executor
         .execute_tool(request(user.id, &tenant_id))
         .await
@@ -192,7 +193,7 @@ async fn a_token_without_a_connection_row_is_not_refused() {
          test would pass for the wrong reason"
     );
 
-    let executor = UniversalToolExecutor::new(resources);
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
     let resp = executor
         .execute_tool(request(user.id, &tenant_id.to_string()))
         .await
@@ -235,7 +236,7 @@ async fn a_named_non_oauth_provider_is_not_refused() {
         .unwrap();
     let tenant_id = tenants.first().unwrap().id.to_string();
 
-    let executor = UniversalToolExecutor::new(resources);
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
 
     for provider in ["synthetic", "synthetic_sleep"] {
         let mut req = request(user.id, &tenant_id);
@@ -278,7 +279,7 @@ async fn an_unregistered_provider_name_does_not_bypass_the_refusal() {
         .await
         .unwrap();
     let tenant_id = tenants.first().unwrap().id.to_string();
-    let executor = UniversalToolExecutor::new(resources);
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
 
     for bogus in ["all", "not_a_real_provider"] {
         let mut req = request(user.id, &tenant_id);
@@ -320,7 +321,7 @@ async fn the_default_provider_override_bypasses_the_chokepoint() {
         .unwrap();
     let tenant_id = tenants.first().unwrap().id.to_string();
 
-    let executor = UniversalToolExecutor::new(resources);
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
     let resp = executor.execute_tool(request(user.id, &tenant_id)).await;
     env::remove_var("PIERRE_DEFAULT_PROVIDER");
 

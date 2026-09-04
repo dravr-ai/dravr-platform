@@ -31,6 +31,7 @@ mod shared_quota_tests {
     use pierre_chat_pipeline::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{TenantId, STARTER};
+    use pierre_core::permissions::scopes::OAuthScope;
     use pierre_database::backends::factory::Database;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
@@ -135,6 +136,10 @@ mod shared_quota_tests {
             auth_method: Some("jwt_bearer".to_owned()),
             request_id: Some(json!(1)),
             is_admin: false,
+            scopes: OAuthScope::self_grant()
+                .iter()
+                .map(|scope| scope.as_str().to_owned())
+                .collect(),
             ..Default::default()
         };
         let response = ToolHandlers::dispatch_tool_call(

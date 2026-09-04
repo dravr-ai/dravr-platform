@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -125,7 +125,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
         );
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(properties),
+            properties: Some(properties.into_iter().collect()),
             required: Some(Vec::new()),
             ..Default::default()
         };
@@ -201,7 +201,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: Some(Vec::new()),
             ..Default::default()
         };

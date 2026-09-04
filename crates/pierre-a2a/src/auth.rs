@@ -17,6 +17,7 @@ use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
 use pierre_core::errors::provider::ProviderError;
 use pierre_core::errors::{AppError, AppResult};
 pub use pierre_core::models::a2a::A2AClient;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
 // Trait methods are dispatched through repos.a2a / repos.tenants Arc<dyn Trait>;
@@ -209,9 +210,8 @@ impl A2AAuthenticator {
             )));
         }
 
-        // Check token expiration (already handled by validate_token)
-        // Check scopes if present in token
-        // Grant access based on A2A client permissions
+        // Token expiration is already handled by validate_token; the grant
+        // rides into AuthResult below and is checked at the dispatch chokepoint.
 
         // Resolve user's default tenant — A2A clients are single-tenant by design
         let active_tenant_id = self
@@ -244,6 +244,10 @@ impl A2AAuthenticator {
                 auth_method: "oauth2".into(),
             },
             active_tenant_id,
+            // An A2A client is a third party acting for the user, so its grant
+            // is whatever its client-credentials token was minted with — never
+            // the self grant. This is the delegation the scope axis exists for.
+            scopes: OAuthScope::parse_granted(&token_claims.scope),
             session_id: None,
         })
     }

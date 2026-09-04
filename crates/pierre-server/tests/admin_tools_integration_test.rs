@@ -26,6 +26,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -43,7 +44,9 @@ async fn create_admin_test_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
-    Ok(Arc::new(UniversalToolExecutor::new(resources)))
+    Ok(Arc::new(
+        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+    ))
 }
 
 /// Create an admin user with their own tenant. The user is marked `UserRole::Admin`

@@ -17,6 +17,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig};
 use pierre_core::models::User;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -121,7 +122,9 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
         .await,
     );
     (
-        Arc::new(UniversalToolExecutor::new(server_resources)),
+        Arc::new(
+            UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()),
+        ),
         user_id.to_string(),
     )
 }

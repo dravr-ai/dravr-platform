@@ -21,7 +21,7 @@
 //! - `ShowCoachTool` - Show a hidden coach
 //! - `ListHiddenCoachesTool` - List hidden coaches
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -1032,7 +1032,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: None,
             ..Default::default()
         };
@@ -1091,7 +1091,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: None,
             ..Default::default()
         };
@@ -1314,7 +1314,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(HashMap::new()),
+            properties: Some(BTreeMap::new()),
             required: None,
             ..Default::default()
         };
