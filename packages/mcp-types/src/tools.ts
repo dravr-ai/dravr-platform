@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 110
+// Tool count: 111
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -602,6 +602,46 @@ export interface DiscoverRoutesParams {
 
   /** What kind of route to look for. One of: 'run', 'trail_running', 'ride', 'mountain_bike', 'gravel_ride', 'ebike_ride', 'hike', 'walk', 'cross_country_skiing', 'alpine_skiing', 'backcountry_skiing', 'snowshoe'. Defaults to 'run'. */
   sport_type?: string;
+}
+
+
+/**
+ * Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, or a VDOT they already know. Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.
+ */
+export interface EstimateVo2maxParams {
+
+  /** Age in years. rockport_walk needs it; when omitted the stored profile age is used. */
+  age?: number;
+
+  /** cooper_test: metres covered in 12 minutes on flat ground. */
+  distance_meters?: number;
+
+  /** rockport_walk and astrand_ryhming: the sex the published equation was fitted on, female or male. */
+  gender?: string;
+
+  /** rockport_walk: heart rate in bpm immediately at the finish. astrand_ryhming: steady-state heart rate during the ride, 120–170 bpm. */
+  heart_rate?: number;
+
+  /** from_pace: the fastest speed in metres per second the athlete can hold for 3–8 minutes. */
+  max_speed_ms?: number;
+
+  /** Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot. cooper_test: distance run in 12 minutes. rockport_walk: a timed one-mile walk with heart rate at the finish. astrand_ryhming: steady-state cycling at a known power with heart rate. from_pace: a hard 3–8 minute speed and an easy speed. from_vdot: a VDOT the athlete already knows. */
+  method: string;
+
+  /** astrand_ryhming: the steady power held on the ergometer, in watts. */
+  power_watts?: number;
+
+  /** from_pace: the athlete's easy or recovery speed in metres per second. */
+  recovery_speed_ms?: number;
+
+  /** rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible. */
+  time_seconds?: number;
+
+  /** from_vdot: the VDOT value, 30–85. It is already VO2max in ml/kg/min, so this reports it after range-checking. */
+  vdot?: number;
+
+  /** Body weight in kilograms. rockport_walk and astrand_ryhming need it; when omitted the stored profile weight is used. */
+  weight_kg?: number;
 }
 
 
@@ -1940,6 +1980,7 @@ export const TOOL_NAMES = [
   "detect_patterns",
   "disconnect_provider",
   "discover_routes",
+  "estimate_vo2max",
   "export_dossier",
   "export_intervals",
   "export_latest_snapshot",
@@ -2061,6 +2102,7 @@ export interface ToolParamsMap {
   "detect_patterns": DetectPatternsParams;
   "disconnect_provider": DisconnectProviderParams;
   "discover_routes": DiscoverRoutesParams;
+  "estimate_vo2max": EstimateVo2maxParams;
   "export_dossier": ExportDossierParams;
   "export_intervals": ExportIntervalsParams;
   "export_latest_snapshot": ExportLatestSnapshotParams;

@@ -173,10 +173,13 @@ names the origin of every number used.
 The athlete's typed measurements. `user_physiological_profiles` is read by
 training-load compute, the Endurance dossier and interval exports, the athlete
 snapshot, and `GET /api/v1/endurance/*`; `set_physiology` is its only writer.
+`estimate_vo2max` feeds it: it turns a field test the athlete describes into a
+VO2max the coach can confirm and then save.
 
 | Tool Name | Description | Required Parameters | Optional Parameters |
 |-----------|-------------|---------------------|---------------------|
 | `set_physiology` | Save the athlete's physiological measurements so personalised calculations use their real numbers | - | `ftp_watts` (integer), `threshold_pace_sec_per_km` (number), `max_hr` (integer), `resting_hr` (integer), `lactate_threshold_percentage` (number), `vo2_max` (number), `weight` (number), `age` (integer), `fitness_level` (string), `primary_sport` (string), `training_experience_years` (integer) |
+| `estimate_vo2max` | Estimate VO2max in ml/kg/min from a field test the athlete describes; reports the number, the equation used, and which inputs were defaulted from the profile | `method` (string) | `distance_meters` (number), `time_seconds` (number), `heart_rate` (number), `power_watts` (number), `weight_kg` (number), `age` (integer), `gender` (string), `max_speed_ms` (number), `recovery_speed_ms` (number), `vdot` (number) |
 
 ### Parameter Details
 
@@ -190,6 +193,24 @@ snapshot, and `GET /api/v1/endurance/*`; `set_physiology` is its only writer.
   `advanced`, `elite`, `professional`.
 - The response carries the profile re-read from storage after the write, so a
   caller can report what was actually persisted.
+
+**`estimate_vo2max`**:
+- `method` is one of `cooper_test`, `rockport_walk`, `astrand_ryhming`,
+  `from_pace`, `from_vdot`; each takes the inputs its published equation needs:
+  - `cooper_test`: `distance_meters` covered in 12 minutes.
+  - `rockport_walk`: `time_seconds` for one mile, `heart_rate` at the finish,
+    `gender`, `weight_kg`, `age`.
+  - `astrand_ryhming`: `power_watts` held, steady-state `heart_rate` (120–170),
+    `gender`, `weight_kg`.
+  - `from_pace`: `max_speed_ms` (3–8 minute effort) and `recovery_speed_ms`.
+  - `from_vdot`: `vdot` (30–85), reported unchanged — VDOT is already ml/kg/min.
+- `gender` is `female` or `male`, the sex the equation was fitted on.
+- `weight_kg` and `age` default to the stored profile when omitted; the response's
+  `defaults_from_profile` names every input taken from there.
+- An input outside the equation's fitted range is rejected as invalid input for
+  the athlete to correct.
+- The tool only estimates. Its response says `saved: false` and points at
+  `set_physiology` for storing the number once the athlete confirms it.
 
 ---
 

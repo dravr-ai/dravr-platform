@@ -21,8 +21,8 @@
 //! - `fitness_config` — get / set / list / delete fitness config (`tools-config`)
 //! - `memory` — coach-authored memory: notes, followups, fact recall
 //!   (`tools-memory`)
-//! - `physiology` — `set_physiology`, the athlete's typed measurements
-//!   (`tools-config`)
+//! - `physiology` — `set_physiology`, the athlete's typed measurements, and
+//!   `estimate_vo2max`, a field-test estimate for it (`tools-config`)
 //! - `mobility` — stretching exercises, yoga poses, mobility recommendations
 //!   (`tools-mobility`)
 //! - `recipes` — recipe constraints / validate / save / list / search
@@ -96,8 +96,11 @@ pub mod endurance_workouts;
 #[cfg(feature = "tools-config")]
 pub mod fitness_config;
 
-/// Athlete physiology write tool: `set_physiology` — the only production
-/// writer of `user_physiological_profiles` (`tools-config` feature).
+/// Athlete physiology tools (`tools-config` feature).
+///
+/// `set_physiology` is the only production writer of
+/// `user_physiological_profiles`; `estimate_vo2max` turns a field test the
+/// athlete describes into a number for it.
 #[cfg(feature = "tools-config")]
 pub mod physiology;
 

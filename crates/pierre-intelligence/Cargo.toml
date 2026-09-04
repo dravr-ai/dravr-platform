@@ -12,7 +12,7 @@ publish = false
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.7.2" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.7.3" }
 
 [lints]
 workspace = true

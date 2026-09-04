@@ -42,6 +42,7 @@ use crate::implementations::configuration::{
     derive_hr_zone_set, derive_power_zone_set, validate_parameter_ranges,
     validate_parameter_relationships,
 };
+use crate::implementations::data_helpers::read_only_annotations;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -49,6 +50,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{SportType, TenantId, UserPhysiologicalProfile};
+use pierre_intelligence::algorithms::Vo2maxAlgorithm;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -622,13 +624,329 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
     }
 }
 
+// ============================================================================
+// EstimateVo2maxTool
+// ============================================================================
+
+/// Estimates `VO₂max` from a field test the athlete describes in conversation.
+///
+/// The five estimators in `dravr_cageux::algorithms::vo2max` — Cooper,
+/// Rockport, Åstrand-Ryhming, Daniels' VDOT and a pace ratio — each need a
+/// measured test result that no provider capture path supplies: a 12-minute
+/// run distance, a timed mile walk with the finishing heart rate, steady-state
+/// ergometer watts. Those are things an athlete *says*, so this is the capture
+/// path. It estimates and reports; it does not write. Storing the number is
+/// `set_physiology`'s job, which keeps one writer for the profile and lets the
+/// coach confirm the value with the athlete before it becomes the basis for
+/// every personalised calculation.
+///
+/// Body weight and age default to the stored profile when the athlete does
+/// not restate them, and the response names which inputs came from there so
+/// the coach can say so.
+pub struct EstimateVo2maxTool;
+
+/// The field-test methods the tool accepts, in the spelling the schema
+/// advertises. Each maps to exactly one [`Vo2maxAlgorithm`] variant.
+const VO2MAX_METHODS: [&str; 5] = [
+    "cooper_test",
+    "rockport_walk",
+    "astrand_ryhming",
+    "from_pace",
+    "from_vdot",
+];
+
+impl EstimateVo2maxTool {
+    fn properties() -> BTreeMap<String, PropertySchema> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "method".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot. cooper_test: distance run in 12 minutes. \
+                     rockport_walk: a timed one-mile walk with heart rate at the finish. \
+                     astrand_ryhming: steady-state cycling at a known power with heart rate. \
+                     from_pace: a hard 3–8 minute speed and an easy speed. \
+                     from_vdot: a VDOT the athlete already knows."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        for (name, property_type, description) in [
+            (
+                "distance_meters",
+                "number",
+                "cooper_test: metres covered in 12 minutes on flat ground.",
+            ),
+            (
+                "time_seconds",
+                "number",
+                "rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible.",
+            ),
+            (
+                "heart_rate",
+                "number",
+                "rockport_walk: heart rate in bpm immediately at the finish. astrand_ryhming: steady-state heart rate during the ride, 120–170 bpm.",
+            ),
+            (
+                "power_watts",
+                "number",
+                "astrand_ryhming: the steady power held on the ergometer, in watts.",
+            ),
+            (
+                "weight_kg",
+                "number",
+                "Body weight in kilograms. rockport_walk and astrand_ryhming need it; when omitted the stored profile weight is used.",
+            ),
+            (
+                "age",
+                "integer",
+                "Age in years. rockport_walk needs it; when omitted the stored profile age is used.",
+            ),
+            (
+                "max_speed_ms",
+                "number",
+                "from_pace: the fastest speed in metres per second the athlete can hold for 3–8 minutes.",
+            ),
+            (
+                "recovery_speed_ms",
+                "number",
+                "from_pace: the athlete's easy or recovery speed in metres per second.",
+            ),
+            (
+                "vdot",
+                "number",
+                "from_vdot: the VDOT value, 30–85. It is already VO2max in ml/kg/min, so this reports it after range-checking.",
+            ),
+        ] {
+            properties.insert(
+                name.to_owned(),
+                PropertySchema {
+                    property_type: property_type.to_owned(),
+                    description: Some(description.to_owned()),
+                    ..Default::default()
+                },
+            );
+        }
+        properties.insert(
+            "gender".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "rockport_walk and astrand_ryhming: the sex the published equation was fitted on, female or male."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties
+    }
+
+    /// Read a required number for the named method, so the error names both
+    /// the field and the test it belongs to.
+    fn required_number(args: &Value, key: &str, method: &str) -> AppResult<f64> {
+        optional_number(args, key)?
+            .ok_or_else(|| AppError::invalid_input(format!("{method} needs '{key}'")))
+    }
+
+    /// Weight in kg from the call, else from the profile, recording the source.
+    fn weight_kg(
+        args: &Value,
+        profile: Option<&UserPhysiologicalProfile>,
+        defaults: &mut Vec<&'static str>,
+        method: &str,
+    ) -> AppResult<f64> {
+        if let Some(w) = optional_number(args, "weight_kg")? {
+            return Ok(w);
+        }
+        if let Some(w) = profile.and_then(|p| p.weight) {
+            defaults.push("weight_kg");
+            return Ok(w);
+        }
+        Err(AppError::invalid_input(format!(
+            "{method} needs 'weight_kg' — none was given and the profile has no weight; ask the athlete or save it with set_physiology"
+        )))
+    }
+
+    /// Age in years from the call, else from the profile, recording the source.
+    fn age(
+        args: &Value,
+        profile: Option<&UserPhysiologicalProfile>,
+        defaults: &mut Vec<&'static str>,
+    ) -> AppResult<u8> {
+        let years = match optional_whole_number(args, "age")? {
+            Some(a) => a,
+            None => match profile.and_then(|p| p.age) {
+                Some(a) => {
+                    defaults.push("age");
+                    u64::from(a)
+                }
+                None => {
+                    return Err(AppError::invalid_input(
+                        "rockport_walk needs 'age' — none was given and the profile has no age; ask the athlete or save it with set_physiology",
+                    ))
+                }
+            },
+        };
+        u8::try_from(years)
+            .map_err(|_| AppError::invalid_input(format!("'age' must be at most 255, got {years}")))
+    }
+
+    /// The published equations were fitted per sex; cageux encodes it as
+    /// 0 = female, 1 = male.
+    fn gender(args: &Value, method: &str) -> AppResult<u8> {
+        match args.get("gender").and_then(Value::as_str) {
+            Some(g) if g.eq_ignore_ascii_case("female") => Ok(0),
+            Some(g) if g.eq_ignore_ascii_case("male") => Ok(1),
+            Some(other) => Err(AppError::invalid_input(format!(
+                "'gender' must be female or male, got '{other}'"
+            ))),
+            None => Err(AppError::invalid_input(format!(
+                "{method} needs 'gender' (female or male) — the published equation is fitted per sex"
+            ))),
+        }
+    }
+
+    /// Build the estimator from the call, filling weight and age from the
+    /// profile where the athlete did not restate them.
+    fn algorithm(
+        args: &Value,
+        profile: Option<&UserPhysiologicalProfile>,
+        defaults: &mut Vec<&'static str>,
+    ) -> AppResult<(String, Vo2maxAlgorithm)> {
+        let method = args
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_ascii_lowercase)
+            .ok_or_else(|| {
+                AppError::invalid_input(format!(
+                    "'method' is required: one of {}",
+                    VO2MAX_METHODS.join(", ")
+                ))
+            })?;
+        let algorithm = match method.as_str() {
+            "cooper_test" => Vo2maxAlgorithm::CooperTest {
+                distance_meters: Self::required_number(args, "distance_meters", &method)?,
+            },
+            "rockport_walk" => Vo2maxAlgorithm::RockportWalk {
+                weight_kg: Self::weight_kg(args, profile, defaults, &method)?,
+                age: Self::age(args, profile, defaults)?,
+                gender: Self::gender(args, &method)?,
+                time_seconds: Self::required_number(args, "time_seconds", &method)?,
+                heart_rate: Self::required_number(args, "heart_rate", &method)?,
+            },
+            "astrand_ryhming" => Vo2maxAlgorithm::AstrandRyhming {
+                gender: Self::gender(args, &method)?,
+                heart_rate: Self::required_number(args, "heart_rate", &method)?,
+                power_watts: Self::required_number(args, "power_watts", &method)?,
+                weight_kg: Self::weight_kg(args, profile, defaults, &method)?,
+            },
+            "from_pace" => Vo2maxAlgorithm::FromPace {
+                max_speed_ms: Self::required_number(args, "max_speed_ms", &method)?,
+                recovery_speed_ms: Self::required_number(args, "recovery_speed_ms", &method)?,
+            },
+            "from_vdot" => Vo2maxAlgorithm::FromVdot {
+                vdot: Self::required_number(args, "vdot", &method)?,
+            },
+            other => {
+                return Err(AppError::invalid_input(format!(
+                    "unknown method '{other}': expected one of {}",
+                    VO2MAX_METHODS.join(", ")
+                )))
+            }
+        };
+        Ok((method, algorithm))
+    }
+}
+
+#[async_trait]
+impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(Self::properties()),
+            required: Some(vec!["method".to_owned()]),
+            ..Default::default()
+        };
+        tool_definition(
+            "estimate_vo2max",
+            "Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, or a VDOT they already know. Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
+            schema,
+            Some(read_only_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::REQUIRES_TENANT)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
+            let user_id = context.user_id;
+
+            let profile = context
+                .resources
+                .repos()
+                .user_physiological_profile
+                .get_user_physiological_profile(tenant_id, user_id)
+                .await?;
+
+            let mut defaults_from_profile: Vec<&'static str> = Vec::new();
+            let (method, algorithm) =
+                Self::algorithm(&args, profile.as_ref(), &mut defaults_from_profile)?;
+
+            // Every failure the estimator can raise is an input outside the
+            // range the published equation was fitted on, so it is the
+            // athlete's number to correct, not a server fault.
+            let vo2max = algorithm
+                .estimate_vo2max()
+                .map_err(|e| AppError::invalid_input(format!("cannot estimate VO2max: {e}")))?;
+
+            info!(
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                method = %method,
+                // The method and which inputs were defaulted, never the
+                // measurements themselves — they are health data.
+                defaults = %defaults_from_profile.join(","),
+                "estimated VO2max from a field test"
+            );
+
+            Ok(ToolResult::ok(json!({
+                "method": method,
+                "vo2max_ml_kg_min": (vo2max * 10.0).round() / 10.0,
+                "formula": algorithm.description(),
+                "defaults_from_profile": defaults_from_profile,
+                "stored_vo2_max": profile.as_ref().and_then(|p| p.vo2_max),
+                "saved": false,
+                "to_store": "call set_physiology with vo2_max once the athlete confirms the number",
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
+    }
+}
+
 /// Build the physiology tool set for registration.
 #[must_use]
 pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
-    vec![Box::new(SetPhysiologyTool)]
+    vec![Box::new(SetPhysiologyTool), Box::new(EstimateVo2maxTool)]
 }
 
 // Guardian security classification (see `crate::security`). The write is
 // internal and correctable, echoes no third-party text, and sends nothing
 // outbound, so it carries no labels.
 crate::declare_security!(SetPhysiologyTool => empty);
+
+// Pure computation over inputs the athlete states plus a read of their own
+// profile. Nothing is written, nothing leaves the process, and the response
+// carries no third-party text.
+crate::declare_security!(EstimateVo2maxTool => empty);
