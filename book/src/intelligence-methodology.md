@@ -1518,6 +1518,21 @@ pub fn linear_regression(data_points: &[TrendDataPoint]) -> Result<RegressionRes
 - 0.5 ≤ R² < 0.7: strong relationship
 - 0.7 ≤ R² ≤ 1.0: very strong relationship
 
+**slope significance (trend direction gate)**:
+
+A slope only moves the verdict off `stable` when it is statistically significant. The test is a two-tailed t-test on the slope with `ν = n − 2` degrees of freedom:
+
+```
+s = √(SS_res / ν)                      (standard error of the estimate)
+SE(β₁) = s / √(Σᵢ₌₁ⁿ (xᵢ − x̄)²)
+t = β₁ / SE(β₁)
+p = P(|T_ν| > |t|)
+```
+
+`p` is evaluated exactly under Student's t distribution — the finite series for integer `ν` of Abramowitz & Stegun 26.7.3 (odd `ν`) and 26.7.4 (even `ν`), std-only — never a normal approximation. The heavier tails are what keep a short block honest: at `ν = 5` the critical `t = 2.571` is `p = 0.05` under the t distribution, `p ≈ 0.01` under the normal, and still `p = 0.026` under the z-equivalent correction `t / √(1 + t² / 4ν)` — either approximation calls a five-block trend significant when a real t-test does not. `p_value` is `None` when `ν = 0` (two points) or the fit has no residual (`SS_res = 0`), and the direction then reads `stable`.
+
+**trend direction**: `improving` or `declining` requires `p < 0.05` (`SignificanceLevel::Moderate`) **and** `|β₁| ≥ slope_threshold` (the `analyze_performance_trends` tool passes `0.01`); the sign is read against the metric's polarity — a falling pace improves, a falling FTP declines.
+
 **reference**: Draper, N.R. & Smith, H. (1998). *Applied Regression Analysis* (3rd ed.). Wiley.
 
 ---
