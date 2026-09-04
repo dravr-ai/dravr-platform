@@ -193,6 +193,46 @@ fn the_boundary_does_not_disown_the_athletes_connected_platforms() {
     );
 }
 
+/// `TOOL_BOUNDARY` and the names-only index are concatenated into one system
+/// prompt by `prompt_assembly` (`"{base_prompt}\n\n{TOOL_BOUNDARY}{index}"`),
+/// so a boundary sentence claiming the tools are absent from the prompt is
+/// contradicted two lines later by the prompt listing every one of them.
+///
+/// That is the same defect as the 2026-08-26 denial, pointing the other way:
+/// there the prompt promised a description it did not carry, here it denied one
+/// it did. Both teach the coach that the prompt's account of its own tools
+/// cannot be trusted. The boundary may say the prompt withholds what a tool
+/// *does* — the index says so itself — but not that it withholds the names.
+#[test]
+fn the_boundary_does_not_deny_the_index_that_follows_it() {
+    use pierre_chat_pipeline::stages::prompt_builder::{render_tool_index, TOOL_BOUNDARY};
+
+    let names = vec![
+        "get_activities".to_owned(),
+        "prescribe_workout".to_owned(),
+        "save_training_plan".to_owned(),
+    ];
+    let index = render_tool_index(&names);
+    assert!(
+        index.contains("prescribe_workout"),
+        "the index must actually name the tools, or this test proves nothing"
+    );
+
+    let lower = TOOL_BOUNDARY.to_lowercase();
+    for denial in [
+        "not all listed in this prompt",
+        "are not listed in this prompt",
+        "not listed in this prompt",
+    ] {
+        assert!(
+            !lower.contains(denial),
+            "TOOL_BOUNDARY says \"{denial}\" while render_tool_index appends \
+             every callable name directly after it. One of the two is lying to \
+             the coach about its own prompt."
+        );
+    }
+}
+
 #[test]
 fn the_surviving_advertisement_surface_is_populated() {
     let registry = full_registry();

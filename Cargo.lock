@@ -1361,8 +1361,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.7.1"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.7.1#a7384dc7a9688156b58679cf4b747ea5bd97955c"
+version = "0.7.2"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.7.2#3b2ef3c3b283805f086a383765de683c0d3bdeb9"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1428,8 +1428,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=69ed18facf2
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.47"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.47#f74992b14da618c434900d5fe895cebc90cc3735"
+version = "0.1.48"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.48#bcaa9bb120160cd13efe52b009e45a8ae66db47a"
 dependencies = [
  "async-trait",
  "axum",
@@ -1450,10 +1450,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.2.4"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.4#3222556294cdfeded2ef6f1316b476c3e5963f6a"
+version = "0.2.5"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.5#ba9941b31c175c5fda5e91f3b4615ffd556b4407"
 dependencies = [
- "async-trait",
  "chrono",
  "serde",
  "serde_json",

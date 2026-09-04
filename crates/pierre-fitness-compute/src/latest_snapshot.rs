@@ -10,10 +10,11 @@
 //!
 //! For each activity inside the window we derive the four Endurance
 //! per-activity metrics — intensity factor, efficiency factor,
-//! variability index, decoupling — using the cageux primitives
-//! (`NormalizedPowerCalculator`, `DecouplingDetector`,
-//! `ZoneTimeCalculator`). We then aggregate to a single snapshot record
-//! that the endpoint serialises to JSON.
+//! variability index, decoupling — using the cageux visitors
+//! `NormalizedPowerCalculator` and `DecouplingDetector`. Zone time comes
+//! from `pierre_core`'s `HrZoneSet`/`ZoneDistribution`, which is the
+//! LTHR-based model production uses. We then aggregate to a single
+//! snapshot record that the endpoint serialises to JSON.
 //!
 //! All metric outputs are `Option`-wrapped: a metric that cannot be
 //! computed because the underlying sensor stream was missing comes back

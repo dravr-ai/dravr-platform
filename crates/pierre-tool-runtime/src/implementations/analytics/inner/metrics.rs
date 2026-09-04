@@ -17,7 +17,6 @@ use pierre_intelligence::physiological_constants::efficiency_defaults::{
     DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
 };
 use pierre_intelligence::physiological_constants::heart_rate::AGE_BASED_MAX_HR_CONSTANT;
-use pierre_intelligence::physiological_constants::hr_estimation::ASSUMED_MAX_HR;
 use pierre_intelligence::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
 use std::collections::HashMap;
 use std::future::Future;
@@ -115,7 +114,11 @@ fn parse_activity_parameters(
 /// # Returns
 /// Tuple of (`max_hr_value`, `source_description`)
 fn determine_max_heart_rate(max_hr_provided: Option<f64>, user_age: Option<u32>) -> (f64, String) {
-    use ASSUMED_MAX_HR;
+    // Last resort, reached only when the athlete has given neither a measured
+    // max HR nor an age. It is the Fox estimate at 40 — a median adult age —
+    // and the tuple's source field says `default_assumed` so a caller can tell
+    // this apart from a real measurement rather than reading it as one.
+    const ASSUMED_MAX_HR: f64 = 180.0;
 
     match (max_hr_provided, user_age) {
         (Some(hr), _) => (hr, "provided".to_owned()),

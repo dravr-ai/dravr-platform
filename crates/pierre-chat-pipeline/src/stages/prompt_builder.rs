@@ -534,11 +534,23 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 /// is named in no prompt anywhere and it finds that one unprompted — so the
 /// defect was never discovery. It was being told the athlete's connected
 /// platforms were somebody else's.
-pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the ones your tool surface offers. They are NOT all listed in \
-     this prompt, so look them up before answering a question about what you can \
-     do. Never tell the athlete you have no tool for something without checking \
-     first — that is a claim about your tool surface, and you can only make it \
-     after looking.\n\n     \
+///
+/// ## Why it no longer says "NOT all listed in this prompt"
+///
+/// That replacement was true when it was written and stopped being true when
+/// `render_tool_index` brought a names-only list back. The index is appended
+/// directly after this constant, so one prompt said the tools were absent from
+/// it and then listed every one of them — the same shape of false sentence as
+/// the one above, pointing the other way. What is actually missing from the
+/// prompt is what each tool does and what it takes, which the index says of
+/// itself ("Names only — call one to see its parameters"), so that is what this
+/// now claims. It stays true whether or not the index renders, and it still
+/// names no tool.
+pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the ones your tool surface offers. This prompt does not \
+     describe what they do or what parameters they take, so look a tool up \
+     before answering a question about what you can do. Never tell the athlete \
+     you have no tool for something without checking first — that is a claim \
+     about your tool surface, and you can only make it after looking.\n\n     \
      The athlete's own connected accounts are inside that surface, not outside \
      it. Reading from and writing to a platform they have connected — their \
      training calendar, their activity log — is ordinary work, not an outside \

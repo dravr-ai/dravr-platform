@@ -66,7 +66,6 @@
 //! ```
 
 use super::core::{FitnessProvider, ProviderConfig};
-use dravr_equilibre::{ContinuousDataHandler, WorkoutHandler};
 use std::fmt;
 
 /// OAuth endpoint configuration for providers requiring authentication
@@ -294,10 +293,6 @@ pub struct ProviderBundle {
     pub descriptor: Box<dyn ProviderDescriptor>,
     /// Factory function for creating provider instances
     pub factory: ProviderFactoryFn,
-    /// Optional composition-based workout handler
-    pub workout_handler: Option<Box<dyn WorkoutHandler>>,
-    /// Optional composition-based continuous data handler (sleep, recovery, HR, etc.)
-    pub continuous_data_handler: Option<Box<dyn ContinuousDataHandler>>,
 }
 
 impl ProviderBundle {
@@ -306,8 +301,6 @@ impl ProviderBundle {
         Self {
             descriptor,
             factory,
-            workout_handler: None,
-            continuous_data_handler: None,
         }
     }
 
@@ -329,20 +322,6 @@ impl ProviderBundle {
     pub fn create_provider_with_config(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
         (self.factory)(config)
     }
-
-    /// Set the continuous data handler for this provider bundle
-    #[must_use]
-    pub fn with_continuous_data(mut self, handler: Box<dyn ContinuousDataHandler>) -> Self {
-        self.continuous_data_handler = Some(handler);
-        self
-    }
-
-    /// Set the workout handler for this provider bundle
-    #[must_use]
-    pub fn with_workouts(mut self, handler: Box<dyn WorkoutHandler>) -> Self {
-        self.workout_handler = Some(handler);
-        self
-    }
 }
 
 impl fmt::Debug for ProviderBundle {
@@ -351,11 +330,6 @@ impl fmt::Debug for ProviderBundle {
             .field("name", &self.descriptor.name())
             .field("display_name", &self.descriptor.display_name())
             .field("capabilities", &self.descriptor.capabilities())
-            .field("has_workout_handler", &self.workout_handler.is_some())
-            .field(
-                "has_continuous_data_handler",
-                &self.continuous_data_handler.is_some(),
-            )
             .finish_non_exhaustive()
     }
 }

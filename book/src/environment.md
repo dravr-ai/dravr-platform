@@ -152,9 +152,6 @@ Configure fitness calculation algorithms via environment variables.
 | `PIERRE_VDOT_ALGORITHM` | `daniels` | daniels, riegel, hybrid |
 | `PIERRE_TRAINING_LOAD_ALGORITHM` | `ema` | ema, sma, wma, kalman |
 | `PIERRE_RECOVERY_ALGORITHM` | `weighted` | weighted, additive, multiplicative, minmax, neural |
-| `PIERRE_FTP_ALGORITHM` | `from_vo2max` | 20min_test, 8min_test, ramp_test, from_vo2max, hybrid |
-| `PIERRE_LTHR_ALGORITHM` | `from_maxhr` | from_maxhr, from_30min, from_race, lab_test, hybrid |
-| `PIERRE_VO2MAX_ALGORITHM` | `from_vdot` | from_vdot, cooper, rockport, astrand, bruce, hybrid |
 
 See [configuration.md](configuration.md#algorithm-configuration) for algorithm details.
 

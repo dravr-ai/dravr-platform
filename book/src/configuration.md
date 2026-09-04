@@ -504,7 +504,6 @@ PIERRE_RECOVERY_ALGORITHM=weighted  # default
 #### Functional Threshold Power (FTP)
 
 ```bash
-PIERRE_FTP_ALGORITHM=from_vo2max  # default
 ```
 
 **available algorithms**:
@@ -519,7 +518,6 @@ PIERRE_FTP_ALGORITHM=from_vo2max  # default
 #### Lactate Threshold Heart Rate (LTHR)
 
 ```bash
-PIERRE_LTHR_ALGORITHM=from_maxhr  # default
 ```
 
 **available algorithms**:
@@ -532,7 +530,6 @@ PIERRE_LTHR_ALGORITHM=from_maxhr  # default
 #### VO2max Estimation
 
 ```bash
-PIERRE_VO2MAX_ALGORITHM=from_vdot  # default
 ```
 
 **available algorithms**:

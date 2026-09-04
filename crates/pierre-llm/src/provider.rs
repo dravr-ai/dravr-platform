@@ -611,25 +611,6 @@ impl ChatProvider {
         Self::Cohere(CohereProvider::new(api_key))
     }
 
-    /// Get the provider type
-    #[must_use]
-    pub fn provider_type(&self) -> LlmProviderType {
-        match self {
-            // Test-injected custom providers report as Gemini for metrics/analytics
-            // — the variant is test-only and not part of the production taxonomy.
-            Self::Gemini(_) | Self::Custom(_) => LlmProviderType::Gemini,
-            Self::Groq(_) => LlmProviderType::Groq,
-            Self::Local(_) => LlmProviderType::Local,
-            Self::OpenRouter(_) => LlmProviderType::OpenRouter,
-            Self::Cohere(_) => LlmProviderType::Cohere,
-            Self::Cli(p) => p.provider_type(),
-            // The chain reports as the primary — metrics and analytics
-            // should attribute requests to the active first-line provider;
-            // when fallback fires, the warn! log line carries both names.
-            Self::Chain { primary, .. } => primary.provider_type(),
-        }
-    }
-
     /// Check if this provider supports tool calling
     #[must_use]
     pub fn supports_tool_calling(&self) -> bool {

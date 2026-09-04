@@ -96,11 +96,6 @@ pub use spi::StravaDescriptor;
 pub use spi::WhoopDescriptor;
 pub use spi::{OAuthEndpoints, ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 
-// Composition-based provider traits (from dravr-equilibre)
-pub use dravr_equilibre::{
-    ContinuousDataHandler, ContinuousMetricBatch, Credentials as ProviderCredentials,
-    OAuthHandler as CompositionOAuthHandler, ProviderStrategy, WorkoutHandler,
-};
 #[cfg(feature = "provider-terra")]
 pub use terra::{
     TerraDataCache, TerraDescriptor, TerraProvider, TerraProviderFactory, TerraWebhookHandler,

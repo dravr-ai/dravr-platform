@@ -1548,12 +1548,12 @@ VO₂ = −4.60 + 0.182258v + 0.000104v²
 **step 3: adjust for race duration**:
 
 ```
-percent_max(t) = 0.97,   if t_min < 5      (very short, oxygen deficit)
-               = 0.99,   if 5 ≤ t_min < 15  (5K range)
-               = 1.00,   if 15 ≤ t_min < 30 (10K-15K, optimal)
-               = 0.98,   if 30 ≤ t_min < 90 (half marathon)
-               = 0.95,   if t_min ≥ 90      (marathon+, fatigue)
+percent_max(t) = 0.8 + 0.1894393·e^(−0.012778·t_min) + 0.2989558·e^(−0.1932605·t_min)
 ```
+
+Daniels publishes this as a continuous curve, not a table of bands. A short race
+runs above `VO₂max` — the anaerobic contribution carries the fraction past 1.0 —
+and a long one settles toward the 0.8 asymptote as fatigue accumulates.
 
 Where `t_min = t / 60` (time in minutes)
 
@@ -1595,13 +1595,13 @@ pub fn calculate_vdot(distance_m: f64, time_s: f64) -> Result<f64> {
 fn calculate_percent_max_adjustment(time_s: f64) -> f64 {
     let time_minutes = time_s / 60.0;
 
-    match time_minutes {
-        t if t < 5.0  => 0.97, // Very short - oxygen deficit
-        t if t < 15.0 => 0.99, // 5K range
-        t if t < 30.0 => 1.00, // 10K-15K range - optimal
-        t if t < 90.0 => 0.98, // Half marathon range
-        _             => 0.95, // Marathon+ - fatigue accumulation
-    }
+    PERCENT_MAX_SLOW_AMPLITUDE.mul_add(
+        (-PERCENT_MAX_SLOW_RATE * time_minutes).exp(),
+        PERCENT_MAX_FAST_AMPLITUDE.mul_add(
+            (-PERCENT_MAX_FAST_RATE * time_minutes).exp(),
+            PERCENT_MAX_ASYMPTOTE,
+        ),
+    )
 }
 ```
 
@@ -1643,10 +1643,11 @@ Example 1: 5K race (recreational runner)
          = -4.60 + 45.5645 + 6.5
          = 47.4645 ml/kg/min
     3. time_minutes = 1200.0 / 60 = 20.0
-       percent_max = 0.99  (5K range: 15 ≤ t < 30)
-    4. VDOT = 47.4645 / 0.99 = 47.9
+       percent_max = 0.8 + 0.1894393·e^(−0.012778·20) + 0.2989558·e^(−0.1932605·20)
+                   = 0.952983
+    4. VDOT = 47.4645 / 0.952983 = 49.8
 
-  Expected Output: VDOT = 47.9
+  Expected Output: VDOT = 49.8
 
 Example 2: 10K race (competitive amateur)
   Input:
@@ -1659,10 +1660,11 @@ Example 2: 10K race (competitive amateur)
          = -4.60 + 48.6021 + 7.3956
          = 51.3977 ml/kg/min
     3. time_minutes = 2250.0 / 60 = 37.5
-       percent_max = 0.98  (half marathon range: 30 ≤ t < 90)
-    4. VDOT = 51.3977 / 0.98 = 52.4
+       percent_max = 0.8 + 0.1894393·e^(−0.012778·37.5) + 0.2989558·e^(−0.1932605·37.5)
+                   = 0.917532
+    4. VDOT = 51.3977 / 0.917532 = 56.0
 
-  Expected Output: VDOT = 52.4
+  Expected Output: VDOT = 56.0
 
 Example 3: Marathon race (sub-elite)
   Input:
@@ -1675,15 +1677,16 @@ Example 3: Marathon race (sub-elite)
          = -4.60 + 42.7225 + 5.7142
          = 43.8367 ml/kg/min
     3. time_minutes = 10800.0 / 60 = 180.0
-       percent_max = 0.95  (marathon range: t ≥ 90)
-    4. VDOT = 43.8367 / 0.95 = 46.1
+       percent_max = 0.8 + 0.1894393·e^(−0.012778·180) + 0.2989558·e^(−0.1932605·180)
+                   = 0.818992
+    4. VDOT = 43.8392 / 0.818992 = 53.5
 
-  Expected Output: VDOT = 46.1
+  Expected Output: VDOT = 53.5
 
-  Note: This seems low for 3-hour marathon. In reality, sub-elite marathoners
-  Typically have VDOT 60-70. This illustrates the importance of race-specific
-  Calibration and proper pacing (marathon fatigue factor = 0.95 significantly
-  Impacts VDOT calculation).
+  Note: the step function this replaced banded everything past 90 minutes at a
+  flat 0.95 and returned 46.1 here, which is well under what a 3-hour marathoner
+  runs. The continuous curve keeps falling with duration instead of stopping at
+  a band edge, so the marathon fraction lands near 0.82 rather than 0.95.
 
 Example 4: Half marathon race (recreational competitive)
   Input:
@@ -1696,18 +1699,18 @@ Example 4: Half marathon race (recreational competitive)
          = -4.60 + 42.7225 + 5.7142
          = 43.8367 ml/kg/min
     3. time_minutes = 5400.0 / 60 = 90.0
-       percent_max = 0.95  (marathon range: t ≥ 90)
-       NOTE: Boundary condition - at exactly 90 minutes, uses 0.95
-    4. VDOT = 43.8367 / 0.95 = 46.1
+       percent_max = 0.8 + 0.1894393·e^(−0.012778·90) + 0.2989558·e^(−0.1932605·90)
+                   = 0.859982
+    4. VDOT = 43.8392 / 0.859982 = 51.0
 
-  Expected Output: VDOT = 46.1
+  Expected Output: VDOT = 51.0
 
 **API response format**:
 
 ```json
 {
   "activity_id": "12345678",
-  "vdot": 52.4,
+  "vdot": 56.0,
   "inputs": {
     "distance_m": 10000.0,
     "time_s": 2250.0,
@@ -1716,7 +1719,7 @@ Example 4: Half marathon race (recreational competitive)
   "calculated": {
     "velocity_m_per_min": 266.67,
     "vo2_ml_per_kg_min": 51.40,
-    "percent_max_adjustment": 0.98,
+    "percent_max_adjustment": 0.917532,
     "time_minutes": 37.5
   },
   "interpretation": "competitive_amateur",
@@ -1737,11 +1740,13 @@ Example 4: Half marathon race (recreational competitive)
    - Example: 5K in 10 minutes → velocity = 500 m/min (world record ~350 m/min)
    - Solution: validate input data quality; reject activities with unrealistic paces
 
-2. **percent_max boundary conditions**:
-   - At t = 5, 15, 30, 90 minutes, percent_max changes discretely
-   - Example: 10K in 29:59 uses 1.00 (10K range), but 30:01 uses 0.98 (half range)
-   - This creates discontinuous VDOT jumps at boundaries
-   - Solution: document boundary behavior; users should expect ±2 VDOT variance near boundaries
+2. **percent_max is continuous**:
+   - The curve has no band edges, so two races a second apart cannot land on
+     different fractions — 29:59 and 30:01 differ by about 0.0001
+   - The step function this replaced jumped at t = 5, 15, 30 and 90 minutes, which
+     put a discontinuous VDOT step between two near-identical performances
+   - What remains is the curve's own steepness below ~15 minutes, where a short
+     race's fraction changes quickly with duration
 
 3. **comparison with Jack Daniels' tables**:
    - Pierre uses mathematical formula; Jack Daniels' tables use empirical adjustments
@@ -1809,94 +1814,66 @@ Example 4: Half marathon race (recreational competitive)
 
 ### Race Time Prediction From VDOT
 
-**step 1: calculate velocity at VO2max** (inverse of Jack Daniels' formula):
+Prediction is the exact inverse of the calculation above, not a second model.
+`vdot_for(t)` is the VDOT a race of `d` metres in `t` seconds yields — the same
+`VO₂` polynomial over the same `percent_max` curve — and it falls monotonically
+as `t` grows. Prediction bisects `t` until `vdot_for(t)` equals the VDOT asked
+for.
 
-Solve quadratic equation:
-```
-0.000104v² + 0.182258v − (VDOT + 4.60) = 0
-```
-
-Using quadratic formula:
-```
-v = (−b + √(b² − 4ac)) / (2a)
-```
-
-Where:
-- `a = 0.000104`
-- `b = 0.182258`
-- `c = −(VDOT + 4.60)`
-
-**step 2: adjust velocity for race distance**:
+**step 1: bracket the answer by the velocity domain**:
 
 ```
-v_race(d, v_max) = 0.98 × v_max,                           if d ≤ 5,000 m
-                 = 0.94 × v_max,                           if 5,000 < d ≤ 10,000 m
-                 = 0.91 × v_max,                           if 10,000 < d ≤ 15,000 m
-                 = 0.88 × v_max,                           if 15,000 < d ≤ 21,097.5 m
-                 = 0.84 × v_max,                           if 21,097.5 < d ≤ 42,195 m
-                 = max(0.70, 0.84 − 0.02(r − 1)) × v_max,  if d > 42,195 m
+t_fastest = d × 60 / 500     (MAX_VELOCITY m/min)
+t_slowest = d × 60 / 100     (MIN_VELOCITY m/min)
 ```
 
-Where `r = d / 42,195` (marathon ratio for ultra distances)
+A VDOT whose race time falls outside that bracket is rejected rather than
+extrapolated — the `VO₂` polynomial is only defined on 100–500 m/min.
 
-**step 3: calculate predicted time**:
+**step 2: bisect**:
 
 ```
-t_predicted = (d / v_race) × 60
+repeat 60 times:
+    t_mid = (t_fastest + t_slowest) / 2
+    if vdot_for(t_mid) > VDOT:  t_fastest = t_mid
+    else:                       t_slowest = t_mid
+
+t_predicted = (t_fastest + t_slowest) / 2
 ```
 
-Where:
-- `d` = target distance (meters)
-- `v_race` = race velocity (meters/minute)
-- `t_predicted` = predicted time (seconds)
+Sixty halvings of a bracket spanning at most a few hours resolve to well under a
+millisecond, so the result is exact for any purpose a race time is used for.
 
 **rust implementation**:
 
 ```rust
-pub fn predict_time_vdot(vdot: f64, target_distance_m: f64) -> Result<f64> {
-    // Validate VDOT range
-    if !(30.0..=85.0).contains(&vdot) {
-        return Err(AppError::invalid_input(
-            format!("VDOT {vdot:.1} outside typical range (30-85)")
-        ));
-    }
+fn predict_time_daniels(vdot: f64, target_distance_meters: f64) -> IntelligenceResult<f64> {
+    let mut fastest = target_distance_meters * 60.0 / MAX_VELOCITY;
+    let mut slowest = target_distance_meters * 60.0 / MIN_VELOCITY;
 
-    // Calculate velocity at VO2max (reverse of VDOT formula)
-    // vo2 = -4.60 + 0.182258 × v + 0.000104 × v²
-    // Solve quadratic: 0.000104v² + 0.182258v - (vo2 + 4.60) = 0
-
-    let a = 0.000104;
-    let b = 0.182258;
-    let c = -(vdot + 4.60);
-
-    let discriminant = b.mul_add(b, -(4.0 * a * c));
-    let velocity_max = (-b + discriminant.sqrt()) / (2.0 * a);
-
-    // Adjust for race distance
-    let race_velocity = calculate_race_velocity(velocity_max, target_distance_m);
-
-    // Calculate time
-    Ok((target_distance_m / race_velocity) * 60.0)
-}
-
-fn calculate_race_velocity(velocity_max: f64, distance_m: f64) -> f64 {
-    let percent_max = if distance_m <= 5_000.0 {
-        0.98 // 5K: 98% of VO2max velocity
-    } else if distance_m <= 10_000.0 {
-        0.94 // 10K: 94%
-    } else if distance_m <= 15_000.0 {
-        0.91 // 15K: 91%
-    } else if distance_m <= 21_097.5 {
-        0.88 // Half: 88%
-    } else if distance_m <= 42_195.0 {
-        0.84 // Marathon: 84%
-    } else {
-        // Ultra: progressively lower
-        let marathon_ratio = distance_m / 42_195.0;
-        (marathon_ratio - 1.0).mul_add(-0.02, 0.84).max(0.70)
+    let vdot_at = |time_seconds: f64| -> f64 {
+        let velocity = (target_distance_meters / time_seconds) * 60.0;
+        let vo2 = (DANIELS_A * velocity).mul_add(velocity, DANIELS_B.mul_add(velocity, DANIELS_C));
+        vo2 / Self::calculate_percent_max_adjustment(time_seconds)
     };
 
-    velocity_max * percent_max
+    if vdot_at(fastest) < vdot || vdot_at(slowest) > vdot {
+        return Err(IntelligenceError::invalid_input(format!(
+            "VDOT {vdot:.1} has no {target_distance_meters:.0} m race time within \
+             the model's velocity range ({MIN_VELOCITY}-{MAX_VELOCITY} m/min)"
+        )));
+    }
+
+    for _ in 0..PREDICTION_BISECTION_STEPS {
+        let midpoint = f64::midpoint(fastest, slowest);
+        if vdot_at(midpoint) > vdot {
+            fastest = midpoint;
+        } else {
+            slowest = midpoint;
+        }
+    }
+
+    Ok(f64::midpoint(fastest, slowest))
 }
 ```
 
@@ -1925,23 +1902,17 @@ Example 1: Predict 5K time from VDOT 50
     target_distance_m = 5000.0
 
   Step-by-step calculation:
-    1. Solve quadratic: 0.000104v² + 0.182258v - (50.0 + 4.60) = 0
-       a = 0.000104, b = 0.182258, c = -54.60
-       discriminant = 0.182258² - (4 × 0.000104 × -54.60)
-                   = 0.033218 + 0.022718 = 0.055936
-       velocity_max = (-0.182258 + √0.055936) / (2 × 0.000104)
-                   = (-0.182258 + 0.23652) / 0.000208
-                   = 260.78 m/min
+    1. Bracket: t_fastest = 5000 × 60 / 500 = 600 s
+                t_slowest = 5000 × 60 / 100 = 3000 s
+    2. Bisect on vdot_for(t) until it equals 50.0
+    3. t = 1196.0 s = 19:56
+       check: v = (5000 / 1196.0) × 60 = 250.8 m/min
+              VO₂ = -4.60 + 0.182258(250.8) + 0.000104(250.8²) = 47.61
+              percent_max(19.93 min) = 0.9522
+              VO₂ / percent_max = 50.0 ✓
 
-    2. Adjust for 5K distance (≤ 5000m → 0.98 × velocity_max):
-       race_velocity = 0.98 × 260.78 = 255.56 m/min
-
-    3. Calculate predicted time:
-       predicted_time_s = (5000.0 / 255.56) × 60 = 1174.3 seconds
-                       = 19:34
-
-  Expected Output: 19:34 (19 minutes 34 seconds)
-  Jack Daniels Reference: 19:31 → 0.2% difference ✅
+  Expected Output: 19:56
+  Jack Daniels Reference: 19:31 → 2.1% difference ✅
 
 Example 2: Predict marathon time from VDOT 60
   Input:
@@ -1949,21 +1920,16 @@ Example 2: Predict marathon time from VDOT 60
     target_distance_m = 42195.0
 
   Step-by-step calculation:
-    1. Solve quadratic: 0.000104v² + 0.182258v - (60.0 + 4.60) = 0
-       c = -64.60
-       discriminant = 0.033218 + 0.026870 = 0.060088
-       velocity_max = (-0.182258 + 0.24513) / 0.000208
-                   = 302.34 m/min
+    1. Bracket: t_fastest = 42195 × 60 / 500 = 5063.4 s
+                t_slowest = 42195 × 60 / 100 = 25317 s
+    2. Bisect on vdot_for(t) until it equals 60.0
+    3. t = 9802.5 s = 2:43:22
+       check: v = (42195 / 9802.5) × 60 = 258.3 m/min
+              percent_max(163.4 min) = 0.8235
+              VO₂ / percent_max = 60.0 ✓
 
-    2. Adjust for marathon distance (21097.5 < d ≤ 42195 → 0.84 × velocity_max):
-       race_velocity = 0.84 × 302.34 = 253.97 m/min
-
-    3. Calculate predicted time:
-       predicted_time_s = (42195.0 / 253.97) × 60 = 9970 seconds
-                       = 2:46:10
-
-  Expected Output: 2:46:10 (2 hours 46 minutes 10 seconds)
-  Jack Daniels Reference: 2:40:00 → 3.9% difference ✅
+  Expected Output: 2:43:22
+  Jack Daniels Reference: 2:40:00 → 2.1% difference ✅
 
 Example 3: Predict 10K time from VDOT 40
   Input:
@@ -1971,21 +1937,22 @@ Example 3: Predict 10K time from VDOT 40
     target_distance_m = 10000.0
 
   Step-by-step calculation:
-    1. Solve quadratic: 0.000104v² + 0.182258v - (40.0 + 4.60) = 0
-       c = -44.60
-       discriminant = 0.033218 + 0.018550 = 0.051768
-       velocity_max = (-0.182258 + 0.22752) / 0.000208
-                   = 217.43 m/min
+    1. Bracket: t_fastest = 10000 × 60 / 500 = 1200 s
+                t_slowest = 10000 × 60 / 100 = 6000 s
+    2. Bisect on vdot_for(t) until it equals 40.0
+    3. t = 3000.8 s = 50:01
+       check: v = (10000 / 3000.8) × 60 = 200.0 m/min
+              percent_max(50.0 min) = 0.9001
+              VO₂ / percent_max = 40.0 ✓
 
-    2. Adjust for 10K distance (5000 < d ≤ 10000 → 0.94 × velocity_max):
-       race_velocity = 0.94 × 217.43 = 204.38 m/min
+  Expected Output: 50:01
+  Jack Daniels Reference: 51:42 → 3.3% difference ✅
 
-    3. Calculate predicted time:
-       predicted_time_s = (10000.0 / 204.38) × 60 = 2932 seconds
-                       = 48:52
-
-  Expected Output: 48:52 (48 minutes 52 seconds)
-  Jack Daniels Reference: 51:42 → 5.5% difference ✅
+  Accuracy note: the distance-banded velocity model this replaced scored 0.2%,
+  3.9% and 5.5% on these three. Inverting the calculation instead scores 2.1%,
+  2.1% and 3.3% — it gives up some short-race accuracy and is tighter overall,
+  and every prediction is now consistent with the VDOT the same race would
+  compute, which the banded model could not guarantee.
 
 **API response format for race predictions**:
 
@@ -1998,10 +1965,10 @@ Example 3: Predict 10K time from VDOT 40
     {
       "distance": "5K",
       "distance_m": 5000.0,
-      "predicted_time_s": 1174.3,
-      "predicted_time_formatted": "19:34",
-      "pace_per_km": "3:55",
-      "race_velocity_m_per_min": 255.56
+      "predicted_time_s": 1196.0,
+      "predicted_time_formatted": "19:56",
+      "pace_per_km": "3:59",
+      "race_velocity_m_per_min": 250.84
     },
     {
       "distance": "10K",
@@ -2038,23 +2005,24 @@ Example 3: Predict 10K time from VDOT 40
 
 **common validation issues for race time prediction**:
 
-1. **quadratic formula numerical instability**:
-   - At extreme VDOT values (near 30 or 85), discriminant may be small
-   - Very small discriminant → numerical precision issues in sqrt()
-   - Solution: validate VDOT is in [30, 85] before calculation
+1. **VDOT outside the model's velocity domain**:
+   - The `VO₂` polynomial is defined on 100-500 m/min, so a VDOT whose race time
+     falls outside that bracket has no answer
+   - Prediction rejects it with the range in the message rather than extrapolating
+   - Example: a very high VDOT over a very short distance needs a velocity the
+     polynomial was never fitted on
 
-2. **velocity_max boundary at distance transitions**:
-   - Percent_max changes discretely at 5K, 10K, 15K, half, marathon boundaries
-   - Example: 5001m uses 0.94 (10K), but 4999m uses 0.98 (5K) → 4% velocity difference
-   - Creates discontinuous predictions near distance boundaries
-   - Solution: document boundary behavior; predictions are approximations
+2. **distance is continuous, so predictions are too**:
+   - There are no distance bands, so 4999 m and 5001 m predict times a few
+     hundredths of a second apart
+   - The banded model this replaced jumped 4% in velocity across that boundary
 
-3. **ultra-distance predictions become conservative**:
-   - Formula: 0.84 - 0.02 × (marathon_ratio - 1) for d > 42195m
-   - Example: 50K → marathon_ratio = 1.18 → percent_max = 0.836
-   - Example: 100K → marathon_ratio = 2.37 → percent_max = 0.813
-   - Minimum floor: 0.70 (70% of VO2max velocity)
-   - Solution: VDOT predictions for ultras (>42K) are less accurate; use with caution
+3. **ultra distances sit past the curve's evidence**:
+   - `percent_max` approaches its 0.8 asymptote and keeps returning a value, so an
+     ultra gets a prediction rather than a refusal
+   - Daniels fitted the relation on track and road racing, not on 100K, where
+     fuelling and terrain dominate in a way no `VO₂` model captures
+   - Treat an ultra prediction as an extrapolation of road-race physiology
 
 4. **predicted times slower than personal bests**:
    - Cause: VDOT calculated from shorter distance (5K VDOT predicting marathon)
@@ -2126,22 +2094,26 @@ Pierre's VDOT predictions have been verified against jack daniels' published tab
 
 ```
 VDOT 50 (recreational competitive):
-  5K:        19:34 vs 19:31 reference → 0.2% difference ✅
-  10K:       40:48 vs 40:31 reference → 0.7% difference ✅
-  Half:    1:31:56 vs 1:30:00 reference → 2.2% difference ✅
-  Marathon: 3:12:38 vs 3:08:00 reference → 2.5% difference ✅
+  5K:        19:56 vs 19:31 reference → 2.1% difference ✅
+  10K:       41:20 vs 40:31 reference → 2.0% difference ✅
+  Half:    1:31:31 vs 1:30:00 reference → 1.7% difference ✅
+  Marathon: 3:10:40 vs 3:08:00 reference → 1.4% difference ✅
 
 VDOT 60 (sub-elite):
-  5K:        16:53 vs 16:39 reference → 1.4% difference ✅
-  10K:       35:11 vs 34:40 reference → 1.5% difference ✅
-  Marathon: 2:46:10 vs 2:40:00 reference → 3.9% difference ✅
+  5K:        17:03 vs 16:39 reference → 2.4% difference ✅
+  10K:       35:22 vs 34:40 reference → 2.0% difference ✅
+  Marathon: 2:43:22 vs 2:40:00 reference → 2.1% difference ✅
 
 VDOT 40 (recreational):
-  5K:        23:26 vs 24:44 reference → 5.2% difference ✅
-  10K:       48:52 vs 51:42 reference → 5.5% difference ✅
-  Marathon: 3:50:46 vs 3:57:00 reference → 2.6% difference ✅
+  5K:        24:06 vs 24:44 reference → 2.5% difference ✅
+  10K:       50:01 vs 51:42 reference → 3.3% difference ✅
+  Marathon: 3:49:37 vs 3:57:00 reference → 3.1% difference ✅
 
-Overall accuracy: 0.2-5.5% difference across all distances
+Overall accuracy: 1.4-3.3% difference across all distances
+
+The distance-banded model this replaced spanned 0.2-5.5%: tighter on a 5K,
+much looser at the band edges it could not smooth over. Inverting the
+calculation trades the best case for a uniform one.
 ```
 
 **why differences exist**:

@@ -9,8 +9,7 @@
 
 use pierre_core::models::TimeSeriesData;
 use pierre_intelligence::visitor::{
-    DecouplingDetector, NormalizedPowerCalculator, StatsCollector, TimeSeriesExt, ZoneBoundaries,
-    ZoneTimeCalculator,
+    DecouplingDetector, NormalizedPowerCalculator, StatsCollector, TimeSeriesExt,
 };
 
 fn create_test_time_series() -> TimeSeriesData {
@@ -60,48 +59,6 @@ fn test_stats_collector() {
     assert_eq!(stats.power.max, Some(290.0));
     let power_avg = stats.power.average().expect("Should have power average");
     assert!((power_avg - 245.0).abs() < 0.01);
-}
-
-#[test]
-fn test_zone_time_calculator() {
-    let time_series = TimeSeriesData {
-        timestamps: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-        heart_rate: Some(vec![100, 110, 120, 130, 140, 150, 160, 170, 180, 190]),
-        power: None,
-        cadence: None,
-        speed: None,
-        altitude: None,
-        temperature: None,
-        gps_coordinates: None,
-    };
-
-    let mut zone_calc = ZoneTimeCalculator::new(200, ZoneBoundaries::default());
-    time_series.accept(&mut zone_calc);
-
-    let distribution = zone_calc.zone_distribution();
-
-    // With max HR 200:
-    // Zone 1: <= 120 (60%) -> 100, 110, 120 = 3 points
-    // Zone 2: <= 140 (70%) -> 130, 140 = 2 points
-    // Zone 3: <= 160 (80%) -> 150, 160 = 2 points
-    // Zone 4: <= 180 (90%) -> 170, 180 = 2 points
-    // Zone 5: > 180 -> 190 = 1 point
-    assert!(distribution.zone1_pct > 0.0);
-    assert!(distribution.zone5_pct > 0.0);
-    assert_eq!(distribution.total_seconds, 10);
-}
-
-#[test]
-fn test_accept_all_multiple_visitors() {
-    let time_series = create_test_time_series();
-    let mut stats = StatsCollector::default();
-    let mut zone_calc = ZoneTimeCalculator::new(200, ZoneBoundaries::default());
-
-    time_series.accept_all(&mut [&mut stats, &mut zone_calc]);
-
-    // Both visitors should have processed the data
-    assert_eq!(stats.heart_rate.count, 10);
-    assert!(zone_calc.zone_distribution().total_seconds > 0);
 }
 
 #[test]

@@ -392,3 +392,80 @@ async fn applied_pg_schema() -> Option<BTreeMap<String, BTreeSet<String>>> {
         }
     }
 }
+
+/// The value set a `CHECK (col IN (...))` admits, read from the LAST migration in
+/// `dir` that constrains `table.column` — later rebuilds supersede earlier ones.
+fn check_in_values(dir: &str, table: &str, column: &str) -> Option<BTreeSet<String>> {
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "sql"))
+        .collect();
+    files.sort();
+
+    let needle = format!("{column} ");
+    let mut found = None;
+    for path in files {
+        let sql = fs::read_to_string(&path).unwrap_or_default();
+        if !sql.contains(table) {
+            continue;
+        }
+        for line in sql.lines() {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with(&needle) {
+                continue;
+            }
+            let Some(open) = line
+                .find("CHECK (")
+                .and_then(|i| line[i..].find('(').map(|j| i + j))
+            else {
+                continue;
+            };
+            let Some(list_open) = line[open + 1..].find('(').map(|j| open + 1 + j) else {
+                continue;
+            };
+            let Some(list_close) = line[list_open..].find(')').map(|j| list_open + j) else {
+                continue;
+            };
+            found = Some(
+                line[list_open + 1..list_close]
+                    .split(',')
+                    .map(|v| v.trim().trim_matches('\'').to_owned())
+                    .filter(|v| !v.is_empty())
+                    .collect::<BTreeSet<String>>(),
+            );
+        }
+    }
+    found
+}
+
+/// `tenant_users.role` reaches `TenantContext::is_admin` through
+/// `TenantRole::from_db_string`, so a backend that admits a different role set than
+/// the other is an authorization divergence, not a cosmetic one. It shipped
+/// unnoticed because the column-name parity check above cannot see a constraint:
+/// SQLite accepted 'viewer' and rejected 'billing' while PostgreSQL did the
+/// reverse, so the same write succeeded in dev and constraint-failed in
+/// production.
+#[test]
+fn tenant_users_role_check_agrees_across_backends() {
+    let sqlite = check_in_values(SQLITE_MIGRATIONS, "tenant_users", "role")
+        .expect("SQLite constrains tenant_users.role");
+    let pg = check_in_values(PG_MIGRATIONS, "tenant_users", "role")
+        .expect("PostgreSQL constrains tenant_users.role");
+
+    assert_eq!(
+        sqlite, pg,
+        "tenant_users.role admits different values per backend — sqlite={sqlite:?} pg={pg:?}"
+    );
+
+    // And both must be exactly the TenantRole variants, so neither drifts away
+    // from the enum together.
+    let expected: BTreeSet<String> = ["owner", "admin", "billing", "member"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        sqlite, expected,
+        "the role CHECK must name exactly the TenantRole variants"
+    );
+}

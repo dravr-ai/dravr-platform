@@ -27,7 +27,6 @@ use embacle::types::{
 };
 
 use super::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
-use crate::config::LlmProviderType;
 use crate::errors::AppError;
 
 /// Re-export embacle runner readiness status for external use
@@ -47,8 +46,6 @@ const READINESS_NOT_READY: u8 = 2;
 /// Copilot Headless (ACP), and Warp — are handled uniformly through this single facade.
 pub struct CliLlmProvider {
     runner: Box<dyn EmbacleLlmProvider>,
-    /// CLI runner binary path (None for headless/ACP runners)
-    binary_path: Option<PathBuf>,
     readiness: Arc<AtomicU8>,
     /// Typed reference to the headless runner for `converse()` access (ACP only)
     headless_runner: Option<Arc<CopilotHeadlessRunner>>,
@@ -198,7 +195,6 @@ impl CliLlmProvider {
         let display_name = runner_display_name(runner_type);
         let provider = Self {
             runner,
-            binary_path: Some(binary_path.clone()),
             readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
             headless_runner: None,
             cached_display_name: display_name,
@@ -229,7 +225,6 @@ impl CliLlmProvider {
 
         Self {
             runner: Box::new(HeadlessRunnerAdapter(Arc::clone(&headless))),
-            binary_path: None,
             readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
             headless_runner: Some(headless),
             cached_display_name: "GitHub Copilot (Headless)",
@@ -261,33 +256,10 @@ impl CliLlmProvider {
 
         Ok(Self {
             runner: Box::new(runner),
-            binary_path: None,
             readiness: Arc::new(AtomicU8::new(READINESS_READY)),
             headless_runner: None,
             cached_display_name: "OpenAI API",
         })
-    }
-
-    /// Get the `LlmProviderType` for this runner
-    #[must_use]
-    pub fn provider_type(&self) -> LlmProviderType {
-        match self.runner.name() {
-            "copilot" => LlmProviderType::Copilot,
-            "cursor_agent" => LlmProviderType::CursorAgent,
-            "opencode" => LlmProviderType::OpenCode,
-            "copilot_headless" => LlmProviderType::CopilotHeadless,
-            "gemini_cli" => LlmProviderType::GeminiCli,
-            "codex_cli" => LlmProviderType::CodexCli,
-            "goose_cli" => LlmProviderType::GooseCli,
-            "cline_cli" => LlmProviderType::ClineCli,
-            "continue_cli" => LlmProviderType::ContinueCli,
-            "warp_cli" => LlmProviderType::WarpCli,
-            "kiro" => LlmProviderType::KiroCli,
-            "kilo" => LlmProviderType::KiloCli,
-            "openai_api" => LlmProviderType::OpenAiApi,
-            // "claude_code" and any future runners default here
-            _ => LlmProviderType::ClaudeCode,
-        }
     }
 
     /// Access the inner `CopilotHeadlessRunner` if this provider wraps one.
@@ -297,46 +269,6 @@ impl CliLlmProvider {
     #[must_use]
     pub fn as_headless_runner(&self) -> Option<&CopilotHeadlessRunner> {
         self.headless_runner.as_deref()
-    }
-
-    /// Check whether the CLI runner is authenticated and available
-    ///
-    /// Performs a non-cached check. Updates the internal readiness state.
-    /// Headless runners always return `Ready` since they handle auth internally.
-    pub async fn check_readiness(&self) -> ProviderReadiness {
-        let Some(ref binary_path) = self.binary_path else {
-            // SDK runners handle authentication internally via the SDK client
-            return ProviderReadiness::Ready;
-        };
-
-        let runner_name = self.runner.name();
-        let runner_type = match runner_name {
-            "claude_code" => CliRunnerType::ClaudeCode,
-            "copilot" => CliRunnerType::Copilot,
-            "cursor_agent" => CliRunnerType::CursorAgent,
-            "opencode" => CliRunnerType::OpenCode,
-            "gemini_cli" => CliRunnerType::GeminiCli,
-            "codex_cli" => CliRunnerType::CodexCli,
-            "goose_cli" => CliRunnerType::GooseCli,
-            "cline_cli" => CliRunnerType::ClineCli,
-            "continue_cli" => CliRunnerType::ContinueCli,
-            "warp_cli" => CliRunnerType::WarpCli,
-            _ => return ProviderReadiness::Ready,
-        };
-
-        let result = check_readiness(&runner_type, binary_path)
-            .await
-            .unwrap_or_else(|e| ProviderReadiness::Unknown {
-                reason: format!("Readiness check failed: {e}"),
-            });
-
-        let state = if result.is_ready() {
-            READINESS_READY
-        } else {
-            READINESS_NOT_READY
-        };
-        self.readiness.store(state, Ordering::Relaxed);
-        result
     }
 }
 

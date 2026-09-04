@@ -32,7 +32,6 @@ pub use dravr_cageux::metrics_extractor;
 pub use dravr_cageux::nutrition_calculator;
 pub use dravr_cageux::pattern_detection;
 pub use dravr_cageux::performance_analyzer;
-pub use dravr_cageux::performance_analyzer_v2;
 pub use dravr_cageux::performance_prediction;
 pub use dravr_cageux::physiological_constants;
 pub use dravr_cageux::recipes;
@@ -61,7 +60,7 @@ pub use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
 
-// Re-export specific types at crate root for backward compatibility
+// Types re-exported at the crate root so callers reach them by one path.
 pub use dravr_cageux::activity_analyzer::ActivityAnalyzerTrait;
 pub use dravr_cageux::analysis_config::{AnalysisConfig, AnalysisConfigError, ConfidenceLevel};
 pub use dravr_cageux::analyzer::ActivityAnalyzer;
@@ -88,9 +87,6 @@ pub use dravr_cageux::pattern_detection::{
     WeeklySchedulePattern,
 };
 pub use dravr_cageux::performance_analyzer::PerformanceAnalyzerTrait;
-pub use dravr_cageux::performance_analyzer_v2::{
-    ActivityGoal, FitnessScore, PerformancePrediction, TrainingLoadAnalysis, WeeklyLoad,
-};
 pub use dravr_cageux::performance_prediction::{PerformancePredictor, RacePredictions};
 pub use dravr_cageux::recipes::{
     convert_to_grams, ConversionError, DietaryRestriction, IngredientDensity, IngredientUnit,
@@ -114,5 +110,5 @@ pub use dravr_cageux::training_load::{
 };
 pub use dravr_cageux::visitor::{
     DecouplingDetector, NormalizedPowerCalculator, StatsCollector, StreamStats, TimeSeriesExt,
-    TimeSeriesVisitor, ZoneBoundaries, ZoneDistributionResult, ZoneTimeCalculator,
+    TimeSeriesVisitor,
 };
