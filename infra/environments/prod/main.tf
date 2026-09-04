@@ -158,12 +158,15 @@ module "backend" {
       DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
       DATABASE_NAME = module.database[0].database_name
       DATABASE_USER = module.database[0].database_user
-      } : {
-      # Fallback to ephemeral SQLite when Cloud SQL is disabled. The binary
-      # treats DATABASE_URL as required (validate_required_environment) and
-      # refuses to start without it, so the branch has to supply one.
-      DATABASE_URL = "sqlite:./data/users.db"
-    },
+    } : {},
+    # No SQLite fallback here, deliberately, and unlike dev. The binary treats
+    # DATABASE_URL as required (validate_required_environment) and refuses to
+    # start without one — which is the behaviour production wants. Supplying
+    # "sqlite:./data/users.db" would let a production revision boot on a file
+    # inside the container that dies with the instance, turning a loud boot
+    # failure into silent data loss. enable_database is false in
+    # terraform.tfvars until the PostgreSQL migration lands, so this is the
+    # live branch: prod must not come up at all until Cloud SQL is enabled.
     var.enable_cache ? {
       REDIS_URL = module.cache[0].redis_url
     } : {},
