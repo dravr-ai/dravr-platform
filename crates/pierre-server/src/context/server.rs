@@ -17,9 +17,7 @@
 //! the full container take `&Arc<ServerContext>` directly; only services
 //! at narrow seams take focused contexts.
 
-use crate::context::{
-    AuthContext, ConfigContext, ExtensionContext, NotificationContext, SecurityContext,
-};
+use crate::context::{AuthContext, ConfigContext, ExtensionContext, SecurityContext};
 use crate::mcp::resources::ServerContext;
 use pierre_runtime_context::DataContext;
 
@@ -62,16 +60,6 @@ impl ServerContext {
             #[cfg(feature = "protocol-a2a")]
             self.a2a.a2a_system_user_service.clone(),
             self.coach.admin_config.clone(),
-        )
-    }
-
-    /// Extract notification context (SSE, OAuth notifications).
-    #[must_use]
-    pub fn notification(&self) -> NotificationContext {
-        NotificationContext::new(
-            #[cfg(feature = "transport-sse")]
-            self.sse.sse_manager.clone(),
-            self.auth.oauth_notification_sender.clone(),
         )
     }
 

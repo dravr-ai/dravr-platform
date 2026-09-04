@@ -235,11 +235,7 @@ impl ProviderToolRouter {
             tenant_context.tenant_name, provider_name, tenant_context.user_id
         );
 
-        let service = OAuthService::new(
-            resources.data(),
-            resources.common.config.clone(),
-            resources.auth.oauth_notification_sender.clone(),
-        );
+        let service = OAuthService::new(resources.data(), resources.common.config.clone());
         let tenant_uuid = Some(tenant_context.tenant_id.as_uuid());
         if let Err(e) = service
             .disconnect_provider(tenant_context.user_id, provider_name, tenant_uuid)

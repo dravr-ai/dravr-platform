@@ -661,8 +661,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             // connection row in lockstep, and emits the catalogued
             // `provider.disconnected` notify event. The disconnect never uses
             // the notification sender, so `None` is the correct third arg.
-            let service =
-                OAuthService::new(ctx.resources.data(), ctx.resources.config().clone(), None);
+            let service = OAuthService::new(ctx.resources.data(), ctx.resources.config().clone());
 
             match service
                 .disconnect_provider(user_uuid, provider, Some(tenant_id))

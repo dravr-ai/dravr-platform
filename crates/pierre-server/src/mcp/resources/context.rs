@@ -44,13 +44,13 @@ use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
     CoachesRepository, MobilityRepository, RecipeRepository,
 };
-use pierre_mcp_schema::{OAuthCompletedNotification, ProgressNotification};
+use pierre_mcp_schema::ProgressNotification;
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 use pierre_tool_runtime::protocol::types::CancellationToken;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 /// Centralized resource container for dependency injection.
@@ -80,14 +80,6 @@ pub struct ServerContext {
 }
 
 impl ServerContext {
-    /// Set the OAuth notification sender for push notifications
-    pub fn set_oauth_notification_sender(
-        &mut self,
-        sender: broadcast::Sender<OAuthCompletedNotification>,
-    ) {
-        self.auth.oauth_notification_sender = Some(sender);
-    }
-
     /// Set the sampling peer for server-initiated LLM requests (stdio transport only)
     pub fn set_sampling_peer(&mut self, peer: Arc<SamplingPeer>) {
         self.sse.sampling_peer = Some(peer);
@@ -281,7 +273,6 @@ impl ServerContext {
             data: self.data(),
             firebase_auth: self.auth.firebase_auth.clone(),
             email_service: self.common.email_service.clone(),
-            oauth_notification_sender: self.auth.oauth_notification_sender.clone(),
             tenant_oauth_client: self.auth.tenant_oauth_client.clone(),
             provider_registry: self.fitness.provider_registry.clone(),
             sync_notifier: self.sse.sse_manager.clone(),

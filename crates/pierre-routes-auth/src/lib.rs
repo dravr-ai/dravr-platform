@@ -45,7 +45,6 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use tokio::sync::broadcast;
 
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
@@ -56,7 +55,6 @@ use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
-use pierre_mcp_schema::OAuthCompletedNotification;
 #[cfg(feature = "provider-sciotte")]
 use pierre_middleware::provider_link_token::{MintRateLimiter, NonceStore};
 use pierre_middleware::McpAuthMiddleware;
@@ -154,9 +152,6 @@ pub struct AuthRoutesContext {
     pub firebase_auth: Option<Arc<FirebaseAuth>>,
     /// Outbound email service (Resend). `None` when not configured.
     pub email_service: Option<Arc<ResendEmailService>>,
-    /// OAuth-completed notification broadcast (for MCP `sampling/createMessage`
-    /// listeners that wait on OAuth completion).
-    pub oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
     /// Tenant OAuth client — generates per-tenant authorization URLs.
     pub tenant_oauth_client: Arc<TenantOAuthClient>,
     /// Provider registry — descriptor lookups (PKCE capability, OAuth params).

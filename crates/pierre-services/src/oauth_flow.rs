@@ -12,7 +12,6 @@ use std::{
 };
 
 use chrono::Utc;
-use tokio::sync::broadcast;
 use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
 
@@ -30,7 +29,6 @@ use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
 use pierre_database::database::repositories::UserRepository;
-use pierre_mcp_schema::OAuthCompletedNotification;
 use pierre_mcp_transport::OAuthCallbackResponse;
 use pierre_providers::backend_resolver;
 use pierre_runtime_context::DataContext;
@@ -45,7 +43,6 @@ pub struct OAuthService {
     /// Crate-visible for the `provider_revocation` companion module.
     pub(crate) data: DataContext,
     config: Arc<ServerConfig>,
-    oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
 }
 
 /// Parsed OAuth state containing user ID and optional mobile redirect URL
@@ -64,15 +61,10 @@ struct ParsedOAuthState {
 impl OAuthService {
     /// Creates a new OAuth service instance
     #[must_use]
-    pub const fn new(
-        data_context: DataContext,
-        config: Arc<ServerConfig>,
-        oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
-    ) -> Self {
+    pub const fn new(data_context: DataContext, config: Arc<ServerConfig>) -> Self {
         Self {
             data: data_context,
             config,
-            oauth_notification_sender,
         }
     }
 
@@ -197,7 +189,7 @@ impl OAuthService {
         let expires_at = self
             .store_oauth_token(user_id, tenant_id, provider, token, oauth_app_client_id)
             .await?;
-        self.send_oauth_notifications(user_id, provider, &expires_at)
+        self.store_oauth_notification(user_id, provider, &expires_at)
             .await?;
         oauth_bridge_notify::notify_bridge_oauth_success(&self.config, provider, token).await;
 
@@ -702,27 +694,13 @@ impl OAuthService {
         Ok(expires_at)
     }
 
-    /// Send OAuth completion notifications
-    async fn send_oauth_notifications(
-        &self,
-        user_id: uuid::Uuid,
-        provider: &str,
-        expires_at: &chrono::DateTime<chrono::Utc>,
-    ) -> AppResult<()> {
-        let notification_id = self
-            .store_oauth_notification(user_id, provider, expires_at)
-            .await?;
-        self.broadcast_oauth_notification(&notification_id, user_id, provider);
-        Ok(())
-    }
-
     /// Store OAuth notification in database
     async fn store_oauth_notification(
         &self,
         user_id: uuid::Uuid,
         provider: &str,
         expires_at: &chrono::DateTime<chrono::Utc>,
-    ) -> AppResult<String> {
+    ) -> AppResult<()> {
         let notification_id = self
             .data
             .repos()
@@ -742,55 +720,9 @@ impl OAuthService {
             notification_id, user_id, provider
         );
 
-        Ok(notification_id)
+        Ok(())
     }
 
-    /// Broadcast OAuth completion notification via WebSocket/SSE
-    fn broadcast_oauth_notification(
-        &self,
-        notification_id: &str,
-        user_id: uuid::Uuid,
-        provider: &str,
-    ) {
-        let Some(sender) = self.oauth_notification_sender.as_ref() else {
-            debug!(
-                notification_id = %notification_id,
-                user_id = %user_id,
-                provider = %provider,
-                "OAuth notification sender not configured"
-            );
-            return;
-        };
-
-        let notification = OAuthCompletedNotification::new(
-            provider.to_owned(),
-            true,
-            format!("{provider} connected successfully"),
-            Some(user_id.to_string()),
-        );
-
-        match sender.send(notification) {
-            Ok(receiver_count) => {
-                info!(
-                    notification_id = %notification_id,
-                    user_id = %user_id,
-                    provider = %provider,
-                    receiver_count = %receiver_count,
-                    "OAuth notification broadcast to {} receivers",
-                    receiver_count
-                );
-            }
-            Err(e) => {
-                debug!(
-                    notification_id = %notification_id,
-                    user_id = %user_id,
-                    provider = %provider,
-                    error = %e,
-                    "No active receivers for OAuth notification"
-                );
-            }
-        }
-    }
     /// Disconnect OAuth provider for user
     ///
     /// The domain chokepoint for provider disconnects: every surface (REST

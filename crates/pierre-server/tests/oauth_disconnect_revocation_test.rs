@@ -166,11 +166,7 @@ async fn disconnect_revokes_upstream_and_deletes_provider_data() {
     // real deployment.
     let mut config = (*resources.common.config).clone();
     config.external_services.strava_api.revoke_url = revoke_url.clone();
-    let oauth_service = OAuthService::new(
-        resources.data(),
-        Arc::new(config),
-        resources.auth.oauth_notification_sender.clone(),
-    );
+    let oauth_service = OAuthService::new(resources.data(), Arc::new(config));
     oauth_service
         .disconnect_provider(user_id, "strava", Some(tenant_id.as_uuid()))
         .await

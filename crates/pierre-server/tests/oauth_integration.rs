@@ -221,7 +221,6 @@ async fn test_oauth_authorization_url_generation() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // Create admin user first
@@ -553,7 +552,6 @@ async fn test_oauth_state_validation() {
     let _oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // Test valid state format
@@ -780,7 +778,6 @@ async fn test_connection_status_no_providers() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
@@ -984,7 +981,6 @@ async fn test_invalid_provider_error() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = Uuid::new_v4();
@@ -1176,7 +1172,6 @@ async fn test_disconnect_provider() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = Uuid::new_v4();
@@ -1516,7 +1511,6 @@ async fn test_oauth_urls_contain_required_parameters() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = Uuid::new_v4();

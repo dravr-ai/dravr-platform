@@ -690,7 +690,6 @@ async fn test_oauth_callback_error_handling() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // Test invalid state parameter (not stored server-side, so consumed state fails)
@@ -976,7 +975,6 @@ async fn test_oauth_state_csrf_protection() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = uuid::Uuid::new_v4();
@@ -1180,7 +1178,6 @@ async fn test_connection_status_tracking() {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
 

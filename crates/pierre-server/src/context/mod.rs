@@ -22,8 +22,6 @@ pub mod auth;
 pub mod config;
 /// Extension context for plugins, sampling peer, and progress notifications
 pub mod extension;
-/// Notification context for SSE
-pub mod notification;
 /// Security context for CSRF, redaction, and rate limiting
 pub mod security;
 /// Focused-context extractors layered on `ServerContext` (the canonical container)
@@ -37,7 +35,5 @@ pub use auth::AuthContext;
 pub use config::ConfigContext;
 /// Extension context
 pub use extension::ExtensionContext;
-/// Notification context
-pub use notification::NotificationContext;
 /// Security context
 pub use security::SecurityContext;

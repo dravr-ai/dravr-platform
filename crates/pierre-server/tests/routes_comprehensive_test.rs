@@ -355,7 +355,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         OAuthService::new(
             server_resources.data(),
             server_resources.common.config.clone(),
-            server_resources.auth.oauth_notification_sender.clone(),
         ),
         tenant_id,
         database,
@@ -1745,7 +1744,6 @@ async fn test_complete_auth_flow() -> Result<()> {
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // 1. Register user

@@ -85,7 +85,7 @@ use pierre_intelligence::ActivityIntelligence;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
-use pierre_mcp_schema::{OAuthCompletedNotification, ProgressNotification};
+use pierre_mcp_schema::ProgressNotification;
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::commands::CommandRegistry;
@@ -116,7 +116,7 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::ChatReentry;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tokio::task::AbortHandle;
 
 /// Cross-cutting handles + the master repository registry.
@@ -191,10 +191,9 @@ pub struct CommonSlice {
 /// Authentication and authorization subsystem.
 ///
 /// Holds auth manager, JWKS, auth middleware, CSRF, Firebase, the `OAuth2` rate
-/// limiter, the admin JWT secret, the per-tenant OAuth client, the OAuth
-/// completion broadcast sender, and (under `provider-sciotte`) the hosted-login
-/// nonce store + mint rate limiter. Also carries an [`AuthRepos`] projection
-/// for future per-view trait migration.
+/// limiter, the admin JWT secret, the per-tenant OAuth client, and (under
+/// `provider-sciotte`) the hosted-login nonce store + mint rate limiter. Also
+/// carries an [`AuthRepos`] projection for future per-view trait migration.
 #[derive(Clone)]
 pub struct AuthSlice {
     /// Authentication manager for user identity verification.
@@ -213,8 +212,6 @@ pub struct AuthSlice {
     pub admin_jwt_secret: Arc<str>,
     /// OAuth client for multi-tenant authentication flows.
     pub tenant_oauth_client: Arc<TenantOAuthClient>,
-    /// Broadcast channel for OAuth completion notifications.
-    pub oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
     /// Cache-backed one-time nonce store for link-token page loads.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,

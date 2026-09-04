@@ -505,7 +505,6 @@ impl ServerContext {
             oauth2_rate_limiter,
             admin_jwt_secret: admin_jwt_secret.into(),
             tenant_oauth_client,
-            oauth_notification_sender: None,
             #[cfg(feature = "provider-sciotte")]
             nonce_store,
             #[cfg(feature = "provider-sciotte")]

@@ -243,11 +243,7 @@ pub async fn handle_connect_oauth_init(
     };
     let tenant_id = TenantId::from_uuid(tenant_uuid);
 
-    let oauth_service = OAuthService::new(
-        resources.data.clone(),
-        resources.config.clone(),
-        resources.oauth_notification_sender.clone(),
-    );
+    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
 
     // On return from the provider's consent screen, bounce back to THIS hosted
     // picker (carrying the same connect token) rather than the SPA: on success

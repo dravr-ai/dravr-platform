@@ -59,11 +59,7 @@ pub async fn handle_oauth_callback(
     Path(provider): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Response, AppError> {
-    let oauth_routes = OAuthService::new(
-        resources.data.clone(),
-        resources.config.clone(),
-        resources.oauth_notification_sender.clone(),
-    );
+    let oauth_routes = OAuthService::new(resources.data.clone(), resources.config.clone());
 
     // Check if we should redirect to a separate frontend URL
     let frontend_url = &resources.config.frontend_url.clone();
@@ -496,11 +492,7 @@ pub async fn handle_oauth_auth_initiate(
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
 
-    let oauth_service = OAuthService::new(
-        resources.data.clone(),
-        resources.config.clone(),
-        resources.oauth_notification_sender.clone(),
-    );
+    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
 
     let auth_response = oauth_service
         .get_auth_url(user_id, tenant_id, &provider)
@@ -739,11 +731,7 @@ pub async fn handle_disconnect_provider_rest(
     // The service is the domain chokepoint: it deletes the token + connection
     // row and emits the `provider.disconnected` notify event, so this route
     // (like the chat and /mcp tool paths) emits nothing itself.
-    let oauth_service = OAuthService::new(
-        resources.data.clone(),
-        resources.config.clone(),
-        resources.oauth_notification_sender.clone(),
-    );
+    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     oauth_service
         .disconnect_provider(user_id, &provider, auth_result.active_tenant_id)
         .await?;

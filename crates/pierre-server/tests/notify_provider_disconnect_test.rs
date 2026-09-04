@@ -254,7 +254,7 @@ async fn service_disconnect_cleans_both_rows_and_emits() {
     .await;
 
     let (events, _guard) = capture_notify();
-    let service = OAuthService::new(resources.data(), resources.common.config.clone(), None);
+    let service = OAuthService::new(resources.data(), resources.common.config.clone());
     service
         .disconnect_provider(user_id, oauth_providers::STRAVA, Some(tenant_id.as_uuid()))
         .await

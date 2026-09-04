@@ -314,7 +314,6 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
-        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     Ok((database, auth_routes, oauth_routes, tenant_id))
