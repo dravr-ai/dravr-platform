@@ -95,6 +95,36 @@ jobs:
           cargo update -p dravr-contremaitre
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Sync the in-tree evidence fallback to the bumped rev
+        # The missing half of the bump. This lane moved the pin and nothing
+        # else, while check-contremaitre-sync.sh demands an exact mirror of
+        # contremaitre's evidence/ — so every corpus addition upstream red main
+        # the moment the hourly cron fired. On 2026-09-04 Phil's PR #6 added 69
+        # propositions and 43 seconds later this workflow pushed the pin without
+        # them: main red, five sessions blocked mid-merge, three extra CI cycles
+        # to recover (carnet#325). The sync belongs in the same commit as the
+        # pin it follows, not in a human's hands afterwards.
+        #
+        # `cargo fetch` first because the sync reads the canonical corpus from
+        # the pinned checkout on disk rather than cloning contremaitre a second
+        # time; `cargo update` above populates the git db but not the checkout.
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          cargo fetch
+          scripts/ci/sync-evidence-corpus.sh
+
+      - name: Refuse to push a bump that breaks the coupling
+        # Compile-free, ~2s, and gated on `changed` so the hourly no-op pays
+        # nothing. Pushing first and validating afterwards is this lane's
+        # design — GitHub suppresses workflow runs on GITHUB_TOKEN pushes, so
+        # the dispatch below is necessarily after the fact. That is survivable
+        # for a break CI finds in ten minutes; it is not survivable for one that
+        # blocks every session's pre-push gate the instant it lands. Failing
+        # HERE leaves main green and lets the hourly cron retry, so a genuine
+        # upstream break stays loud without taking the branch down with it.
+        if: steps.bump.outputs.changed == 'true'
+        run: scripts/ci/check-contremaitre-sync.sh
+
       - name: Commit and push bump
         if: steps.bump.outputs.changed == 'true'
         run: |
@@ -103,8 +133,18 @@ jobs:
           SHORT_NEW=$(echo "${{ steps.target.outputs.new_sha }}" | cut -c1-8)
           # Re-discover and stage all consumer manifests + the lockfile, so the
           # commit carries every file the bump touched (no hardcoded list).
-          git add $(grep -rl 'dravr-contremaitre = { git' crates/ --include=Cargo.toml) Cargo.lock
-          git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}"
+          # Stage the manifests, the lockfile, AND whatever the corpus sync
+          # rewrote — the pin and the fallback it implies travel together or the
+          # commit reintroduces the drift it was meant to close.
+          git add $(grep -rl 'dravr-contremaitre = { git' crates/ --include=Cargo.toml) Cargo.lock \
+                  crates/pierre-evals/fixtures/sports_science \
+                  crates/pierre-services/src/claim_verification.rs
+          CORPUS_NOTE=""
+          if ! git diff --cached --quiet -- crates/pierre-evals/fixtures/sports_science; then
+            CORPUS_NOTE=$(printf '\n\nSyncs the in-tree evidence fallback to match: %s.' \
+              "$(git diff --cached --numstat -- crates/pierre-evals/fixtures/sports_science | wc -l | tr -d ' ') proposition file(s) changed")
+          fi
+          git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}${CORPUS_NOTE}"
           git push origin main
 
       - name: Validate the bump in CI
