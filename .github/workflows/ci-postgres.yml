@@ -271,12 +271,82 @@ jobs:
             echo "::error::PostgreSQL lane selected no test files ($LANE) — refusing to report green."
             exit 1
           fi
-          SHARD_TESTS=()
-          for i in "${!ALL_TESTS[@]}"; do
-            if (( (i % SHARDS) + 1 == SHARD )); then
-              SHARD_TESTS+=("${ALL_TESTS[$i]}")
-            fi
-          done
+          # Longest-processing-time packing, not round-robin. The partition used
+          # to walk an alphabetical list, which is duration-blind: on run
+          # 33914305535 that produced shard run times of 490/801/718/802s, a
+          # 1.64x spread, because one shard drew oauth2_rate_limiting_e2e_test
+          # (121s) plus a heavy tail. A lane costs whatever its slowest shard
+          # costs, so the imbalance spent the savings the rest of this step
+          # makes. LPT over the same files and the same measured weights packs
+          # every shard to 703s — a 1.00x spread, 99s off the critical path.
+          #
+          # The manifest supplies WEIGHTS ONLY. ALL_TESTS above is still the
+          # filesystem's answer, so a file the manifest does not name still runs;
+          # it is weighted at the manifest's p90 so a new test is never assumed
+          # free and never rides along on an already-full shard. A stale manifest
+          # costs balance, never coverage.
+          DURATIONS=.github/ci-postgres-test-durations.tsv
+          if [ ! -s "$DURATIONS" ]; then
+            echo "::error::$DURATIONS is missing or empty — refusing to pack shards on unknown weights."
+            exit 1
+          fi
+          # p90 is computed here rather than in the packing script: sorting an
+          # array needs gawk's asort, and the runner's awk is mawk, which does
+          # not have it. `sort -n` is portable and this runs once.
+          P90=$(
+            awk -F'\t' '!/^#/ && NF == 2 { print $2 }' "$DURATIONS" \
+              | sort -n \
+              | awk '{ v[NR] = $1 } END { if (NR == 0) { print 1 } else { i = int(0.9 * NR); if (i < 1) i = 1; print v[i] } }'
+          )
+          # Packed once, for every shard, so there is one implementation of the
+          # assignment rather than one per consumer. Output is "<shard>\t<file>".
+          ASSIGNMENTS=$(
+            SHARDS="$SHARDS" DURATIONS="$DURATIONS" P90="$P90" awk '
+              # A file costs its run time PLUS the build of its own binary. Packing
+              # on run time alone is what put 259 near-zero files on one shard in
+              # run 33917276134 and handed it 148s of extra compilation: fitting
+              # build(n) across the four shards of that run gives 212s + 0.608s per
+              # file, so every file carries a fixed 0.61s whatever it runs in.
+              function weight(n) { return ((n in w) ? w[n] : p90) + BUILD_PER_FILE }
+              BEGIN {
+                shards = ENVIRON["SHARDS"] + 0
+                p90 = ENVIRON["P90"] + 0
+                BUILD_PER_FILE = 0.61
+                while ((getline line < ENVIRON["DURATIONS"]) > 0) {
+                  if (line ~ /^#/ || line == "") continue
+                  split(line, f, "\t")
+                  w[f[1]] = f[2] + 0
+                }
+              }
+              { name[NR] = $0 }
+              END {
+                # Heaviest first, ties broken by name, so the packing is
+                # deterministic: the same tree assigns the same files every run.
+                for (i = 1; i <= NR; i++) ord[i] = name[i]
+                for (i = 1; i <= NR; i++)
+                  for (j = i + 1; j <= NR; j++) {
+                    wi = weight(ord[i]); wj = weight(ord[j])
+                    if (wj > wi || (wj == wi && ord[j] < ord[i])) { t = ord[i]; ord[i] = ord[j]; ord[j] = t }
+                  }
+                for (b = 1; b <= shards; b++) load[b] = 0
+                for (i = 1; i <= NR; i++) {
+                  best = 1
+                  for (b = 2; b <= shards; b++) if (load[b] < load[best]) best = b
+                  load[best] += weight(ord[i])
+                  print best "\t" ord[i]
+                }
+              }
+            ' < <(printf '%s\n' "${ALL_TESTS[@]}")
+          )
+          # Fail closed: every file must land on exactly one shard. A packing bug
+          # that dropped one would otherwise report green over a test that never
+          # ran, which is the failure mode this lane exists to prevent.
+          ASSIGNED=$(printf '%s\n' "$ASSIGNMENTS" | grep -c . || true)
+          if [ "$ASSIGNED" -ne "${#ALL_TESTS[@]}" ]; then
+            echo "::error::shard packing assigned $ASSIGNED of ${#ALL_TESTS[@]} test files — refusing to report green over a file that would not run."
+            exit 1
+          fi
+          mapfile -t SHARD_TESTS < <(printf '%s\n' "$ASSIGNMENTS" | awk -F'\t' -v s="$SHARD" '$1 == s { print $2 }' | sort)
           echo "=== Shard $SHARD/$SHARDS ($LANE): ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} test files ==="
           if [ "${#SHARD_TESTS[@]}" -eq 0 ]; then
             echo "Fewer test files than shards; shard $SHARD has nothing to run."
