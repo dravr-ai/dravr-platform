@@ -92,6 +92,9 @@ jobs:
       sha: ${{ steps.sha.outputs.sha }}
       short_sha: ${{ steps.sha.outputs.short_sha }}
       gcp_configured: ${{ steps.secrets.outputs.gcp_configured }}
+      # 'true' only when the guard below PROVED this deploy would roll dev
+      # back; empty on push and workflow_dispatch, where the guard does not run.
+      rollback: ${{ steps.guard.outputs.rollback }}
 
     steps:
       - name: Resolve SHA
@@ -119,6 +122,111 @@ jobs:
           WIF_PROVIDER: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
           IMAGE_PUBLISHER_SA: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
 
+      # -----------------------------------------------------------------------
+      # Monotonic-deploy guard: never move dev to a commit it already serves.
+      #
+      # A workflow_run deploy builds the TRIGGERING CI run's commit, and CI runs
+      # on main finish in whatever order the runners allow. So a deploy for an
+      # older commit can complete AFTER the deploy for a newer one: on
+      # 2026-09-04 00:56Z run 33822126457 put 2ad52f348 on dev twenty minutes
+      # after e49774745 was already serving, every run green (carnet#262). The
+      # concurrency group above serialises deploys by ARRIVAL, not by commit,
+      # so it cannot prevent this — but it does guarantee that when this job
+      # runs no other deploy is in flight, so the label read here is the
+      # commit dev will still be serving when the build finishes.
+      #
+      # The steps sit in this job, before publish-server pulls the multi-GB
+      # registry buildcache, so a refused deploy costs a few seconds and no
+      # egress. workflow_run only: a push deploy builds github.sha, which is
+      # the tip and cannot be behind dev, and a workflow_dispatch is a person
+      # asking for exactly this commit — a deliberate rollback stays possible.
+      #
+      # The verdict is fail-open: the label read swallows its own failures,
+      # and the script treats an absent, malformed or unknown live commit as
+      # "deploy". The guard fires only when git can PROVE the resolved commit
+      # is contained in the live one. Authentication is the one thing that is
+      # loud instead — the same credentials and describe call as
+      # post-deploy-verify.yml (repo-scoped secrets, no `environment:`), and
+      # the same credentials deploy-dev needs minutes later, so a failure here
+      # fails the run before a build rather than passing as a warning.
+      # -----------------------------------------------------------------------
+      - name: Authenticate to GCP (dev deployer)
+        id: dev-auth
+        if: github.event_name == 'workflow_run' && steps.secrets.outputs.gcp_configured == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        if: steps.dev-auth.outcome == 'success'
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Read the commit dev is serving
+        id: live
+        if: steps.dev-auth.outcome == 'success'
+        run: |
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-api"
+          REGION="${{ vars.GCP_DEV_CLOUD_RUN_REGION }}"
+
+          # The serving revision, not the service template: after a deploy
+          # whose revision never became ready, the template names the failed
+          # commit while traffic still goes to the previous one.
+          REV="$(gcloud run services describe "$SERVICE" --region="$REGION" \
+                   --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+          LIVE=""
+          if [ -n "$REV" ]; then
+            LIVE="$(gcloud run revisions describe "$REV" --region="$REGION" --format=json 2>/dev/null \
+                      | jq -r '.metadata.labels["commit-sha"] // empty' || true)"
+          fi
+
+          if [ -z "$LIVE" ]; then
+            echo "::warning title=Rollback guard inert::could not read the commit-sha label of the revision dev is serving (revision: '${REV}'); deploying ${{ steps.sha.outputs.sha }} unguarded"
+          else
+            echo "dev serves revision ${REV}, built from ${LIVE}"
+          fi
+          echo "sha=${LIVE}" >> "$GITHUB_OUTPUT"
+
+      # Commits only (`tree:0`), every branch, no depth limit: 2 MB for the
+      # whole history, against a 100+ MB full clone. `merge-base` walks commit
+      # parents and touches no tree, so nothing is fetched lazily; the sparse
+      # checkout pulls only the blobs the guard script itself needs.
+      - name: Checkout commit history
+        if: steps.live.outputs.sha != ''
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: tree:0
+          sparse-checkout: scripts/ci
+
+      - name: Refuse to roll dev back
+        id: guard
+        if: steps.live.outputs.sha != ''
+        # LIVE is a label value read off a cloud resource, so it reaches the
+        # shell through the environment rather than interpolated into it.
+        env:
+          RESOLVED: ${{ steps.sha.outputs.sha }}
+          LIVE: ${{ steps.live.outputs.sha }}
+        run: |
+          # Exit 1 is the ONLY verdict that skips. 0 deploys; anything else is
+          # the script refusing its arguments, which is a workflow bug and must
+          # not cost a deploy — it is reported and the deploy goes ahead.
+          rc=0
+          ./scripts/ci/check-deploy-ancestry.sh "$RESOLVED" "$LIVE" . || rc=$?
+          case "$rc" in
+            0)
+              echo "rollback=false" >> "$GITHUB_OUTPUT"
+              ;;
+            1)
+              echo "rollback=true" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Deploy skipped (rollback)::dev already serves ${LIVE}, which contains ${RESOLVED}. Nothing built, nothing deployed."
+              ;;
+            *)
+              echo "rollback=false" >> "$GITHUB_OUTPUT"
+              echo "::warning title=Rollback guard inert::check-deploy-ancestry.sh exited ${rc}; deploying ${RESOLVED} unguarded"
+              ;;
+          esac
+
   # ---------------------------------------------------------------------------
   # Build and push server image to central Artifact Registry
   # ---------------------------------------------------------------------------
@@ -126,7 +234,12 @@ jobs:
     name: Publish Server Image
     runs-on: ubuntu-latest
     needs: resolve-sha
-    if: needs.resolve-sha.outputs.gcp_configured == 'true'
+    # The rollback verdict is honoured here and in publish-frontend only. Every
+    # later job reaches this one through `needs` with no status function in its
+    # `if:`, so skipping the two publish jobs skips deploy-dev, tag-deployed-dev,
+    # sdk-smoke-dev and seed-dev with them — the same path a missing GCP
+    # secret already takes.
+    if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
 
     outputs:
       image: ${{ steps.digest.outputs.image }}
@@ -250,7 +363,7 @@ jobs:
     name: Publish Frontend Image
     runs-on: ubuntu-latest
     needs: resolve-sha
-    if: needs.resolve-sha.outputs.gcp_configured == 'true'
+    if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
 
     outputs:
       image: ${{ steps.digest.outputs.image }}
@@ -365,7 +478,9 @@ jobs:
   deploy-dev:
     name: Deploy to Development
     runs-on: ubuntu-latest
-    needs: [publish-server, publish-frontend]
+    # resolve-sha is already an ancestor through the publish jobs; it is named
+    # here because `needs.<job>.outputs` reaches direct dependencies only.
+    needs: [resolve-sha, publish-server, publish-frontend]
     if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     environment: development
 
@@ -376,12 +491,23 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
 
+      # The revision's `commit-sha` label is what resolve-sha reads back as the
+      # commit dev is serving on the next workflow_run deploy. Left to the
+      # action, the label is stamped from github.sha — the branch tip at run
+      # creation, not the commit that was built, so on every workflow_run
+      # deploy it names a commit that never reached the image. Both labels are
+      # set here from the resolved sha; `skip_default_labels` keeps the action
+      # from writing its own copy of either.
       - name: Deploy backend to Cloud Run (dev)
         uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.publish-server.outputs.image }}
+          skip_default_labels: true
+          labels: |-
+            managed-by=github-actions
+            commit-sha=${{ needs.resolve-sha.outputs.sha }}
 
       - name: Deploy frontend to Cloud Run (dev)
         uses: google-github-actions/deploy-cloudrun@v3
@@ -389,6 +515,10 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.publish-frontend.outputs.image }}
+          skip_default_labels: true
+          labels: |-
+            managed-by=github-actions
+            commit-sha=${{ needs.resolve-sha.outputs.sha }}
 
   # ---------------------------------------------------------------------------
   # Mark the digests dev is serving so registry retention keeps them
