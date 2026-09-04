@@ -433,6 +433,22 @@ assert_eq "stdout to /dev/null claims nothing" "$(wc -c < "$S/calls.log" | tr -d
 auto_claim "$(bash_payload 'make check &>/dev/null')"
 assert_eq "&>/dev/null claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
 
+# A git verb needs a terminator, or `merge` matches inside `git merge-base` —
+# the standard "is this commit on main?" query — and a pure read claims. That
+# took carnet#323 off a peer who was mid-investigation and stood down for it.
+auto_claim "$(bash_payload 'git merge-base --is-ancestor abc123 origin/main')"
+assert_eq "git merge-base claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+auto_claim "$(bash_payload 'git merge-base --fork-point main')"
+assert_eq "git merge-base --fork-point claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+auto_claim "$(bash_payload 'git merge-base --is-ancestor abc origin/main 2>/dev/null && echo yes')"
+assert_eq "the exact command that mis-claimed #323 claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+
+# Reporting-only flags write nothing, whatever the verb.
+auto_claim "$(bash_payload 'git add --dry-run .')"
+assert_eq "git add --dry-run claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+auto_claim "$(bash_payload 'git apply --check my.patch')"
+assert_eq "git apply --check claims nothing" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
+
 # ...but a redirect into a real file is still an edit, /dev/null nearby or not.
 reset; set_pending 42
 auto_claim "$(bash_payload 'grep -rn TODO src/ 2>/dev/null > findings.txt')"
@@ -448,6 +464,18 @@ assert_grep "a redirect into a file claims" 'issue edit 42 .*--add-label in-prog
 reset; set_pending 42
 auto_claim "$(bash_payload 'git commit -m wip')"
 assert_grep "git commit claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+reset; set_pending 42
+auto_claim "$(bash_payload 'git merge origin/main')"
+assert_grep "a real git merge still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+reset; set_pending 42
+auto_claim "$(bash_payload 'git add -A')"
+assert_grep "git add still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+reset; set_pending 42
+auto_claim "$(bash_payload 'git apply my.patch')"
+assert_grep "git apply without --check still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+reset; set_pending 42
+auto_claim "$(bash_payload 'git reset --hard origin/main')"
+assert_grep "git reset still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
 
 # A live peer holding it blocks the edit once, and names them.
 reset; set_pending 42

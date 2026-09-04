@@ -52,9 +52,21 @@ case "$tool" in
         # Four issues were taken that way in a day, one of them a peer's, off a
         # message that only NAMED the number.
         probe=$(printf '%s' "$cmd" | sed -E 's/(^|[[:space:]&])[0-9]*>>?[[:space:]]*\/dev\/null//g')
+        # `git add --dry-run` / `git apply --check` report and change nothing.
+        probe=$(printf '%s' "$probe" | sed -E 's/git[[:space:]]+[a-z-]+([[:space:]]+[^;|&]*)?(--dry-run|--check)/git-reporting-only/g')
         # A write-shaped command: a redirect into a file, an in-place edit, or git recording
         # something. Anything else is a read, and a read claims nothing.
-        printf '%s' "$probe" | grep -qE '>>?[[:space:]]*[^&|[:space:]]|sed -i|(^|[|;&[:space:]])tee[[:space:]]|(^|[|;&[:space:]])(mv|cp|rm|mkdir|touch|install)[[:space:]]|git[[:space:]]+(commit|add|apply|am|merge|rebase|revert|cherry-pick|checkout|restore|reset)' || exit 0
+        #
+        # The git verbs need a terminator. Without one, `merge` matches inside
+        # `git merge-base` — the standard way to ask "is this commit on main?" —
+        # so a pure ancestry query counted as a write and claimed every pending
+        # issue. That took carnet#323 off a peer mid-investigation, who then
+        # stood down. Same failure class as the `2>/dev/null` bug above: a read
+        # that pattern-matches as a write, costing an issue that was only NAMED.
+        #
+        # `--dry-run` and `--check` are excluded for the same reason: `git add
+        # --dry-run` and `git apply --check` write nothing and only report.
+        printf '%s' "$probe" | grep -qE '>>?[[:space:]]*[^&|[:space:]]|sed -i|(^|[|;&[:space:]])tee[[:space:]]|(^|[|;&[:space:]])(mv|cp|rm|mkdir|touch|install)[[:space:]]|git[[:space:]]+(commit|add|apply|am|merge|rebase|revert|cherry-pick|checkout|restore|reset)([[:space:]]|$)' || exit 0
         ;;
     *) exit 0 ;;
 esac
