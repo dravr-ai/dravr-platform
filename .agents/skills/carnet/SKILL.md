@@ -73,7 +73,9 @@ Add `--dry-run` to any of them to see the `gh` calls without making them.
   `registre#N`, or a carnet issue URL, one status line per issue lands in your context
   before you answer — `carnet#197 · held by @jfarcand · session i18Guards (a3f9c2d1) on 1Q84
   [running] · feature/i18n-guards · since …`. Read it. If it says `unclaimed`, claim before
-  editing. If it says `[session ended — stale]`, a plain `claim` takes it over.
+  editing. If it says `[session ended — stale]`, a plain `claim` takes it over. A peer
+  message or a background task result gets the status line **plus a note saying it armed
+  nothing** — see *A peer naming an issue is not assigning it* below.
 - **PreToolUse** (`hooks/auto-claim.sh`): claims those issues for you, on the first
   write-shaped tool call after the prompt that named them. Reading is not working — a
   question about an issue never reaches a write tool and never claims. A `Bash` call counts
@@ -90,8 +92,43 @@ almost always — it runs before every edit in every session.
 
 **What it deliberately does not do.** It never claims from a prompt alone, so asking about an
 issue is free. It never steals. It forgets a pending list an hour old, so an issue mentioned
-long ago is not claimed by an unrelated edit. And it never blocks twice for the same issue: a
-permanent block would deadlock a session over an issue that was only mentioned in passing.
+long ago is not claimed by an unrelated edit. It never claims from a peer message or a
+background task result. And it never blocks twice for the same issue: a permanent block would
+deadlock a session over an issue that was only mentioned in passing.
+
+## A peer naming an issue is not assigning it
+
+Sessions message each other, and many of them are working on something else entirely — another
+repo, another product, a goal that has nothing to do with the register. When one of those is
+asked a question, the whole correct answer is **to answer it**. Do not claim the issue the
+sender mentioned, do not assign it to yourself, do not comment on it, do not start fixing it.
+If the message does not concern you, one line saying so is a complete reply.
+
+That is now enforced, not just asked for. A peer message arrives in the prompt hook as
+`<cross-session-message from="…">`, and a background result as `<task-notification>` — both
+byte-identical to something the user typed. They used to arm the claim list, and it went wrong
+in both directions:
+
+| | what happened |
+|---|---|
+| **false claim** | `carnet#279` was claimed 31s after a peer wrote *"do **not** put my point 1 in carnet#325"*; `#321` two minutes after a peer replied *"Not mine."*; `#261` 25s after a peer retracted a diagnosis. Three issues assigned — label, assignee and marker comment — to sessions that were never going to work them. |
+| **false block** | one FYI (*"I hold carnet#323, stay off these files"*) blocked a tool call in six separate sessions, each told *"Do not do this work twice"* about work it had never started. Two were obstaque sessions — a different product. |
+
+Both vectors now print the status line and arm nothing: knowing who holds `#323` is exactly
+what you need in order to answer the sender, and a peer cannot redirect your session's claim
+onto an issue it happened to mention. Taking work a peer hands over is still fine — it is just
+explicit now: `carnet.sh claim <n>`.
+
+**When you are the sender**, say which of the three you mean, in the first line:
+
+| Intent | Write it as |
+|---|---|
+| FYI, no action | `FYI only — I hold carnet#N and am editing <files>. Nothing for you to do; ignore if you are in another repo.` |
+| A question | `Question, no action on the issue: <question>. carnet#N is mine and stays mine.` |
+| A real handoff | `Handing off carnet#N — I have released it. If you take it, claim it first.` |
+
+The first line is all the recipient's human sees as a preview, and it is what stops an
+unrelated session from adopting your work out of helpfulness.
 
 ## How liveness is decided
 

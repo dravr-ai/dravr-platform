@@ -348,6 +348,7 @@ assert_no_grep "another machine's ledger is not surfaced" 'OtherBox' "$tmp/out"
 # ================================================================== hooks
 section "hooks"
 reset
+pending_dir_h="$tmp/cfg/carnet-claims/pending"
 hook_out=$(printf '{"prompt":"look at carnet#42, then registre#42 and https://github.com/dravr-ai/dravr-carnet/issues/7","session_id":"%s"}' "$ME" \
     | bash "$here/hooks/prompt-status.sh")
 printf '%s\n' "$hook_out" > "$tmp/hook"
@@ -360,6 +361,44 @@ assert_eq "prompt hook: a repeat within a minute is served from cache" "$(count_
 assert_grep "prompt hook: cached line still printed" '^carnet#42' "$tmp/hook2"
 printf '{"prompt":"nothing about the register"}' | bash "$here/hooks/prompt-status.sh" > "$tmp/hook3"
 assert_eq "prompt hook: silent when no issue is named" "$(wc -c < "$tmp/hook3" | tr -d ' ')" 0
+
+# A peer NAMING an issue is not your user ASSIGNING it. Both non-user vectors reach `.prompt`
+# byte-identically to a typed prompt (verified against captured live payloads), and both used
+# to arm the pending list: carnet#279/#321/#261 were auto-claimed off peer messages that only
+# mentioned them, one of them a peer replying "Not mine."
+reset; rm -rf "$pending_dir_h"
+peer_msg='<cross-session-message from=\"uds:/tmp/cc-socks/1.sock\" from-name=\"dravr-platform-e8\" from-mode=\"bypass\">\nI hold carnet#42 and am moving the pins, stay off these files.\n</cross-session-message>'
+printf '{"prompt":"%s","session_id":"%s"}' "$peer_msg" "$ME" | bash "$here/hooks/prompt-status.sh" > "$tmp/hookp"
+assert_grep "peer message: still prints the status line" '^carnet#42' "$tmp/hookp"
+assert_grep "peer message: says a mention is not an assignment" 'NOT by your user' "$tmp/hookp"
+assert_grep "peer message: tells an unrelated session to just answer" 'unrelated, one line saying so' "$tmp/hookp"
+[ -f "$pending_dir_h/$ME.txt" ] && bad "peer message: armed the pending list" || ok "peer message: arms nothing"
+
+# ... and it must not redirect a claim the user's own prompt already armed.
+reset; mkdir -p "$pending_dir_h"; printf '7\n' > "$pending_dir_h/$ME.txt"
+printf '{"prompt":"%s","session_id":"%s"}' "$peer_msg" "$ME" | bash "$here/hooks/prompt-status.sh" >/dev/null
+assert_grep "peer message: leaves the user's pending list untouched" '^7$' "$pending_dir_h/$ME.txt"
+assert_no_grep "peer message: does not add its own issue to it" '^42$' "$pending_dir_h/$ME.txt"
+
+# A background task result is machine text too.
+reset; rm -rf "$pending_dir_h"
+task_msg='<task-notification>\n<summary>filed carnet#42</summary>\n</task-notification>'
+printf '{"prompt":"%s","session_id":"%s"}' "$task_msg" "$ME" \
+    | bash "$here/hooks/prompt-status.sh" > "$tmp/hookt"
+assert_grep "task notification: still prints the status line" '^carnet#42' "$tmp/hookt"
+[ -f "$pending_dir_h/$ME.txt" ] && bad "task notification: armed the pending list" || ok "task notification: arms nothing"
+
+# The user is still the user. A typed prompt arms, and gets no peer note.
+reset; rm -rf "$pending_dir_h"
+printf '{"prompt":"go fix carnet#42","session_id":"%s"}' "$ME" | bash "$here/hooks/prompt-status.sh" > "$tmp/hooku"
+assert_grep "typed prompt: still arms the pending list" '^42$' "$pending_dir_h/$ME.txt"
+assert_no_grep "typed prompt: gets no peer note" 'NOT by your user' "$tmp/hooku"
+
+# A user quoting a peer message inside their own prompt is still the user.
+reset; rm -rf "$pending_dir_h"
+printf '{"prompt":"e8 said <cross-session-message>I hold carnet#42</cross-session-message> — take it over","session_id":"%s"}' "$ME" \
+    | bash "$here/hooks/prompt-status.sh" >/dev/null
+assert_grep "a quoted envelope mid-prompt is still the user" '^42$' "$pending_dir_h/$ME.txt"
 
 reset
 mkdir -p "$tmp/cfg/carnet-claims"
