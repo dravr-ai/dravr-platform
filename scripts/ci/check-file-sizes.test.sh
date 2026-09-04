@@ -47,7 +47,7 @@ commit_all() {
 # Runs the gate against HEAD~1 and echoes the exit code.
 run_gate() {
   local dir="$1" code=0
-  ( cd "$dir" && GATE_BASE_REF= "$UNDER_TEST" HEAD~1 >/tmp/file-sizes-test.out 2>&1 ) || code=$?
+  ( cd "$dir" && GATE_BASE_REF='' "$UNDER_TEST" HEAD~1 >/tmp/file-sizes-test.out 2>&1 ) || code=$?
   echo "$code"
 }
 
