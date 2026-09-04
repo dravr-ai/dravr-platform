@@ -1428,13 +1428,13 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=aa58c6edf62
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.47"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.47#f74992b14da618c434900d5fe895cebc90cc3735"
+version = "0.1.48"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.48#bcaa9bb120160cd13efe52b009e45a8ae66db47a"
 dependencies = [
  "async-trait",
  "axum",
  "chrono",
- "dravr-equilibre",
+ "dravr-equilibre 0.2.5",
  "dravr-riviere",
  "dravr-sciotte",
  "hex",
@@ -1454,6 +1454,18 @@ version = "0.2.4"
 source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.4#3222556294cdfeded2ef6f1316b476c3e5963f6a"
 dependencies = [
  "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "dravr-equilibre"
+version = "0.2.5"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.5#ba9941b31c175c5fda5e91f3b4615ffd556b4407"
+dependencies = [
  "chrono",
  "serde",
  "serde_json",
@@ -2410,7 +2422,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3713,7 +3725,7 @@ dependencies = [
  "chrono-tz",
  "dravr-cageux",
  "dravr-canot",
- "dravr-equilibre",
+ "dravr-equilibre 0.2.4",
  "dravr-stripe",
  "embacle",
  "http",
@@ -4030,7 +4042,7 @@ dependencies = [
  "base64",
  "bitflags 2.11.1",
  "chrono",
- "dravr-equilibre",
+ "dravr-equilibre 0.2.4",
  "dravr-sciotte",
  "dravr-tronc",
  "futures-util",
@@ -4308,7 +4320,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "dashmap",
- "dravr-equilibre",
+ "dravr-equilibre 0.2.4",
  "dravr-riviere",
  "dravr-tronc",
  "futures-util",
@@ -4457,7 +4469,7 @@ dependencies = [
  "dashmap",
  "dirs 5.0.1",
  "dravr-contremaitre",
- "dravr-equilibre",
+ "dravr-equilibre 0.2.4",
  "dravr-stripe",
  "dravr-tronc",
  "ed25519-dalek",
@@ -4767,7 +4779,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4806,7 +4818,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7071,7 +7083,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
