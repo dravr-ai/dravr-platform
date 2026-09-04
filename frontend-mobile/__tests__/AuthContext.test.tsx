@@ -333,5 +333,41 @@ describe('AuthContext', () => {
 
       expect(onAuthFailure).toHaveBeenCalled();
     });
+
+    // The registration is only half the contract. The shared response
+    // interceptor clears the stored token and then fires this listener; if the
+    // listener does not drop the in-memory user, the app keeps rendering signed-in
+    // chrome over a session the server has already refused.
+    it('should drop the signed-in user when the listener fires', async () => {
+      const mockUser = {
+        user_id: '123',
+        email: 'stored@example.com',
+        is_admin: false,
+        role: 'user',
+        user_status: 'active',
+      };
+
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(true);
+      (authApi.getStoredUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <TestAuthConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('authenticated').children[0]).toBe('authenticated');
+      });
+
+      const notifyAuthFailure = (onAuthFailure as jest.Mock).mock.calls[0][0] as () => void;
+
+      await act(async () => {
+        notifyAuthFailure();
+      });
+
+      expect(getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      expect(getByTestId('user-email').children[0]).toBe('no-user');
+    });
   });
 });

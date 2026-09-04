@@ -6,8 +6,8 @@ import { View, Text, TouchableOpacity, Modal, FlatList, ActivityIndicator } from
 import { Ionicons } from '@expo/vector-icons';
 import type { ConversationParticipant } from '@pierre/shared-types';
 import { Input } from '../../components/ui';
+import { describeApiError } from '@pierre/ui-logic';
 import { chatApi } from '../../services/api';
-import { extractErrorMessage } from '../../utils/errorMessages';
 import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
@@ -45,7 +45,7 @@ export function ConversationParticipantsModal({
     try {
       setParticipants(await chatApi.listParticipants(conversationId));
     } catch (err) {
-      setError(extractErrorMessage(err, t('app.failedLoadParticipants'), t));
+      setError(describeApiError(err, { t, fallbackKey: 'app.failedLoadParticipants' }));
     } finally {
       setIsLoading(false);
     }
@@ -67,7 +67,7 @@ export function ConversationParticipantsModal({
       setNewUserId('');
       await load();
     } catch (err) {
-      setError(extractErrorMessage(err, t('app.failedAddParticipant'), t));
+      setError(describeApiError(err, { t, fallbackKey: 'app.failedAddParticipant' }));
     } finally {
       setIsSaving(false);
     }
@@ -82,7 +82,7 @@ export function ConversationParticipantsModal({
         await chatApi.removeParticipant(conversationId, userId);
         await load();
       } catch (err) {
-        setError(extractErrorMessage(err, t('app.failedRemoveParticipant'), t));
+        setError(describeApiError(err, { t, fallbackKey: 'app.failedRemoveParticipant' }));
       } finally {
         setIsSaving(false);
       }

@@ -21,6 +21,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 /// - Permits standard HTTP methods (GET, POST, PUT, DELETE, OPTIONS, PATCH)
 /// - Includes custom headers for fitness provider authentication
 /// - Includes tenant identification headers for multi-tenancy
+/// - Exposes `WWW-Authenticate` so browser JS can read the refusal challenge
 ///
 /// # Allowed Headers
 ///
@@ -94,7 +95,22 @@ pub fn setup_cors(allowed_origins: &str) -> CorsLayer {
             Method::DELETE,
             Method::OPTIONS,
             Method::PATCH,
-        ]);
+        ])
+        // `WWW-Authenticate` carries the RFC 6750 challenge (`error="..."`,
+        // `scope="..."`), the only signal that separates a refusal a client
+        // recovers from by re-authenticating — 401, or 403 with
+        // `error="insufficient_scope"` — from a standing authorization
+        // decision that must leave the session signed in. The header is not
+        // CORS-safelisted, so a browser withholds it from JS on a cross-origin
+        // response unless it is named here; the client then reads an empty
+        // challenge and treats every refusal alike. The frontend image bakes no
+        // `VITE_API_BASE_URL` and nginx proxies `/api` to this service, so the
+        // shipped deployment is same-origin — exposing the header is what makes
+        // the challenge readable in any origin configuration instead of by
+        // accident of that proxy. Named rather than `Any`, because `Any` emits
+        // `Access-Control-Expose-Headers: *`, which browsers ignore on a
+        // credentialed request — the shape the web adapter sends.
+        .expose_headers([HeaderName::from_static("www-authenticate")]);
 
     if credentials_required {
         cors.allow_credentials(true)

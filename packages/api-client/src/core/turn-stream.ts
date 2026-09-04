@@ -51,6 +51,19 @@ export class TurnRequestError extends Error {
     this.status = status;
     this.body = body;
   }
+
+  /**
+   * The same two facts under the names an `AxiosError` uses.
+   *
+   * A turn is the one request that cannot ride axios — it is read frame by
+   * frame — so its refusals used to arrive in a second shape, and every
+   * formatter grew a branch to unwrap whichever carrier it was handed. Wearing
+   * the axios shape means one classifier reads both, and a client asking "what
+   * went wrong" never has to ask "which transport asked".
+   */
+  get response(): { status: number; data: unknown } {
+    return { status: this.status, data: this.body };
+  }
 }
 
 /** Prefixes that mark a body as a `text/event-stream` document. */

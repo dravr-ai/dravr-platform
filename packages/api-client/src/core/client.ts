@@ -10,6 +10,7 @@ import type { AxiosInstance, AxiosResponse, AxiosError, InternalAxiosRequestConf
 // Handle both ESM and CJS imports (for test environment compatibility)
 const axios = axiosModule.default ?? axiosModule;
 import type { PlatformAdapter, ApiClientOptions } from '../types/platform';
+import { readHeader, recoverFromRefusal } from './auth-challenge';
 
 /**
  * Creates an axios instance configured with the platform adapter.
@@ -72,13 +73,28 @@ export function createAxiosClient(adapter: PlatformAdapter): AxiosInstance {
       return response;
     },
     async (error: AxiosError) => {
-      // Handle 401 Unauthorized
-      if (error.response?.status === 401) {
-        // Clear auth data
-        await authStorage.clear();
-        // Notify listeners
-        authFailure.onAuthFailure();
-      }
+      // A refused request recovers by status AND challenge, never by status
+      // alone. Keying recovery on 401 was enough only while 401 was the sole
+      // way a credential could become insufficient: an authorization change
+      // that narrows a still-valid session answers 403, which fell through
+      // here as an ordinary failure and left the session stranded until the
+      // token expired on its own (JWT_EXPIRY_HOURS=24).
+      //
+      // The two 403s are not interchangeable. A grant too narrow for the
+      // request is fixed by getting a new one; a role refusal is not, and
+      // clearing the session over it signs the athlete out of a permission
+      // they were never going to have — then refuses them again after they log
+      // back in. So only the challenge the server sent decides.
+      //
+      // Clearing the session and marking the error are one step, so an app-wide
+      // error surface can ask whether this refusal is already being recovered
+      // instead of guessing from a symptom.
+      await recoverFromRefusal(
+        { authStorage, authFailure },
+        error.response?.status ?? 0,
+        readHeader(error.response?.headers, 'www-authenticate'),
+        error
+      );
       return Promise.reject(error);
     }
   );

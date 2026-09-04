@@ -2,8 +2,9 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { WEB_AUTH_FAILURE_EVENT } from '@pierre/api-client/adapters/web'
 import { AuthProvider } from '../AuthContext'
 import { useAuth } from '../../hooks/useAuth'
 
@@ -226,6 +227,41 @@ describe('AuthContext', () => {
     // so we only verify the logout API was called — the mock replaces the real implementation
     expect(authApi.logout).toHaveBeenCalled()
     expect(screen.queryByTestId('user-email')).not.toBeInTheDocument()
+  })
+
+  it('should sign out when the transport reports an auth failure', async () => {
+    // The other half of the interceptor's recovery path: it clears storage and
+    // fires this event, and nothing signs the session out unless somebody is
+    // listening. Nothing was asserting that anybody was.
+    const mockUser = { id: '1', email: 'test@example.com', display_name: 'Test User' }
+    localStorage.setItem('pierre_user', JSON.stringify(mockUser))
+
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.getSession).mockResolvedValue({
+      user: mockUser,
+      access_token: 'fresh-jwt',
+      csrf_token: 'fresh-csrf',
+    })
+
+    renderWithAuth()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('Authenticated')
+    })
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(WEB_AUTH_FAILURE_EVENT))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('Not Authenticated')
+    })
+
+    expect(authApi.logout).toHaveBeenCalled()
+    expect(screen.queryByTestId('user-email')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(localStorage.getItem('pierre_user')).toBeNull()
+    })
   })
 
   it('should show loading state during session restore', async () => {

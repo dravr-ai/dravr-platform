@@ -20,6 +20,7 @@ import type {
 import type { PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
 import { parseTurnBody, TurnRequestError, type TurnCallbacks } from '../core/turn-stream';
+import { readHeader, recoverFromRefusal } from '../core/auth-challenge';
 
 // Re-export types for consumers
 export type {
@@ -132,6 +133,33 @@ async function requestFailure(response: Response): Promise<TurnRequestError> {
     | null;
   const message = body?.message ?? body?.error ?? `The server answered ${response.status}.`;
   return new TurnRequestError(message, response.status, body);
+}
+
+/**
+ * Run the session recovery a refused turn is owed.
+ *
+ * `sendTurn` bypasses the axios instance, so it also bypassed the response
+ * interceptor that clears a dead session and drives re-authentication — on the
+ * one endpoint an athlete spends the whole session in. A credential that went
+ * insufficient mid-conversation therefore drew an error bubble in the thread
+ * and nothing else: no sign-out, no login screen, and the next message drew
+ * the same bubble.
+ *
+ * Calls the same recovery the interceptor calls, rather than agreeing with it,
+ * so there is no second opinion about which refusals re-authentication fixes
+ * and neither path can sign an athlete out of a role they simply do not hold.
+ */
+async function recoverFromRefusedTurn(
+  adapter: PlatformAdapter,
+  response: Response,
+  failure: TurnRequestError
+): Promise<void> {
+  await recoverFromRefusal(
+    adapter,
+    response.status,
+    readHeader(response.headers, 'www-authenticate'),
+    failure
+  );
 }
 
 export interface CreateConversationOptions {
@@ -333,7 +361,12 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
           },
         );
         if (!response.ok) {
-          throw await requestFailure(response);
+          // Recover before the throw: the caller's `onError` renders the
+          // refusal, but only this path can act on it, and a caller that just
+          // re-rendered a stranded session would never learn it was stranded.
+          const failure = await requestFailure(response);
+          await recoverFromRefusedTurn(adapter, response, failure);
+          throw failure;
         }
         // `onBlock` is dispatched by the body reader, not here: a streamed
         // turn fires each block as the server decides it, and a single-JSON

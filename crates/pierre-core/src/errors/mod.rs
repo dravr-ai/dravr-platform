@@ -328,6 +328,13 @@ impl AppError {
         match self.code {
             // Validation and rate limit errors: messages are safe to expose
             // Rate limit messages help users understand wait times
+            // Refusals: the handler's message is written for the person who was
+            // refused and is the only thing that names WHAT was refused — the
+            // code description says "you do not have permission" and nothing
+            // more, which leaves them with no next action. Every
+            // `PermissionDenied` message in the tree is reviewed against
+            // scripts/ci/permission-denied-messages.txt, which
+            // scripts/ci/check-permission-denied-messages.sh holds to the source.
             ErrorCode::InvalidInput
             | ErrorCode::MissingRequiredField
             | ErrorCode::InvalidFormat
@@ -335,7 +342,8 @@ impl AppError {
             | ErrorCode::RateLimitExceeded
             | ErrorCode::QuotaExceeded
             | ErrorCode::ExternalRateLimited
-            | ErrorCode::NoProviderConnected => self.message.clone(),
+            | ErrorCode::NoProviderConnected
+            | ErrorCode::PermissionDenied => self.message.clone(),
             // JWT validation errors: expose details to help with troubleshooting
             // (key mismatches, expiry, etc. don't contain sensitive data)
             ErrorCode::AuthInvalid if self.message.contains("JWT") => self.message.clone(),

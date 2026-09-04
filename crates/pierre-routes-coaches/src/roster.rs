@@ -130,7 +130,7 @@ async fn require_roster_manager<C: CoachesCtx + MiddlewareCtx>(
     if !user.manages_roster && !user.is_admin {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
-            "User does not have roster-management permission (manages_roster=false)",
+            "Roster management is not enabled for your account",
         ));
     }
     let tenant_uuid = auth

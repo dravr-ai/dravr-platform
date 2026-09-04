@@ -1,0 +1,68 @@
+# ABOUTME: Every PermissionDenied message the server ships to a client, reviewed
+# ABOUTME: scripts/ci/check-permission-denied-messages.sh fails when src and this file differ
+#
+# `AppError::sanitized_message()` passes `ErrorCode::PermissionDenied` messages
+# through verbatim: the refusal a handler writes is exactly what the athlete,
+# the coach or the admin token holder reads. Every line below has been read and
+# confirmed safe to show the person who was refused — it names what was refused
+# and nothing else. Adding a line means you have read yours and made that call:
+#
+#   - no table or column name, no schema detail
+#   - no id, key or path the caller did not already hold
+#   - no operator-only fact, and nothing about another principal
+#   - it says what was refused, so there is a next action
+#
+# The scanner reads three construction shapes — `AppError::new(...)`,
+# `Self::new(...)`, and `error_helpers::user_state_error(...)`, which prefixes
+# "User state error: ". A `format!` message keeps its placeholders, because the
+# shape is what gets reviewed; a `&str` constant is resolved to its value, so
+# changing the constant fails this gate rather than slipping past it.
+#
+# Three entries below reach an admin-token holder only, and each names something
+# about that caller's OWN token — the permission it lacks, the permission set it
+# carries, the tenant it is scoped to. That is the caller's own scope, the same
+# thing an OAuth `insufficient_scope` challenge names, not a cross-principal
+# leak. Nothing here reaches an athlete on an admin path.
+#
+# One entry per construction site, `<file>:<message>`, in byte order.
+# Refresh the scanned body:  ./scripts/ci/check-permission-denied-messages.sh --list
+# Regenerating is not reviewing — read every line the refresh adds.
+crates/pierre-core/src/admin/models.rs:Permission required: {permission}
+crates/pierre-core/src/admin/models.rs:Token has no tenant scope — super-admin required for cross-tenant access
+crates/pierre-core/src/admin/models.rs:Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}
+crates/pierre-core/src/error_helpers.rs:User state error: {message}
+crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' is not available for this tenant
+crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' requires admin privileges
+crates/pierre-groups/src/creation_policy.rs:Group creation is not enabled for your account.
+crates/pierre-groups/src/creation_policy.rs:Group creation requires admin privileges. Contact your tenant administrator.
+crates/pierre-groups/src/service.rs:Group coaching requires a Professional or Enterprise plan
+crates/pierre-middleware/src/admin_guard.rs:Admin privileges required
+crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
+crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
+crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
+crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
+crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
+crates/pierre-routes-admin/src/tool_selection.rs:Tenant-scoped tool operations require super-admin privileges
+crates/pierre-routes-auth/src/oauth.rs:Cannot initiate OAuth flow for a different user
+crates/pierre-routes-coaches/src/roster.rs:Athlete does not belong to the caller's active tenant
+crates/pierre-routes-coaches/src/roster.rs:Roster management is not enabled for your account
+crates/pierre-routes-groups/src/group_analytics.rs:Admin or owner role required for this operation
+crates/pierre-routes-groups/src/groups.rs:A coach must belong to the group's tenant to join it
+crates/pierre-routes-groups/src/groups.rs:Admin or owner role required for this operation
+crates/pierre-routes-groups/src/groups.rs:Cannot change the group owner's role
+crates/pierre-routes-groups/src/groups.rs:Cannot remove the group owner
+crates/pierre-routes-groups/src/groups.rs:Only roster-managing coaches can join a group as its coach
+crates/pierre-routes-groups/src/groups.rs:Only the owner can promote members to admin or owner
+crates/pierre-routes-groups/src/groups.rs:Owner cannot leave the group. Transfer ownership or delete the group instead.
+crates/pierre-routes-groups/src/groups.rs:Owner role required for this operation
+crates/pierre-routes-web-admin/src/lib.rs:Admin is not permitted to view this user's financial data
+crates/pierre-routes-web-admin/src/lib.rs:Super-admin privileges required to export platform-wide billing
+crates/pierre-server/src/routes/chat/common.rs:Cannot attach conversation to a group you don't belong to
+crates/pierre-server/src/routes/chat/conversations.rs:Only the conversation's owner can delete it
+crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is not a member of this conversation's tenant
+crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or administrators can manage messaging channel configuration
+crates/pierre-services/src/admin_ops.rs:Admin does not belong to the target tenant
+crates/pierre-services/src/admin_ops.rs:Super-admin privileges required to create super-admin tokens
+crates/pierre-services/src/auth.rs:User state error: User already exists
+crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this operation
+crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation

@@ -378,6 +378,30 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
 fi
 
 # ============================================================================
+# TIER 1g: PermissionDenied message review (compile-free)
+# ============================================================================
+# sanitized_message() passes ErrorCode::PermissionDenied messages through to the
+# client verbatim, because the refusal is the only thing that names WHAT was
+# refused — the code description says "you do not have permission" and stops
+# there. That is a standing commitment, not a one-time review: every future
+# refusal a handler writes ships as written, and nothing at the call site says
+# so — AppError::new(ErrorCode::PermissionDenied, "…") looks exactly like the
+# ~30 codes whose messages are replaced. This tier diffs the construction sites
+# in src against the reviewed inventory, so a new refusal fails the push until
+# someone reads it, and a stale inventory line cannot outlive its site.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] \
+    && [[ -x "$PROJECT_ROOT/scripts/ci/check-permission-denied-messages.sh" ]]; then
+    echo "Tier 1g: PermissionDenied message review"
+    echo "----------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-permission-denied-messages.sh"; then
+        echo ""
+        echo "FAIL: PermissionDenied message review failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of
 # every push:

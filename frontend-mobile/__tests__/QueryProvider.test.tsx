@@ -1,11 +1,16 @@
-// ABOUTME: Unit tests for QueryProvider mutation error handling
-// ABOUTME: Verifies global MutationCache onError shows toast for server errors
+// ABOUTME: Unit tests for QueryProvider mutation error handling and the refusal retry policy
+// ABOUTME: Verifies the global MutationCache toast wording and that an authorization refusal is never retried
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { AxiosError, AxiosHeaders } from 'axios';
+import {
+  createAxiosClient,
+  createMobileAdapter,
+  type AsyncStorageLike,
+} from '@pierre/api-client';
 import Toast from 'react-native-toast-message';
 
 // Must mock AuthContext before importing QueryProvider
@@ -45,6 +50,44 @@ function MutationTrigger({ error }: { error: Error }) {
   return <Text>{mutation.status}</Text>;
 }
 
+/**
+ * A query that always fails, counting its attempts.
+ *
+ * `retryDelay` is overridden to zero so the test measures the retry PREDICATE
+ * rather than sitting through the provider's exponential backoff; the `retry`
+ * option itself is inherited, which is what is under test.
+ */
+function QueryTrigger({ error, attempt }: { error: Error; attempt: () => void }) {
+  const query = useQuery({
+    queryKey: ['refusal', error.message],
+    queryFn: async () => {
+      attempt();
+      throw error;
+    },
+    retryDelay: 0,
+    gcTime: 0,
+  });
+
+  return <Text>{query.status}</Text>;
+}
+
+/** Storage the adapter can write to without a native module behind it. */
+function memoryAsyncStorage(): AsyncStorageLike {
+  const store = new Map<string, string>();
+  return {
+    getItem: async (key) => store.get(key) ?? null,
+    setItem: async (key, value) => {
+      store.set(key, value);
+    },
+    removeItem: async (key) => {
+      store.delete(key);
+    },
+    multiRemove: async (keys) => {
+      keys.forEach((key) => store.delete(key));
+    },
+  };
+}
+
 function createAxiosError(status: number, data?: Record<string, unknown>): AxiosError {
   const headers = new AxiosHeaders();
   const error = new AxiosError(
@@ -68,7 +111,7 @@ describe('QueryProvider MutationCache', () => {
     jest.clearAllMocks();
   });
 
-  it('should show error toast on 500 server error', async () => {
+  it('should show the generic server sentence on a 500, never the server internals', async () => {
     const error = createAxiosError(500, { message: 'Internal server error' });
 
     render(
@@ -82,7 +125,7 @@ describe('QueryProvider MutationCache', () => {
         expect.objectContaining({
           type: 'error',
           text1: 'Error',
-          text2: 'Internal server error',
+          text2: 'Server error. Try again a bit later.',
         })
       );
     });
@@ -115,6 +158,28 @@ describe('QueryProvider MutationCache', () => {
     });
   });
 
+  it('should show what a role 403 refused, not the axios status line', async () => {
+    const error = createAxiosError(403, {
+      code: 'PermissionDenied',
+      message: "Only the conversation's owner can delete it",
+    });
+
+    render(
+      <QueryProvider>
+        <MutationTrigger error={error} />
+      </QueryProvider>
+    );
+
+    await waitFor(() => {
+      expect(Toast.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          text2: "Only the conversation's owner can delete it",
+        })
+      );
+    });
+  });
+
   it('should not show toast on 401 (handled by axios interceptor)', async () => {
     const error = createAxiosError(401);
 
@@ -132,7 +197,54 @@ describe('QueryProvider MutationCache', () => {
     expect(Toast.show).not.toHaveBeenCalled();
   });
 
-  it('should show fallback message for non-axios errors', async () => {
+  it('should not show toast on a 403 the transport is already recovering', async () => {
+    // The 403 nothing but the challenge can identify. Produced by driving the
+    // REAL shared interceptor rather than hand-built, because what earns the
+    // silence is the mark the interceptor leaves — a fabricated error would
+    // prove only that the assertion was written to pass.
+    const adapter = createMobileAdapter({ asyncStorage: memoryAsyncStorage() });
+    const client = createAxiosClient(adapter);
+    client.defaults.adapter = (config) =>
+      Promise.reject(
+        new AxiosError(
+          'Request failed with status code 403',
+          AxiosError.ERR_BAD_REQUEST,
+          config,
+          null,
+          {
+            status: 403,
+            statusText: '',
+            data: { code: 'InsufficientScope', message: 'Scope fitness:write required' },
+            headers: AxiosHeaders.from({
+              'www-authenticate':
+                'Bearer resource_metadata="https://x/.well-known/oauth-protected-resource", ' +
+                'error="insufficient_scope", scope="fitness:write"',
+            }),
+            config,
+          }
+        )
+      );
+    const error = await client
+      .post('/api/activities', {})
+      .then(() => null)
+      .catch((err: Error) => err);
+
+    const { getByText } = render(
+      <QueryProvider>
+        <MutationTrigger error={error as Error} />
+      </QueryProvider>
+    );
+
+    await waitFor(() => {
+      expect(getByText('error')).toBeTruthy();
+    });
+
+    // The athlete is being sent to sign in; a permission message about a scope
+    // they no longer hold would be both wrong and unactionable.
+    expect(Toast.show).not.toHaveBeenCalled();
+  });
+
+  it('should show the transport sentence for an error that never reached a server', async () => {
     const error = new Error('Network failure');
 
     render(
@@ -145,9 +257,63 @@ describe('QueryProvider MutationCache', () => {
       expect(Toast.show).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'error',
-          text2: 'Network failure',
+          text2: 'Network error. Check your connection.',
         })
       );
     });
+  });
+});
+
+describe('QueryProvider query retry policy', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('asks once and gives up on a 403', async () => {
+    const attempt = jest.fn();
+
+    const { getByText } = render(
+      <QueryProvider>
+        <QueryTrigger error={createAxiosError(403, { code: 'PermissionDenied' })} attempt={attempt} />
+      </QueryProvider>
+    );
+
+    await waitFor(() => {
+      expect(getByText('error')).toBeTruthy();
+    });
+
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks once and gives up on a 401', async () => {
+    const attempt = jest.fn();
+
+    const { getByText } = render(
+      <QueryProvider>
+        <QueryTrigger error={createAxiosError(401)} attempt={attempt} />
+      </QueryProvider>
+    );
+
+    await waitFor(() => {
+      expect(getByText('error')).toBeTruthy();
+    });
+
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries twice on a 500', async () => {
+    const attempt = jest.fn();
+
+    const { getByText } = render(
+      <QueryProvider>
+        <QueryTrigger error={createAxiosError(500)} attempt={attempt} />
+      </QueryProvider>
+    );
+
+    await waitFor(() => {
+      expect(getByText('error')).toBeTruthy();
+    });
+
+    expect(attempt).toHaveBeenCalledTimes(3);
   });
 });

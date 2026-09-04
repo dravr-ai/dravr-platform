@@ -48,6 +48,11 @@ module.exports = {
     '^@pierre/chat-utils$': '<rootDir>/../packages/chat-utils/src/index.ts',
     '^@pierre/domain-utils$': '<rootDir>/../packages/domain-utils/src/index.ts',
     '^@pierre/shared-types$': '<rootDir>/../packages/shared-types/src/index.ts',
+    // `@pierre/ui-logic` declares only the `types` and `import` export
+    // conditions, so jest's CJS resolution finds no entry and reports the
+    // package as missing — even though Metro resolves it perfectly on device.
+    // Named here for the same reason as its neighbours above.
+    '^@pierre/ui-logic$': '<rootDir>/../packages/ui-logic/src/index.ts',
     '^@pierre/i18n$': '<rootDir>/../packages/i18n/src/index.ts',
     '^@pierre/i18n/native$': '<rootDir>/../packages/i18n/src/native.ts',
     // Strip the `.js` suffix off relative imports.

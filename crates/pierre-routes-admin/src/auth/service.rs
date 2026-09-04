@@ -91,10 +91,14 @@ impl AdminAuthService {
                 } else {
                     Err(AppError::new(
                         ErrorCode::PermissionDenied,
-                        format!(
-                            "Required permission: {:?}, token has: {:?}",
-                            required_permission, stored_token.permissions
-                        ),
+                        // Names the one permission that was needed, via
+                        // `Display`, as `ValidatedAdminToken::require_permission`
+                        // already does. A `{:?}` dump of the whole granted set
+                        // said more than the holder asked and grew silently
+                        // whenever the type did — and this sentence now reaches
+                        // the caller verbatim, because `PermissionDenied` is on
+                        // the sanitizer's passthrough.
+                        format!("Permission required: {required_permission}"),
                     ))
                 }
             })

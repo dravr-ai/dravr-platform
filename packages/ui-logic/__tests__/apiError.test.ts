@@ -86,6 +86,53 @@ describe('classifyApiError', () => {
     expect(classifyApiError(undefined, { online: true }).kind).toBe('network');
     expect(classifyApiError(null, { online: false }).kind).toBe('offline');
   });
+
+  it('reads a usage limit off the status or off the code', () => {
+    // The conversation cap answers with the code on some paths, so a caller
+    // that read only the status let a coach click fail silently.
+    expect(classifyApiError(responded(429), { online: true }).kind).toBe('quota');
+    expect(classifyApiError(responded(400, { code: 'QuotaExceeded' }), { online: true }).kind).toBe(
+      'quota',
+    );
+  });
+
+  it('carries the counted limit through, since which limit it was is the actionable part', () => {
+    const c = classifyApiError(
+      responded(429, {
+        details: { limit_type: 'daily_messages', current: 50, limit: 50 },
+      }),
+      { online: true },
+    );
+    expect(c.quota).toEqual({ limit_type: 'daily_messages', current: 50, limit: 50 });
+  });
+
+  it('leaves quota unset on every other kind', () => {
+    expect(classifyApiError(responded(403), { online: true }).quota).toBeUndefined();
+    expect(classifyApiError(responded(500), { online: true }).quota).toBeUndefined();
+  });
+
+  it('classifies a refused chat turn identically to a refused axios call', () => {
+    // A turn cannot ride axios — its body is read frame by frame — so
+    // TurnRequestError wears the same `response` shape rather than making
+    // every screen unwrap a second carrier. Same facts in, same kind out.
+    class TurnShaped extends Error {
+      constructor(
+        private readonly status: number,
+        private readonly body: unknown,
+      ) {
+        super('refused');
+      }
+      get response() {
+        return { status: this.status, data: this.body };
+      }
+    }
+    const turn = new TurnShaped(403, { code: 'PermissionDenied', message: 'Not the owner' });
+    const axiosLike = responded(403, { code: 'PermissionDenied', message: 'Not the owner' });
+    expect(classifyApiError(turn, { online: true })).toEqual(
+      classifyApiError(axiosLike, { online: true }),
+    );
+    expect(classifyApiError(turn, { online: true }).kind).toBe('forbidden');
+  });
 });
 
 describe('describeApiError', () => {
@@ -125,6 +172,60 @@ describe('describeApiError', () => {
     expect(
       describeApiError(responded(401), { online: true, t, fallbackKey: 'shell.intervalsLinkFailed' }),
     ).toBe('shell.intervalsLinkFailed');
+  });
+
+  it('names the specific limit that was hit, with its numbers', () => {
+    // Interpolation is echoed so the assertion shows both the key chosen and
+    // the counts handed to it.
+    const withParams = (key: string, params?: Record<string, string | number>) =>
+      params ? `${key}(${params.current}/${params.limit})` : key;
+    const cases: Array<[string, string]> = [
+      ['max_active_conversations', 'errors.conversationLimitReached'],
+      ['daily_messages', 'errors.dailyMessageLimitReached'],
+      ['daily_tokens', 'errors.dailyTokenLimitReached'],
+      ['weekly_messages', 'errors.weeklyMessageLimitReached'],
+    ];
+    for (const [limitType, key] of cases) {
+      expect(
+        describeApiError(responded(429, { details: { limit_type: limitType, current: 3, limit: 5 } }), {
+          online: true,
+          t: withParams,
+          fallbackKey: 'x.y',
+        }),
+      ).toBe(`${key}(3/5)`);
+    }
+  });
+
+  it('falls back to the generic quota sentence for a limit it has no wording for', () => {
+    const withParams = (key: string, params?: Record<string, string | number>) =>
+      params ? `${key}(${params.current}/${params.limit})` : key;
+    expect(
+      describeApiError(responded(429, { details: { limit_type: 'monthly_widgets', limit: 9 } }), {
+        online: true,
+        t: withParams,
+        fallbackKey: 'x.y',
+      }),
+    ).toBe(`${API_ERROR_KEYS.quota}(0/9)`);
+  });
+
+  it('gives a role refusal the sentence naming what was refused', () => {
+    // The server stopped replacing this with one constant, so the athlete
+    // reads the actual reason. A refusal that cannot say what it refused is
+    // indistinguishable from a bug.
+    expect(
+      describeApiError(
+        responded(403, {
+          code: 'PermissionDenied',
+          message: 'Group coaching requires a Professional or Enterprise plan',
+        }),
+        { online: true, t, fallbackKey: 'errors.forbidden' },
+      ),
+    ).toBe('Group coaching requires a Professional or Enterprise plan');
+    // And when the server said nothing usable, the translated key — never the
+    // axios sentence "Request failed with status code 403".
+    expect(describeApiError(responded(403), { online: true, t, fallbackKey: 'errors.forbidden' })).toBe(
+      'errors.forbidden',
+    );
   });
 
   it('never returns a stringified Error', () => {

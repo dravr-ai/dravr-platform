@@ -59,6 +59,7 @@ export {
 // the server's own prose.
 export {
   type ApiErrorKind,
+  type ApiErrorTranslate,
   type ClassifiedApiError,
   classifyApiError,
   API_ERROR_KEYS,

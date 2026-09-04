@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState, useEffect } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
@@ -24,16 +24,10 @@ import { useAuth } from './hooks/useAuth';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useOnboardingState } from './hooks/useOnboardingState';
 import { useIdleWatch } from './hooks/useIdleWatch';
+import { useApiRefusalSurface } from './hooks/useApiRefusalSurface';
 import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
-import { QUERY_FOCUS_POLICY } from '@pierre/shared-constants';
+import { queryClient } from './services/queryClient';
 import './App.css';
-
-// The focus/idle contract, stated rather than inherited. `useIdleWatch`
-// (mounted below) drives it: an untouched tab stops polling instead of
-// renewing a Cloud Run instance forever.
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { ...QUERY_FOCUS_POLICY } },
-});
 
 /**
  * Check if the current URL has OAuth callback parameters
@@ -102,6 +96,11 @@ function AppContent() {
   // Stop polling — and drop any open turn stream — once the tab has gone
   // untouched for long enough that nobody is reading it.
   useIdleWatch();
+
+  // Give an authorization refusal somewhere to land. Mounted here because this
+  // is the app's one component inside both AuthProvider and ToastProvider, and
+  // because the refusals it answers arrive on tabs that render nothing else.
+  useApiRefusalSurface();
 
   // Onboarding flow state (server status + per-step flags + transitions). Kept
   // here — above the `oauthCallback` early return — so the status query stays

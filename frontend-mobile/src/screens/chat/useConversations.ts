@@ -5,8 +5,8 @@ import React, { useState, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
+import { describeApiError } from '@pierre/ui-logic';
 import { chatApi } from '../../services/api';
-import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Conversation } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 
@@ -105,7 +105,10 @@ export function useConversations(): ConversationsState & ConversationsActions {
       invalidateConversationList();
       return conversation;
     } catch (err) {
-      const errorMessage = extractErrorMessage(err, t('app.failedCreateConversation'), t);
+      const errorMessage = describeApiError(err, {
+        t,
+        fallbackKey: 'app.failedCreateConversation',
+      });
       setError(errorMessage);
       console.error('Failed to create conversation:', err);
       throw err;

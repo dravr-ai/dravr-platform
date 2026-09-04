@@ -89,7 +89,18 @@ describe('ConversationParticipantsModal', () => {
   });
 
   it('shows the server refusal when an add is rejected', async () => {
-    mockAddParticipant.mockRejectedValue(new Error('Cannot add a user who is not a member of this tenant'));
+    // The server answers this one 403 with the sentence below, so the fixture
+    // wears the refusal's real shape: a bare Error carries no response and
+    // reads as a dead network, which is a different message entirely.
+    mockAddParticipant.mockRejectedValue({
+      response: {
+        status: 403,
+        data: {
+          code: 'PermissionDenied',
+          message: 'Cannot add a user who is not a member of this tenant',
+        },
+      },
+    });
     const { findByTestId, getByTestId } = render(
       <ConversationParticipantsModal visible conversationId={CONVERSATION_ID} onClose={jest.fn()} />,
     );

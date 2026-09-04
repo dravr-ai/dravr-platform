@@ -6,14 +6,18 @@ import { AppState, type AppStateStatus, Platform, View } from 'react-native';
 import { MutationCache, QueryClient, focusManager } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import Toast from 'react-native-toast-message';
-import axios from 'axios';
 import { IdleWatch, QUERY_FOCUS_POLICY } from '@pierre/shared-constants';
+import {
+  classifyApiError,
+  describeApiError,
+  type ApiErrorTranslate,
+} from '@pierre/ui-logic';
+import { droveReauthentication } from '@pierre/api-client';
 import {
   mmkvPersister,
   CACHE_TIMES,
   clearQueryCache,
 } from '../utils/mmkvStorage';
-import { extractErrorMessage } from '../utils/errorMessages';
 import { idleAbort, registerIdleWatch, resetIdleAbort } from '../services/idleSignal';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
@@ -37,26 +41,33 @@ function createQueryClient(
   // hands back a new `t` identity whenever the language resolves, and a client
   // memoised on that identity is a new client, a new cache, and every
   // `setQueryData` written into the old one silently lost (carnet#215).
-  t: React.MutableRefObject<(key: string) => string>,
+  t: React.MutableRefObject<ApiErrorTranslate>,
 ): QueryClient {
   return new QueryClient({
     mutationCache: new MutationCache({
       onError: (error: Error) => {
-        // 401 is handled by the axios interceptor (auto-logout) — skip
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
+        // Two ways a refusal earns silence here, and each catches what the
+        // other cannot. A refusal the transport already recovered is on its way
+        // to the login form, and only the transport can say so — a 403 carrying
+        // RFC 6750's `insufficient_scope` recovers exactly as a 401 does, and
+        // nothing in the error's status distinguishes it from a role refusal.
+        // And any unauthenticated refusal means the session is gone, whether or
+        // not it reached this app through that interceptor.
+        if (droveReauthentication(error) || classifyApiError(error).kind === 'unauthorized') {
           return;
         }
-
-        const message = extractErrorMessage(
-          error,
-          t.current('app.somethingWentWrongRetry'),
-          t.current,
-        );
 
         Toast.show({
           type: 'error',
           text1: t.current('common.error'),
-          text2: message,
+          // The one classifier both clients read. It names the failure from the
+          // status and the transport state, so a 403 says what the server
+          // refused instead of "Request failed with status code 403", and a
+          // 5xx's internals never reach the toast.
+          text2: describeApiError(error, {
+            t: t.current,
+            fallbackKey: 'app.somethingWentWrongRetry',
+          }),
           visibilityTime: 4000,
         });
       },
@@ -68,8 +79,17 @@ function createQueryClient(
         // rather than an accidental one.
         ...QUERY_FOCUS_POLICY,
 
-        // Retry configuration
-        retry: 2,
+        // Retry configuration. An authorization refusal is exempt: the server
+        // has answered, and asking the same question twice more only spends two
+        // round trips plus three seconds of backoff before the screen is
+        // allowed to say what happened.
+        retry: (failureCount: number, error: Error) => {
+          const { kind } = classifyApiError(error);
+          if (kind === 'unauthorized' || kind === 'forbidden') {
+            return false;
+          }
+          return failureCount < 2;
+        },
         retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
 
         // Stale-while-revalidate: Show cached data immediately, refetch in background
@@ -113,7 +133,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
   // which threw the whole cache away mid-session: the onboarding profile-type
   // choice wrote `true` into the outgoing client and the redirect never saw it,
   // leaving a permanent spinner on the first screen of first-run (carnet#215).
-  const translate = React.useRef(t);
+  const translate = React.useRef<ApiErrorTranslate>(t);
   translate.current = t;
   const queryClient = useMemo(() => createQueryClient(translate), []);
 

@@ -15,6 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { Activity, X, CheckCircle2 } from 'lucide-react-native';
+import { describeApiError } from '@pierre/ui-logic';
 import { useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { Input } from './ui';
@@ -24,14 +25,6 @@ interface IntervalsIcuLinkModalProps {
   visible: boolean;
   onClose: () => void;
   onConnected: () => void;
-}
-
-function extractErrorMessage(err: unknown, prefix: string): string {
-  const data = (err as { response?: { data?: { message?: string; error?: string } } })?.response
-    ?.data;
-  const detail = data?.message || data?.error;
-  if (detail) return detail;
-  return `${prefix}: ${err}`;
 }
 
 export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: IntervalsIcuLinkModalProps) {
@@ -65,7 +58,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
       setSuccess(`Connected ${name}`);
       setTimeout(onConnected, 1200);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Could not link Intervals.icu'));
+      setError(describeApiError(err, { t, fallbackKey: 'shell.intervalsLinkFailed' }));
       setIsLoading(false);
     }
   };
