@@ -1,0 +1,96 @@
+# ABOUTME: Double threshold day — AM 5 × 6 min at 2.5 mmol plus PM 10 × 1 km at 3.5 mmol, lactate-anchored (purpose threshold)
+# ABOUTME: Authored from the KB threshold-family table; stacks two quality blocks, so readiness p3 and gated on a meter
+
+id = "cc0e3ae0-081b-556b-a81f-b232515bd540"
+slug = "double_threshold_day"
+name = "Double Threshold Day"
+sport = "run"
+sport_variants = ["run"]
+duration_minutes = 135
+intensity_distribution = "threshold"
+purpose = "threshold"
+evidence_tier = "grey"
+caveat = "Observational evidence only: the double-threshold day is described from elite practice (Casado 2023, Tønnessen 2024, Tjelta 2019) and has no randomised trial. Gated on a lactate meter and eight or more sessions a week."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/casado-2023-lactate-guided-threshold-model.md",
+  "evidence/sports_science/training_prescription/tonnessen-2024-norwegian-coach-session-models.md",
+  "evidence/sports_science/training_prescription/tjelta-2019-norwegian-elite.md",
+]
+
+[params]
+duration_minutes = { min = 135, max = 135, default = 135 }
+sets = { min = 2, max = 2, default = 2 }
+work_seconds = { min = 240, max = 360, default = 360 }
+rest_seconds = { min = 60, max = 60, default = 60 }
+rpe = { min = 6, max = 7 }
+intensity_label = "lactate-anchored: morning 5 × 6 min at 2.5 mmol/L, afternoon 10 × 1 km at 3.5 mmol/L, both sampled every 1–3 reps and kept under 4 mmol/L"
+
+[params.intensity]
+run = "threshold"
+
+[progression]
+order = ["add_rep", "shorten_rest"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p3"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "no_interval_experience", "recovery_limited"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+
+[[structure]]
+label = "Morning warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy; a few strides at the end."
+
+[[structure]]
+label = "Morning 6-min rep"
+duration_seconds = 360
+target_zone = "Threshold"
+repeat = 5
+note = "Around 2.5 mmol/L — clearly below LT2, controlled. Sample lactate every 1-3 reps."
+
+[[structure]]
+label = "Morning recovery"
+duration_seconds = 60
+target_zone = "Z1"
+repeat = 5
+note = "One minute easy jog."
+
+[[structure]]
+label = "Morning cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy; the afternoon session follows after a full rest."
+
+[[structure]]
+label = "Afternoon warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy; a few strides at the end."
+
+[[structure]]
+label = "Afternoon 1 km rep"
+duration_seconds = 240
+distance_meters = 1000.0
+target_zone = "Threshold"
+repeat = 10
+note = "Around 3.5 mmol/L — just under LT2. Lactate drifts up through the set; stay under 4."
+
+[[structure]]
+label = "Afternoon recovery"
+duration_seconds = 60
+target_zone = "Z1"
+repeat = 10
+note = "One minute easy jog."
+
+[[structure]]
+label = "Afternoon cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy until HR is back in Z1."

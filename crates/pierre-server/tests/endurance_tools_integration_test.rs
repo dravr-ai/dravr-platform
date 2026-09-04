@@ -31,6 +31,7 @@
 
 use anyhow::Result;
 use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{ConnectionType, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocols::ProtocolError;
@@ -699,16 +700,20 @@ async fn test_list_workout_templates_happy_path() -> Result<()> {
     let result = resp.result.unwrap();
     let count = result["count"].as_u64().expect("count field required");
     assert!(
-        count >= 6,
-        "expected at least 6 cornerstone templates, got {count}"
+        count >= 33,
+        "expected the 33-template catalogue bank, got {count}"
     );
     let templates = result["templates"].as_array().expect("templates array");
     assert_eq!(templates.len() as u64, count);
+    assert_eq!(result["filters"]["detail"].as_str(), Some("summary"));
+    assert!(result["filters"]["purpose"].is_null());
     Ok(())
 }
 
 #[tokio::test]
-async fn test_list_workout_templates_includes_cornerstones() -> Result<()> {
+async fn test_list_workout_templates_keeps_the_legacy_slugs() -> Result<()> {
+    // The six slugs the prescription ledger and the calendar tests were
+    // written against kept their names and ids when the bank was regrown.
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
@@ -727,7 +732,7 @@ async fn test_list_workout_templates_includes_cornerstones() -> Result<()> {
         .iter()
         .filter_map(|t| t["slug"].as_str())
         .collect();
-    for cornerstone in [
+    for legacy in [
         "long_run_z2",
         "threshold_4x8",
         "vo2_5x3",
@@ -736,10 +741,197 @@ async fn test_list_workout_templates_includes_cornerstones() -> Result<()> {
         "sweet_spot_2x20",
     ] {
         assert!(
-            slugs.iter().any(|s| s == &cornerstone),
-            "cornerstone '{cornerstone}' missing from {slugs:?}"
+            slugs.iter().any(|s| s == &legacy),
+            "legacy slug '{legacy}' missing from {slugs:?}"
         );
     }
+    Ok(())
+}
+
+/// Run `list_workout_templates` with `params` and return the template rows.
+async fn list_templates(
+    executor: &UniversalToolExecutor,
+    user_id: Uuid,
+    tenant: &str,
+    params: Value,
+) -> Result<Vec<Value>> {
+    let resp = executor
+        .execute_tool(make_request(
+            "list_workout_templates",
+            params,
+            user_id,
+            Some(tenant),
+        ))
+        .await?;
+    assert!(resp.success, "list_workout_templates: {:?}", resp.error);
+    let result = resp.result.unwrap();
+    let rows = result["templates"]
+        .as_array()
+        .expect("templates array")
+        .clone();
+    assert_eq!(result["count"].as_u64(), Some(rows.len() as u64));
+    Ok(rows)
+}
+
+#[tokio::test]
+async fn test_list_workout_templates_filters_by_purpose() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+
+    let rows = list_templates(
+        &executor,
+        user_id,
+        &tenant,
+        json!({ "purpose": "vo2max_long" }),
+    )
+    .await?;
+    assert!(
+        rows.len() >= 3,
+        "expected at least 3 vo2max_long templates, got {}",
+        rows.len()
+    );
+    for row in &rows {
+        assert_eq!(
+            row["purpose"].as_str(),
+            Some("vo2max_long"),
+            "every row carries the requested purpose: {row}"
+        );
+        assert!(
+            row["params"]["reps"]["default"].is_u64(),
+            "a summary row carries the parameter ranges: {row}"
+        );
+        assert!(
+            row["fit"]["readiness_min"].is_string(),
+            "a summary row carries the phase fit: {row}"
+        );
+        assert_eq!(row["is_compiled_in"].as_bool(), Some(true));
+    }
+    let slugs: Vec<&str> = rows.iter().filter_map(|r| r["slug"].as_str()).collect();
+    assert!(slugs.contains(&"vo2max_4x8"), "{slugs:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_list_workout_templates_filters_by_phase() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+
+    let rows = list_templates(&executor, user_id, &tenant, json!({ "phase": "taper" })).await?;
+    assert!(!rows.is_empty());
+    for row in &rows {
+        let phases: Vec<&str> = row["fit"]["phases"]
+            .as_array()
+            .expect("fit.phases array")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            phases.is_empty() || phases.contains(&"taper"),
+            "{} does not fit a taper: {phases:?}",
+            row["slug"]
+        );
+    }
+    let slugs: Vec<&str> = rows.iter().filter_map(|r| r["slug"].as_str()).collect();
+    assert!(slugs.contains(&"race_pace_long"), "{slugs:?}");
+    assert!(
+        !slugs.contains(&"vo2max_4x8"),
+        "4 x 8 fits base, build and peak only: {slugs:?}"
+    );
+
+    // The bank itself has more templates than the taper subset.
+    let all = list_templates(&executor, user_id, &tenant, json!({})).await?;
+    assert!(all.len() > rows.len());
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_list_workout_templates_filters_by_sport() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+
+    let rows = list_templates(&executor, user_id, &tenant, json!({ "sport": "swim" })).await?;
+    assert!(
+        rows.len() >= 2,
+        "expected at least 2 swim templates, got {}",
+        rows.len()
+    );
+    for row in &rows {
+        let variants: Vec<&str> = row["sport_variants"]
+            .as_array()
+            .expect("sport_variants array")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            row["sport"].as_str() == Some("swim") || variants.contains(&"swim"),
+            "{} is not written for swim: sport {} variants {variants:?}",
+            row["slug"],
+            row["sport"]
+        );
+    }
+    let slugs: Vec<&str> = rows.iter().filter_map(|r| r["slug"].as_str()).collect();
+    assert!(slugs.contains(&"swim_css"), "{slugs:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_list_workout_templates_rejects_an_unknown_purpose() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+
+    let err = executor
+        .execute_tool(make_request(
+            "list_workout_templates",
+            json!({ "purpose": "bogus" }),
+            user_id,
+            Some(&tenant),
+        ))
+        .await
+        .expect_err("a purpose outside the vocabulary must be rejected");
+    assert_invalid_request(&err, "list_workout_templates");
+    let msg = format!("{err:?}");
+    assert!(msg.contains("bogus"), "the refusal names the value: {msg}");
+    assert!(
+        msg.contains("vocabulary") && msg.contains("recovery, endurance"),
+        "the refusal names the vocabulary: {msg}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_list_workout_templates_full_detail_carries_the_structure() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+
+    let summary = list_templates(
+        &executor,
+        user_id,
+        &tenant,
+        json!({ "purpose": "vo2max_long" }),
+    )
+    .await?;
+    assert!(summary.iter().all(|row| row.get("structure").is_none()));
+
+    let full = list_templates(
+        &executor,
+        user_id,
+        &tenant,
+        json!({ "purpose": "vo2max_long", "detail": "full" }),
+    )
+    .await?;
+    assert_eq!(full.len(), summary.len());
+    let four_by_eight = full
+        .iter()
+        .find(|row| row["slug"].as_str() == Some("vo2max_4x8"))
+        .expect("vo2max_4x8 in the full listing");
+    let steps = four_by_eight["structure"]
+        .as_array()
+        .expect("structure array");
+    assert!(
+        steps.iter().any(|s| s["duration_seconds"].as_u64() == Some(480) && s["repeat"].as_u64() == Some(4)),
+        "the 4 x 8 min interval step is in the structure: {steps:?}"
+    );
+    assert!(four_by_eight["target_zones"]["power_pct_of_ftp"].is_array());
     Ok(())
 }
 
@@ -828,7 +1020,7 @@ async fn test_prescribe_workout_invalid_slug() -> Result<()> {
         ))
         .await
         .expect_err("unknown template slug must be rejected");
-    // A slug is resolved against the cornerstones and then this athlete's own
+    // A slug is resolved against the catalogue and then this athlete's own
     // saved sessions; matching neither is AppError::not_found, which the
     // executor maps to ProtocolError::InternalError. Either error variant
     // proves the tool rejected the bad slug instead of writing a phantom row.
@@ -855,6 +1047,152 @@ async fn test_prescribe_workout_missing_date() -> Result<()> {
         .await
         .expect_err("missing date must be rejected");
     assert_invalid_request(&err, "prescribe_workout");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_prescribe_workout_resolves_a_catalogue_slug_through_the_registry() -> Result<()> {
+    // `vo2max_4x8` is a catalogue template with no row in this athlete's
+    // saved sessions, so the only way the tool can get past slug resolution
+    // to the calendar refusal is by reading the registry. The fixture has no
+    // Intervals.icu, so the refusal it must reach is the calendar one — never
+    // "no workout template".
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+    let tenant_id = TenantId::parse_str(&tenant)?;
+
+    let in_registry = executor
+        .resources
+        .training_catalogue()
+        .workout("vo2max_4x8")
+        .expect("the registry carries vo2max_4x8");
+    assert_eq!(in_registry.purpose, WorkoutPurpose::Vo2maxLong);
+    let own = executor
+        .resources
+        .repos()
+        .workout_templates
+        .get_user_workout_template(tenant_id, user_id, "vo2max_4x8")
+        .await?;
+    assert!(
+        own.is_none(),
+        "the athlete has no saved session under that slug"
+    );
+
+    let resp = executor
+        .execute_tool(make_request(
+            "prescribe_workout",
+            json!({ "template_slug": "vo2max_4x8", "date": "2026-06-15" }),
+            user_id,
+            Some(&tenant),
+        ))
+        .await;
+    let rendered = match resp {
+        Ok(response) => {
+            assert!(!response.success, "no calendar, no success");
+            format!("{:?}", response.error)
+        }
+        Err(err) => format!("{err:?}"),
+    };
+    assert!(
+        rendered.to_lowercase().contains("intervals"),
+        "resolution passed and the calendar refusal was reached; got: {rendered}"
+    );
+    assert!(
+        !rendered.contains("no workout template"),
+        "the catalogue slug must resolve: {rendered}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_prescribe_workout_stores_an_inline_session_with_its_purpose() -> Result<()> {
+    // An inline session is stored as the athlete's own template before the
+    // calendar is reached, so the row exists even though the push is refused.
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+    let tenant_id = TenantId::parse_str(&tenant)?;
+    let steps = json!([
+        { "label": "Warm-up", "duration_seconds": 600, "target_zone": "Z1" },
+        { "label": "Sweet spot", "duration_seconds": 900, "target_zone": "sweet spot", "repeat": 2 },
+        { "label": "Cool-down", "duration_seconds": 600, "target_zone": "Z1" }
+    ]);
+
+    let named = executor
+        .execute_tool(make_request(
+            "prescribe_workout",
+            json!({
+                "date": "2026-06-15",
+                "session": {
+                    "name": "Sweet spot 2 x 15",
+                    "sport": "ride",
+                    "intensity_distribution": "threshold",
+                    "purpose": "sweet_spot",
+                    "structure": steps,
+                }
+            }),
+            user_id,
+            Some(&tenant),
+        ))
+        .await;
+    assert!(
+        !matches!(&named, Ok(response) if response.success),
+        "no calendar, no success"
+    );
+    let stored = executor
+        .resources
+        .repos()
+        .workout_templates
+        .get_user_workout_template(tenant_id, user_id, "sweet_spot_2_x_15")
+        .await?
+        .expect("the inline session is stored under its slug");
+    assert_eq!(
+        stored.purpose,
+        WorkoutPurpose::SweetSpot,
+        "the named purpose is stored"
+    );
+    assert_eq!(
+        stored.fit.readiness_min,
+        ReadinessLevel::P2,
+        "threshold work needs p2"
+    );
+    assert_eq!(stored.duration_minutes, 50);
+    assert_eq!(stored.structure.len(), 3);
+    assert!(!stored.is_compiled_in);
+
+    // Without a purpose the distribution decides it.
+    let _ = executor
+        .execute_tool(make_request(
+            "prescribe_workout",
+            json!({
+                "date": "2026-06-16",
+                "session": {
+                    "name": "Cruise intervals",
+                    "sport": "run",
+                    "intensity_distribution": "threshold",
+                    "structure": steps,
+                }
+            }),
+            user_id,
+            Some(&tenant),
+        ))
+        .await;
+    let defaulted = executor
+        .resources
+        .repos()
+        .workout_templates
+        .get_user_workout_template(tenant_id, user_id, "cruise_intervals")
+        .await?
+        .expect("the second inline session is stored");
+    assert_eq!(
+        defaulted.purpose,
+        WorkoutPurpose::Threshold,
+        "purpose follows the distribution"
+    );
+    assert!(
+        defaulted.fit.phases.is_empty(),
+        "an inline session fits any phase: {:?}",
+        defaulted.fit.phases
+    );
     Ok(())
 }
 

@@ -137,6 +137,7 @@ fn spawn_selective_sync(
     let cageux_config_registry = Arc::clone(&resources.fitness.cageux_config_registry);
     let messaging_strings_registry = Arc::clone(&resources.mcp.messaging_strings_registry);
     let persona_contract_registry = Arc::clone(&resources.fitness.persona_contract_registry);
+    let training_catalogue_registry = Arc::clone(&resources.mcp.training_catalogue_registry);
     let store = config.store();
 
     tokio::spawn(async move {
@@ -148,6 +149,7 @@ fn spawn_selective_sync(
                 cageux_config_registry: &cageux_config_registry,
                 messaging_strings_registry: &messaging_strings_registry,
                 persona_contract_registry: &persona_contract_registry,
+                training_catalogue_registry: &training_catalogue_registry,
             },
             store.as_ref(),
             &filtered_paths,

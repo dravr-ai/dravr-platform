@@ -1,0 +1,59 @@
+# ABOUTME: Endurance cornerstone workout — Long Run in Zone 2 for durability, glycogen and economy (purpose endurance_long)
+# ABOUTME: Regrown legacy cornerstone: keeps its slug, id and default instance, adds the catalogue layer
+
+id = "00000000-0000-0000-0000-000000000001"
+slug = "long_run_z2"
+name = "Long Run — Zone 2"
+sport = "run"
+sport_variants = ["run", "ride", "swim"]
+duration_minutes = 90
+intensity_distribution = "polarized"
+purpose = "endurance_long"
+evidence_tier = "cohort"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md",
+  "evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md",
+  "evidence/sports_science/physiological/jones-kirby-2025-physiological-resilience.md",
+]
+
+[params]
+duration_minutes = { min = 90, max = 300, default = 90 }
+rpe = { min = 3, max = 5 }
+intensity_label = "< LT1 · run 70–78% of threshold pace · bike IF 0.55–0.70; run 90–180 min, bike 2–5 h"
+
+[params.intensity]
+swim = "Z2"
+run = "70-78%"
+ride = "55-70%"
+
+[progression]
+order = ["lengthen_duration"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build", "specialty", "peak"]
+readiness_min = "p1"
+max_per_week = 1
+min_spacing_hours = 0
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.8, 0.9, 1.0]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Conversational. RPE 2-3."
+
+[[structure]]
+label = "Main set"
+duration_seconds = 4500
+target_zone = "Z2"
+note = "Steady aerobic base. Nasal breathing if you can."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy jog → walk."

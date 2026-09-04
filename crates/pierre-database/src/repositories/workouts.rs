@@ -68,12 +68,12 @@ pub trait PrescribedWorkoutRepository: Send + Sync {
 
 /// CRUD for user-authored Endurance workout templates.
 ///
-/// The six compiled-in cornerstones live in `workout_templates/*.toml` and
-/// are loaded by `pierre_server::services::workout_library`. This repo only
+/// The catalogue bank lives in `training_catalogue/workouts/*.toml` and is
+/// held by `pierre_contremaitre::TrainingCatalogueRegistry`. This repo only
 /// owns rows the user authored at runtime: every persisted row therefore
 /// carries `tenant_id` and `user_id` (the migration tolerates `NULL` for
 /// historical reasons but the trait rejects either as `None` so the table
-/// never duplicates the read-only cornerstone library).
+/// never duplicates the read-only catalogue bank).
 #[async_trait]
 pub trait WorkoutTemplateRepository: Send + Sync {
     /// Insert or update a user-authored workout template.

@@ -1,0 +1,61 @@
+# ABOUTME: Time-crunched threshold flavour — two threshold interval sessions and one easy or long session for athletes on three sessions or four hours a week
+# ABOUTME: Numbers from the TID Models flavour table (55-65 / 30-40 / 5-10); the only flavour allowed above 25 percent Z2, capped at 12 weeks
+id: time-crunched-threshold
+family: hiit_dense
+sequencing: linear
+modifiers: []
+evidence_tier: rct
+caveat: "The middle-zone share sits above the 25 percent ceiling every other flavour keeps, so the block is capped at 12 weeks: the equal-gains trial ran 8 weeks and two recreational trials favoured polarized over threshold-heavy training."
+tid_targets:
+  base:
+    z1: { min: 0.55, max: 0.65 }
+    z2: { min: 0.30, max: 0.40 }
+    z3: { min: 0.05, max: 0.10 }
+  build:
+    z1: { min: 0.55, max: 0.65 }
+    z2: { min: 0.30, max: 0.40 }
+    z3: { min: 0.05, max: 0.10 }
+hard_sessions_per_week:
+  min: 2
+  max: 2
+  recovery_limited_max: 1
+  max_by_sessions_per_week: []
+min_spacing_hours_between_hard: { default: 48, recovery_limited: 72 }
+session_mix:
+  base:
+    threshold: 2
+    sweet_spot: 1
+    endurance_long: 1
+    endurance: 1
+    strength_maint: 1
+  build:
+    threshold: 2
+    vo2max_long: 1
+    endurance_long: 1
+    endurance: 1
+    strength_maint: 1
+prerequisites:
+  min_hours_per_week: 2.0
+  min_sessions_per_week: 3
+  measurement: [[power], [pace], [hr]]
+  min_training_age_years: 1.0
+contraindications: [novice_first_season, acute_injury]
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }
+readiness_substitution:
+  p0:
+    purposes: [recovery]
+    max_hard_sessions_per_week: 0
+  p1:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint]
+    max_hard_sessions_per_week: 0
+  p2:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, sweet_spot, threshold, vo2max_long]
+    max_hard_sessions_per_week: 1
+  p3:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, sweet_spot, threshold, vo2max_long]
+    max_hard_sessions_per_week: 2
+max_weeks: 12
+evidence_refs:
+  - evidence/sports_science/training_prescription/festa-2019-polarized-vs-threshold-recreational.md
+  - evidence/sports_science/training_prescription/lenk-2025-hiit-sessions-per-week.md
+  - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md

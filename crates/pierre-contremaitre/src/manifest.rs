@@ -46,6 +46,30 @@ pub struct Manifest {
     /// without bundles still parses.
     #[serde(default)]
     pub string_bundles: ManifestStringBundles,
+    /// The training catalogue — flavours, season skeletons, workout
+    /// templates and the selection table under `training/`. Optional, so a
+    /// manifest from a contremaitre without the tree still parses and the
+    /// registry keeps its compiled-in mirror.
+    #[serde(default)]
+    pub training: ManifestTraining,
+}
+
+/// Training catalogue entries: three maps keyed by file stem and the one
+/// selection table, mirroring the `training/` layout.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ManifestTraining {
+    /// `training/flavours/<id>.yaml`, keyed by id.
+    #[serde(default)]
+    pub flavours: HashMap<String, ManifestEntry>,
+    /// `training/skeletons/<id>.yaml`, keyed by id.
+    #[serde(default)]
+    pub skeletons: HashMap<String, ManifestEntry>,
+    /// `training/workouts/<slug>.toml`, keyed by slug.
+    #[serde(default)]
+    pub workouts: HashMap<String, ManifestEntry>,
+    /// `training/selection.yaml`, present only when the file exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<ManifestEntry>,
 }
 
 /// Prompt entries grouped by type: system prompts, coach personas, and

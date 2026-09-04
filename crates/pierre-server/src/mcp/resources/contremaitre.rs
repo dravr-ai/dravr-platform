@@ -1,15 +1,15 @@
 // ABOUTME: Contremaitre registry bootstrap + full-sync helper for ServerContext startup
-// ABOUTME: Builds prompt/tool-desc/evidence/messaging-strings registries and kicks off the initial GitHub/GCS overlay sync in the background
+// ABOUTME: Builds prompt/tool-desc/evidence/messaging-strings/training-catalogue registries and kicks off the initial GitHub/GCS overlay sync in the background
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
-use pierre_contremaitre::sync::full_sync;
+use pierre_contremaitre::sync::{full_sync, ContremaitreRegistries};
 use pierre_contremaitre::{
     ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
-    ToolDescriptionRegistry,
+    ToolDescriptionRegistry, TrainingCatalogueRegistry,
 };
 use std::env;
 use std::sync::Arc;
@@ -39,16 +39,35 @@ fn poll_interval_secs() -> u64 {
         .unwrap_or(DEFAULT_POLL_INTERVAL_SECS)
 }
 
-/// Bundle of registries pushed to the Contremaitre sync. Lives at module
-/// scope so [`run_contremaitre_full_sync`] doesn't need a sprawling
-/// positional argument list — every consumer threads the same registries.
-pub(super) struct ContremaitreSyncRegistries<'a> {
-    pub prompt: &'a Arc<PromptRegistry>,
-    pub tool_desc: &'a Arc<ToolDescriptionRegistry>,
-    pub evidence: &'a Arc<EvidenceRegistry>,
-    pub cageux_config: &'a Arc<CageuxConfigRegistry>,
-    pub messaging_strings: &'a Arc<MessagingStringsRegistry>,
-    pub persona_contract: &'a Arc<PersonaContractRegistry>,
+/// The live registries the Contremaitre sync overlays — `Arc` handles to the
+/// same instances `ServerContext` serves from, so every tick lands the latest
+/// contremaitre content where the chat pipeline reads it. Owned so the poll
+/// task holds the set across ticks and clones it per respawn; borrowed into
+/// the sync engine's [`ContremaitreRegistries`] shape at each tick.
+#[derive(Clone)]
+struct ContremaitreLiveRegistries {
+    prompt: Arc<PromptRegistry>,
+    tool_desc: Arc<ToolDescriptionRegistry>,
+    evidence: Arc<EvidenceRegistry>,
+    cageux_config: Arc<CageuxConfigRegistry>,
+    messaging_strings: Arc<MessagingStringsRegistry>,
+    persona_contract: Arc<PersonaContractRegistry>,
+    training_catalogue: Arc<TrainingCatalogueRegistry>,
+}
+
+impl ContremaitreLiveRegistries {
+    /// Borrow the set in the shape the sync engine takes.
+    fn as_sync_registries(&self) -> ContremaitreRegistries<'_> {
+        ContremaitreRegistries {
+            registry: &self.prompt,
+            tool_desc_registry: &self.tool_desc,
+            evidence_registry: &self.evidence,
+            cageux_config_registry: &self.cageux_config,
+            messaging_strings_registry: &self.messaging_strings,
+            persona_contract_registry: &self.persona_contract,
+            training_catalogue_registry: &self.training_catalogue,
+        }
+    }
 }
 
 /// Run a contremaitre full-sync against the live registries, logging the
@@ -59,27 +78,16 @@ pub(super) struct ContremaitreSyncRegistries<'a> {
 /// function so the poll closure stays under the workspace's
 /// cognitive-complexity threshold; the body is an `if-let` plus `match`,
 /// which clippy counts as two arms each.
-pub(super) async fn run_contremaitre_full_sync(
+async fn run_contremaitre_full_sync(
     config: &ContremaitreConfig,
-    registries: ContremaitreSyncRegistries<'_>,
+    registries: &ContremaitreLiveRegistries,
 ) {
     let store = config.store();
     info!(
         backend = store.backend_label(),
         "Contremaitre sync starting"
     );
-    let outcome = full_sync(
-        pierre_contremaitre::sync::ContremaitreRegistries {
-            registry: registries.prompt,
-            tool_desc_registry: registries.tool_desc,
-            evidence_registry: registries.evidence,
-            cageux_config_registry: registries.cageux_config,
-            messaging_strings_registry: registries.messaging_strings,
-            persona_contract_registry: registries.persona_contract,
-        },
-        store.as_ref(),
-    )
-    .await;
+    let outcome = full_sync(registries.as_sync_registries(), store.as_ref()).await;
     match outcome {
         Ok(result) => info!(
             %result,
@@ -100,18 +108,9 @@ pub(super) async fn run_contremaitre_full_sync(
 /// bind path so a slow fetch never blocks the server from listening. Every
 /// tick after fans prompt changes out to this instance (and recovers any
 /// instance that missed the push webhook) without a redeploy. Owns its config
-/// and `Arc` clones of the live registries (the same instances
-/// `ServerContext` serves from), so each tick overlays the latest contremaitre
-/// content into the registries the chat pipeline reads.
-fn spawn_contremaitre_poll(
-    config: ContremaitreConfig,
-    prompt: Arc<PromptRegistry>,
-    tool_desc: Arc<ToolDescriptionRegistry>,
-    evidence: Arc<EvidenceRegistry>,
-    cageux_config: Arc<CageuxConfigRegistry>,
-    messaging_strings: Arc<MessagingStringsRegistry>,
-    persona_contract: Arc<PersonaContractRegistry>,
-) {
+/// and the live registry bundle, so each tick overlays the latest
+/// contremaitre content into the registries the chat pipeline reads.
+fn spawn_contremaitre_poll(config: ContremaitreConfig, registries: ContremaitreLiveRegistries) {
     let secs = poll_interval_secs();
     info!(
         interval_secs = secs,
@@ -125,23 +124,8 @@ fn spawn_contremaitre_poll(
     tokio::spawn(async move {
         loop {
             let poll_config = config.clone();
-            let poll_registries = (
-                prompt.clone(),
-                tool_desc.clone(),
-                evidence.clone(),
-                cageux_config.clone(),
-                messaging_strings.clone(),
-                persona_contract.clone(),
-            );
+            let poll_registries = registries.clone();
             let poll = tokio::spawn(async move {
-                let (
-                    prompt,
-                    tool_desc,
-                    evidence,
-                    cageux_config,
-                    messaging_strings,
-                    persona_contract,
-                ) = &poll_registries;
                 let mut ticker = interval(Duration::from_secs(secs));
                 // `interval`'s first tick fires immediately, so the initial
                 // overlay sync runs here — in the background, off the server's
@@ -150,18 +134,7 @@ fn spawn_contremaitre_poll(
                 // still passes the Cloud Run startup probe.
                 loop {
                     ticker.tick().await;
-                    run_contremaitre_full_sync(
-                        &poll_config,
-                        ContremaitreSyncRegistries {
-                            prompt,
-                            tool_desc,
-                            evidence,
-                            cageux_config,
-                            messaging_strings,
-                            persona_contract,
-                        },
-                    )
-                    .await;
+                    run_contremaitre_full_sync(&poll_config, &poll_registries).await;
                 }
             });
             // The inner loop never returns normally; reaching here means the
@@ -178,9 +151,21 @@ fn spawn_contremaitre_poll(
     });
 }
 
-/// Build the prompt, tool-description, evidence, and messaging-strings
-/// registries, and kick off the contremaitre overlay sync in the background
-/// when configured.
+/// The registries [`init_contremaitre_registries`] seeds and hands to
+/// `ServerContext` — every one the sync overlays except the cageux config
+/// and persona contract registries, which the caller builds first and
+/// passes in.
+pub(super) struct ContremaitreRegistrySet {
+    pub prompt: Arc<PromptRegistry>,
+    pub tool_desc: Arc<ToolDescriptionRegistry>,
+    pub evidence: Arc<EvidenceRegistry>,
+    pub messaging_strings: Arc<MessagingStringsRegistry>,
+    pub training_catalogue: Arc<TrainingCatalogueRegistry>,
+}
+
+/// Build the prompt, tool-description, evidence, messaging-strings and
+/// training-catalogue registries, and kick off the contremaitre overlay sync
+/// in the background when configured.
 ///
 /// The registries are returned immediately holding their compiled-in
 /// defaults; the spawned poll's first (immediate) tick overlays the
@@ -193,16 +178,12 @@ fn spawn_contremaitre_poll(
 pub(super) fn init_contremaitre_registries(
     cageux_config_registry: &Arc<CageuxConfigRegistry>,
     persona_contract_registry: &Arc<PersonaContractRegistry>,
-) -> (
-    Arc<PromptRegistry>,
-    Arc<ToolDescriptionRegistry>,
-    Arc<EvidenceRegistry>,
-    Arc<MessagingStringsRegistry>,
-) {
+) -> ContremaitreRegistrySet {
     let prompt_registry = Arc::new(PromptRegistry::new());
     let tool_desc_registry = Arc::new(ToolDescriptionRegistry::new());
     let evidence_registry = Arc::new(EvidenceRegistry::new());
     let messaging_strings_registry = Arc::new(MessagingStringsRegistry::new());
+    let training_catalogue_registry = Arc::new(TrainingCatalogueRegistry::new());
 
     if let Some(config) = ContremaitreConfig::from_env() {
         // The poll owns the config and Arc clones of the live registries; its
@@ -212,21 +193,25 @@ pub(super) fn init_contremaitre_registries(
         // redeploy, complementing the instant push webhook.
         spawn_contremaitre_poll(
             config,
-            Arc::clone(&prompt_registry),
-            Arc::clone(&tool_desc_registry),
-            Arc::clone(&evidence_registry),
-            Arc::clone(cageux_config_registry),
-            Arc::clone(&messaging_strings_registry),
-            Arc::clone(persona_contract_registry),
+            ContremaitreLiveRegistries {
+                prompt: Arc::clone(&prompt_registry),
+                tool_desc: Arc::clone(&tool_desc_registry),
+                evidence: Arc::clone(&evidence_registry),
+                cageux_config: Arc::clone(cageux_config_registry),
+                messaging_strings: Arc::clone(&messaging_strings_registry),
+                persona_contract: Arc::clone(persona_contract_registry),
+                training_catalogue: Arc::clone(&training_catalogue_registry),
+            },
         );
     } else {
         info!("Contremaitre not configured, using compiled-in defaults");
     }
 
-    (
-        prompt_registry,
-        tool_desc_registry,
-        evidence_registry,
-        messaging_strings_registry,
-    )
+    ContremaitreRegistrySet {
+        prompt: prompt_registry,
+        tool_desc: tool_desc_registry,
+        evidence: evidence_registry,
+        messaging_strings: messaging_strings_registry,
+        training_catalogue: training_catalogue_registry,
+    }
 }

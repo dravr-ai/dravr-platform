@@ -56,6 +56,7 @@ async fn build_context() -> Arc<AdminApiContext> {
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
     });
 

@@ -1,0 +1,77 @@
+# ABOUTME: Brick — a bike with its last 15–30 min at race intensity straight into a 15–40 min run at race intensity (purpose brick)
+# ABOUTME: Authored from the KB multisport table; triathlon build and peak, the bike-to-run transition rehearsed
+
+id = "2a5f9682-e510-57c9-9766-5ed74d3fb432"
+slug = "brick"
+name = "Brick — bike to run"
+sport = "ride"
+sport_variants = ["ride", "run"]
+duration_minutes = 120
+intensity_distribution = "pyramid"
+purpose = "brick"
+evidence_tier = "coach_judgement"
+caveat = "The acute cost of the bike-to-run transition is documented (Stewart 2022, no proposition in the corpus); the training benefit of rehearsing it is untrialled. The proposition cited supports prolonged sessions with race-pace bouts, not the brick as such."
+evidence_refs = [
+  "evidence/sports_science/physiological/jones-kirby-2025-physiological-resilience.md",
+]
+
+[params]
+duration_minutes = { min = 75, max = 160, default = 120 }
+work_seconds = { min = 900, max = 2400, default = 1500 }
+rpe = { min = 6, max = 8 }
+intensity_label = "race intensity for the goal event: bike 60–120 min with the last 15–30 min at race power, then run 15–40 min at race pace"
+
+[params.intensity]
+ride = "tempo"
+run = "tempo"
+
+[progression]
+order = []
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "specialty", "peak"]
+readiness_min = "p2"
+max_per_week = 1
+min_spacing_hours = 48
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.88, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.88, 0.94, 1.05]
+
+[[structure]]
+label = "Bike warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Spin easy."
+
+[[structure]]
+label = "Bike endurance"
+duration_seconds = 3300
+target_zone = "Z2"
+note = "Steady aerobic; practise race-day fuelling."
+
+[[structure]]
+label = "Bike at race intensity"
+duration_seconds = 1200
+target_zone = "Tempo"
+note = "The last 20 min at goal race power."
+
+[[structure]]
+label = "Transition"
+duration_seconds = 180
+target_zone = "Z1"
+note = "Rack the bike, shoes on, out — rehearse it as on race day."
+
+[[structure]]
+label = "Run at race intensity"
+duration_seconds = 1500
+target_zone = "Tempo"
+note = "Goal race pace off the bike; expect the first kilometre to feel wrong, then settle."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 420
+target_zone = "Z1"
+note = "Easy jog → walk."

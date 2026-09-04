@@ -1,0 +1,58 @@
+# ABOUTME: Tempo — continuous 20–40 min just below LT2 for threshold endurance (purpose tempo)
+# ABOUTME: Authored from the KB threshold-family table; grows by 5 min a week to 40, base and build
+
+id = "90f13b2f-7407-51e5-a381-266fe99c6d2e"
+slug = "tempo"
+name = "Tempo — continuous"
+sport = "run"
+sport_variants = ["run", "ride", "swim"]
+duration_minutes = 40
+intensity_distribution = "pyramid"
+purpose = "tempo"
+evidence_tier = "cohort"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/casado-2021-world-class-distance.md",
+]
+
+[params]
+duration_minutes = { min = 35, max = 60, default = 40 }
+work_seconds = { min = 1200, max = 2400, default = 1200 }
+rpe = { min = 5, max = 6 }
+intensity_label = "85–90% of LT2 pace · 76–90% FTP · CSS + 3–5 s per 100 m"
+
+[params.intensity]
+run = "85-90%"
+ride = "76-90%"
+swim = "tempo"
+
+[progression]
+order = ["lengthen_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p1"
+max_per_week = 2
+min_spacing_hours = 0
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.88, 0.95, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy, building to steady over the last few minutes."
+
+[[structure]]
+label = "Tempo"
+duration_seconds = 1200
+target_zone = "Tempo"
+note = "Comfortably hard and even; the pace you could hold for about an hour, backed off a touch. RPE 5-6."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy until HR is back in Z1."

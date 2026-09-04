@@ -1,0 +1,109 @@
+# ABOUTME: Over-unders — 3 × 12 min alternating 1 min above and 2 min below LT2 for threshold tolerance (purpose threshold)
+# ABOUTME: Authored from the KB threshold-family table; cycling-dominant practitioner session, build and peak
+
+id = "93969657-231d-5529-b8ad-692e6bd24106"
+slug = "over_under"
+name = "Over-Unders — 3 × 12 min"
+sport = "ride"
+sport_variants = ["ride", "run"]
+duration_minutes = 71
+intensity_distribution = "threshold"
+purpose = "threshold"
+evidence_tier = "grey"
+caveat = "Practitioner convention (the contremaitre polarized builder); no trial of over-unders as such. The proposition cited supports controlled z3 work and its caps, not the 105%/95% alternation."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/tonnessen-2024-norwegian-coach-session-models.md",
+]
+
+[params]
+duration_minutes = { min = 70, max = 95, default = 71 }
+sets = { min = 3, max = 4, default = 3 }
+work_seconds = { min = 720, max = 720, default = 720 }
+rest_seconds = { min = 300, max = 300, default = 300 }
+rpe = { min = 7, max = 8 }
+intensity_label = "around LT2: 1 min at 105% / 2 min at 95% of FTP, 36 min of work"
+
+[params.intensity]
+ride = "95-105%"
+run = "95-105%"
+
+[progression]
+order = ["add_set"]
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "peak"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.0, 1.15]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Spin easy; 2 × 30 s openers near FTP in the last 5 min."
+
+[[structure]]
+label = "Set 1 — over"
+duration_seconds = 60
+target_zone = "105%"
+repeat = 4
+note = "One minute just above LT2."
+
+[[structure]]
+label = "Set 1 — under"
+duration_seconds = 120
+target_zone = "95%"
+repeat = 4
+note = "Two minutes just below LT2; hold the effort, let the legs settle."
+
+[[structure]]
+label = "Recovery spin"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Five minutes easy."
+
+[[structure]]
+label = "Set 2 — over"
+duration_seconds = 60
+target_zone = "105%"
+repeat = 4
+note = "One minute just above LT2."
+
+[[structure]]
+label = "Set 2 — under"
+duration_seconds = 120
+target_zone = "95%"
+repeat = 4
+note = "Two minutes just below LT2."
+
+[[structure]]
+label = "Recovery spin"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Five minutes easy."
+
+[[structure]]
+label = "Set 3 — over"
+duration_seconds = 60
+target_zone = "105%"
+repeat = 4
+note = "One minute just above LT2."
+
+[[structure]]
+label = "Set 3 — under"
+duration_seconds = 120
+target_zone = "95%"
+repeat = 4
+note = "Two minutes just below LT2. RPE 7-8 by the end."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Spin out the legs."

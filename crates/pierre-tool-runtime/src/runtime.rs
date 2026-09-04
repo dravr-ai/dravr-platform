@@ -36,6 +36,7 @@ use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::CoachesRepository;
 use pierre_database::RepositoryRegistry;
@@ -212,6 +213,11 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Gated behind the `contremaitre` feature because the registry only
     /// exists when the contremaitre GitHub-sync subsystem is wired in.
     fn evidence_registry(&self) -> &Arc<pierre_contremaitre::EvidenceRegistry>;
+
+    /// Hot-reloadable training catalogue — the workout template bank, the
+    /// flavours, the season skeletons and the selection table, seeded from
+    /// the compiled-in mirror and overlaid by the contremaitre sync.
+    fn training_catalogue(&self) -> &Arc<TrainingCatalogueRegistry>;
 
     /// Materialize a [`DataContext`] (the focused data-access slice).
     fn data(&self) -> DataContext;

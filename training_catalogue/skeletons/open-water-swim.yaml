@@ -1,0 +1,52 @@
+# ABOUTME: Season skeleton for open-water swimming: one Hellard-style macrocycle of about 14-15 weeks with a threshold-heavy base, an overload peak and a 14-21 day taper
+# ABOUTME: Every number traces to the Training Design KB (Periodization, Sport Systems, TID, Strength notes); practitioner sources are marked grey in comments
+# A phase `length` is exactly one of: { fixed_weeks: N } | { fixed_days: N } | { share_of_weeks_to_goal: F, min_weeks: N, max_weeks: N }
+id: open-water-swim
+event_classes: [open_water_swim]
+hours_tiers: [from_4_to_6, from_6_to_10, over_10]
+min_weeks: 14
+phases:
+  - kind: base
+    purpose: "Aerobic base: most of the volume sits at or below four millimoles of lactate, built around long continuous swims and critical-swim-speed sets, with week-to-week load rising smoothly."
+    length: { share_of_weeks_to_goal: 0.45, min_weeks: 5, max_weeks: 10 }   # Hellard 2019: the best seasons used two macrocycles of about 14-15 weeks; this skeleton is one of them
+    volume_share_of_peak: { min: 0.40, max: 0.60 }   # Haugen 2022: a build starts at 40-60% of peak volume
+    flavour_override: pyramidal   # Sport Systems: swimming is threshold-heavy by lactate and the least polarized discipline; Hellard 2019 86-90% at or below 4 mmol/L
+    key_sessions: [endurance_long, threshold, endurance]
+  - kind: build
+    purpose: "Threshold density: CSS sets are the quality days while volume climbs to its peak and open-water skills are practised in the long swim, with race-pace repeats waiting for the peak."
+    length: { share_of_weeks_to_goal: 0.30, min_weeks: 4, max_weeks: 8 }   # grey: Maglischo high-volume aerobic categories; Friel build 6-8 weeks
+    volume_share_of_peak: { min: 0.60, max: 1.00 }
+    flavour_override: pyramidal   # Hellard 2019: 86-90% of volume at or below 4 mmol/L across the season
+    key_sessions: [threshold, endurance_long, endurance]   # Sport Systems swimming row: threshold-heavy by lactate; no swim VO2max template exists in the bank
+  - kind: peak
+    purpose: "Overload: two weeks at the season's highest load with race-distance efforts at goal pace, stopping short of overreaching so the taper that follows can pay out."
+    length: { fixed_weeks: 2 }   # Haugen 2022: peak weeks last 2-3 weeks; Wang 2023 and Aubry 2014: an overload before the taper helps while it stays short of overreaching
+    volume_share_of_peak: { min: 1.00, max: 1.00 }   # Haugen 2022: the peak weeks carry the season's highest volume
+    key_sessions: [race_specific, threshold, endurance_long]
+  - kind: taper
+    purpose: "Taper: volume drops forty to sixty percent over two to three weeks while one session at race pace and the usual session count are kept."
+    length: { fixed_days: 14 }   # Bosquet 2007: 2 weeks optimum; Hellard 2013 elite swimmers: 3-week taper after the overload (no proposition)
+    volume_share_of_peak: { min: 0.40, max: 0.60 }
+    key_sessions: [race_specific, endurance]
+taper: { days: { min: 14, max: 21 }, volume_cut: { min: 0.40, max: 0.60 }, keep_intensity: true, keep_frequency: true }
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }   # Sandbakk 2025: easy week every 3rd-4th week; 2:1 is practitioner advice for recovery-limited athletes (grey)
+recovery_week_cut: { min: 0.25, max: 0.35 }   # Sandbakk 2025: 25-35% fewer hours
+drop_order: [base, build]
+multi_peak: { b_race_mini_taper_days: { min: 3, max: 5 }, transition_weeks_after_a_race: 1 }   # grey: Friel; B races take a 3-5 day mini-taper, transition 1-4 weeks
+strength:
+  base: { goal: max, sessions_per_week: 2, purposes: [strength_max] }   # Crowley 2017: specific low-volume high-force dry-land work transfers (no proposition); dose from Storen 2008 and Sunde 2010
+  build: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # Ronnestad 2010b, Spiering 2021: one session a week keeps the gain
+  peak: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # Ronnestad 2010b, Spiering 2021
+  taper: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # practice: one light session at least 4 days out
+evidence_refs:
+  - evidence/sports_science/training_prescription/hellard-2019-swimmers-two-macrocycles.md
+  - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+  - evidence/sports_science/training_prescription/aubry-2014-overreaching-before-taper.md
+  - evidence/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/wang-2023-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/mujika-padilla-2003-taper.md
+  - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md
+  - evidence/sports_science/training_prescription/schumann-2022-concurrent-training-interference.md
+  - evidence/sports_science/training_prescription/lauersen-2014-strength-halves-injuries.md
+  - evidence/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md
+  - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md

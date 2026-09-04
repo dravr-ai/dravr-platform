@@ -749,6 +749,7 @@ impl ProviderToolRouter {
                 messaging_strings_registry: resources.mcp.messaging_strings_registry.clone(),
                 cageux_config_registry: resources.fitness.cageux_config_registry.clone(),
                 persona_contract_registry: resources.fitness.persona_contract_registry.clone(),
+                training_catalogue_registry: resources.mcp.training_catalogue_registry.clone(),
                 contremaitre_config: resources.mcp.contremaitre_config.clone(),
             });
             admin_context

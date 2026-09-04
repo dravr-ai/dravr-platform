@@ -1,0 +1,69 @@
+# ABOUTME: Sweet Spot 2 × 20 min at 88–94% FTP — sub-threshold volume for cyclists (purpose sweet_spot)
+# ABOUTME: Regrown legacy cornerstone: keeps its slug, id and default instance, adds the catalogue layer
+
+id = "00000000-0000-0000-0000-000000000006"
+slug = "sweet_spot_2x20"
+name = "Sweet Spot — 2 × 20 min"
+sport = "ride"
+sport_variants = ["ride"]
+duration_minutes = 75
+intensity_distribution = "threshold"
+purpose = "sweet_spot"
+evidence_tier = "grey"
+caveat = "No trial of its own: sweet spot is practitioner convention (Coggan & Allen, Overton). The propositions cited support sub-threshold volume and the continuous-z3 cap, not the 88–94% FTP band as such."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/casado-2021-world-class-distance.md",
+  "evidence/sports_science/training_prescription/tonnessen-2024-norwegian-coach-session-models.md",
+]
+
+[params]
+duration_minutes = { min = 55, max = 105, default = 75 }
+reps = { min = 2, max = 3, default = 2 }
+work_seconds = { min = 900, max = 1500, default = 1200 }
+rest_seconds = { min = 300, max = 600, default = 300 }
+rpe = { min = 6, max = 7 }
+intensity_label = "88–94% FTP; 30–60 min of work in total"
+
+[params.intensity]
+ride = "88-94%"
+
+[progression]
+order = ["lengthen_rep", "add_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.88, 0.94, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Spin easy → 2 × 30 s openers near FTP."
+
+[[structure]]
+label = "Sweet spot interval"
+duration_seconds = 1200
+target_zone = "Tempo"
+repeat = 2
+note = "Hold 88-94 % FTP. RPE 6-7. Cadence comfortable."
+
+[[structure]]
+label = "Recovery spin"
+duration_seconds = 300
+target_zone = "Z1"
+repeat = 2
+note = "Easy spin between intervals; HR back into Z1-Z2."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Spin out the legs."

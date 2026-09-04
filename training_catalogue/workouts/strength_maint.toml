@@ -1,0 +1,60 @@
+# ABOUTME: In-season strength maintenance — 2 exercises × 2–3 sets × 3–4 reps at 85–90% 1RM, once a week keeps the base-phase gain
+# ABOUTME: Rønnestad 2010 (one session a week preserved gains through 13 competition weeks); Spiering 2021 (one set a week at kept intensity holds strength)
+
+id = "e1068523-807e-5f51-990d-901c60ba6ca7"
+slug = "strength_maint"
+name = "Strength maintenance — 2 × 3 × 3"
+sport = "strength_training"
+sport_variants = []
+duration_minutes = 35
+intensity_distribution = "polarized"
+purpose = "strength_maint"
+evidence_tier = "rct"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md",
+  "evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md",
+]
+
+[params]
+sets = { min = 2, max = 3, default = 2 }
+reps = { min = 3, max = 4, default = 3 }
+rest_seconds = { min = 120, max = 180, default = 150 }
+load = "85-90% 1RM"
+intensity_label = "two lifts, low volume, intensity kept — the load tracks your current 1RM; one session a week holds the gain"
+
+[progression]
+order = ["add_load"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build", "specialty", "peak", "taper", "race"]
+readiness_min = "p1"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["acute_injury"]
+
+[target_zones]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy movement and two ramping sets."
+
+[[structure]]
+label = "Half-squat 2 × 3"
+duration_seconds = 600
+target_zone = "Strength"
+note = "85–90% 1RM, 2–3 min between sets."
+
+[[structure]]
+label = "Hip thrust or step-up 2 × 3"
+duration_seconds = 600
+target_zone = "Strength"
+note = "Same load band, same recovery."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy walk."

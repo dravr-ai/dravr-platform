@@ -1,0 +1,79 @@
+# ABOUTME: Pyramidal-to-polarized sequence — a pyramidal base block followed by a polarized build block over a 16-week window
+# ABOUTME: Base numbers are the pyramidal split, build and peak the polarized split; the sequence beat either model alone in Filipas 2022
+id: pyramidal-to-polarized
+family: pyramidal
+sequencing: pyramidal_to_polarized
+modifiers: []
+evidence_tier: rct
+caveat: null
+tid_targets:
+  base:
+    z1: { min: 0.70, max: 0.80 }
+    z2: { min: 0.15, max: 0.20 }
+    z3: { min: 0.05, max: 0.10 }
+  build:
+    z1: { min: 0.75, max: 0.85 }
+    z2: { min: 0.00, max: 0.05 }
+    z3: { min: 0.15, max: 0.20 }
+  peak:
+    z1: { min: 0.75, max: 0.85 }
+    z2: { min: 0.00, max: 0.05 }
+    z3: { min: 0.15, max: 0.20 }
+hard_sessions_per_week:
+  min: 1
+  max: 2
+  recovery_limited_max: 1
+  max_by_sessions_per_week:
+    - { from_sessions: 6, max: 3 }
+    - { from_sessions: 10, max: 4 }
+min_spacing_hours_between_hard: { default: 48, recovery_limited: 72 }
+session_mix:
+  base:
+    endurance: 4
+    endurance_long: 2
+    tempo: 1
+    threshold: 1
+    sweet_spot: 1
+    vo2max_short: 1
+    neuromuscular: 1
+    recovery: 1
+    strength_max: 1
+  build:
+    endurance: 3
+    endurance_long: 2
+    vo2max_long: 1
+    vo2max_short: 1
+    recovery: 1
+    strength_maint: 1
+  peak:
+    endurance: 3
+    endurance_long: 1
+    vo2max_long: 1
+    vo2max_short: 1
+    race_specific: 1
+    recovery: 1
+    strength_maint: 1
+prerequisites:
+  min_hours_per_week: 6.0
+  min_sessions_per_week: 4
+  measurement: [[hr], [pace], [power]]
+  min_training_age_years: 1.0
+contraindications: [novice_first_season, no_interval_experience, acute_injury]
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }
+readiness_substitution:
+  p0:
+    purposes: [recovery]
+    max_hard_sessions_per_week: 0
+  p1:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint]
+    max_hard_sessions_per_week: 0
+  p2:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, sweet_spot, threshold, vo2max_long, vo2max_short, neuromuscular]
+    max_hard_sessions_per_week: 1
+  p3:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, sweet_spot, threshold, vo2max_long, vo2max_short, neuromuscular, race_specific, strength_max]
+    max_hard_sessions_per_week: 2
+max_weeks: null
+evidence_refs:
+  - evidence/sports_science/training_prescription/filipas-2022-pyramidal-then-polarized.md
+  - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md

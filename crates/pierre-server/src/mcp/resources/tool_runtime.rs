@@ -10,6 +10,7 @@ use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::CoachesRepository;
 use pierre_database::RepositoryRegistry;
@@ -107,6 +108,10 @@ impl ToolRuntime for ServerContext {
 
     fn evidence_registry(&self) -> &Arc<pierre_contremaitre::EvidenceRegistry> {
         &self.mcp.evidence_registry
+    }
+
+    fn training_catalogue(&self) -> &Arc<TrainingCatalogueRegistry> {
+        &self.mcp.training_catalogue_registry
     }
 
     #[cfg(feature = "client-messaging")]

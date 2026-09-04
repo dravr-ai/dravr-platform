@@ -1,0 +1,65 @@
+# ABOUTME: Neuromuscular strides — 4–8 × 15–20 s fast-relaxed at about mile pace inside an easy run, walk or jog back
+# ABOUTME: Practitioner convention (Daniels, grey) that fits every phase and flavour; the Barnes & Kilding 2015 proposition cited covers mileage and economy, not strides
+
+id = "888a02c4-2c52-5cc9-9010-0f0901c2cfcf"
+slug = "strides"
+name = "Strides — 6 × 20 s inside an easy run"
+sport = "run"
+sport_variants = []
+duration_minutes = 45
+intensity_distribution = "polarized"
+purpose = "neuromuscular"
+evidence_tier = "grey"
+caveat = "Practitioner convention (Daniels), which the knowledge base marks grey; the cited Barnes & Kilding 2015 proposition covers mileage and economy, not strides."
+evidence_refs = [
+  "evidence/sports_science/physiological/barnes-kilding-2015-running-economy.md",
+]
+
+[params]
+reps = { min = 4, max = 8, default = 6 }
+work_seconds = { min = 15, max = 20, default = 20 }
+rpe = { min = 6, max = 6 }
+intensity_label = "fast and relaxed, about mile pace, never straining; walk or jog back between strides"
+
+[params.intensity]
+run = "Z6"
+
+[progression]
+order = ["add_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["prep", "base", "build", "specialty", "peak", "taper", "race", "transition", "recovery"]
+readiness_min = "p1"
+min_spacing_hours = 24
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Easy run"
+duration_seconds = 1800
+target_zone = "Z2"
+note = "Conversational the whole way."
+
+[[structure]]
+label = "Stride"
+duration_seconds = 20
+target_zone = "Z6"
+repeat = 6
+note = "Build to about mile pace over the first 5 s, hold tall and relaxed, ease off."
+
+[[structure]]
+label = "Walk or jog back"
+duration_seconds = 60
+target_zone = "Z1"
+repeat = 6
+note = "Full recovery — start the next stride fresh."
+
+[[structure]]
+label = "Easy finish"
+duration_seconds = 420
+target_zone = "Z1"
+note = "Jog home easy."

@@ -140,7 +140,7 @@ pub struct RepositoryRegistry {
     pub route_summaries: Arc<dyn RouteSummaryRepository>,
     /// Endurance prescribed-workout audit trail (one row per push to a provider calendar)
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
-    /// Endurance user-authored workout-template overrides (cornerstones live in TOML)
+    /// Endurance user-authored workout templates (the catalogue bank lives in TOML)
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
     /// Continuous time-series points (`data_point_series` table). Implements
     /// riviere's `TimeSeriesStore`; backs the dravr-enforme write adapter.

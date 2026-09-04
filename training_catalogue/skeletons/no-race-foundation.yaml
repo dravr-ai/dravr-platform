@@ -1,0 +1,48 @@
+# ABOUTME: Season skeleton for athletes with no race on the calendar: a high-volume low-intensity foundation, a pyramidal build with one quality session, then a transition week
+# ABOUTME: Every number traces to the Training Design KB (Periodization, Sport Systems, TID, Strength notes); there is no taper because there is no race
+# A phase `length` is exactly one of: { fixed_weeks: N } | { fixed_days: N } | { share_of_weeks_to_goal: F, min_weeks: N, max_weeks: N }
+id: no-race-foundation
+event_classes: [no_race]
+hours_tiers: [under_4, from_4_to_6, from_6_to_10, over_10]
+min_weeks: 8
+phases:
+  - kind: base
+    purpose: "Foundation: every session is easy, one is long, strides are optional, and weekly volume grows by five to ten percent while consistency is the goal."
+    length: { share_of_weeks_to_goal: 0.55, min_weeks: 4, max_weeks: 12 }   # grey: Lydiard aerobic base 10-12+ weeks; Friel base 9-12 weeks
+    volume_share_of_peak: { min: 0.40, max: 0.60 }   # Haugen 2022: a build starts at 40-60% of peak volume
+    flavour_override: hvlit   # TID note: foundation / HVLIT for beginners, returners, the base phase of any athlete and anyone under 4 h/wk
+    key_sessions: [endurance_long, endurance, neuromuscular]
+  - kind: build
+    purpose: "Pyramidal build: one quality session a week, a tempo or long VO2max interval set, joins the long session while the easy volume keeps rising to its peak."
+    length: { share_of_weeks_to_goal: 0.30, min_weeks: 3, max_weeks: 8 }   # grey: Friel build 6-8 weeks
+    volume_share_of_peak: { min: 0.60, max: 1.00 }
+    flavour_override: pyramidal   # Sport Systems no-race row: HVLIT or pyramidal, consistency, no taper
+    key_sessions: [endurance_long, endurance, tempo, vo2max_long]
+  - kind: transition
+    purpose: "Transition: a week of unstructured easy movement and mobility at a recovery-week volume before the next foundation block begins."
+    length: { fixed_weeks: 1 }   # grey: Friel transition 1-4 weeks
+    volume_share_of_peak: { min: 0.65, max: 0.75 }   # Sandbakk 2025: a recovery week carries 25-35% fewer hours
+    key_sessions: [recovery, endurance, mobility]
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }   # Sandbakk 2025: easy week every 3rd-4th week; 2:1 is practitioner advice for recovery-limited athletes (grey)
+recovery_week_cut: { min: 0.25, max: 0.35 }   # Sandbakk 2025: 25-35% fewer hours
+drop_order: [base, build]
+multi_peak: { b_race_mini_taper_days: { min: 3, max: 5 }, transition_weeks_after_a_race: 1 }   # grey: Friel; kept so an athlete who adds a race mid-block gets the same rule as every skeleton
+strength:
+  base: { goal: max, sessions_per_week: 2, purposes: [strength_max] }   # Storen 2008, Sunde 2010, Eihara 2022: heavy loads 2-3x/wk in base; Lauersen 2014: strength is the best-evidenced injury prevention
+  build: { goal: maintain, sessions_per_week: 2, purposes: [strength_maint, plyometric] }   # Ronnestad 2010b, Saunders 2006: heavy maintenance plus one plyometric session
+  transition: { goal: anatomical_adaptation, sessions_per_week: 2, purposes: [strength_aa, mobility] }   # grey: Friel anatomical adaptation in transition and preparation; Luckin-Baldwin 2021 weeks 0-12 (no proposition)
+evidence_refs:
+  - evidence/sports_science/training_prescription/festa-2019-polarized-vs-threshold-recreational.md
+  - evidence/sports_science/training_prescription/seiler-2010-best-practice.md
+  - evidence/sports_science/training_prescription/rosenblat-2025-tid-ipd-network-meta.md
+  - evidence/sports_science/training_prescription/qin-2025-recreational-marathon-tid-responders.md
+  - evidence/sports_science/training_prescription/nielsen-2014-novice-progression-above-30-percent.md
+  - evidence/sports_science/training_prescription/gabbett-2016-chronic-load-protective.md
+  - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+  - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md
+  - evidence/sports_science/training_prescription/lauersen-2014-strength-halves-injuries.md
+  - evidence/sports_science/training_prescription/storen-2008-maximal-strength-running-economy.md
+  - evidence/sports_science/training_prescription/sunde-2010-maximal-strength-cycling-economy.md
+  - evidence/sports_science/training_prescription/eihara-2022-heavy-vs-plyometric-runners.md
+  - evidence/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md
+  - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md

@@ -19,7 +19,7 @@
 //! 1. **Static prompt layout** — for each persona, the full system
 //!    prompt that reaches the LLM contains the expected persona block
 //!    *and* the endurance domain knowledge (alert taxonomy, readiness
-//!    ladder thresholds, cornerstone workout list), and contains
+//!    ladder thresholds, the workout-bank filters), and contains
 //!    *zero* dropped placeholders from the deleted Section 11
 //!    discipline machinery.
 //!
@@ -109,8 +109,19 @@ fn assembled_prompt_carries_endurance_domain_for_every_persona() {
                 "{persona:?}: assembled prompt missing alert label '{alert}'"
             );
         }
-        // Domain — cornerstone workouts
-        for workout in [
+        // Domain — the workout template bank is reached through the tool and
+        // its filters, never through a hard-coded slug list
+        assert!(
+            prompt.contains("list_workout_templates"),
+            "{persona:?}: assembled prompt missing the list_workout_templates reference"
+        );
+        for filter in ["`purpose`", "`phase`", "`sport`"] {
+            assert!(
+                prompt.contains(filter),
+                "{persona:?}: assembled prompt missing template filter '{filter}'"
+            );
+        }
+        for slug in [
             "long_run_z2",
             "threshold_4x8",
             "vo2_5x3",
@@ -119,8 +130,8 @@ fn assembled_prompt_carries_endurance_domain_for_every_persona() {
             "sweet_spot_2x20",
         ] {
             assert!(
-                prompt.contains(workout),
-                "{persona:?}: assembled prompt missing cornerstone workout '{workout}'"
+                !prompt.contains(slug),
+                "{persona:?}: assembled prompt still names the retired cornerstone slug '{slug}'"
             );
         }
     }

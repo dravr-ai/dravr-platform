@@ -1,0 +1,71 @@
+# ABOUTME: Threshold short — Norwegian-style 10–25 short reps just under LT2 with 30–60 s rests (purpose threshold)
+# ABOUTME: Authored from the KB threshold-family table; lactate-anchored at 2.5–4 mmol, build phase
+
+id = "a9b30557-b9b2-5115-a6e5-08a78a5f3d70"
+slug = "threshold_short"
+name = "Threshold — short reps, short rests"
+sport = "run"
+sport_variants = ["run", "ride"]
+duration_minutes = 75
+intensity_distribution = "threshold"
+purpose = "threshold"
+evidence_tier = "review"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/casado-2023-lactate-guided-threshold-model.md",
+  "evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md",
+  "evidence/sports_science/training_prescription/tonnessen-2024-norwegian-coach-session-models.md",
+]
+
+[params]
+duration_minutes = { min = 50, max = 100, default = 75 }
+reps = { min = 10, max = 25, default = 10 }
+work_seconds = { min = 90, max = 240, default = 240 }
+rest_seconds = { min = 30, max = 60, default = 60 }
+rpe = { min = 6, max = 7 }
+intensity_label = "2.5–4 mmol/L · 96–100% of LT2 speed · 95–100% FTP; 400 m to 1 km reps, 6–10 km of work; needs a lactate meter or a fresh threshold"
+
+[params.intensity]
+run = "96-100%"
+ride = "95-100%"
+
+[progression]
+order = ["add_rep", "shorten_rest"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["novice_first_season"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.0, 1.15]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy, finishing with 2-3 strides."
+
+[[structure]]
+label = "1 km rep"
+duration_seconds = 240
+distance_meters = 1000.0
+target_zone = "Threshold"
+repeat = 10
+note = "Just under LT2 — controlled, the last rep as smooth as the first. RPE 6-7."
+
+[[structure]]
+label = "Recovery jog"
+duration_seconds = 60
+target_zone = "Z1"
+repeat = 10
+note = "One minute easy; do not stop."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy until HR is back in Z1."

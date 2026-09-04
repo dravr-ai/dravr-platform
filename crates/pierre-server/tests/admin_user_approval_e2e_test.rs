@@ -62,6 +62,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
     });
 
@@ -252,6 +253,7 @@ async fn test_admin_token_management_workflow() -> Result<()> {
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
     });
     let admin_routes = AdminRoutes::routes(admin_context);
@@ -374,6 +376,7 @@ async fn test_admin_workflow_error_handling() -> Result<()> {
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
     });
     let admin_routes = AdminRoutes::routes(admin_context);
@@ -531,6 +534,7 @@ async fn test_user_approval_with_tenant_creation() -> Result<()> {
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
     });
 

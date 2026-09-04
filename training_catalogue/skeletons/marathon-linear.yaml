@@ -1,0 +1,58 @@
+# ABOUTME: Season skeleton for the marathon on a linear (traditional) sequence: long aerobic base, threshold build, race-pace specialty, 14-21 day taper
+# ABOUTME: Every number traces to the Training Design KB (Periodization, Sport Systems, TID, Strength notes); practitioner sources are marked grey in comments
+# A phase `length` is exactly one of: { fixed_weeks: N } | { fixed_days: N } | { share_of_weeks_to_goal: F, min_weeks: N, max_weeks: N }
+id: marathon-linear
+event_classes: [marathon]
+hours_tiers: [from_4_to_6, from_6_to_10, over_10]
+min_weeks: 12
+phases:
+  - kind: base
+    purpose: "Aerobic base and durability: the long run grows toward twenty-five kilometres or more while everything else stays easy and weekly volume rises."
+    length: { share_of_weeks_to_goal: 0.40, min_weeks: 4, max_weeks: 12 }   # grey: Pfitzinger endurance mesocycle in a 12-24 week plan; Lydiard base 10-12+ weeks
+    volume_share_of_peak: { min: 0.40, max: 0.60 }   # Haugen 2022: a build starts at 40-60% of peak volume
+    flavour_override: pyramidal   # Muniz-Pumares 2025, Casado 2022: marathoners are pyramidal
+    key_sessions: [endurance_long, endurance, tempo, neuromuscular]
+  - kind: build
+    purpose: "Threshold and endurance: cruise intervals and a mid-week medium-long run join the weekly long run while volume climbs to its peak."
+    length: { share_of_weeks_to_goal: 0.25, min_weeks: 3, max_weeks: 8 }   # grey: Pfitzinger lactate-threshold plus endurance mesocycle; Friel build 6-8 weeks
+    volume_share_of_peak: { min: 0.60, max: 1.00 }
+    flavour_override: pyramidal   # Muniz-Pumares 2025: the middle zone is race-specific for the marathon
+    key_sessions: [endurance_long, threshold, tempo, vo2max_long]
+  - kind: specialty
+    purpose: "Race specificity: long runs carry large blocks at marathon pace and fuelling is rehearsed while volume eases ten to twenty percent below its peak."
+    length: { share_of_weeks_to_goal: 0.20, min_weeks: 3, max_weeks: 8 }   # Sport Systems: more marathon-pace work in the last 6-8 weeks; grey: Canova specific period
+    volume_share_of_peak: { min: 0.80, max: 0.90 }   # race-specific flavour: volume -10-20%
+    key_sessions: [race_specific, endurance_long, tempo]
+  - kind: taper
+    purpose: "Taper: volume drops forty to sixty percent over two to three weeks while one session at marathon pace or faster and the usual session count are kept."
+    length: { fixed_days: 14 }   # Bosquet 2007: 2 weeks optimum; Smyth and Lawlor 2021: a strict 3-week taper pays for recreational marathoners
+    volume_share_of_peak: { min: 0.40, max: 0.60 }
+    key_sessions: [race_specific, endurance]
+taper: { days: { min: 14, max: 21 }, volume_cut: { min: 0.40, max: 0.60 }, keep_intensity: true, keep_frequency: true }
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }   # Sandbakk 2025: easy week every 3rd-4th week; 2:1 is practitioner advice for recovery-limited athletes (grey)
+recovery_week_cut: { min: 0.25, max: 0.35 }   # Sandbakk 2025: 25-35% fewer hours
+drop_order: [base, build, specialty]
+multi_peak: { b_race_mini_taper_days: { min: 3, max: 5 }, transition_weeks_after_a_race: 1 }   # grey: Friel; B races take a 3-5 day mini-taper, transition 1-4 weeks
+strength:
+  base: { goal: max, sessions_per_week: 2, purposes: [strength_max] }   # Storen 2008, Eihara 2022: heavy loads 2-3x/wk in base
+  build: { goal: maintain, sessions_per_week: 2, purposes: [strength_maint, plyometric] }   # Ronnestad 2010b, Saunders 2006: heavy maintenance plus one plyometric session
+  specialty: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # Ronnestad 2010b, Spiering 2021
+  taper: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # practice: one light session at least 4 days out
+evidence_refs:
+  - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+  - evidence/sports_science/training_prescription/muniz-pumares-2025-marathon-tid-by-level.md
+  - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+  - evidence/sports_science/training_prescription/doherty-2020-marathon-dose-response.md
+  - evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md
+  - evidence/sports_science/training_prescription/feely-2022-marathon-training-disruption.md
+  - evidence/sports_science/training_prescription/smyth-lawlor-2021-recreational-marathon-taper.md
+  - evidence/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/wang-2023-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/mujika-padilla-2003-taper.md
+  - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md
+  - evidence/sports_science/physiological/jones-kirby-2025-physiological-resilience.md
+  - evidence/sports_science/training_prescription/storen-2008-maximal-strength-running-economy.md
+  - evidence/sports_science/training_prescription/eihara-2022-heavy-vs-plyometric-runners.md
+  - evidence/sports_science/training_prescription/denadai-2017-plyometrics.md
+  - evidence/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md
+  - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md

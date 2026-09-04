@@ -1,0 +1,56 @@
+# ABOUTME: Basic plyometrics — hops, bounds and 20–40 cm drop jumps, 3–6 exercises × 3–5 sets × 5–10 contacts (60–120 contacts) twice a week
+# ABOUTME: Saunders 2006, Spurrs 2003 and Ramírez-Campillo 2014 supply the dose; cited through the Denadai 2017 and Eihara 2022 meta-analyses
+
+id = "aafc77b5-7cc3-52ba-ae57-285e81b7d390"
+slug = "plyo_basic"
+name = "Plyometrics — hops, bounds, drop jumps"
+sport = "strength_training"
+sport_variants = []
+duration_minutes = 40
+intensity_distribution = "polarized"
+purpose = "plyometric"
+evidence_tier = "rct"
+caveat = "Saunders 2006, Spurrs 2003 and Ramírez-Campillo 2014, the RCTs behind the dose, have no proposition in the corpus; the cited meta-analyses pool them."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/denadai-2017-plyometrics.md",
+  "evidence/sports_science/training_prescription/eihara-2022-heavy-vs-plyometric-runners.md",
+]
+
+[params]
+sets = { min = 3, max = 5, default = 3 }
+reps = { min = 5, max = 10, default = 8 }
+contacts = { min = 60, max = 120, default = 96 }
+load = "bodyweight; drop jumps from 20–40 cm"
+intensity_label = "short ground contacts, stiff ankles, full recovery between sets — quality of the bounce, never fatigue"
+
+[progression]
+order = ["add_contacts", "raise_intensity"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["tendinopathy", "acute_injury", "novice_first_season"]
+
+[target_zones]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy jog, ankle and hip drills, a few low pogo hops."
+
+[[structure]]
+label = "Plyometric set"
+duration_seconds = 120
+target_zone = "Plyometric"
+repeat = 12
+note = "4 exercises × 3 sets of 5–10 contacts — pogo hops, bounds, drop jumps from 20–40 cm, single-leg hops — with full recovery inside each two minutes."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 360
+target_zone = "Z1"
+note = "Easy walk and calf mobility."

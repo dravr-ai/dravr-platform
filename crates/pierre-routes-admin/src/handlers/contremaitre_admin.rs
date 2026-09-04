@@ -348,6 +348,7 @@ async fn handle_manual_sync(
             cageux_config_registry: &context.cageux_config_registry,
             messaging_strings_registry: &context.messaging_strings_registry,
             persona_contract_registry: &context.persona_contract_registry,
+            training_catalogue_registry: &context.training_catalogue_registry,
         },
         store.as_ref(),
     )

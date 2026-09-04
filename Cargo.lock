@@ -1361,8 +1361,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.7.4"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.7.4#ba5a17126ee5b17510f2e9664685eb1c95b50a12"
+version = "0.8.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.8.0#4e48fa379e32ca70760a9d3b819862543bd511b1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1373,6 +1373,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
  "tracing",
  "uuid",
 ]

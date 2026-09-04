@@ -1,0 +1,69 @@
+# ABOUTME: Sprint interval training — 4–8 × 30 s all-out with 4 min easy, an anaerobic-capacity and VO2max-maintenance dose for the transition period
+# ABOUTME: Yang 2025 network meta (SIT raises VO2max; recovery over ~97 s loses that effect, so the 4-min rest here trains anaerobic capacity, not VO2max) and Laursen 2002 (12 × 30 s at 175% PPO in trained cyclists)
+
+id = "056ed80c-daae-5eaf-a92b-38c5d4400303"
+slug = "sprint_interval"
+name = "Sprint intervals — 6 × 30 s all-out"
+sport = "ride"
+sport_variants = ["ride", "run"]
+duration_minutes = 50
+intensity_distribution = "vo2max"
+purpose = "sprint"
+evidence_tier = "meta_analysis"
+caveat = "Gibala 2006 and Almquist 2020 have no proposition in the corpus. Use sparingly in trained athletes: the VO2max gain is clear in the untrained and unclear in athletic males (Weston 2014)."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/yang-2025-interval-methods-network-meta.md",
+  "evidence/sports_science/training_prescription/laursen-2002-tmax-intervals-cyclists.md",
+]
+
+[params]
+reps = { min = 4, max = 8, default = 6 }
+work_seconds = { min = 30, max = 30, default = 30 }
+rest_seconds = { min = 240, max = 240, default = 240 }
+rpe = { min = 9, max = 10 }
+intensity_label = "all-out for 30 s, every rep; 4 min easy between so each one is a true sprint"
+
+[params.intensity]
+ride = "Z7"
+run = "Z7"
+
+[progression]
+order = ["add_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["transition"]
+readiness_min = "p2"
+max_per_week = 1
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "acute_injury"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy to Z2 with three 10 s accelerations at the end."
+
+[[structure]]
+label = "All-out sprint"
+duration_seconds = 30
+target_zone = "Sprint"
+repeat = 6
+note = "Maximal from the first second; hold on through the fade. RPE 9-10."
+
+[[structure]]
+label = "Recovery"
+duration_seconds = 240
+target_zone = "Z1"
+repeat = 6
+note = "Four minutes very easy."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 480
+target_zone = "Z1"
+note = "Easy until HR settles."

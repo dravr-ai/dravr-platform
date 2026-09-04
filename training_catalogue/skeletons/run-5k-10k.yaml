@@ -1,0 +1,55 @@
+# ABOUTME: Season skeleton for 5 km and 10 km runners: a pyramidal base, a polarized build and a short race-specific block before a 6-10 day taper
+# ABOUTME: Every number traces to the Training Design KB (Periodization, Sport Systems, TID, Strength notes); practitioner sources are marked grey in comments
+# A phase `length` is exactly one of: { fixed_weeks: N } | { fixed_days: N } | { share_of_weeks_to_goal: F, min_weeks: N, max_weeks: N }
+id: run-5k-10k
+event_classes: [run_5k, run_10k]
+hours_tiers: [from_4_to_6, from_6_to_10, over_10]   # under_4 resolves to the foundation family (Sport Systems < 4 h row) and the build here overrides to polarized, which needs four hours
+min_weeks: 12
+phases:
+  - kind: base
+    purpose: "Foundation: easy mileage grows around a weekly long run and strides, with one controlled tempo session kept below the second threshold."
+    length: { share_of_weeks_to_goal: 0.35, min_weeks: 4, max_weeks: 8 }   # grey: Daniels phase I, about 6 weeks
+    volume_share_of_peak: { min: 0.40, max: 0.60 }   # Haugen 2022: a build starts at 40-60% of peak volume
+    flavour_override: pyramidal   # Filipas 2022, Casado 2022: pyramidal in preparation
+    key_sessions: [endurance_long, endurance, tempo, neuromuscular]
+  - kind: build
+    purpose: "Aerobic power: two hard days a week of long VO2max intervals and threshold cruise work while the easy days stay easy and volume climbs toward its peak."
+    length: { share_of_weeks_to_goal: 0.35, min_weeks: 4, max_weeks: 8 }   # grey: Daniels phases II-III; Filipas 2022: 8-week polarized block
+    volume_share_of_peak: { min: 0.60, max: 1.00 }
+    flavour_override: polarized   # Filipas 2022, Casado 2022: polarized as the race approaches; 5-10 km is the most polarized event class
+    key_sessions: [vo2max_long, threshold, endurance_long, neuromuscular]
+  - kind: specialty
+    purpose: "Race specificity: short VO2max repeats and race-pace sessions sharpen speed while volume eases ten to twenty percent below its peak."
+    length: { share_of_weeks_to_goal: 0.20, min_weeks: 3, max_weeks: 6 }   # grey: Daniels phase IV; race-specific flavour covers the final 6-8 weeks
+    volume_share_of_peak: { min: 0.80, max: 0.90 }   # race-specific flavour: volume -10-20%
+    key_sessions: [vo2max_short, race_specific, threshold, endurance_long]
+  - kind: taper
+    purpose: "Taper: volume drops forty to sixty percent over about a week while one session at or above race intensity and the usual session count are kept."
+    length: { fixed_days: 7 }   # Periodization working rule: 6-10 days for 5-10 km; Spilsbury 2015 elite runners taper 6 days
+    volume_share_of_peak: { min: 0.40, max: 0.60 }
+    key_sessions: [race_specific, endurance]
+taper: { days: { min: 6, max: 10 }, volume_cut: { min: 0.40, max: 0.60 }, keep_intensity: true, keep_frequency: true }
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }   # Sandbakk 2025: easy week every 3rd-4th week; 2:1 is practitioner advice for recovery-limited athletes (grey)
+recovery_week_cut: { min: 0.25, max: 0.35 }   # Sandbakk 2025: 25-35% fewer hours
+drop_order: [base, build, specialty]
+multi_peak: { b_race_mini_taper_days: { min: 3, max: 5 }, transition_weeks_after_a_race: 1 }   # grey: Friel; B races take a 3-5 day mini-taper, transition 1-4 weeks
+strength:
+  base: { goal: max, sessions_per_week: 2, purposes: [strength_max] }   # Storen 2008, Eihara 2022: heavy loads 2-3x/wk in base
+  build: { goal: maintain, sessions_per_week: 2, purposes: [strength_maint, plyometric] }   # Ronnestad 2010b, Saunders 2006: heavy maintenance plus one plyometric session
+  specialty: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # Ronnestad 2010b, Spiering 2021: one heavy low-volume session keeps the gain
+  taper: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # practice: one light session at least 4 days out
+evidence_refs:
+  - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+  - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+  - evidence/sports_science/training_prescription/filipas-2022-pyramidal-then-polarized.md
+  - evidence/sports_science/training_prescription/rosenblat-2025-tid-ipd-network-meta.md
+  - evidence/sports_science/training_prescription/seiler-2013-interval-duration-4x8.md
+  - evidence/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/wang-2023-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/mujika-padilla-2003-taper.md
+  - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md
+  - evidence/sports_science/training_prescription/storen-2008-maximal-strength-running-economy.md
+  - evidence/sports_science/training_prescription/eihara-2022-heavy-vs-plyometric-runners.md
+  - evidence/sports_science/training_prescription/denadai-2017-plyometrics.md
+  - evidence/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md
+  - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md

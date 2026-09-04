@@ -1,0 +1,79 @@
+# ABOUTME: Race-pace long — a long session carrying two blocks at goal race pace or power (purpose race_specific)
+# ABOUTME: Authored from the KB race-specific table; specialty and peak, the last 6–8 weeks before the goal
+
+id = "c9aaf942-45b6-53e2-b007-12d1657869de"
+slug = "race_pace_long"
+name = "Race-Pace Long — 2 blocks at goal pace"
+sport = "run"
+sport_variants = ["run", "ride"]
+duration_minutes = 115
+intensity_distribution = "pyramid"
+purpose = "race_specific"
+evidence_tier = "review"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md",
+  "evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md",
+]
+
+[params]
+duration_minutes = { min = 90, max = 180, default = 115 }
+reps = { min = 2, max = 2, default = 2 }
+work_seconds = { min = 1200, max = 2400, default = 1500 }
+rpe = { min = 6, max = 8 }
+intensity_label = "goal race pace or power: 2 × 5–8 km (run) or 2 × 20–40 min (bike) inside a long session; marathon long runs sit slightly below MP"
+
+[params.intensity]
+run = "tempo"
+ride = "tempo"
+
+[progression]
+order = ["lengthen_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "specialty", "peak", "taper"]
+readiness_min = "p2"
+max_per_week = 1
+min_spacing_hours = 48
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.88, 0.95, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy, building to steady."
+
+[[structure]]
+label = "Easy running"
+duration_seconds = 1800
+target_zone = "Z2"
+note = "Aerobic and relaxed; fuel as you will on race day."
+
+[[structure]]
+label = "Race-pace block 1"
+duration_seconds = 1500
+distance_meters = 5000.0
+target_zone = "Tempo"
+note = "Goal race pace, even and controlled."
+
+[[structure]]
+label = "Easy between blocks"
+duration_seconds = 600
+target_zone = "Z2"
+note = "Back to aerobic; keep moving."
+
+[[structure]]
+label = "Race-pace block 2"
+duration_seconds = 1500
+distance_meters = 5000.0
+target_zone = "Tempo"
+note = "Goal race pace again, on tired legs — the point of the session."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy until HR is back in Z1."

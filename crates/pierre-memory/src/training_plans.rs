@@ -32,8 +32,8 @@
 //! semantics) and never a playbook (not evidence-scored).
 
 use chrono::{DateTime, NaiveDate, Utc};
+use pierre_core::models::periodization::serde_num::{whole_u32_opt, whole_u8};
 use pierre_core::models::{FuelingProtocol, WorkoutStep};
-use pierre_core::serde_num::{whole_u32_opt, whole_u8};
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle of a [`TrainingPlan`] outline.

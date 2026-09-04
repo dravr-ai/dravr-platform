@@ -1,0 +1,57 @@
+# ABOUTME: Swim-specific dry-land strength — low-volume, high-velocity or high-force pull and press, plus resisted swims in the water for stroke rate
+# ABOUTME: Crowley 2017 systematic review (specific, low-volume work transfers; resisted swims for stroke rate) — correlational evidence in swimmers
+
+id = "2f10ecdf-8c51-510b-804c-a16906ac1acf"
+slug = "swim_dryland"
+name = "Swim dry-land — pull, press, resisted swims"
+sport = "strength_training"
+sport_variants = []
+duration_minutes = 50
+intensity_distribution = "polarized"
+purpose = "strength_max"
+evidence_tier = "review"
+caveat = "Crowley 2017, a systematic review resting on correlational evidence in swimmers, has no proposition in the corpus; the cited proposition supports heavy, low-volume strength work in general, not swim transfer."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/schoenfeld-2017-strength-training.md",
+]
+
+[params]
+load = "sport-specific: low volume, high velocity or high force"
+intensity_label = "pull-ups, bench press or cable pull-downs moved fast and heavy in low volume; then resisted swims for stroke rate"
+
+[progression]
+order = []
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["shoulder_pain"]
+
+[target_zones]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Band work for the shoulders and easy movement."
+
+[[structure]]
+label = "Pull and press"
+duration_seconds = 1200
+target_zone = "Strength"
+note = "Low-volume, high-velocity or high-force sets — pull-ups, cable pull-downs, bench press — full recovery between sets."
+
+[[structure]]
+label = "Resisted swims"
+duration_seconds = 900
+target_zone = "Anaerobic"
+note = "Short resisted efforts in the water at high stroke rate, with easy swimming between."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy swim or walk."

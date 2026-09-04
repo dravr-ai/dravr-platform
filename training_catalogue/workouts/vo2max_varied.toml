@@ -1,0 +1,68 @@
+# ABOUTME: Time near VO2max on the bike — 5 × 5 min with within-rep surges alternating 100% and 110–115% FTP, 3 min easy between
+# ABOUTME: Varied-intensity structures rank high for time above 90% VO2max (Held 2026, Bossi 2020); cited through the interval-methods network meta
+
+id = "fb0acf5a-0601-57ab-94a5-881884f65ab3"
+slug = "vo2max_varied"
+name = "VO2max — 5 × 5 min with surges"
+sport = "ride"
+sport_variants = []
+duration_minutes = 65
+intensity_distribution = "vo2max"
+purpose = "vo2max_long"
+evidence_tier = "meta_analysis"
+caveat = "The varied-intensity ranking comes from Held 2026 (network meta-analysis) and Bossi 2020 (acute crossover), neither with a proposition in the corpus; the cited propositions support interval training generally and long intervals in trained cyclists, not the surges themselves."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/yang-2025-interval-methods-network-meta.md",
+  "evidence/sports_science/training_prescription/seiler-2013-interval-duration-4x8.md",
+]
+
+[params]
+reps = { min = 5, max = 5, default = 5 }
+work_seconds = { min = 300, max = 300, default = 300 }
+rest_seconds = { min = 180, max = 180, default = 180 }
+rpe = { min = 8, max = 9 }
+intensity_label = "inside each 5-min rep alternate 1 min at 110–115% FTP with 1 min at 100% FTP; 3 min easy between reps"
+
+[params.intensity]
+ride = "100-115%"
+
+[progression]
+order = ["add_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "peak"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "acute_injury"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy spin to Z2; two 30 s openers near threshold."
+
+[[structure]]
+label = "Surge rep"
+duration_seconds = 300
+target_zone = "VO2max"
+repeat = 5
+note = "1 min at 110–115% FTP, 1 min at 100% FTP, alternating for five minutes. RPE 8-9."
+
+[[structure]]
+label = "Recovery"
+duration_seconds = 180
+target_zone = "Z1"
+repeat = 5
+note = "Three minutes easy."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Spin out the legs."

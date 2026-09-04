@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::contremaitre::init_contremaitre_registries;
+use super::contremaitre::{init_contremaitre_registries, ContremaitreRegistrySet};
 use super::ServerContext;
 use super::ServerContextOptions;
 #[cfg(feature = "protocol-a2a")]
@@ -313,17 +313,18 @@ impl ServerContext {
             Self::build_command_registries();
 
         // Initialize contremaitre registries (prompts + tool descriptions +
-        // evidence). The cageux config registry is passed in so the
+        // evidence + training catalogue). The cageux config registry is passed in so the
         // contremaitre sync can also overlay its snapshot. The GitHub/GCS
         // overlay runs in the background (off this bind path), so a slow sync
         // never stalls startup; registries serve compiled-in defaults until
         // the first background tick converges.
-        let (
-            contremaitre_prompt_registry,
-            contremaitre_tool_desc_registry,
-            contremaitre_evidence_registry,
-            contremaitre_messaging_strings_registry,
-        ) = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
+        let ContremaitreRegistrySet {
+            prompt: contremaitre_prompt_registry,
+            tool_desc: contremaitre_tool_desc_registry,
+            evidence: contremaitre_evidence_registry,
+            messaging_strings: contremaitre_messaging_strings_registry,
+            training_catalogue: contremaitre_training_catalogue_registry,
+        } = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
 
         // Push that same catalogue to Telegram's `/` menu, per locale and as
         // two lists each: the default scope every chat falls back to, and a
@@ -593,6 +594,7 @@ impl ServerContext {
             tool_description_registry: contremaitre_tool_desc_registry,
             evidence_registry: contremaitre_evidence_registry,
             messaging_strings_registry: contremaitre_messaging_strings_registry,
+            training_catalogue_registry: contremaitre_training_catalogue_registry,
             #[cfg(feature = "client-messaging")]
             backfill_notifier,
             #[cfg(feature = "client-messaging")]

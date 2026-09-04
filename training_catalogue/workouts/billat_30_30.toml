@@ -1,0 +1,68 @@
+# ABOUTME: Time at VO2max for running — 15–30 × 30 s at 100–105% vVO2max with 30 s jog at 50% vVO2max
+# ABOUTME: Billat 2000 acute work and Millet 2003 (105% doubles time above 90% VO2max); no proposition of its own, tier review with caveat
+
+id = "a1de7de6-dd0f-5ac2-94a3-2b11ccdbd30a"
+slug = "billat_30_30"
+name = "Billat 30/30 — 20 × 30 s at vVO2max"
+sport = "run"
+sport_variants = []
+duration_minutes = 45
+intensity_distribution = "vo2max"
+purpose = "vo2max_short"
+evidence_tier = "review"
+caveat = "Rests on Billat's review and acute crossover studies (Billat 2000, Millet 2003, Rozenek 2007), none of which has a proposition in the corpus; the cited propositions cover short intervals in cyclists and interval methods generally, not the 30/30 itself."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/ronnestad-2015-30-15-short-intervals.md",
+  "evidence/sports_science/training_prescription/yang-2025-interval-methods-network-meta.md",
+]
+
+[params]
+reps = { min = 15, max = 30, default = 20 }
+work_seconds = { min = 30, max = 30, default = 30 }
+rest_seconds = { min = 30, max = 30, default = 30 }
+rpe = { min = 8, max = 8 }
+intensity_label = "100–105% vVO2max on the fast 30 s; a 50% vVO2max jog on the slow 30 s — 105% doubles the time spent above 90% VO2max"
+
+[params.intensity]
+run = "Z5"
+
+[progression]
+order = ["add_rep", "raise_intensity"]
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "specialty", "peak"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "acute_injury"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy jog building to Z2; 4 × 20 s strides at the end."
+
+[[structure]]
+label = "30 s at vVO2max"
+duration_seconds = 30
+target_zone = "VO2max"
+repeat = 20
+note = "Your VO2max-test speed, 100–105%; relaxed and even, never sprinting."
+
+[[structure]]
+label = "30 s jog"
+duration_seconds = 30
+target_zone = "Z1"
+repeat = 20
+note = "Half of vVO2max — a real jog, not a walk."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy jog until HR settles."

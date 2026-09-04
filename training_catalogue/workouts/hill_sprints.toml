@@ -1,0 +1,67 @@
+# ABOUTME: Maximal hill sprints — 8–12 × 8–12 s all-out uphill with full walking recovery, once a week in base and build
+# ABOUTME: Power, economy and injury resilience (Barnes 2013 uphill dose-response); the corpus proposition cited (Barnes & Kilding 2015) covers mileage and economy only
+
+id = "1fc82266-c0fd-5a48-a1fc-1bccba74ce0d"
+slug = "hill_sprints"
+name = "Hill sprints — 10 × 10 s"
+sport = "run"
+sport_variants = []
+duration_minutes = 55
+intensity_distribution = "polarized"
+purpose = "neuromuscular"
+evidence_tier = "rct"
+caveat = "Barnes 2013, the dose-response RCT of uphill intervals, has no proposition in the corpus; the only Barnes & Kilding 2015 proposition covers mileage and economy, not uphill work, so the format rests on the knowledge-base evidence table alone."
+evidence_refs = [
+  "evidence/sports_science/physiological/barnes-kilding-2015-running-economy.md",
+]
+
+[params]
+reps = { min = 8, max = 12, default = 10 }
+work_seconds = { min = 8, max = 12, default = 10 }
+rest_seconds = { min = 120, max = 180, default = 150 }
+rpe = { min = 9, max = 9 }
+intensity_label = "maximal effort uphill for 8–12 s; walk back and rest until fully recovered, 2–3 min"
+
+[params.intensity]
+run = "Z7"
+
+[progression]
+order = ["add_rep", "raise_intensity"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p2"
+max_per_week = 1
+min_spacing_hours = 48
+contraindications = ["acute_injury", "tendinopathy"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 1200
+target_zone = "Z1"
+note = "Easy jog to a steep hill; drills and 4 × 20 s strides before the first sprint."
+
+[[structure]]
+label = "Hill sprint"
+duration_seconds = 10
+target_zone = "Sprint"
+repeat = 10
+note = "All-out from the first step, driving the arms; stop at 10 s."
+
+[[structure]]
+label = "Walk back"
+duration_seconds = 150
+target_zone = "Z1"
+repeat = 10
+note = "Walk down and wait until you feel fully recovered — quality over density."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 500
+target_zone = "Z1"
+note = "Easy jog home."

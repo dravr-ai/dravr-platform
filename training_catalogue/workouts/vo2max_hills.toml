@@ -1,0 +1,66 @@
+# ABOUTME: VO2max plus economy for runners — 6–10 × 60–90 s hard uphill on a 4–8% grade, jogging back down to recover
+# ABOUTME: Barnes 2013 uphill-interval dose-response (economy +2.4% at the highest intensity); the corpus proposition cited (Barnes & Kilding 2015) covers mileage and economy only
+
+id = "edaee986-3495-5794-af46-110d2016f282"
+slug = "vo2max_hills"
+name = "VO2max hills — 8 × 60–90 s uphill"
+sport = "run"
+sport_variants = []
+duration_minutes = 50
+intensity_distribution = "vo2max"
+purpose = "vo2max_short"
+evidence_tier = "rct"
+caveat = "Barnes 2013, the dose-response RCT of uphill intervals, has no proposition in the corpus; the only Barnes & Kilding 2015 proposition covers mileage and economy, not uphill work, so the format rests on the knowledge-base evidence table alone."
+evidence_refs = [
+  "evidence/sports_science/physiological/barnes-kilding-2015-running-economy.md",
+]
+
+[params]
+reps = { min = 6, max = 10, default = 8 }
+work_seconds = { min = 60, max = 90, default = 60 }
+rpe = { min = 8, max = 8 }
+intensity_label = "hard, above threshold, on a 4–8% grade; the jog back down is the recovery"
+
+[params.intensity]
+run = "Z5"
+
+[progression]
+order = ["add_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "acute_injury"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy jog to the hill; 4 × 20 s strides on the flat."
+
+[[structure]]
+label = "Uphill rep"
+duration_seconds = 60
+target_zone = "VO2max"
+repeat = 8
+note = "Hard and tall on a 4–8% grade — strong arms, quick feet. RPE 8."
+
+[[structure]]
+label = "Jog back down"
+duration_seconds = 120
+target_zone = "Z1"
+repeat = 8
+note = "Easy jog to the bottom; start the next rep when you get there."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy jog on the flat."

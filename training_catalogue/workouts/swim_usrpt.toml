@@ -1,0 +1,67 @@
+# ABOUTME: Swim USRPT — 20–30 × 50 m at goal race pace with 15–20 s rests, stopping at the first failed rep (purpose race_specific)
+# ABOUTME: Authored from the KB multisport table; peak and taper phases; Rushall's protocol is grey, not peer-reviewed
+
+id = "7fc590ec-be7b-5085-a499-a98fa7245310"
+slug = "swim_usrpt"
+name = "Swim — USRPT 50s"
+sport = "swim"
+sport_variants = []
+duration_minutes = 35
+intensity_distribution = "vo2max"
+purpose = "race_specific"
+evidence_tier = "grey"
+caveat = "Rushall's ultra-short race-pace training protocol is not peer-reviewed; no proposition in the corpus supports it, so none is cited."
+evidence_refs = []
+
+[params]
+duration_minutes = { min = 30, max = 45, default = 35 }
+reps = { min = 20, max = 30, default = 20 }
+work_seconds = { min = 40, max = 40, default = 40 }
+rest_seconds = { min = 15, max = 20, default = 20 }
+rpe = { min = 8, max = 9 }
+intensity_label = "goal race pace for the target event (100–200 m); stop the set at the first rep that misses the pace"
+
+[params.intensity]
+swim = "Z5"
+
+[progression]
+order = ["add_rep"]
+max_weekly_step = 1
+
+[fit]
+# taper: the taper rule keeps one session at race intensity and this is the swim race-pace set
+phases = ["peak", "taper"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["shoulder_pain"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy swimming, a few build 50s at the end."
+
+[[structure]]
+label = "50 m at race pace"
+duration_seconds = 40
+distance_meters = 50.0
+target_zone = "VO2max"
+repeat = 20
+note = "Exactly goal race pace — not faster. The first rep you cannot hold ends the set."
+
+[[structure]]
+label = "Rest"
+duration_seconds = 20
+target_zone = "Z1"
+repeat = 20
+note = "Twenty seconds on the wall."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy swimming, any stroke."

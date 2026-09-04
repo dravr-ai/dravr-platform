@@ -188,7 +188,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, moved symbols, worktree lib, dev process scope, tunnel env, tier selection, evidence sync, deploy ancestry)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, moved symbols, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -198,7 +198,7 @@ jobs:
           ./scripts/ci/dev-process-scope.test.sh
           ./scripts/ci/tunnel-env-lib.test.sh
           ./scripts/ci/pre-push-validate.test.sh
-          ./scripts/ci/sync-evidence-corpus.test.sh
+          ./scripts/ci/sync-contremaitre-fallback.test.sh
           ./scripts/ci/check-deploy-ancestry.test.sh
 
       # The dev scripts decide which processes a stop may kill and which files a

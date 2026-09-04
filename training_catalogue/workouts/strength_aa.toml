@@ -1,0 +1,54 @@
+# ABOUTME: Anatomical adaptation — 4–6 exercises × 2–3 sets × 12–15 reps at light-to-moderate load, twice a week for 3–4 weeks before heavy lifting
+# ABOUTME: Friel's AA phase is convention (grey); the load band mirrors the 8–12-rep opening block of the heavy-strength programmes that follow it
+
+id = "99094e92-87e7-535f-a30b-044404427b09"
+slug = "strength_aa"
+name = "Anatomical adaptation — 5 × 2 × 12–15"
+sport = "strength_training"
+sport_variants = []
+duration_minutes = 45
+intensity_distribution = "polarized"
+purpose = "strength_aa"
+evidence_tier = "grey"
+caveat = "Friel's anatomical-adaptation phase is convention (grey), and Luckin-Baldwin 2021 (8–12 reps at 75% 1RM or less in weeks 0–12) has no proposition in the corpus; the cited proposition supports the progressive-load programmes this phase opens, not the phase itself."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/llanos-lagos-2026-heavy-strength-prescription.md",
+]
+
+[params]
+sets = { min = 2, max = 3, default = 2 }
+reps = { min = 12, max = 15, default = 12 }
+load = "light to moderate, RPE 6"
+intensity_label = "4–6 exercises as a circuit — squat, hinge, lunge, calf raise, core — moving well before moving heavy"
+
+[progression]
+order = ["add_set"]
+max_weekly_step = 1
+
+[fit]
+phases = ["transition", "prep", "base"]
+readiness_min = "p1"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = []
+
+[target_zones]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy movement, then one light set of each exercise."
+
+[[structure]]
+label = "Circuit round"
+duration_seconds = 900
+target_zone = "Strength"
+repeat = 2
+note = "Squat, hinge, lunge, calf raise, core — 12–15 reps each at a light-to-moderate load, RPE 6; the movement quality is the point."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy walk and light mobility."

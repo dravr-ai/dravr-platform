@@ -1,0 +1,103 @@
+# ABOUTME: Short-interval VO2max for cycling — 3 series of 13 × 30/15 s, 15 s float in-series and 3 min between series
+# ABOUTME: Rønnestad 2015: effort-matched 30/15 raised VO2max +8.7% versus +2.6% for 4 × 5 min; also runs as a 6-day block
+
+id = "4b9c97a8-91d6-51bc-99d1-5454f2f8269b"
+slug = "vo2max_30_15"
+name = "VO2max — 3 × 13 × 30/15 s"
+sport = "ride"
+sport_variants = []
+duration_minutes = 60
+intensity_distribution = "vo2max"
+purpose = "vo2max_short"
+evidence_tier = "rct"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/ronnestad-2015-30-15-short-intervals.md",
+]
+
+[params]
+sets = { min = 3, max = 4, default = 3 }
+reps = { min = 13, max = 13, default = 13 }
+work_seconds = { min = 30, max = 30, default = 30 }
+rest_seconds = { min = 15, max = 15, default = 15 }
+rpe = { min = 8, max = 8 }
+intensity_label = "as hard as you can sustain for the whole series — typically 118% FTP or more on the 30 s; 3 min easy between series"
+
+[params.intensity]
+ride = "Z5"
+
+[progression]
+order = ["add_set", "raise_intensity"]
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "peak"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "acute_injury", "no_interval_experience"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy spin to Z2 with a few 15 s surges at the end."
+
+[[structure]]
+label = "Series 1 — 30 s on"
+duration_seconds = 30
+target_zone = "VO2max"
+repeat = 13
+note = "Hardest power you can repeat 13 times; the same for every rep."
+
+[[structure]]
+label = "Series 1 — 15 s float"
+duration_seconds = 15
+target_zone = "Z1"
+repeat = 13
+note = "Keep the legs turning, no coasting."
+
+[[structure]]
+label = "Between series"
+duration_seconds = 180
+target_zone = "Z1"
+note = "Three minutes easy."
+
+[[structure]]
+label = "Series 2 — 30 s on"
+duration_seconds = 30
+target_zone = "VO2max"
+repeat = 13
+
+[[structure]]
+label = "Series 2 — 15 s float"
+duration_seconds = 15
+target_zone = "Z1"
+repeat = 13
+
+[[structure]]
+label = "Between series"
+duration_seconds = 180
+target_zone = "Z1"
+note = "Three minutes easy."
+
+[[structure]]
+label = "Series 3 — 30 s on"
+duration_seconds = 30
+target_zone = "VO2max"
+repeat = 13
+
+[[structure]]
+label = "Series 3 — 15 s float"
+duration_seconds = 15
+target_zone = "Z1"
+repeat = 13
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Spin out the legs."

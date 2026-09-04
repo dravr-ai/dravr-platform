@@ -1,0 +1,66 @@
+# ABOUTME: Norwegian threshold-density flavour — three to four lactate-capped threshold interval sessions a week, at most one above LT2
+# ABOUTME: Numbers from the TID Models flavour table (70-78 / 20-25 / 3-5) and the Norwegian Method note; gated on a lactate meter or power with heart rate
+id: norwegian-threshold-density
+family: lactate_guided
+sequencing: linear
+modifiers: []
+evidence_tier: review
+caveat: "No controlled trial supports the double-threshold week; the evidence is observational and coach-reported, and it was described at 130 to 220 km a week."
+tid_targets:
+  base:
+    z1: { min: 0.70, max: 0.78 }
+    z2: { min: 0.20, max: 0.25 }
+    z3: { min: 0.03, max: 0.05 }
+  build:
+    z1: { min: 0.70, max: 0.78 }
+    z2: { min: 0.20, max: 0.25 }
+    z3: { min: 0.03, max: 0.05 }
+hard_sessions_per_week:
+  min: 3
+  max: 3
+  recovery_limited_max: 2
+  max_by_sessions_per_week:
+    - { from_sessions: 10, max: 4 }
+min_spacing_hours_between_hard: { default: 48, recovery_limited: 72 }
+session_mix:
+  base:
+    endurance: 6
+    endurance_long: 1
+    threshold: 3
+    vo2max_short: 1
+    recovery: 1
+    strength_maint: 1
+  build:
+    endurance: 5
+    endurance_long: 1
+    threshold: 3
+    vo2max_long: 1
+    neuromuscular: 1
+    recovery: 1
+    strength_maint: 1
+prerequisites:
+  min_hours_per_week: 10.0
+  min_sessions_per_week: 8
+  measurement: [[lactate], [power, hr]]
+  min_training_age_years: 3.0
+contraindications: [novice_first_season, no_interval_experience, acute_injury, recovery_limited]
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }
+readiness_substitution:
+  p0:
+    purposes: [recovery]
+    max_hard_sessions_per_week: 0
+  p1:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint]
+    max_hard_sessions_per_week: 0
+  p2:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, threshold, vo2max_long, vo2max_short, neuromuscular]
+    max_hard_sessions_per_week: 1
+  p3:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, threshold, vo2max_long, vo2max_short, neuromuscular]
+    max_hard_sessions_per_week: 3
+max_weeks: null
+evidence_refs:
+  - evidence/sports_science/training_prescription/casado-2023-lactate-guided-threshold-model.md
+  - evidence/sports_science/training_prescription/tonnessen-2024-norwegian-coach-session-models.md
+  - evidence/sports_science/training_prescription/tjelta-2019-norwegian-elite.md
+  - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md

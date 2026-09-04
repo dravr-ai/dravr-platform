@@ -1,0 +1,70 @@
+# ABOUTME: Tempo progression — endurance that finishes with 15–40 min at tempo to threshold (purpose tempo, the progression_run row)
+# ABOUTME: Regrown legacy cornerstone: keeps its slug, id and default instance, adds the catalogue layer
+
+id = "00000000-0000-0000-0000-000000000005"
+slug = "tempo_progression"
+name = "Tempo Progression"
+sport = "run"
+sport_variants = ["run", "ride"]
+duration_minutes = 60
+intensity_distribution = "pyramid"
+purpose = "tempo"
+evidence_tier = "grey"
+caveat = "Canova-style practitioner prescription with no trial of its own; the durability rationale (a progressive rise in intensity under fatigue) comes from the Jones & Kirby 2025 review."
+evidence_refs = [
+  "evidence/sports_science/physiological/jones-kirby-2025-physiological-resilience.md",
+]
+
+[params]
+duration_minutes = { min = 60, max = 120, default = 60 }
+work_seconds = { min = 900, max = 2400, default = 1800 }
+rpe = { min = 4, max = 7 }
+intensity_label = "endurance, then the last 15–40 min finishing at 85–100% of LT2 pace"
+
+[params.intensity]
+run = "85-100%"
+ride = "85-100%"
+
+[progression]
+order = ["lengthen_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "specialty", "peak"]
+readiness_min = "p2"
+max_per_week = 1
+min_spacing_hours = 48
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.88, 0.95, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Conversational pace."
+
+[[structure]]
+label = "Tempo block 1"
+duration_seconds = 900
+target_zone = "Z2"
+note = "Steady aerobic, just below 'comfortable'."
+
+[[structure]]
+label = "Tempo block 2"
+duration_seconds = 900
+target_zone = "Tempo"
+note = "Lift to controlled tempo (Z3 lower band). RPE 6."
+
+[[structure]]
+label = "Tempo block 3"
+duration_seconds = 900
+target_zone = "Tempo"
+note = "Hold the same pace; HR will drift. Resist the urge to slow."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy back to Z1; long stretch optional."

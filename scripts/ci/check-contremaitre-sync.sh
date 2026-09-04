@@ -24,6 +24,12 @@
 #      EXPECTED_TOOLS (contremaitre_test), the hardcoded count assertion
 #      (configuration_mcp_integration_test), and the generated TS SDK types
 #      (packages/mcp-types/src/tools.ts, whose staleness reds CI: TypeScript SDK).
+#   4. Framing — the shipped tool descriptions and coach prompts carry no
+#      retired ACWR-as-injury-risk or absolute-TSB framing.
+#   5. Evidence corpus — the in-tree fallback mirrors canonical evidence/.
+#   6. Training catalogue — training_catalogue/ mirrors canonical training/ when
+#      the pinned rev carries one, and the generated include table in
+#      pierre-contremaitre names exactly the files on disk, per kind.
 #
 # Known blind spot: an event or tool whose name is built at runtime rather than
 # written as a literal is invisible to a static scan. Check 3 defends against
@@ -424,6 +430,113 @@ PYEVID
     else
         EVID_COUNT="$(find crates/pierre-evals/fixtures/sports_science -name '*.md' ! -name README.md | wc -l | tr -d ' ')"
         echo -e "${GREEN}✅ Evidence corpus: all ${EVID_COUNT} propositions match canonical evidence/.${NC}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 6: the in-tree training catalogue matches canonical training/ and its
+#          generated include table
+# ---------------------------------------------------------------------------
+# training_catalogue/ at the repo root is the compile-time fallback for the
+# TrainingCatalogueRegistry, kept by the same bump-time sync as the evidence
+# corpus (scripts/ci/sync-contremaitre-fallback.sh). Two things can drift:
+# the tree against canonical training/ — checked only when the pinned rev
+# carries one, since the seed lands in the platform before contremaitre does —
+# and the generated table crates/pierre-contremaitre/src/
+# training_catalogue_embedded.rs against the tree, which is checked always: a
+# file on disk the table does not name is invisible to Rust, a name the disk
+# lacks is a compile error on the next build, and anything but the four
+# catalogue shapes under the tree is outside the contract.
+TRAINING_DRIFT="$(python3 - "${CM_ROOT:-}" <<'PYTRAIN'
+import pathlib, re, sys
+cm_root = sys.argv[1]
+mine = pathlib.Path("training_catalogue")
+table = pathlib.Path("crates/pierre-contremaitre/src/training_catalogue_embedded.rs")
+SHAPES = {"flavours": ".yaml", "skeletons": ".yaml", "workouts": ".toml"}
+hits = []
+
+if not mine.is_dir():
+    hits.append("training_catalogue/ is missing")
+if not table.is_file():
+    hits.append(f"{table} is missing — run scripts/ci/sync-contremaitre-fallback.sh")
+if hits:
+    print("\n".join(hits))
+    sys.exit(0)
+
+# The tree: only the four shapes may exist, and selection.yaml must.
+on_disk = {kind: set() for kind in SHAPES}
+for f in sorted(p for p in mine.rglob("*") if p.is_file()):
+    rel = f.relative_to(mine)
+    parts = rel.parts
+    if len(parts) == 1 and parts[0] == "selection.yaml":
+        continue
+    if len(parts) == 2 and parts[0] in SHAPES and f.suffix == SHAPES[parts[0]]:
+        on_disk[parts[0]].add(f.stem)
+        continue
+    hits.append(f"{rel}: not one of the four catalogue shapes (flavours/*.yaml, skeletons/*.yaml, workouts/*.toml, selection.yaml)")
+if not (mine / "selection.yaml").is_file():
+    hits.append("selection.yaml: missing from training_catalogue/")
+
+# The table: one const per kind, each entry (slug, include_str!(path)).
+text = table.read_text(encoding="utf-8")
+CONSTS = {"flavours": "EMBEDDED_FLAVOURS", "skeletons": "EMBEDDED_SKELETONS", "workouts": "EMBEDDED_WORKOUTS"}
+entry = re.compile(r'\(\s*"([^"]+)",\s*include_str!\("([^"]+)"\)\s*,?\s*\)')
+for kind, const in CONSTS.items():
+    m = re.search(r"const %s: &\[\(&str, &str\)\] = &\[(.*?)\];" % const, text, re.S)
+    if not m:
+        hits.append(f"{table}: {const} not found — regenerate the table")
+        continue
+    in_table = {}
+    for slug, path in entry.findall(m.group(1)):
+        in_table[slug] = path
+        expect = f"../../../training_catalogue/{kind}/{slug}{SHAPES[kind]}"
+        if path != expect:
+            hits.append(f"{const}: {slug} includes {path}, expected {expect}")
+    for slug in sorted(on_disk[kind] - set(in_table)):
+        hits.append(f"{const}: {kind}/{slug}{SHAPES[kind]} is on disk but not in the table")
+    for slug in sorted(set(in_table) - on_disk[kind]):
+        hits.append(f"{const}: names {slug} but {kind}/{slug}{SHAPES[kind]} is not on disk")
+    listed = [slug for slug, _ in entry.findall(m.group(1))]
+    if listed != sorted(listed):
+        hits.append(f"{const}: entries are not sorted by slug")
+if 'include_str!("../../../training_catalogue/selection.yaml")' not in text:
+    hits.append(f"{table}: EMBEDDED_SELECTION does not include training_catalogue/selection.yaml")
+
+# The mirror, only when the pinned rev carries training/.
+canon = pathlib.Path(cm_root) / "training" if cm_root else None
+if canon is not None and canon.is_dir():
+    canon_files = {p.relative_to(canon) for p in canon.rglob("*") if p.is_file()}
+    mine_files = {p.relative_to(mine) for p in mine.rglob("*") if p.is_file()}
+    for rel in sorted(canon_files - mine_files):
+        hits.append(f"{rel}: in canonical training/ but absent from training_catalogue/")
+    for rel in sorted(mine_files - canon_files):
+        hits.append(f"{rel}: in training_catalogue/ but not in canonical training/")
+    for rel in sorted(canon_files & mine_files):
+        if (canon / rel).read_bytes() != (mine / rel).read_bytes():
+            hits.append(f"{rel}: bytes differ from canonical training/")
+    print("MIRRORED")
+print("\n".join(hits))
+PYTRAIN
+)"
+
+TRAINING_MIRRORED=false
+if [[ "$TRAINING_DRIFT" == MIRRORED* ]]; then
+    TRAINING_MIRRORED=true
+    TRAINING_DRIFT="${TRAINING_DRIFT#MIRRORED}"
+    TRAINING_DRIFT="${TRAINING_DRIFT#$'\n'}"
+fi
+if [[ -n "$TRAINING_DRIFT" ]]; then
+    echo -e "${RED}❌ Training catalogue drift:${NC}"
+    printf '%s\n' "$TRAINING_DRIFT" | sed 's/^/   /'
+    echo -e "${YELLOW}   Run scripts/ci/sync-contremaitre-fallback.sh — it mirrors canonical training/ into${NC}"
+    echo -e "${YELLOW}   training_catalogue/ and regenerates the include table from the tree on disk.${NC}"
+    FAILED=true
+else
+    TRAIN_COUNT="$(find training_catalogue -type f | wc -l | tr -d ' ')"
+    if [[ "$TRAINING_MIRRORED" == "true" ]]; then
+        echo -e "${GREEN}✅ Training catalogue: all ${TRAIN_COUNT} files match canonical training/ and the include table.${NC}"
+    else
+        echo -e "${GREEN}✅ Training catalogue: the include table names all ${TRAIN_COUNT} files on disk (pinned rev carries no training/ to mirror).${NC}"
     fi
 fi
 

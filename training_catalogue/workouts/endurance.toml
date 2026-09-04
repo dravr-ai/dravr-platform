@@ -1,0 +1,59 @@
+# ABOUTME: Endurance — continuous aerobic session below LT1, the bulk of all training volume (purpose endurance)
+# ABOUTME: Authored from the KB endurance-family table; 45–120 min at RPE 3–5, any phase
+
+id = "ae8b80c6-de4b-5fdf-bc09-7a6d64e6879a"
+slug = "endurance"
+name = "Endurance — steady aerobic"
+sport = "run"
+sport_variants = ["run", "ride", "swim"]
+duration_minutes = 60
+intensity_distribution = "polarized"
+purpose = "endurance"
+evidence_tier = "cohort"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md",
+  "evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md",
+  "evidence/sports_science/training_prescription/casado-2021-world-class-distance.md",
+]
+
+[params]
+duration_minutes = { min = 45, max = 120, default = 60 }
+rpe = { min = 3, max = 5 }
+intensity_label = "< LT1 · 65–79% HRmax · 56–75% FTP"
+
+[params.intensity]
+swim = "Z2"
+run = "Z2"
+ride = "56-75%"
+
+[progression]
+order = ["lengthen_duration"]
+max_weekly_step = 1
+
+[fit]
+phases = ["prep", "base", "build", "specialty", "peak", "taper", "race", "transition", "recovery"]
+readiness_min = "p1"
+max_per_week = 7
+min_spacing_hours = 0
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.8, 0.9, 1.0]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Conversational. RPE 2-3."
+
+[[structure]]
+label = "Main set"
+duration_seconds = 2700
+target_zone = "Z2"
+note = "Steady aerobic, below LT1. You can hold a conversation the whole way."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy back to Z1."

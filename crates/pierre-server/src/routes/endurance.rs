@@ -30,7 +30,6 @@ use crate::services::training_history_compute::{
 use crate::tools::runtime_adapter::into_runtime;
 use pierre_config::environment::default_provider;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_services::workout_library::cornerstone_templates;
 use pierre_tool_runtime::protocol::provider_helpers::{
     fetch_activities_from_provider, fetch_activity_from_provider,
 };
@@ -87,9 +86,9 @@ async fn get_workout_templates(
 ) -> AppResult<Json<Vec<WorkoutTemplate>>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    // Compiled-in cornerstones first (read-only TOML library), then any
-    // user-authored overrides for (tenant_id, user_id) ordered newest-first.
-    let mut templates = cornerstone_templates();
+    // The catalogue's workout bank first (read-only, sorted by slug), then any
+    // user-authored rows for (tenant_id, user_id) ordered newest-first.
+    let mut templates = resources.training_catalogue().workouts();
     let user_authored = resources
         .repos()
         .workout_templates

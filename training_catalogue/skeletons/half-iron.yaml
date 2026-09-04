@@ -1,0 +1,56 @@
+# ABOUTME: Season skeleton for the half-Ironman (70.3): a long pyramidal base, a brick-and-threshold build, a race-pace specialty block and a 10-14 day taper
+# ABOUTME: Every number traces to the Training Design KB (Periodization, Sport Systems, TID, Strength notes); practitioner sources are marked grey in comments
+# A phase `length` is exactly one of: { fixed_weeks: N } | { fixed_days: N } | { share_of_weeks_to_goal: F, min_weeks: N, max_weeks: N }
+id: half-iron
+event_classes: [half_iron]
+hours_tiers: [from_6_to_10, over_10]
+min_weeks: 16
+phases:
+  - kind: base
+    purpose: "Aerobic base in three sports: the long ride and long run grow on easy work while sweet-spot and swim threshold sets are the controlled quality sessions."
+    length: { share_of_weeks_to_goal: 0.40, min_weeks: 6, max_weeks: 14 }   # grey: Friel Triathlete's Training Bible base 1-3, 9-12 weeks
+    volume_share_of_peak: { min: 0.40, max: 0.60 }   # Haugen 2022: a build starts at 40-60% of peak volume
+    flavour_override: pyramidal   # Sport Systems 3-6 h row: pyramidal with more middle-zone work; Selles-Perez 2019 zone-2 time went with faster splits (no proposition)
+    key_sessions: [endurance_long, sweet_spot, threshold, endurance]
+  - kind: build
+    purpose: "Durability: the long ride carries sweet-spot and threshold blocks late, the weekly brick grows, and volume reaches its peak."
+    length: { share_of_weeks_to_goal: 0.30, min_weeks: 4, max_weeks: 8 }   # grey: Friel build 1-2, 6-8 weeks
+    volume_share_of_peak: { min: 0.60, max: 1.00 }
+    flavour_override: pyramidal   # Sport Systems: long-course triathlon stays pyramidal
+    key_sessions: [endurance_long, brick, sweet_spot, threshold]
+  - kind: specialty
+    purpose: "Race specificity: race-pace bricks and long sessions rehearse pacing and fuelling at goal intensity while volume eases ten to twenty percent below its peak."
+    length: { share_of_weeks_to_goal: 0.15, min_weeks: 3, max_weeks: 6 }   # race-specific flavour covers the final 6-8 weeks
+    volume_share_of_peak: { min: 0.80, max: 0.90 }   # race-specific flavour: volume -10-20%
+    key_sessions: [race_specific, brick, endurance_long]
+  - kind: taper
+    purpose: "Taper: volume drops forty to sixty percent over ten days to two weeks while one session at race intensity in each sport and the usual session count are kept."
+    length: { fixed_days: 10 }   # Periodization working rule: 10-14 days for the 70.3; the Sport Systems event table groups the 70.3 with the Ironman at 14-21 days, but the working rule scales with event duration and spec section 9 pins the 70.3 at 10-14
+    volume_share_of_peak: { min: 0.40, max: 0.60 }
+    key_sessions: [race_specific, endurance]
+taper: { days: { min: 10, max: 14 }, volume_cut: { min: 0.40, max: 0.60 }, keep_intensity: true, keep_frequency: true }
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }   # Sandbakk 2025: easy week every 3rd-4th week; 2:1 is practitioner advice for recovery-limited athletes (grey)
+recovery_week_cut: { min: 0.25, max: 0.35 }   # Sandbakk 2025: 25-35% fewer hours
+drop_order: [base, build, specialty]
+multi_peak: { b_race_mini_taper_days: { min: 3, max: 5 }, transition_weeks_after_a_race: 1 }   # grey: Friel; B races take a 3-5 day mini-taper, transition 1-4 weeks
+strength:
+  base: { goal: max, sessions_per_week: 2, purposes: [strength_max] }   # Storen 2008, Sunde 2010; Luckin-Baldwin 2021 moderate-then-heavy loading in long-course triathletes (no proposition)
+  build: { goal: maintain, sessions_per_week: 2, purposes: [strength_maint, plyometric] }   # Ronnestad 2010b, Saunders 2006: heavy maintenance plus one plyometric session
+  specialty: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # Ronnestad 2010b, Spiering 2021
+  taper: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # practice: one light session at least 4 days out
+evidence_refs:
+  - evidence/sports_science/training_prescription/muniz-pumares-2025-marathon-tid-by-level.md
+  - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+  - evidence/sports_science/physiological/jones-kirby-2025-physiological-resilience.md
+  - evidence/sports_science/physiological/clark-2018-critical-power-falls-after-two-hours.md
+  - evidence/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md
+  - evidence/sports_science/training_prescription/aubry-2014-overreaching-before-taper.md
+  - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+  - evidence/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/wang-2023-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/mujika-padilla-2003-taper.md
+  - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md
+  - evidence/sports_science/training_prescription/storen-2008-maximal-strength-running-economy.md
+  - evidence/sports_science/training_prescription/sunde-2010-maximal-strength-cycling-economy.md
+  - evidence/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md
+  - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md

@@ -1,0 +1,89 @@
+# ABOUTME: Repeated-sprint training — 2–3 sets of 6 × 10–20 s maximal with 30–60 s between reps and 3 min between sets
+# ABOUTME: Team-sport origin; Yang 2025 ranks repeated sprints highest for VO2max in athletes — fit for the peak phase of short events
+
+id = "d1d92f34-b76c-582f-890f-04a4fb550a87"
+slug = "repeated_sprint"
+name = "Repeated sprints — 2 × 6 × 15 s"
+sport = "run"
+sport_variants = ["run", "ride"]
+duration_minutes = 40
+intensity_distribution = "vo2max"
+purpose = "sprint"
+evidence_tier = "meta_analysis"
+caveat = "Buchheit & Laursen 2013 has no proposition in the corpus; the format is team-sport in origin and fits only the peak phase of short events."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/yang-2025-interval-methods-network-meta.md",
+]
+
+[params]
+sets = { min = 2, max = 3, default = 2 }
+reps = { min = 6, max = 6, default = 6 }
+work_seconds = { min = 10, max = 20, default = 15 }
+rest_seconds = { min = 30, max = 60, default = 45 }
+rpe = { min = 9, max = 9 }
+intensity_label = "maximal sprints; 30–60 s easy between reps, 3 min easy between sets"
+
+[params.intensity]
+run = "Z7"
+ride = "Z7"
+
+[progression]
+order = ["add_set"]
+max_weekly_step = 1
+
+[fit]
+phases = ["peak"]
+readiness_min = "p2"
+max_per_week = 1
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "acute_injury"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy jog, drills, 4 × 20 s strides."
+
+[[structure]]
+label = "Set 1 — sprint"
+duration_seconds = 15
+target_zone = "Sprint"
+repeat = 6
+note = "Maximal every rep."
+
+[[structure]]
+label = "Set 1 — recovery"
+duration_seconds = 45
+target_zone = "Z1"
+repeat = 6
+note = "Walk or very easy jog."
+
+[[structure]]
+label = "Between sets"
+duration_seconds = 180
+target_zone = "Z1"
+note = "Three minutes easy."
+
+[[structure]]
+label = "Set 2 — sprint"
+duration_seconds = 15
+target_zone = "Sprint"
+repeat = 6
+note = "Maximal every rep."
+
+[[structure]]
+label = "Set 2 — recovery"
+duration_seconds = 45
+target_zone = "Z1"
+repeat = 6
+note = "Walk or very easy jog."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy jog until HR settles."

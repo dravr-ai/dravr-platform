@@ -16,7 +16,7 @@
 //!
 //! - `admin` — admin-only coach + assignment management (`tools-admin`)
 //! - `coaches` — coach CRUD / activate / favorites (`tools-coaches`)
-//! - `endurance_workouts` — list / prescribe Endurance cornerstone workouts
+//! - `endurance_workouts` — list the workout bank by purpose / phase / sport, prescribe one
 //!   (`tools-data`)
 //! - `fitness_config` — get / set / list / delete fitness config (`tools-config`)
 //! - `memory` — coach-authored memory: notes, followups, fact recall

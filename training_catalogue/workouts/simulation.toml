@@ -1,0 +1,58 @@
+# ABOUTME: Simulation — 60–75% of race duration slightly below race intensity, rehearsing pacing and fuelling (purpose race_specific)
+# ABOUTME: Authored from the KB race-specific table; peak phase, two to three weeks out from the goal
+
+id = "80cbd45e-5c5d-5b0d-a1cd-18c62a7e26c6"
+slug = "simulation"
+name = "Race Simulation"
+sport = "run"
+sport_variants = ["run", "ride"]
+duration_minutes = 100
+intensity_distribution = "pyramid"
+purpose = "race_specific"
+evidence_tier = "grey"
+caveat = "Practitioner prescription; Molinari 2020 (late-race VO2max demand) has no proposition in the corpus. The propositions cited support race-day fuelling above 60 min and prolonged sessions with race-pace bouts, not the rehearsal as such."
+evidence_refs = [
+  "evidence/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md",
+  "evidence/sports_science/physiological/jones-kirby-2025-physiological-resilience.md",
+]
+
+[params]
+duration_minutes = { min = 60, max = 240, default = 100 }
+rpe = { min = 5, max = 7 }
+intensity_label = "slightly below goal race intensity for 60–75% of the race duration; fuel, drink and pace exactly as on race day"
+
+[params.intensity]
+run = "tempo"
+ride = "tempo"
+
+[progression]
+order = []
+max_weekly_step = 1
+
+[fit]
+phases = ["peak"]
+readiness_min = "p2"
+max_per_week = 1
+min_spacing_hours = 48
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.88, 0.95, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Your race-day warm-up, exactly."
+
+[[structure]]
+label = "Rehearsal"
+duration_seconds = 4800
+target_zone = "Tempo"
+note = "A notch below goal race intensity, even pacing; the fuelling and drinking plan is the workout."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy until HR is back in Z1."

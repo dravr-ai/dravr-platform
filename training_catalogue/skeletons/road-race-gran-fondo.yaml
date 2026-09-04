@@ -1,0 +1,55 @@
+# ABOUTME: Season skeleton for road races, gran fondos and gravel events: a pyramidal base and build with late-ride durability work and a 7-14 day taper
+# ABOUTME: Every number traces to the Training Design KB (Periodization, Sport Systems, TID, Strength notes); practitioner sources are marked grey in comments
+# A phase `length` is exactly one of: { fixed_weeks: N } | { fixed_days: N } | { share_of_weeks_to_goal: F, min_weeks: N, max_weeks: N }
+id: road-race-gran-fondo
+event_classes: [road_race, gran_fondo]
+hours_tiers: [from_4_to_6, from_6_to_10, over_10]
+min_weeks: 14
+phases:
+  - kind: base
+    purpose: "Aerobic base: the long ride grows toward three hours or more on easy riding with sweet-spot blocks as the one controlled quality session."
+    length: { share_of_weeks_to_goal: 0.45, min_weeks: 6, max_weeks: 12 }   # grey: Friel base 1-3, 3-4 weeks each, 9-12 weeks in all
+    volume_share_of_peak: { min: 0.40, max: 0.60 }   # Haugen 2022: a build starts at 40-60% of peak volume
+    flavour_override: pyramidal   # Sport Systems: road race and gran fondo are pyramidal; Gallo 2023 elite analogue (grey)
+    key_sessions: [endurance_long, sweet_spot, endurance]
+  - kind: build
+    purpose: "Durability and threshold: long rides carry threshold or VO2max work in their final hour so the athlete learns to produce power after prolonged riding, with volume at its peak."
+    length: { share_of_weeks_to_goal: 0.30, min_weeks: 4, max_weeks: 8 }   # grey: Friel build 1-2, 3-4 weeks each
+    volume_share_of_peak: { min: 0.60, max: 1.00 }
+    flavour_override: pyramidal   # Sport Systems 3-6 h row: pyramidal with more middle-zone work and long sessions with late work
+    key_sessions: [endurance_long, threshold, vo2max_long, sweet_spot]
+  - kind: peak
+    purpose: "Sharpen: race simulations on race-like terrain and one threshold session while volume holds at its season high."
+    length: { fixed_weeks: 2 }   # grey: Friel peak 1-2 weeks; Haugen 2022: peak weeks last 2-3 weeks at most
+    volume_share_of_peak: { min: 1.00, max: 1.00 }   # Haugen 2022: the peak weeks carry the season's highest volume
+    key_sessions: [race_specific, endurance_long, threshold]
+  - kind: taper
+    purpose: "Taper: volume drops forty to sixty percent over one to two weeks while one session at race intensity and the usual session count are kept."
+    length: { fixed_days: 10 }   # Sport Systems event table: road race and gran fondo taper 7-14 days
+    volume_share_of_peak: { min: 0.40, max: 0.60 }
+    key_sessions: [race_specific, endurance]
+taper: { days: { min: 7, max: 14 }, volume_cut: { min: 0.40, max: 0.60 }, keep_intensity: true, keep_frequency: true }
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }   # Sandbakk 2025: easy week every 3rd-4th week; 2:1 is practitioner advice for recovery-limited athletes (grey)
+recovery_week_cut: { min: 0.25, max: 0.35 }   # Sandbakk 2025: 25-35% fewer hours
+drop_order: [base, build]
+multi_peak: { b_race_mini_taper_days: { min: 3, max: 5 }, transition_weeks_after_a_race: 1 }   # grey: Friel; B races take a 3-5 day mini-taper, transition 1-4 weeks
+strength:
+  base: { goal: max, sessions_per_week: 2, purposes: [strength_max] }   # Sunde 2010, Ronnestad 2010a: heavy loads twice a week in preparation
+  build: { goal: maintain, sessions_per_week: 2, purposes: [strength_maint, plyometric] }   # Ronnestad 2010b: heavy maintenance plus one explosive session
+  peak: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # Ronnestad 2010b, Spiering 2021
+  taper: { goal: maintain, sessions_per_week: 1, purposes: [strength_maint] }   # practice: one light session at least 4 days out
+evidence_refs:
+  - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+  - evidence/sports_science/physiological/jones-kirby-2025-physiological-resilience.md
+  - evidence/sports_science/physiological/clark-2018-critical-power-falls-after-two-hours.md
+  - evidence/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md
+  - evidence/sports_science/training_prescription/seiler-2013-interval-duration-4x8.md
+  - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+  - evidence/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/wang-2023-taper-meta-analysis.md
+  - evidence/sports_science/training_prescription/mujika-padilla-2003-taper.md
+  - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md
+  - evidence/sports_science/training_prescription/sunde-2010-maximal-strength-cycling-economy.md
+  - evidence/sports_science/training_prescription/llanos-lagos-2026-heavy-strength-cyclists.md
+  - evidence/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md
+  - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md

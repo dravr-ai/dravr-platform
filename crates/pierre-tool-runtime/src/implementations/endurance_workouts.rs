@@ -1,16 +1,19 @@
 // ABOUTME: Endurance MCP tools — list_workout_templates, prescribe_workout, withdraw_prescribed_workout
-// ABOUTME: Surfaces the cornerstone workouts and writes, replaces, or removes one prescription on the athlete's calendar
+// ABOUTME: Lists the training catalogue's workout bank by purpose, phase and sport, and writes, replaces, or removes one prescription on the athlete's calendar
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::slice;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::periodization::{
+    EvidenceTier, PhaseFit, PhaseKind, Progression, WorkoutFilter, WorkoutParams, WorkoutPurpose,
+};
 use pierre_core::models::{
     CalendarEventSource, CalendarKey, IntensityDistribution, PlannedSession, PrescribedWorkout,
     SportType, TenantId, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
@@ -21,7 +24,6 @@ use tracing::warn;
 use uuid::Uuid;
 
 use pierre_services::plan_calendar_push::CALENDAR_PROVIDER;
-use pierre_services::workout_library::{cornerstone_by_slug, cornerstone_templates};
 
 use super::calendar::{
     calendar_provider, destructive_annotations, required_text, step_schema, validate_step,
@@ -37,7 +39,7 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
 /// Tool names, as the notify events name the trigger.
@@ -80,8 +82,8 @@ fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     })
 }
 
-/// A structured session the coach authored in conversation, rather than one of
-/// the compiled-in cornerstones.
+/// A structured session the coach authored in conversation, rather than one
+/// the catalogue's workout bank carries.
 ///
 /// `structure` deserializes straight into [`WorkoutStep`] so the argument shape
 /// and the stored shape cannot drift: the step defaults (`repeat` of 1, absent
@@ -94,6 +96,10 @@ struct SessionPayload {
     sport: SportType,
     /// Seiler-style distribution label for downstream coaching cues.
     intensity_distribution: IntensityDistribution,
+    /// What the session is for, in the catalogue's purpose vocabulary. When
+    /// absent the purpose follows from the intensity distribution.
+    #[serde(default)]
+    purpose: Option<WorkoutPurpose>,
     /// Ordered steps that make up the session.
     structure: Vec<WorkoutStep>,
 }
@@ -178,6 +184,12 @@ async fn store_session(
         .workout_templates
         .get_user_workout_template(tenant_id, user_id, &slug)
         .await?;
+    // An inline session's readiness floor follows from its intensity
+    // distribution, and so does its purpose unless the coach named one. It is
+    // the coach's own judgement with no citation behind it.
+    let (default_purpose, readiness_min) =
+        WorkoutTemplate::inline_defaults(session.intensity_distribution);
+    let purpose = session.purpose.unwrap_or(default_purpose);
     let template = WorkoutTemplate {
         id: existing.map_or_else(Uuid::new_v4, |t| t.id),
         tenant_id: Some(tenant_id.as_uuid()),
@@ -187,6 +199,10 @@ async fn store_session(
         sport: session.sport,
         duration_minutes,
         intensity_distribution: session.intensity_distribution,
+        purpose,
+        sport_variants: Vec::new(),
+        evidence_tier: EvidenceTier::CoachJudgement,
+        caveat: None,
         structure: session.structure,
         // An inline session carries no zone overlay: its steps name the zones
         // directly, and the athlete's own zones apply underneath.
@@ -194,6 +210,13 @@ async fn store_session(
             hr_pct_of_lt2: None,
             power_pct_of_ftp: None,
         },
+        params: WorkoutParams::default(),
+        progression: Progression::default(),
+        fit: PhaseFit {
+            readiness_min,
+            ..PhaseFit::default()
+        },
+        evidence_refs: Vec::new(),
         is_compiled_in: false,
         updated_at: Utc::now(),
     };
@@ -233,7 +256,7 @@ async fn resolve_template(
             store_session(context, tenant_id, user_id, session).await
         }
         (Some(slug), None) => {
-            if let Some(template) = cornerstone_by_slug(slug) {
+            if let Some(template) = context.resources.training_catalogue().workout(slug) {
                 return Ok(template);
             }
             context
@@ -244,8 +267,8 @@ async fn resolve_template(
                 .await?
                 .ok_or_else(|| {
                     AppError::not_found(format!(
-                        "no workout template with slug '{slug}' among the cornerstones or \
-                         this athlete's saved sessions"
+                        "no workout template with slug '{slug}' in the catalogue or among \
+                         this athlete's saved sessions — list_workout_templates names both"
                     ))
                 })
         }
@@ -311,25 +334,191 @@ fn optional_prescription_id(args: &Value, key: &str) -> AppResult<Option<Uuid>> 
         .transpose()
 }
 
-/// `list_workout_templates` — read-only catalog of cornerstones.
+/// The two shapes a listed template comes in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListDetail {
+    /// The fields a coach picks a session by.
+    Summary,
+    /// The whole template, steps and target zones included.
+    Full,
+}
+
+impl ListDetail {
+    const ALL: &[Self] = &[Self::Summary, Self::Full];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Summary => "summary",
+            Self::Full => "full",
+        }
+    }
+}
+
+/// A trimmed optional string argument; `None` when absent, null or blank.
+fn optional_text<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// The vocabulary names, comma-separated, for an error that has to name
+/// every allowed value.
+fn vocabulary<T: Copy>(all: &[T], name: fn(T) -> &'static str) -> String {
+    all.iter()
+        .map(|value| name(*value))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Resolve an optional closed-vocabulary argument, refusing a value outside
+/// the vocabulary with the whole vocabulary in the message.
+fn vocab_arg<T: Copy>(
+    args: &Value,
+    key: &str,
+    all: &[T],
+    name: fn(T) -> &'static str,
+) -> AppResult<Option<T>> {
+    let Some(raw) = optional_text(args, key) else {
+        return Ok(None);
+    };
+    all.iter()
+        .copied()
+        .find(|value| name(*value) == raw)
+        .map(Some)
+        .ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "{key} '{raw}' is not in the vocabulary; one of: {}",
+                vocabulary(all, name)
+            ))
+        })
+}
+
+/// Resolve the optional `sport` argument: a `snake_case` [`SportType`] name.
+///
+/// An unknown name is refused with the sports the bank is written for, so
+/// the coach can pick one that returns something.
+fn sport_arg(args: &Value, bank: &[WorkoutTemplate]) -> AppResult<Option<SportType>> {
+    let Some(raw) = optional_text(args, "sport") else {
+        return Ok(None);
+    };
+    serde_json::from_value::<SportType>(Value::String(raw.to_owned()))
+        .map(Some)
+        .map_err(|_| {
+            let mut sports = BTreeSet::new();
+            for template in bank {
+                for sport in slice::from_ref(&template.sport)
+                    .iter()
+                    .chain(&template.sport_variants)
+                {
+                    if let Ok(Value::String(name)) = serde_json::to_value(sport) {
+                        sports.insert(name);
+                    }
+                }
+            }
+            AppError::invalid_input(format!(
+                "sport '{raw}' is not a sport name; the bank is written for: {}",
+                sports.into_iter().collect::<Vec<_>>().join(", ")
+            ))
+        })
+}
+
+/// The fields a coach picks a session by, without the steps.
+fn summary_row(template: &WorkoutTemplate) -> AppResult<Value> {
+    let params = serde_json::to_value(&template.params)
+        .map_err(|e| AppError::internal(format!("serialize template params: {e}")))?;
+    Ok(json!({
+        "slug": template.slug,
+        "name": template.name,
+        "purpose": template.purpose,
+        "sport": template.sport,
+        "sport_variants": template.sport_variants,
+        "duration_minutes": template.duration_minutes,
+        "intensity_distribution": template.intensity_distribution,
+        "evidence_tier": template.evidence_tier,
+        "caveat": template.caveat,
+        "params": params,
+        "fit": {
+            "phases": template.fit.phases,
+            "readiness_min": template.fit.readiness_min,
+            "max_per_week": template.fit.max_per_week,
+            "min_spacing_hours": template.fit.min_spacing_hours,
+        },
+        "is_compiled_in": template.is_compiled_in,
+    }))
+}
+
+/// `list_workout_templates` — the workout bank, filtered by purpose, phase
+/// and sport, with the athlete's own saved sessions after it.
 pub struct ListWorkoutTemplatesTool;
 
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
     fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(BTreeMap::new()),
-            required: Some(Vec::new()),
-            ..Default::default()
-        };
+        let mut properties = HashMap::new();
+        properties.insert(
+            "purpose".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(format!(
+                    "Only templates with this purpose. One of: {}.",
+                    vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
+                )),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "phase".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(format!(
+                    "Only templates that fit this season phase; a template written for \
+                     any phase always matches. One of: {}.",
+                    vocabulary(PhaseKind::ALL, PhaseKind::as_str)
+                )),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "sport".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Only templates written for this sport, as the primary sport or a \
+                     variant. A snake_case sport name: run, ride, swim, strength_training, …"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "detail".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "How much of each template to return: summary (default) — slug, name, \
+                     purpose, sport, duration, evidence tier, parameter ranges and phase fit — \
+                     or full, the whole template with its steps and target zones."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        let schema = object_schema(properties, Some(Vec::new()));
         tool_definition(
             "list_workout_templates",
-            "List the Endurance cornerstone workout templates: long_run_z2, \
-             threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, \
-             sweet_spot_2x20. Each row carries the structured steps + target \
-             zones the prescribe_workout tool will push to the user's \
-             Intervals.icu calendar.",
+            "List the workout template bank by what a session is for. Every \
+             template carries a purpose (recovery, endurance, endurance_long, \
+             tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, \
+             neuromuscular, race_specific, brick, strength_aa, strength_max, \
+             strength_maint, plyometric, mobility), the season phases it fits, \
+             the readiness level it needs, the sports it is written for, its \
+             evidence tier, and parameter ranges (reps, work and rest seconds, \
+             duration, RPE, intensity per sport) with a default the coach fills \
+             in for the athlete. Filter with purpose, phase and sport; the reply \
+             lists the athlete's own saved sessions after the bank. Pass detail = \
+             full for the structured steps and target zones prescribe_workout \
+             pushes to the athlete's Intervals.icu calendar.",
             schema,
             Some(read_only_annotations()),
         )
@@ -341,18 +530,62 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
 
     async fn execute(
         &self,
-        _state: &Arc<dyn ToolRuntime>,
-        _ctx: &ToolContext,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
         args: Value,
     ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            drop(args);
-            let templates = cornerstone_templates();
-            let payload = serde_json::to_value(&templates)
-                .map_err(|e| AppError::internal(format!("serialize templates: {e}")))?;
+            let catalogue = context.resources.training_catalogue();
+            let bank = catalogue.workouts();
+            let filter = WorkoutFilter {
+                purpose: vocab_arg(
+                    &args,
+                    "purpose",
+                    WorkoutPurpose::ALL,
+                    WorkoutPurpose::as_str,
+                )?,
+                phase: vocab_arg(&args, "phase", PhaseKind::ALL, PhaseKind::as_str)?,
+                sport: sport_arg(&args, &bank)?,
+            };
+            let detail = vocab_arg(&args, "detail", ListDetail::ALL, ListDetail::as_str)?
+                .unwrap_or(ListDetail::Summary);
+
+            let mut templates = catalogue.workouts_matching(&filter);
+            // The athlete's own sessions are scoped by tenant; a call with no
+            // tenant context has no athlete rows to read.
+            if let Some(tenant_id) = context.tenant_id.map(TenantId::from_uuid) {
+                let own = context
+                    .resources
+                    .repos()
+                    .workout_templates
+                    .list_user_workout_templates(tenant_id, context.user_id)
+                    .await?;
+                templates.extend(own.into_iter().filter(|t| filter.matches(t)));
+            }
+
+            let rows = match detail {
+                ListDetail::Summary => templates
+                    .iter()
+                    .map(summary_row)
+                    .collect::<AppResult<Vec<Value>>>()?,
+                ListDetail::Full => templates
+                    .iter()
+                    .map(|t| {
+                        serde_json::to_value(t)
+                            .map_err(|e| AppError::internal(format!("serialize template: {e}")))
+                    })
+                    .collect::<AppResult<Vec<Value>>>()?,
+            };
             Ok(ToolResult::ok(json!({
-                "count": templates.len(),
-                "templates": payload,
+                "count": rows.len(),
+                "filters": {
+                    "purpose": filter.purpose,
+                    "phase": filter.phase,
+                    "sport": filter.sport,
+                    "detail": detail.as_str(),
+                },
+                "templates": rows,
             })))
         }
         .await;
@@ -390,6 +623,18 @@ fn session_schema() -> PropertySchema {
         },
     );
     p.insert(
+        "purpose".to_owned(),
+        PropertySchema {
+            property_type: "string".to_owned(),
+            description: Some(format!(
+                "Optional: what the session is for, one of: {}. Omitted, it follows from \
+                 intensity_distribution.",
+                vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
+            )),
+            ..Default::default()
+        },
+    );
+    p.insert(
         "structure".to_owned(),
         PropertySchema {
             property_type: "array".to_owned(),
@@ -401,7 +646,7 @@ fn session_schema() -> PropertySchema {
     PropertySchema {
         property_type: "object".to_owned(),
         description: Some(
-            "A structured session you authored, for anything the cornerstones do not express."
+            "A structured session you authored, for anything the workout bank does not express."
                 .to_owned(),
         ),
         properties: Some(p.into_iter().collect()),
@@ -428,9 +673,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Slug of a stored template: one of the six cornerstones, or a session \
-                     you prescribed this athlete before. Use `session` instead for anything \
-                     new."
+                    "Slug of a stored template: one from the workout bank \
+                     (list_workout_templates), or a session you prescribed this athlete \
+                     before. Use `session` instead for anything new."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -474,11 +719,11 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             "Write one workout onto the athlete's Intervals.icu calendar for a \
              given date, and record it in the prescribed_workouts ledger. \
              Requires a connected Intervals.icu account. Pass EITHER \
-             template_slug — one of the cornerstones (long_run_z2, \
-             threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, \
-             sweet_spot_2x20) or a session you prescribed this athlete before — \
-             OR session, a structured session you authored for anything those do \
-             not express. Args: date (YYYY-MM-DD), template_slug or session, \
+             template_slug — a slug from the workout bank (list_workout_templates \
+             filters it by purpose, phase and sport) or a session you prescribed \
+             this athlete before — OR session, a structured session you authored \
+             for anything those do not express. Args: date (YYYY-MM-DD), \
+             template_slug or session, \
              optional coach_id, optional replaces. Without replaces every call \
              adds a new calendar entry; with replaces = a prescription_id (from an \
              earlier call, or from get_training_plan's calendar block) that entry \

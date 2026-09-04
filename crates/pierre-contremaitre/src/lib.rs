@@ -38,6 +38,8 @@ pub mod config;
 pub mod errors;
 /// Hot-reloadable evidence registry for the bullshit detector
 pub mod evidence_registry;
+/// Evidence-proposition half of the sync engine
+pub mod evidence_sync;
 /// GitHub Contents API client (used for admin writes; reads now go via [`store`])
 pub mod github;
 /// Persisted harness-config document — data types and validation
@@ -64,6 +66,16 @@ pub mod sync;
 pub mod text_guardrails;
 /// Hot-reloadable tool description overlays for MCP tool schemas
 pub mod tool_descriptions;
+/// Hot-reloadable training catalogue — flavours, skeletons, workouts, selection table
+pub mod training_catalogue;
+/// Generated include table for the compiled-in training catalogue mirror.
+///
+/// Its items are `pub(crate)`; the module is `pub` because the crate's
+/// `redundant_pub_crate` lint rejects a `pub(crate)` item inside any module
+/// that is not itself exported, and the generator owns the file.
+pub mod training_catalogue_embedded;
+/// Training-catalogue half of the sync engine
+pub mod training_sync;
 
 pub use config::ContremaitreConfig;
 pub use errors::ContremaitreError;
@@ -73,3 +85,4 @@ pub use messaging_strings::MessagingStringsRegistry;
 pub use registry::PromptRegistry;
 pub use store::PromptStore;
 pub use tool_descriptions::ToolDescriptionRegistry;
+pub use training_catalogue::TrainingCatalogueRegistry;

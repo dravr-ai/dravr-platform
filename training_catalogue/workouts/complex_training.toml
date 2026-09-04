@@ -1,0 +1,54 @@
+# ABOUTME: Complex training — a heavy set at 85% 1RM paired with a bodyweight jump set, 3–4 pairs, strength and reactive stiffness in one session
+# ABOUTME: Li 2019 (complex beat heavy alone on drop jump, reactive strength index and economy at 16 km/h); needs lifting history first
+
+id = "7631d758-719e-5e82-8f20-d7540e7d4f04"
+slug = "complex_training"
+name = "Complex training — 4 heavy–jump pairs"
+sport = "strength_training"
+sport_variants = []
+duration_minutes = 35
+intensity_distribution = "polarized"
+purpose = "strength_max"
+evidence_tier = "rct"
+caveat = "Li 2019, the RCT, has no proposition in the corpus; the cited propositions cover the heavy half and the plyometric half separately."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/storen-2008-maximal-strength-running-economy.md",
+  "evidence/sports_science/training_prescription/denadai-2017-plyometrics.md",
+]
+
+[params]
+sets = { min = 3, max = 4, default = 4 }
+load = "85% 1RM on the heavy set, bodyweight on the jump set"
+intensity_label = "heavy set, short pause, then a jump set on the same muscles; full recovery between pairs"
+
+[progression]
+order = []
+max_weekly_step = 1
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["no_lifting_history", "acute_injury", "tendinopathy"]
+
+[target_zones]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy movement, ramping squat sets, a few low hops."
+
+[[structure]]
+label = "Heavy–jump pair"
+duration_seconds = 300
+target_zone = "Strength"
+repeat = 4
+note = "A heavy squat set at 85% 1RM, about a minute, then 5–6 maximal jumps; rest 2–3 min before the next pair."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy walk."

@@ -1,0 +1,74 @@
+# ABOUTME: Maximal strength for economy — half-squat, hip thrust, step-up and calf raise, 3–4 sets × 4–6 reps at 85–90% 1RM or heavier, full recovery
+# ABOUTME: Støren 2008 and Sunde 2010 (4 × 4RM, 3×/wk, economy +5%); Eihara 2022 says 90% 1RM or more and 10–14 weeks work best
+
+id = "6b1e3ec3-d889-58ae-b6a8-33ff83b715ef"
+slug = "strength_max"
+name = "Maximal strength — 4 × 4 half-squat"
+sport = "strength_training"
+sport_variants = []
+duration_minutes = 55
+intensity_distribution = "polarized"
+purpose = "strength_max"
+evidence_tier = "meta_analysis"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/storen-2008-maximal-strength-running-economy.md",
+  "evidence/sports_science/training_prescription/sunde-2010-maximal-strength-cycling-economy.md",
+  "evidence/sports_science/training_prescription/eihara-2022-heavy-vs-plyometric-runners.md",
+  "evidence/sports_science/training_prescription/schoenfeld-2017-strength-training.md",
+]
+
+[params]
+sets = { min = 3, max = 4, default = 4 }
+reps = { min = 4, max = 6, default = 4 }
+rest_seconds = { min = 120, max = 180, default = 150 }
+load = "85-90% 1RM or heavier; 4 × 4RM is the canonical dose"
+intensity_label = "half-squat, hip thrust, step-up, calf raise; every rep clean and fast on the way up, full recovery between sets"
+
+[progression]
+order = ["add_load"]
+max_weekly_step = 1
+
+[fit]
+phases = ["base"]
+readiness_min = "p2"
+max_per_week = 3
+min_spacing_hours = 48
+contraindications = ["acute_injury", "no_lifting_history"]
+
+[target_zones]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy movement, then ramp the squat load over three light sets."
+
+[[structure]]
+label = "Half-squat 4 × 4RM"
+duration_seconds = 900
+target_zone = "Strength"
+note = "Four sets of four at a load you can just complete cleanly; 2–3 min between sets."
+
+[[structure]]
+label = "Hip thrust 3 × 4"
+duration_seconds = 600
+target_zone = "Strength"
+note = "Heavy, full recovery."
+
+[[structure]]
+label = "Step-up 3 × 4 per leg"
+duration_seconds = 600
+target_zone = "Strength"
+note = "Heavy, controlled down, fast up."
+
+[[structure]]
+label = "Calf raise 3 × 6"
+duration_seconds = 300
+target_zone = "Strength"
+note = "Heavy, full range."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy walk."

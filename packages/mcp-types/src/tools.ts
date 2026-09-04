@@ -1169,9 +1169,22 @@ export interface ListStretchingExercisesParams {
 
 
 /**
- * List the Endurance cornerstone workout templates: long_run_z2, threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, sweet_spot_2x20. Each row carries the structured steps + target zones the prescribe_workout tool will push to the user's Intervals.icu calendar.
+ * List the workout template bank by what a session is for. Every template carries a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility), the season phases it fits, the readiness level it needs, the sports it is written for, its evidence tier, and parameter ranges (reps, work and rest seconds, duration, RPE, intensity per sport) with a default the coach fills in for the athlete. Filter with purpose, phase and sport; the reply lists the athlete's own saved sessions after the bank. Pass detail = full for the structured steps and target zones prescribe_workout pushes to the athlete's Intervals.icu calendar.
  */
-export interface ListWorkoutTemplatesParams {}
+export interface ListWorkoutTemplatesParams {
+
+  /** How much of each template to return: summary (default) — slug, name, purpose, sport, duration, evidence tier, parameter ranges and phase fit — or full, the whole template with its steps and target zones. */
+  detail?: string;
+
+  /** Only templates that fit this season phase; a template written for any phase always matches. One of: prep, base, build, specialty, peak, taper, race, transition, recovery. */
+  phase?: string;
+
+  /** Only templates with this purpose. One of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility. */
+  purpose?: string;
+
+  /** Only templates written for this sport, as the primary sport or a variant. A snake_case sport name: run, ride, swim, strength_training, … */
+  sport?: string;
+}
 
 
 /**
@@ -1229,7 +1242,7 @@ export interface PredictPerformanceParams {
 
 
 /**
- * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts ledger. Requires a connected Intervals.icu account. Pass EITHER template_slug — one of the cornerstones (long_run_z2, threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, sweet_spot_2x20) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional coach_id, optional replaces. Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one.
+ * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts ledger. Requires a connected Intervals.icu account. Pass EITHER template_slug — a slug from the workout bank (list_workout_templates filters it by purpose, phase and sport) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional coach_id, optional replaces. Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one.
  */
 export interface PrescribeWorkoutParams {
 
@@ -1242,7 +1255,7 @@ export interface PrescribeWorkoutParams {
   /** prescription_id of an earlier prescription to change in place — the calendar entry keeps its slot and gets this workout. Omit to add a new entry. */
   replaces?: string;
 
-  /** A structured session you authored, for anything the cornerstones do not express. */
+  /** A structured session you authored, for anything the workout bank does not express. */
   session?: {
 
   /** One of: polarized, threshold, vo2max, recovery, pyramid. */
@@ -1250,6 +1263,9 @@ export interface PrescribeWorkoutParams {
 
   /** Session name as you state it to the athlete. */
   name: string;
+
+  /** Optional: what the session is for, one of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility. Omitted, it follows from intensity_distribution. */
+  purpose?: string;
 
   /** Sport: run, ride, swim, walk, hike, ski, yoga, … */
   sport: string;
@@ -1277,7 +1293,7 @@ export interface PrescribeWorkoutParams {
 }[];
 };
 
-  /** Slug of a stored template: one of the six cornerstones, or a session you prescribed this athlete before. Use `session` instead for anything new. */
+  /** Slug of a stored template: one from the workout bank (list_workout_templates), or a session you prescribed this athlete before. Use `session` instead for anything new. */
   template_slug?: string;
 }
 

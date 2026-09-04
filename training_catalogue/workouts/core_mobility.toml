@@ -1,0 +1,46 @@
+# ABOUTME: Core and mobility — 15–20 min of trunk stability and hip mobility at bodyweight, 2–3 times a week; support work, not a performance lever
+# ABOUTME: Stretching does not prevent injury (Lauersen 2014; Warneke 2025 Delphi agrees), so the dose is convention and the tier is coach judgement
+
+id = "536803ea-aa7e-5751-8349-496d71b95d40"
+slug = "core_mobility"
+name = "Core and mobility — 20 min"
+sport = "strength_training"
+sport_variants = []
+duration_minutes = 20
+intensity_distribution = "polarized"
+purpose = "mobility"
+evidence_tier = "coach_judgement"
+caveat = "Support work, not a performance lever: stretching does not prevent injury (Lauersen 2014, cited) and the 2025 Delphi consensus (Warneke 2025, no proposition in the corpus) agrees; the 15–20 min dose is convention."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/lauersen-2014-strength-halves-injuries.md",
+]
+
+[params]
+duration_minutes = { min = 15, max = 20, default = 20 }
+load = "bodyweight"
+intensity_label = "unhurried — trunk stability first, then hip mobility; nothing here should feel like training"
+
+[progression]
+order = []
+max_weekly_step = 1
+
+[fit]
+phases = ["prep", "base", "build", "specialty", "peak", "taper", "race", "transition", "recovery"]
+readiness_min = "p1"
+max_per_week = 3
+min_spacing_hours = 24
+contraindications = []
+
+[target_zones]
+
+[[structure]]
+label = "Trunk stability"
+duration_seconds = 600
+target_zone = "Recovery"
+note = "Planks, side planks, dead bugs, bird dogs — slow and controlled."
+
+[[structure]]
+label = "Hip mobility"
+duration_seconds = 600
+target_zone = "Recovery"
+note = "Hip flexor, glute and adductor mobility; dynamic, no long static holds."

@@ -54,8 +54,9 @@ mod tool_selection;
 /// the `training_history` table and `GET /api/v1/endurance/history`.
 pub mod training_history;
 mod user;
-/// Endurance Phase 5 workout-template + prescription audit shapes
-/// backing the `workout_templates` + `prescribed_workouts` tables.
+/// Endurance calendar-ledger shapes (`PlannedSession`, `CalendarKey`,
+/// `PrescribedWorkout`) backing the `prescribed_workouts` table; the workout
+/// template itself is the periodization kernel's.
 pub mod workout_template;
 /// Endurance per-user training-zone boundaries (HR + power) and the
 /// zone-distribution aggregate computed across one or more activities.
@@ -133,11 +134,26 @@ pub use onboarding::{
 pub use pillar::Pillar;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{
-    CalendarEventRef, CalendarEventSource, CalendarKey, FuelingProtocol, IntensityDistribution,
-    PlannedSession, PlannedSessionKind, PrescribedWorkout, RelativeIntensity, WorkoutStep,
-    WorkoutTargetZones, WorkoutTemplate,
+    CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
+    PrescribedWorkout,
 };
 pub use zones::{HrZoneSet, PowerZoneSet, ZoneDistribution};
+
+// Periodization kernel (dravr-cageux). The workout template and its intensity
+// vocabulary live there, next to the flavours, season skeletons and selection
+// table that reference them. The flat names stay resolvable at
+// `pierre_core::models::X` so every platform crate keeps one import path for
+// the types it used before the move; the module re-export reaches the rest.
+/// The whole periodization kernel — every catalogue type (`Flavour`,
+/// `SkeletonTemplate`, `SelectionTable`, `WorkoutParams`, `PhaseFit`,
+/// `WorkoutFilter`, the vocabulary enums, `CatalogueError`) reachable as
+/// `pierre_core::models::periodization::X`, so a platform crate never adds
+/// its own `dravr-cageux` dependency to reach one.
+pub use dravr_cageux::periodization;
+pub use dravr_cageux::periodization::{
+    FuelingProtocol, IntensityDistribution, RelativeIntensity, WorkoutStep, WorkoutTargetZones,
+    WorkoutTemplate,
+};
 
 // OAuth domain
 pub use oauth::{

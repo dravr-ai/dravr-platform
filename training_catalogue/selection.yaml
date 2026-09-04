@@ -1,0 +1,509 @@
+# ABOUTME: Profile-to-flavour selection table — every row of the Sport Systems decision table, one row per (input, value) pair
+# ABOUTME: Weights 1..=5 and tiers follow the KB cell; a row's tier is the strength of evidence for the mapping, not for the flavour
+rows:
+  # Weekly hours available — Seiler's hierarchy: decide hours before deciding flavour
+  - input: hours_tier
+    value: under_4
+    prefer:
+      - { id: hvlit-foundation, weight: 5 }
+      - { id: time-crunched-threshold, weight: 2 }
+    exclude:
+      - { id: norwegian-threshold-density, reason: "needs eight or more sessions a week" }
+      - { id: norwegian-singles-subthreshold, reason: "needs six or more sessions a week" }
+      - { id: polarized-classic, reason: "needs four hours a week for two hard sessions and a long session" }
+      - { id: pyramidal-to-polarized, reason: "needs six hours a week across a sixteen-week window" }
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/festa-2019-polarized-vs-threshold-recreational.md
+    note: "Frequency and consistency first; under four hours the flavour question is second-order, and one quality session is enough."
+  - input: hours_tier
+    value: from_4_to_6
+    prefer:
+      - { id: pyramidal-base, weight: 3 }
+      - { id: polarized-classic, weight: 3 }
+      - { id: time-crunched-threshold, weight: 1 }
+    exclude:
+      - { id: norwegian-threshold-density, reason: "needs eight or more sessions a week" }
+      - { id: norwegian-singles-subthreshold, reason: "needs six or more sessions a week" }
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/festa-2019-polarized-vs-threshold-recreational.md
+      - evidence/sports_science/training_prescription/lenk-2025-hiit-sessions-per-week.md
+    note: "Pyramidal for long events, polarized for short; two hard days at most, and a threshold-dense block only as a capped run at a near goal."
+  - input: hours_tier
+    value: from_6_to_10
+    prefer:
+      - { id: pyramidal-to-polarized, weight: 4 }
+      - { id: pyramidal-base, weight: 2 }
+      - { id: polarized-classic, weight: 2 }
+    exclude:
+      - { id: norwegian-threshold-density, reason: "needs eight or more sessions and ten hours a week" }
+    tier: meta_analysis
+    evidence_refs:
+      - evidence/sports_science/training_prescription/filipas-2022-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/rosenblat-2025-tid-ipd-network-meta.md
+    note: "Pyramidal base then polarized build; two hard days, a third earned by the session count."
+  - input: hours_tier
+    value: over_10
+    prefer:
+      - { id: norwegian-threshold-density, weight: 3 }
+      - { id: pyramidal-base, weight: 3 }
+      - { id: pyramidal-to-polarized, weight: 2 }
+    exclude: []
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2023-lactate-guided-threshold-model.md
+      - evidence/sports_science/training_prescription/ronnestad-2014-block-periodization-cyclists.md
+    note: "Above ten hours and eight sessions a week, pyramidal with threshold density becomes eligible, and so does block loading."
+
+  # Training status — the one input with direct evidence for which architecture to choose
+  - input: training_age
+    value: novice
+    prefer:
+      - { id: hvlit-foundation, weight: 5 }
+    exclude:
+      - { id: polarized-classic, reason: "novices gained more from pyramidal than polarized training, and two VO2max sessions a week need interval experience" }
+      - { id: pyramidal-to-polarized, reason: "its polarized half needs interval experience a first season lacks" }
+      - { id: norwegian-threshold-density, reason: "described only at elite volumes and frequencies" }
+      - { id: norwegian-singles-subthreshold, reason: "daily sub-threshold work needs a season of structured training first" }
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/qin-2025-recreational-marathon-tid-responders.md
+      - evidence/sports_science/training_prescription/nielsen-2014-novice-progression-above-30-percent.md
+      - evidence/sports_science/training_prescription/buist-2008-ten-percent-rule-no-effect.md
+    note: "Foundation, not polarized; the weekly running volume step defaults to 10 to 15 percent and never passes 30 percent."
+  - input: training_age
+    value: recreational
+    prefer:
+      - { id: pyramidal-base, weight: 4 }
+      - { id: hvlit-foundation, weight: 1 }
+    exclude: []
+    tier: meta_analysis
+    evidence_refs:
+      - evidence/sports_science/training_prescription/rosenblat-2025-tid-ipd-network-meta.md
+      - evidence/sports_science/training_prescription/qin-2025-recreational-marathon-tid-responders.md
+    note: "Recreational athletes gained more from pyramidal training in the individual-participant network meta-analysis."
+  - input: training_age
+    value: trained
+    prefer:
+      - { id: pyramidal-to-polarized, weight: 4 }
+      - { id: polarized-classic, weight: 3 }
+    exclude: []
+    tier: meta_analysis
+    evidence_refs:
+      - evidence/sports_science/training_prescription/rosenblat-2025-tid-ipd-network-meta.md
+      - evidence/sports_science/training_prescription/stoggl-sperlich-2014-polarized.md
+      - evidence/sports_science/training_prescription/filipas-2022-pyramidal-then-polarized.md
+    note: "Competitive athletes gained more from polarized training; pyramidal in base, polarized in build."
+  - input: training_age
+    value: elite
+    prefer:
+      - { id: norwegian-threshold-density, weight: 4 }
+      - { id: pyramidal-base, weight: 2 }
+      - { id: polarized-classic, weight: 2 }
+    exclude: []
+    tier: case_series
+    evidence_refs:
+      - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+      - evidence/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md
+    note: "At ten or more sessions a week, pyramidal with threshold density; polarized in competition; block loading optional."
+
+  # Goal event duration — cohort associations and practice, one row per event class
+  - input: event_class
+    value: run_5k
+    prefer:
+      - { id: polarized-classic, weight: 4 }
+      - { id: race-specific, weight: 2 }
+      - { id: pyramidal-to-polarized, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+    note: "Events under an hour lean polarized, with long and short VO2max sessions and a short taper of six to ten days."
+  - input: event_class
+    value: run_10k
+    prefer:
+      - { id: polarized-classic, weight: 4 }
+      - { id: race-specific, weight: 2 }
+      - { id: pyramidal-to-polarized, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+    note: "Events under an hour lean polarized, with long and short VO2max sessions and a short taper of six to ten days."
+  - input: event_class
+    value: crit
+    prefer:
+      - { id: polarized-classic, weight: 4 }
+      - { id: race-specific, weight: 3 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/ronnestad-2015-30-15-short-intervals.md
+    note: "A criterium is decided above maximal aerobic power on a technical course: polarized, with short intervals and repeated sprints, and a five-to-seven-day taper."
+  - input: event_class
+    value: sprint_tri
+    prefer:
+      - { id: polarized-classic, weight: 4 }
+      - { id: race-specific, weight: 2 }
+      - { id: pyramidal-to-polarized, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+    note: "Under an hour of racing leans polarized, with VO2max work in each sport and a short taper."
+  - input: event_class
+    value: half_marathon
+    prefer:
+      - { id: pyramidal-to-polarized, weight: 4 }
+      - { id: pyramidal-base, weight: 3 }
+      - { id: race-specific, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md
+    note: "One to three hours of racing: pyramidal base then a polarized or race-pace peak, with threshold sessions central."
+  - input: event_class
+    value: time_trial
+    prefer:
+      - { id: pyramidal-to-polarized, weight: 3 }
+      - { id: pyramidal-base, weight: 3 }
+      - { id: norwegian-threshold-density, weight: 2 }
+      - { id: race-specific, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/laursen-2002-tmax-intervals-cyclists.md
+    note: "Threshold-leaning: pyramidal base then a race-pace peak, with cruise intervals, over-unders and long VO2max sessions."
+  - input: event_class
+    value: olympic_tri
+    prefer:
+      - { id: pyramidal-to-polarized, weight: 3 }
+      - { id: pyramidal-base, weight: 3 }
+      - { id: race-specific, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+    note: "One to three hours of racing: pyramidal base then a polarized or race-pace peak; the swim stays the least polarized discipline."
+  - input: event_class
+    value: road_race
+    prefer:
+      - { id: pyramidal-to-polarized, weight: 3 }
+      - { id: pyramidal-base, weight: 3 }
+      - { id: race-specific, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+    note: "One to three hours of racing: pyramidal base then a polarized or race-pace peak, with threshold sessions central."
+  - input: event_class
+    value: marathon
+    prefer:
+      - { id: pyramidal-base, weight: 5 }
+      - { id: race-specific, weight: 3 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/muniz-pumares-2025-marathon-tid-by-level.md
+      - evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md
+      - evidence/sports_science/training_prescription/doherty-2020-marathon-dose-response.md
+    note: "Pyramidal with more middle-zone work, long sessions with late quality and a durability emphasis; more race-pace work in the last six to eight weeks."
+  - input: event_class
+    value: half_iron
+    prefer:
+      - { id: pyramidal-base, weight: 5 }
+      - { id: race-specific, weight: 2 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/muniz-pumares-2025-marathon-tid-by-level.md
+      - evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md
+    note: "Three to six hours of racing: pyramidal, more middle-zone work, long sessions with late quality, bricks and a fuelling rehearsal."
+  - input: event_class
+    value: gran_fondo
+    prefer:
+      - { id: pyramidal-base, weight: 5 }
+      - { id: race-specific, weight: 2 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/muniz-pumares-2025-marathon-tid-by-level.md
+      - evidence/sports_science/training_prescription/galan-rioja-2023-no-superior-periodization.md
+    note: "Three to six hours of racing: pyramidal with long sessions that carry quality late; no periodization model beats another in trained cyclists over eight to twelve weeks."
+  - input: event_class
+    value: ironman
+    prefer:
+      - { id: pyramidal-base, weight: 5 }
+      - { id: race-specific, weight: 2 }
+      - { id: hvlit-foundation, weight: 1 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/doherty-2020-marathon-dose-response.md
+      - evidence/sports_science/training_prescription/gonzalez-rave-2022-reverse-periodization.md
+    note: "Over six hours of racing: pyramidal and volume-led, with durability and fuelling emphasis; reverse sequencing is optional because it shows no edge."
+  - input: event_class
+    value: ultra
+    prefer:
+      - { id: pyramidal-base, weight: 5 }
+      - { id: hvlit-foundation, weight: 2 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/doherty-2020-marathon-dose-response.md
+      - evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md
+    note: "Over six hours of racing: pyramidal and volume-led, with durability and fuelling emphasis; volume matters more than pace."
+  - input: event_class
+    value: open_water_swim
+    prefer:
+      - { id: pyramidal-base, weight: 3 }
+      - { id: time-crunched-threshold, weight: 1 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/hellard-2019-swimmers-two-macrocycles.md
+    note: "Mapped from the swimming row: threshold-heavy by lactate, two long macrocycles, and low-volume high-intensity work is acceptable."
+  - input: event_class
+    value: no_race
+    prefer:
+      - { id: hvlit-foundation, weight: 4 }
+      - { id: pyramidal-base, weight: 3 }
+    exclude: []
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/festa-2019-polarized-vs-threshold-recreational.md
+      - evidence/sports_science/training_prescription/casado-2021-world-class-distance.md
+    note: "No race means no taper: consistency and easy volume with one quality session, foundation or pyramidal."
+
+  # Weeks to goal — the skeleton's drop order decides what fits
+  - input: weeks_to_goal
+    value: under_8
+    prefer:
+      - { id: race-specific, weight: 3 }
+    exclude:
+      - { id: pyramidal-to-polarized, reason: "needs room for a pyramidal block before the polarized one; under eight weeks there is none" }
+    tier: grey
+    evidence_refs:
+      - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+      - evidence/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md
+    note: "Under eight weeks, keep the current architecture: specialty and taper only, no flavour change."
+  - input: weeks_to_goal
+    value: from_8_to_16
+    prefer:
+      - { id: pyramidal-to-polarized, weight: 4 }
+      - { id: polarized-classic, weight: 2 }
+      - { id: pyramidal-base, weight: 2 }
+      - { id: time-crunched-threshold, weight: 1 }
+    exclude: []
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/filipas-2022-pyramidal-then-polarized.md
+    note: "Build, peak and taper; sequence pyramidal then polarized when the athlete is trained."
+  - input: weeks_to_goal
+    value: over_16
+    prefer:
+      - { id: pyramidal-base, weight: 4 }
+      - { id: pyramidal-to-polarized, weight: 2 }
+      - { id: hvlit-foundation, weight: 2 }
+    exclude: []
+    tier: grey
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+    note: "Over sixteen weeks the full skeleton fits, base included."
+
+  # Measurement available — the hardware gate
+  - input: measurement
+    value: lactate
+    prefer:
+      - { id: norwegian-threshold-density, weight: 4 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2023-lactate-guided-threshold-model.md
+    note: "A lactate meter with fresh LT1 and LT2 makes lactate-guided threshold density eligible."
+  - input: measurement
+    value: power
+    prefer:
+      - { id: time-crunched-threshold, weight: 1 }
+      - { id: norwegian-singles-subthreshold, weight: 1 }
+    exclude: []
+    tier: coach_judgement
+    evidence_refs: []
+    note: "Any flavour; a power meter with a fresh threshold makes sweet-spot and threshold sessions quantifiable."
+  - input: measurement
+    value: pace
+    prefer:
+      - { id: time-crunched-threshold, weight: 1 }
+      - { id: norwegian-singles-subthreshold, weight: 1 }
+    exclude: []
+    tier: coach_judgement
+    evidence_refs: []
+    note: "Any flavour; pace with a fresh threshold makes threshold sessions quantifiable."
+  - input: measurement
+    value: hr
+    prefer: []
+    exclude:
+      - { id: norwegian-threshold-density, reason: "needs a lactate meter, or power with heart rate" }
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/jamnick-2020-intensity-anchors.md
+    note: "Any flavour except lactate-guided; percentage-of-HRmax anchors place athletes in the wrong domain and HR-based zone time overstates the middle zone, so never read too much threshold from it without correction."
+  - input: measurement
+    value: rpe
+    prefer:
+      - { id: hvlit-foundation, weight: 3 }
+      - { id: pyramidal-base, weight: 3 }
+    exclude:
+      - { id: polarized-classic, reason: "a polarized distribution cannot be labelled from effort alone" }
+      - { id: pyramidal-to-polarized, reason: "its polarized half cannot be labelled from effort alone" }
+      - { id: norwegian-threshold-density, reason: "needs a lactate meter, or power with heart rate" }
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/seiler-2010-best-practice.md
+    note: "Effort only means session-goal classification: foundation or pyramidal, and no polarized label."
+
+  # Age and recovery — triggered by the athlete's own recovery answer, never by age
+  - input: recovery_speed
+    value: limited
+    prefer:
+      - { id: pyramidal-base, weight: 2 }
+      - { id: hvlit-foundation, weight: 2 }
+    exclude:
+      - { id: norwegian-threshold-density, reason: "built on three or four threshold sessions a week" }
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/recovery/borges-2016-masters-recovery-kinetics.md
+    note: "One fewer hard day, 48 to 72 hours between hard sessions, a 2:1 loading pattern and strength kept all year."
+
+  # Injury in the last twelve months — the strongest predictor of the next one
+  - input: injury_load
+    value: last_12_months
+    prefer:
+      - { id: hvlit-foundation, weight: 4 }
+      - { id: pyramidal-base, weight: 1 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/nielsen-2014-novice-progression-above-30-percent.md
+    note: "A conservative running-volume step, intensity rerouted to non-impact sessions, and foundation when returning."
+
+  # Interval experience
+  - input: interval_experience
+    value: none
+    prefer:
+      - { id: hvlit-foundation, weight: 2 }
+      - { id: pyramidal-base, weight: 2 }
+    exclude:
+      - { id: polarized-classic, reason: "two VO2max sessions a week need interval experience" }
+      - { id: pyramidal-to-polarized, reason: "its polarized half needs interval experience" }
+      - { id: norwegian-threshold-density, reason: "three or four interval sessions a week need interval experience" }
+      - { id: norwegian-singles-subthreshold, reason: "daily sub-threshold intervals need interval experience" }
+    tier: grey
+    evidence_refs:
+      - evidence/sports_science/training_prescription/helgerud-2007-4x4-raises-vo2max.md
+    note: "No short-interval or block flavour; introduce 4 x 4 minutes after four to six weeks of strides and tempo."
+  - input: interval_experience
+    value: two_seasons
+    prefer:
+      - { id: polarized-classic, weight: 2 }
+      - { id: pyramidal-to-polarized, weight: 2 }
+      - { id: norwegian-threshold-density, weight: 1 }
+    exclude: []
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/ronnestad-2015-30-15-short-intervals.md
+      - evidence/sports_science/training_prescription/ronnestad-2014-block-periodization-cyclists.md
+    note: "Two seasons of intervals make short intervals and block loading eligible."
+
+  # Sport mix
+  - input: sport_mix
+    value: triathlon
+    prefer:
+      - { id: pyramidal-base, weight: 3 }
+    exclude: []
+    tier: case_series
+    evidence_refs:
+      - evidence/sports_science/training_prescription/hellard-2019-swimmers-two-macrocycles.md
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+    note: "The swim stays the least polarized with threshold sets, the bike is pyramidal, the run follows the event; bricks in build."
+  - input: sport_mix
+    value: cycling
+    prefer:
+      - { id: pyramidal-base, weight: 2 }
+      - { id: time-crunched-threshold, weight: 1 }
+    exclude: []
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/ronnestad-2014-block-periodization-cyclists.md
+      - evidence/sports_science/training_prescription/galan-rioja-2023-no-superior-periodization.md
+    note: "Block loading eligible; sweet spot is a base option under eight hours, capped in weeks because no trial supports it."
+  - input: sport_mix
+    value: running
+    prefer:
+      - { id: pyramidal-base, weight: 2 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md
+    note: "Two quality sessions a week at most, and the long run follows the event."
+  - input: sport_mix
+    value: swimming
+    prefer:
+      - { id: pyramidal-base, weight: 3 }
+      - { id: time-crunched-threshold, weight: 1 }
+    exclude: []
+    tier: cohort
+    evidence_refs:
+      - evidence/sports_science/training_prescription/hellard-2019-swimmers-two-macrocycles.md
+    note: "Threshold-heavy by lactate with two long macrocycles; low-volume high-intensity work is acceptable."
+
+  # Season phase now
+  - input: season_phase
+    value: off_season
+    prefer:
+      - { id: hvlit-foundation, weight: 5 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md
+    note: "Foundation; keep one short intense touch a week so the top end is maintained (endurance holds on two sessions a week with intensity kept)."
+  - input: season_phase
+    value: base
+    prefer:
+      - { id: pyramidal-base, weight: 5 }
+      - { id: pyramidal-to-polarized, weight: 2 }
+      - { id: norwegian-threshold-density, weight: 1 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+    note: "Preparation is pyramidal."
+  - input: season_phase
+    value: pre_competition
+    prefer:
+      - { id: polarized-classic, weight: 4 }
+      - { id: race-specific, weight: 3 }
+    exclude: []
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/filipas-2022-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+    note: "Pre-competition turns polarized, or race-specific."
+  - input: season_phase
+    value: competition
+    prefer:
+      - { id: race-specific, weight: 4 }
+      - { id: polarized-classic, weight: 2 }
+    exclude: []
+    tier: review
+    evidence_refs:
+      - evidence/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md
+      - evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md
+    note: "In competition the plan follows event demand: race-pace work, one high-intensity session, volume 10 to 20 percent lower."

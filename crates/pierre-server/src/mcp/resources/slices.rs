@@ -74,7 +74,7 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::{
     ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
-    ToolDescriptionRegistry,
+    ToolDescriptionRegistry, TrainingCatalogueRegistry,
 };
 use pierre_core::billing::BillingProvider;
 use pierre_database::backends::factory::Database;
@@ -318,6 +318,9 @@ pub struct McpSlice {
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// Messaging strings registry for hot-reloadable user-facing canned replies.
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
+    /// Training catalogue registry — the hot-reloadable workout bank, flavours,
+    /// season skeletons and selection table the coach prescribes from.
+    pub training_catalogue_registry: Arc<TrainingCatalogueRegistry>,
     /// Best-effort notifier that pushes a "your historical backfill finished"
     /// notice back to the channel that triggered a background activity backfill.
     /// `None` when messaging is compiled out. Exposed to the detached backfill

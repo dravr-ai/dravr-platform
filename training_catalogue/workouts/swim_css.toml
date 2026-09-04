@@ -1,0 +1,69 @@
+# ABOUTME: Swim CSS — 10–20 × 100 m at critical swim speed with 10–20 s rests, the swim threshold session (purpose threshold)
+# ABOUTME: Authored from the KB multisport table; any phase, the 5 × 400 m alternative lives in the ranges
+
+id = "13626863-37e6-5cd9-9e86-e5336a6b03c9"
+slug = "swim_css"
+name = "Swim — CSS 100s"
+sport = "swim"
+sport_variants = []
+duration_minutes = 35
+intensity_distribution = "threshold"
+purpose = "threshold"
+evidence_tier = "review"
+caveat = "The CSS validation (Wakayoshi 1992) and the swim HIT review (Nugent 2017) have no proposition in the corpus; the propositions cited place CSS at the OBLA boundary and inside the at-or-below-4 mmol volume elite swimmers train."
+evidence_refs = [
+  "evidence/sports_science/training_prescription/hellard-2019-swimmers-two-macrocycles.md",
+  "evidence/sports_science/physiological/sjodin-1982-obla.md",
+]
+
+[params]
+duration_minutes = { min = 30, max = 60, default = 35 }
+reps = { min = 5, max = 20, default = 10 }
+work_seconds = { min = 90, max = 360, default = 90 }
+rest_seconds = { min = 10, max = 20, default = 15 }
+rpe = { min = 7, max = 7 }
+intensity_label = "CSS (critical swim speed): 10–20 × 100 m with 10–20 s rest, or 5 × 400 m"
+
+[params.intensity]
+swim = "threshold"
+
+[progression]
+order = ["add_rep", "shorten_rest"]
+max_weekly_step = 1
+
+[fit]
+phases = ["prep", "base", "build", "specialty", "peak", "taper", "race", "transition", "recovery"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["shoulder_pain"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy swimming, a few build 50s at the end."
+
+[[structure]]
+label = "100 m at CSS"
+duration_seconds = 90
+distance_meters = 100.0
+target_zone = "Threshold"
+repeat = 10
+note = "Hold CSS pace exactly; the last rep at the same speed as the first."
+
+[[structure]]
+label = "Rest"
+duration_seconds = 15
+target_zone = "Z1"
+repeat = 10
+note = "Fifteen seconds on the wall."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 450
+target_zone = "Z1"
+note = "Easy swimming, any stroke."

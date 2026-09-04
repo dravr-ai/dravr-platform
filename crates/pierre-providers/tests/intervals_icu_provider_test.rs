@@ -19,6 +19,9 @@ use std::time::Duration as StdDuration;
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials};
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
+use pierre_providers::models::periodization::{
+    EvidenceTier, PhaseFit, PhaseKind, Progression, ReadinessLevel, WorkoutParams, WorkoutPurpose,
+};
 use pierre_providers::models::{
     IntensityDistribution, PlannedSession, SportType, WorkoutTargetZones, WorkoutTemplate,
 };
@@ -39,11 +42,28 @@ fn sample_template() -> WorkoutTemplate {
         sport: SportType::Run,
         duration_minutes: 90,
         intensity_distribution: IntensityDistribution::Polarized,
+        purpose: WorkoutPurpose::EnduranceLong,
+        sport_variants: vec![SportType::Run, SportType::Ride],
+        evidence_tier: EvidenceTier::Cohort,
+        caveat: None,
         structure: Vec::new(),
         target_zones: WorkoutTargetZones {
             hr_pct_of_lt2: None,
             power_pct_of_ftp: None,
         },
+        params: WorkoutParams::default(),
+        progression: Progression::default(),
+        fit: PhaseFit {
+            phases: vec![PhaseKind::Base, PhaseKind::Build],
+            readiness_min: ReadinessLevel::P1,
+            max_per_week: 1,
+            min_spacing_hours: 0,
+            contraindications: Vec::new(),
+        },
+        evidence_refs: vec![
+            "evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md"
+                .to_owned(),
+        ],
         is_compiled_in: true,
         updated_at: Utc::now(),
     }

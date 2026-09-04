@@ -12,7 +12,8 @@ use pierre_llm::prompts::{missing_placeholders, required_placeholders_for_system
 use tracing::{debug, error, info, warn};
 
 use super::errors::ContremaitreError;
-use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
+use super::evidence_registry::EvidenceRegistry;
+use super::evidence_sync::{sync_all_evidence, sync_changed_evidence};
 use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry, ManifestStringBundles};
 use super::messaging_strings::MessagingStringsRegistry;
 use super::narration_vocab;
@@ -20,13 +21,10 @@ use super::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER
 use super::registry::PromptRegistry;
 use super::store::{PromptStore, StoredFile};
 use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
+use super::training_catalogue::TrainingCatalogueRegistry;
+use super::training_sync::{sync_all_training, sync_changed_training};
 use crate::cageux_config::CageuxConfigRegistry;
 use crate::persona_contracts::PersonaContractRegistry;
-
-/// Nested `domain → category → slug → entry` shape used by the manifest's
-/// evidence tree. Aliased to keep [`sync_all_evidence`] and
-/// [`sync_changed_evidence`] signatures under the `type_complexity` threshold.
-type EvidenceTree = HashMap<String, HashMap<String, HashMap<String, ManifestEntry>>>;
 
 /// Sum per-section results into the run's total.
 fn total_sync_result(sections: &[&SyncResult]) -> SyncResult {
@@ -115,7 +113,7 @@ impl fmt::Display for SyncResult {
 
 /// Outcome of syncing a single entry.
 #[derive(Clone, Copy)]
-enum SyncOutcome {
+pub(crate) enum SyncOutcome {
     Synced,
     Skipped,
     Failed,
@@ -246,7 +244,7 @@ async fn sync_single_coach_prompt(
 }
 
 /// Accumulate a sync outcome into the result totals.
-fn accumulate_outcome(result: &mut SyncResult, outcome: SyncOutcome) {
+pub(crate) fn accumulate_outcome(result: &mut SyncResult, outcome: SyncOutcome) {
     match outcome {
         SyncOutcome::Synced => result.synced += 1,
         SyncOutcome::Skipped => result.skipped += 1,
@@ -397,6 +395,8 @@ pub struct ContremaitreRegistries<'a> {
     pub messaging_strings_registry: &'a MessagingStringsRegistry,
     /// Persona contract registry
     pub persona_contract_registry: &'a PersonaContractRegistry,
+    /// Training catalogue registry
+    pub training_catalogue_registry: &'a TrainingCatalogueRegistry,
 }
 
 /// Run a full contremaitre sync — fetch manifest, download prompts, hydrate registries.
@@ -415,6 +415,7 @@ pub async fn full_sync(
         cageux_config_registry,
         messaging_strings_registry,
         persona_contract_registry,
+        training_catalogue_registry,
     } = registries;
     info!("Starting contremaitre full sync");
 
@@ -427,6 +428,13 @@ pub async fn full_sync(
     let tool_result =
         sync_all_tool_descriptions(tool_desc_registry, store, &manifest.tools.0).await?;
     let evidence_result = sync_all_evidence(evidence_registry, store, &manifest.evidence.0).await?;
+    let training_result = sync_all_training(
+        training_catalogue_registry,
+        evidence_registry,
+        store,
+        &manifest.training,
+    )
+    .await?;
     let bundles_result =
         sync_all_string_bundles(messaging_strings_registry, store, &manifest.string_bundles).await;
     let overlays = sync_config_overlays(
@@ -443,6 +451,7 @@ pub async fn full_sync(
         &persona_result,
         &tool_result,
         &evidence_result,
+        &training_result,
         &overlays.cageux,
         &overlays.contracts,
         &bundles_result,
@@ -457,6 +466,7 @@ pub async fn full_sync(
         tools_synced = tool_result.synced,
         personas_synced = persona_result.synced,
         evidence_synced = evidence_result.synced,
+        training_synced = training_result.synced,
         cageux_synced = overlays.cageux.synced,
         persona_contracts_synced = overlays.contracts.synced,
         bundles_synced = bundles_result.synced,
@@ -636,6 +646,7 @@ pub async fn selective_sync(
         cageux_config_registry,
         messaging_strings_registry,
         persona_contract_registry,
+        training_catalogue_registry,
     } = registries;
     info!(
         changed_count = changed_paths.len(),
@@ -665,6 +676,15 @@ pub async fn selective_sync(
     let evidence_result =
         sync_changed_evidence(evidence_registry, store, &manifest.evidence.0, &changed_set).await?;
 
+    let training_result = sync_changed_training(
+        training_catalogue_registry,
+        evidence_registry,
+        store,
+        &manifest.training,
+        &changed_set,
+    )
+    .await?;
+
     let bundles_result = sync_changed_string_bundles(
         messaging_strings_registry,
         store,
@@ -688,6 +708,7 @@ pub async fn selective_sync(
         &persona_result,
         &tool_result,
         &evidence_result,
+        &training_result,
         &overlays.cageux,
         &overlays.contracts,
         &bundles_result,
@@ -700,6 +721,7 @@ pub async fn selective_sync(
         skipped = result.skipped,
         failed = result.failed,
         personas_synced = persona_result.synced,
+        training_synced = training_result.synced,
         persona_contracts_synced = overlays.contracts.synced,
         notify_routing_synced = overlays.notify_routing.synced,
         narration_synced = overlays.narration.synced,
@@ -786,100 +808,6 @@ async fn fetch_and_apply_tool_description(
         }
         Err(e) => {
             warn!(tool_name, error = %e, "failed to download tool description");
-            SyncOutcome::Failed
-        }
-    }
-}
-
-// =============================================================================
-// Evidence sync (claim verification — domain → category → slug)
-// =============================================================================
-
-/// Iterate the manifest's evidence tree and apply each proposition,
-/// skipping entries whose SHA-256 matches what's already in the registry.
-async fn sync_all_evidence(
-    registry: &EvidenceRegistry,
-    store: &dyn PromptStore,
-    evidence_tree: &EvidenceTree,
-) -> Result<SyncResult, ContremaitreError> {
-    let mut result = SyncResult {
-        synced: 0,
-        skipped: 0,
-        failed: 0,
-    };
-
-    for categories in evidence_tree.values() {
-        for (category, propositions) in categories {
-            for (slug, entry) in propositions {
-                if registry.sha256(category, slug).as_deref() == Some(&entry.sha256) {
-                    debug!(category, slug, "evidence unchanged, skipping");
-                    result.skipped += 1;
-                    continue;
-                }
-                let outcome =
-                    fetch_and_apply_evidence(registry, store, category, slug, entry).await;
-                accumulate_outcome(&mut result, outcome);
-            }
-        }
-    }
-
-    Ok(result)
-}
-
-/// Sync only the evidence propositions whose paths appear in `changed_set`.
-async fn sync_changed_evidence(
-    registry: &EvidenceRegistry,
-    store: &dyn PromptStore,
-    evidence_tree: &EvidenceTree,
-    changed_set: &HashSet<&str>,
-) -> Result<SyncResult, ContremaitreError> {
-    let mut result = SyncResult {
-        synced: 0,
-        skipped: 0,
-        failed: 0,
-    };
-
-    for categories in evidence_tree.values() {
-        for (category, propositions) in categories {
-            for (slug, entry) in propositions {
-                if !changed_set.contains(entry.path.as_str()) {
-                    continue;
-                }
-                let outcome =
-                    fetch_and_apply_evidence(registry, store, category, slug, entry).await;
-                accumulate_outcome(&mut result, outcome);
-            }
-        }
-    }
-
-    Ok(result)
-}
-
-/// Download a single evidence markdown file and apply it to the registry.
-async fn fetch_and_apply_evidence(
-    registry: &EvidenceRegistry,
-    store: &dyn PromptStore,
-    category: &str,
-    slug: &str,
-    entry: &ManifestEntry,
-) -> SyncOutcome {
-    match store.read_file(&entry.path).await {
-        Ok(file) => {
-            let actual_sha = compute_sha256(file.content.as_bytes());
-            match parse_evidence_markdown(&file.content) {
-                Ok(corpus) => {
-                    registry.update(category, slug, corpus, actual_sha);
-                    debug!(category, slug, "synced evidence proposition");
-                    SyncOutcome::Synced
-                }
-                Err(e) => {
-                    warn!(category, slug, error = %e, "failed to parse evidence markdown");
-                    SyncOutcome::Failed
-                }
-            }
-        }
-        Err(e) => {
-            warn!(category, slug, error = %e, "failed to download evidence proposition");
             SyncOutcome::Failed
         }
     }

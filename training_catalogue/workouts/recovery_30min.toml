@@ -1,0 +1,46 @@
+# ABOUTME: Recovery — 30 min easy aerobic shake-out for the day after hard work (purpose recovery)
+# ABOUTME: Regrown legacy cornerstone: keeps its slug, id and default instance, adds the catalogue layer
+
+id = "00000000-0000-0000-0000-000000000004"
+slug = "recovery_30min"
+name = "Recovery — 30 min"
+sport = "run"
+sport_variants = ["run", "ride", "swim"]
+duration_minutes = 30
+intensity_distribution = "recovery"
+purpose = "recovery"
+evidence_tier = "review"
+evidence_refs = [
+  "evidence/sports_science/recovery/stanley-2013-parasympathetic-reactivation.md",
+  "evidence/sports_science/training_prescription/seiler-2010-best-practice.md",
+]
+
+[params]
+duration_minutes = { min = 30, max = 60, default = 30 }
+rpe = { min = 2, max = 3 }
+intensity_label = "< LT1 low end · Z1 · below 55% FTP · easy, conversational"
+
+[params.intensity]
+swim = "Z1"
+run = "Z1"
+ride = "Z1"
+
+[progression]
+order = []
+max_weekly_step = 1
+
+[fit]
+phases = ["prep", "base", "build", "specialty", "peak", "taper", "race", "transition", "recovery"]
+readiness_min = "p0"
+max_per_week = 7
+min_spacing_hours = 0
+contraindications = []
+
+[target_zones]
+hr_pct_of_lt2 = [0.55, 0.65, 0.75, 0.85, 0.95]
+
+[[structure]]
+label = "Easy run"
+duration_seconds = 1800
+target_zone = "Z1"
+note = "Conversational; if HR creeps above Z1 cap, walk a minute."

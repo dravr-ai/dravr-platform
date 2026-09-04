@@ -18,7 +18,7 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::{
     cageux_config::CageuxConfigRegistry, persona_contracts::PersonaContractRegistry,
     ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
-    ToolDescriptionRegistry,
+    ToolDescriptionRegistry, TrainingCatalogueRegistry,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
@@ -82,6 +82,9 @@ pub struct AdminApiContext {
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Persona contract registry (voice/style guardrails per persona).
     pub persona_contract_registry: Arc<PersonaContractRegistry>,
+    /// Training catalogue registry (workout bank, flavours, skeletons,
+    /// selection table) the manual sync endpoint overlays.
+    pub training_catalogue_registry: Arc<TrainingCatalogueRegistry>,
     /// Contremaitre GitHub sync configuration; `None` when contremaitre is
     /// disabled in the running binary.
     pub contremaitre_config: Option<ContremaitreConfig>,
@@ -122,6 +125,8 @@ pub struct AdminApiContextInit {
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Persona contract registry
     pub persona_contract_registry: Arc<PersonaContractRegistry>,
+    /// Training catalogue registry
+    pub training_catalogue_registry: Arc<TrainingCatalogueRegistry>,
     /// Contremaitre GitHub sync configuration (None when disabled)
     pub contremaitre_config: Option<ContremaitreConfig>,
 }
@@ -155,6 +160,7 @@ impl AdminApiContext {
             messaging_strings_registry: init.messaging_strings_registry,
             cageux_config_registry: init.cageux_config_registry,
             persona_contract_registry: init.persona_contract_registry,
+            training_catalogue_registry: init.training_catalogue_registry,
             contremaitre_config: init.contremaitre_config,
         }
     }

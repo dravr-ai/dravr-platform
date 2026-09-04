@@ -1,0 +1,67 @@
+# ABOUTME: Individualised VO2max intervals — 8 reps of 60% of the athlete's own Tmax at Pmax or vVO2max, rest 1:2 on the bike and 1:1 on the run
+# ABOUTME: Laursen 2002 in highly trained cyclists: VO2peak +5.4–8.1% and 40-km TT +4.4–5.8% in four weeks; a Tmax test is a prerequisite
+
+id = "a63391b7-60aa-5676-bd59-b72af3852955"
+slug = "vo2max_tmax"
+name = "VO2max — 8 × 60% Tmax"
+sport = "ride"
+sport_variants = ["ride", "run"]
+duration_minutes = 85
+intensity_distribution = "vo2max"
+purpose = "vo2max_long"
+evidence_tier = "rct"
+evidence_refs = [
+  "evidence/sports_science/training_prescription/laursen-2002-tmax-intervals-cyclists.md",
+]
+
+[params]
+reps = { min = 8, max = 8, default = 8 }
+work_seconds = { min = 120, max = 180, default = 150 }
+rest_seconds = { min = 120, max = 360, default = 300 }
+rpe = { min = 8, max = 9 }
+intensity_label = "100% of Pmax or vVO2max; each rep is 60% of your measured Tmax (2–3 min); rest 1:2 on the bike, 1:1 on the run; re-test Tmax every 4–6 weeks"
+
+[params.intensity]
+ride = "Z5"
+run = "Z5"
+
+[progression]
+order = ["lengthen_rep"]
+max_weekly_step = 1
+
+[fit]
+phases = ["build", "peak"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+contraindications = ["novice_first_season", "acute_injury", "no_interval_experience"]
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy, building to Z2; three short openers near Pmax at the end."
+
+[[structure]]
+label = "Tmax interval"
+duration_seconds = 150
+target_zone = "VO2max"
+repeat = 8
+note = "Exactly Pmax or vVO2max for 60% of your Tmax — the pace of your VO2max test, not faster. RPE 8-9."
+
+[[structure]]
+label = "Recovery"
+duration_seconds = 300
+target_zone = "Z1"
+repeat = 8
+note = "Twice the work duration easy on the bike; equal to the work on the run."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy until HR settles."
