@@ -23,7 +23,7 @@ The interesting bit isn't "an LLM that talks fitness." It's the architecture tha
 - A **coach** is a tenant-scoped persona — a system prompt plus a category, plus tier-specific behaviour rules — not a free-form chat session.
 - Every coach turn is **decomposed into atomic claims** and run through a layered verifier (heuristic + LLM-as-judge) before it reaches the user. False or unsupported physiological / nutrition / training-prescription claims are flagged, scored, and stored against the conversation turn.
 - Every coach turn is **grounded in real provider data** — Strava activities, WHOOP sleep, Garmin HRV — fetched through tool calls, not hallucinated from an activity title.
-- Every coach turn **streams identically** to whichever surface initiated it, via a single AG-UI event channel that all frontends and chat adapters subscribe to.
+- Every coach turn **reaches every surface through one envelope** — a single ordered block list that web, mobile and the five chat channels all render from, with each surface receiving the blocks its capabilities permit. Progressive token-by-token deltas are narrower than that: `TurnEvent::ProseDelta` has one producer, the Copilot ACP branch, so on a function-calling provider an in-app turn arrives as the terminal frame rather than streaming (ledgered as `progressive-text-deltas-acp-only`).
 
 ## The system, end to end
 
