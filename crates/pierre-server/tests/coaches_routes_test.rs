@@ -844,6 +844,70 @@ async fn test_show_hidden_coach_via_api() {
     );
 }
 
+/// E2E test: a session with no active tenant is refused by show, exactly as
+/// by hide and every other coach route — and the refusal leaves the hidden-set
+/// row in place.
+#[tokio::test]
+async fn test_show_coach_without_tenant_is_refused_via_api() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+
+    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
+    let tenant_id = all_tenants
+        .iter()
+        .find(|t| t.owner_user_id == user_id)
+        .unwrap()
+        .id;
+
+    let coaches_manager = &resources.common.repos.coaches;
+    let system_request = CreateSystemCoachRequest {
+        title: "Tenant-gated Coach".to_owned(),
+        description: None,
+        system_prompt: "You are a coach.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        visibility: CoachVisibility::Tenant,
+        sample_prompts: vec![],
+    };
+    let system_coach = coaches_manager
+        .create_system_coach(user_id, tenant_id, &system_request)
+        .await
+        .unwrap();
+    coaches_manager
+        .hide_coach(&system_coach.id.to_string(), user_id, tenant_id)
+        .await
+        .unwrap();
+
+    // The same user, minted with no active tenant claim.
+    let tenantless_token = resources
+        .auth
+        .auth_manager
+        .generate_token_with_tenant(&user, &resources.auth.jwks_manager, None)
+        .unwrap();
+    let tenantless_auth = format!("Bearer {tenantless_token}");
+    let tenant_auth = format!("Bearer {}", generate_test_token(&resources, &user).await);
+
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
+
+    let show_response = AxumTestRequest::delete(&format!("/api/coaches/{}/hide", system_coach.id))
+        .header("authorization", &tenantless_auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(show_response.status_code(), StatusCode::UNAUTHORIZED);
+
+    // The refusal wrote nothing: the coach is still hidden for a tenant-bearing session.
+    let list_response = AxumTestRequest::get("/api/coaches")
+        .header("authorization", &tenant_auth)
+        .send(router)
+        .await;
+    assert_eq!(list_response.status_code(), StatusCode::OK);
+    let list: ListCoachesResponse = list_response.json();
+    assert!(
+        !list.coaches.iter().any(|c| c.title == "Tenant-gated Coach"),
+        "a refused show must leave the coach hidden"
+    );
+}
+
 /// E2E test: Hidden coaches appear when `include_hidden=true`
 #[tokio::test]
 async fn test_list_with_include_hidden() {

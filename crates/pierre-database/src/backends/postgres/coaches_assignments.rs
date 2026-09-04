@@ -176,6 +176,9 @@ pub(super) async fn hide_coach(
 }
 
 pub(super) async fn show_coach(pool: &PgPool, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
+    // No tenant predicate: user_coach_preferences has no tenant_id column —
+    // the hidden-set is a per-user preference (see the trait doc). The
+    // caller's handler enforces the tenant gate.
     let result = sqlx::query(
         r"
         DELETE FROM user_coach_preferences

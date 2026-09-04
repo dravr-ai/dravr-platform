@@ -1278,7 +1278,7 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let user_id = ctx.user_id;
+            ctx.require_tenant()?; // A gate, not a key — see `CoachesRepository::show_coach`.
 
             let coach_id = args
                 .get("coach_id")
@@ -1287,7 +1287,7 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
 
             let manager = ctx.resources.coaches_manager();
             let success = manager
-                .show_coach(coach_id, user_id)
+                .show_coach(coach_id, ctx.user_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to show coach: {e}")))?;
 

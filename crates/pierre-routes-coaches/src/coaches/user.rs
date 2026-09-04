@@ -1032,6 +1032,10 @@ pub(super) async fn handle_show_coach<C: CoachesCtx + MiddlewareCtx>(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
+    // A caller with no active tenant is refused like every other coach route.
+    // The hidden-set row is keyed per user, so the tenant is a gate here, not
+    // a query key — see `CoachesRepository::show_coach`.
+    super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&ctx);
     let success = manager.show_coach(&id, auth.user_id).await?;

@@ -22,6 +22,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
@@ -1658,6 +1660,113 @@ async fn test_coach_token_count_calculated() -> Result<()> {
         token_count < 500,
         "Token count should be reasonable: {token_count}"
     );
+
+    Ok(())
+}
+
+// ============================================================================
+// Hidden-set Tenant Gate Tests
+// ============================================================================
+
+/// `show_coach` refuses a caller with no resolved tenant exactly as
+/// `hide_coach` does. The hidden-set row is keyed per user, so the tenant is a
+/// gate on the handler rather than a key on the row — and a refused call must
+/// leave the row alone, where a tenant-bearing caller removes it.
+#[tokio::test]
+async fn test_show_coach_without_tenant_is_refused_and_keeps_the_coach_hidden() -> Result<()> {
+    let executor = create_coach_test_executor().await?;
+    let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
+
+    // Only a system or assigned coach is hideable; a personal one is refused.
+    let system_coach = executor
+        .resources
+        .repos()
+        .coaches
+        .create_system_coach(
+            user_id,
+            TenantId::from_uuid(Uuid::parse_str(&tenant_id)?),
+            &CreateSystemCoachRequest {
+                title: "Gated Coach".to_owned(),
+                description: None,
+                system_prompt: "You are a coach.".to_owned(),
+                category: CoachCategory::Training,
+                tags: vec![],
+                sample_prompts: vec![],
+                visibility: CoachVisibility::Tenant,
+            },
+        )
+        .await?;
+    let coach_id = system_coach.id.to_string();
+    let args = json!({ "coach_id": coach_id });
+
+    let mut tenantless_hide = create_test_request("hide_coach", args.clone(), user_id, &tenant_id);
+    tenantless_hide.tenant_id = None;
+    let refused = executor
+        .execute_tool(tenantless_hide)
+        .await
+        .expect_err("hide_coach must refuse a caller with no tenant");
+    assert!(
+        refused.to_string().contains("Tenant context required"),
+        "unexpected hide refusal: {refused}"
+    );
+
+    let hidden = executor
+        .execute_tool(create_test_request(
+            "hide_coach",
+            args.clone(),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert!(hidden.success, "hide_coach failed: {:?}", hidden.error);
+
+    let mut tenantless_show = create_test_request("show_coach", args.clone(), user_id, &tenant_id);
+    tenantless_show.tenant_id = None;
+    let refused = executor
+        .execute_tool(tenantless_show)
+        .await
+        .expect_err("show_coach must refuse a caller with no tenant");
+    assert!(
+        refused.to_string().contains("Tenant context required"),
+        "unexpected show refusal: {refused}"
+    );
+
+    // The refusal wrote nothing: the coach is still in the hidden-set.
+    let still_hidden = executor
+        .execute_tool(create_test_request(
+            "list_hidden_coaches",
+            json!({}),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    let still_hidden = still_hidden.result.unwrap();
+    let hidden_ids: Vec<&str> = still_hidden["coaches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(hidden_ids, vec![coach_id.as_str()]);
+
+    // The tenant-bearing caller removes the preference and the coach is back.
+    let shown = executor
+        .execute_tool(create_test_request("show_coach", args, user_id, &tenant_id))
+        .await?;
+    assert!(shown.success, "show_coach failed: {:?}", shown.error);
+    let shown = shown.result.unwrap();
+    assert_eq!(shown["removed_preference"], json!(true));
+    assert_eq!(shown["is_hidden"], json!(false));
+
+    let none_hidden = executor
+        .execute_tool(create_test_request(
+            "list_hidden_coaches",
+            json!({}),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert_eq!(none_hidden.result.unwrap()["count"].as_u64(), Some(0));
 
     Ok(())
 }

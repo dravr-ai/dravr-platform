@@ -229,7 +229,12 @@ pub trait CoachesRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
-    /// Show a previously hidden coach
+    /// Show a previously hidden coach. User-scoped, not tenant-scoped, by
+    /// design: `user_coach_preferences` carries no `tenant_id` column because
+    /// hiding is a personal preference on a coach the user can already see
+    /// (a system coach, or one assigned to them), so the delete is keyed on
+    /// `(user_id, coach_id)` alone. Each handler still refuses a caller with
+    /// no resolved tenant, like every sibling coach handler.
     async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool>;
     /// List coaches hidden by a user
     async fn list_hidden_coaches(
