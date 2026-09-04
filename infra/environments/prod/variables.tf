@@ -240,6 +240,17 @@ variable "frontend_max_instances" {
   default     = 5
 }
 
+# No default, deliberately. This value is the MCP endpoint's DNS-rebinding
+# allowlist, and the engine reads an empty list as permit-any — so a default
+# of "" would not carry the setting forward, it would ship an unguarded
+# endpoint while looking configured. Prod refuses to plan until someone
+# supplies the real frontend origin, the same way it refuses to boot without
+# a database rather than falling back to SQLite.
+variable "frontend_base_url" {
+  description = "Public URL of the frontend (nginx proxies API traffic to backend). Also the MCP Origin allowlist."
+  type        = string
+}
+
 # -----------------------------------------------------------------------------
 # Firebase Identity Platform
 # -----------------------------------------------------------------------------

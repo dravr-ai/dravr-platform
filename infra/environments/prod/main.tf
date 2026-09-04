@@ -152,6 +152,14 @@ module "backend" {
       MCP_PORT    = "8080"
       HTTP_PORT   = "8081"
       ENVIRONMENT = var.environment
+
+      # DNS-rebinding protection for POST /mcp, and deliberately not a CORS
+      # wildcard: the MCP endpoint has no browser caller of its own, and
+      # native/CLI MCP clients send no Origin at all, so they are unaffected.
+      # This rejects a browser origin other than our own with 403 before
+      # authentication. The engine treats an empty list as permit-any, which
+      # is why frontend_base_url has no default.
+      MCP_ALLOWED_ORIGINS = var.frontend_base_url
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
