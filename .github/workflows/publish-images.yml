@@ -3,6 +3,25 @@
 
 name: "Deploy: Build & Ship (dev)"
 
+# The built commit, in the run's own title.
+#
+# GitHub stamps a `workflow_run` run with the branch TIP at run-creation, while
+# `resolve-sha` below deliberately builds `workflow_run.head_sha` — the tree CI
+# actually validated. When CI completes out of order those are different
+# commits, and every reporting surface (the Actions UI, `gh run list --json
+# headSha`) shows the tip. The build is right; the reporting is not.
+#
+# On 2026-09-03 that cost a full misdiagnosis: run 33816926276 reported
+# `ecc8ab1f4` and built `19bc985c4`, which read as "the same commit produced
+# both a red and a green Trivy gate, so the gate is not reproducible from
+# source". It was filed as a defect and a Dockerfile comment went up telling the
+# next person the apt-epoch bump was an unreliable remedy — all wrong; the bump
+# was simply never compiled (carnet#262).
+#
+# `run-name` is evaluated at run creation, where the workflow_run payload is
+# already available, so the title carries the commit this run will build.
+run-name: "Deploy ${{ github.event.workflow_run.head_sha || github.sha }}"
+
 on:
   workflow_dispatch:
   # Only publish after CI tests pass on main — prevents deploying broken code
