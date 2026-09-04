@@ -1,5 +1,5 @@
 // ABOUTME: Claim verification service — lazy-loaded evidence corpus + pipeline runner
-// ABOUTME: Embeds 42 markdown propositions via include_str!; corpus moves to dravr-contremaitre in Phase A follow-up
+// ABOUTME: Embeds 111 markdown propositions via include_str!; corpus moves to dravr-contremaitre in Phase A follow-up
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -32,269 +32,461 @@ use std::slice;
 use std::sync::OnceLock;
 use tracing::{error, warn};
 
-/// All 42 embedded proposition files as (filename, contents) pairs.
+/// All 111 embedded proposition files as (filename, contents) pairs.
 /// Organized by category to match the `dravr-contremaitre` `evidence/`
 /// layout. Adding a new proposition means adding both a new `.md` file
 /// under `crates/pierre-evals/fixtures/sports_science/` and a new line
 /// in this table.
 const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
-    // Nutrition (7)
+    // Injury / rehab (3)
+    (
+        "injury_rehab/alfredson-1998-eccentric-achilles.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/injury_rehab/alfredson-1998-eccentric-achilles.md"),
+    ),
+    (
+        "injury_rehab/bjsm-2017-achilles-return-to-run.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/injury_rehab/bjsm-2017-achilles-return-to-run.md"),
+    ),
+    (
+        "injury_rehab/jospt-2019-acl-return-to-sport.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/injury_rehab/jospt-2019-acl-return-to-sport.md"),
+    ),
+    // Nutrition (9)
+    (
+        "nutrition/clark-2019-carbohydrate-preserves-critical-power.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/clark-2019-carbohydrate-preserves-critical-power.md"),
+    ),
     (
         "nutrition/costa-2017-gi-syndrome.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/costa-2017-gi-syndrome.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/costa-2017-gi-syndrome.md"),
     ),
     (
         "nutrition/geesmann-2014-ultra-cycling.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/geesmann-2014-ultra-cycling.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/geesmann-2014-ultra-cycling.md"),
     ),
     (
         "nutrition/hew-butler-2008-hyponatremia.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/hew-butler-2008-hyponatremia.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/hew-butler-2008-hyponatremia.md"),
     ),
     (
         "nutrition/jeukendrup-2014-carbs-during-exercise.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md"),
     ),
     (
         "nutrition/morton-2018-protein-intake.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/morton-2018-protein-intake.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/morton-2018-protein-intake.md"),
     ),
     (
         "nutrition/schoenfeld-aragon-2018-protein-timing.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/schoenfeld-aragon-2018-protein-timing.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/schoenfeld-aragon-2018-protein-timing.md"),
     ),
     (
         "nutrition/sim-2019-iron-deficiency.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/sim-2019-iron-deficiency.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/sim-2019-iron-deficiency.md"),
+    ),
+    (
+        "nutrition/wilson-2026-carbohydrate-intake-ceiling.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/nutrition/wilson-2026-carbohydrate-intake-ceiling.md"),
+    ),
+    // Physiological (11)
+    (
+        "physiological/barnes-kilding-2015-running-economy.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/barnes-kilding-2015-running-economy.md"),
+    ),
+    (
+        "physiological/bergstrom-glycogen-depletion.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/bergstrom-glycogen-depletion.md"),
+    ),
+    (
+        "physiological/clark-2018-critical-power-falls-after-two-hours.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/clark-2018-critical-power-falls-after-two-hours.md"),
+    ),
+    (
+        "physiological/faude-2009-lactate-threshold.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/faude-2009-lactate-threshold.md"),
+    ),
+    (
+        "physiological/hunter-2025-durability-measurement.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/hunter-2025-durability-measurement.md"),
+    ),
+    (
+        "physiological/jones-kirby-2025-physiological-resilience.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/jones-kirby-2025-physiological-resilience.md"),
+    ),
+    (
+        "physiological/rogers-2020-dfa-alpha1-first-threshold.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/rogers-2020-dfa-alpha1-first-threshold.md"),
+    ),
+    (
+        "physiological/saltin-1968-vo2max-elite.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/saltin-1968-vo2max-elite.md"),
+    ),
+    (
+        "physiological/seiler-viken-2025-lactate-zone-boundaries.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/seiler-viken-2025-lactate-zone-boundaries.md"),
+    ),
+    (
+        "physiological/sjodin-1982-obla.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/sjodin-1982-obla.md"),
+    ),
+    (
+        "physiological/tanaka-2001-hrmax-formula.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/physiological/tanaka-2001-hrmax-formula.md"),
+    ),
+    // Recovery (24)
+    (
+        "recovery/borges-2016-masters-recovery-kinetics.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/borges-2016-masters-recovery-kinetics.md"),
+    ),
+    (
+        "recovery/daanen-2018-heat-decay.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/daanen-2018-heat-decay.md"),
+    ),
+    (
+        "recovery/duking-2021-hrv-guided-meta.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/duking-2021-hrv-guided-meta.md"),
+    ),
+    (
+        "recovery/figueiredo-2023-dalda-guided-beats-hrv.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/figueiredo-2023-dalda-guided-beats-hrv.md"),
+    ),
+    (
+        "recovery/foster-1998-session-rpe-monotony-strain.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/foster-1998-session-rpe-monotony-strain.md"),
+    ),
+    (
+        "recovery/hooper-1995-wellbeing-ratings-predict-staleness.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/hooper-1995-wellbeing-ratings-predict-staleness.md"),
+    ),
+    (
+        "recovery/kiviniemi-2007-hrv-guided-daily-rule.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/kiviniemi-2007-hrv-guided-daily-rule.md"),
+    ),
+    (
+        "recovery/lorenzo-2010-heat-acclimation.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/lorenzo-2010-heat-acclimation.md"),
+    ),
+    (
+        "recovery/mcnulty-2020-menstrual-cycle-trivial-effect.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/mcnulty-2020-menstrual-cycle-trivial-effect.md"),
+    ),
+    (
+        "recovery/meeusen-2013-overtraining-consensus.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/meeusen-2013-overtraining-consensus.md"),
+    ),
+    (
+        "recovery/nuuttila-2022-individualised-on-recovery-status.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/nuuttila-2022-individualised-on-recovery-status.md"),
+    ),
+    (
+        "recovery/periard-2015-heat-mechanisms.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/periard-2015-heat-mechanisms.md"),
+    ),
+    (
+        "recovery/plews-2013-hrv-recovery.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/plews-2013-hrv-recovery.md"),
+    ),
+    (
+        "recovery/plews-2014-hrv-minimum-three-mornings.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/plews-2014-hrv-minimum-three-mornings.md"),
+    ),
+    (
+        "recovery/racinais-2015-bjsm-consensus.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/racinais-2015-bjsm-consensus.md"),
+    ),
+    (
+        "recovery/roberts-2015-cold-immersion.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/roberts-2015-cold-immersion.md"),
+    ),
+    (
+        "recovery/ronnestad-2020-heat-training-haemoglobin-mass.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/ronnestad-2020-heat-training-haemoglobin-mass.md"),
+    ),
+    (
+        "recovery/saw-2016-subjective-monitoring-outperforms.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/saw-2016-subjective-monitoring-outperforms.md"),
+    ),
+    (
+        "recovery/scoon-2007-sauna-heat-adaptation.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/scoon-2007-sauna-heat-adaptation.md"),
+    ),
+    (
+        "recovery/stanley-2013-parasympathetic-reactivation.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/stanley-2013-parasympathetic-reactivation.md"),
+    ),
+    (
+        "recovery/stellingwerff-2021-overtraining-energy-availability.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/stellingwerff-2021-overtraining-energy-availability.md"),
+    ),
+    (
+        "recovery/tyler-2016-heat-meta-analysis.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/tyler-2016-heat-meta-analysis.md"),
+    ),
+    (
+        "recovery/vesterinen-2016-hrv-guided-fewer-hard-sessions.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/vesterinen-2016-hrv-guided-fewer-hard-sessions.md"),
+    ),
+    (
+        "recovery/watson-2015-sleep-duration.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/recovery/watson-2015-sleep-duration.md"),
     ),
     // Supplement (4)
     (
         "supplement/issn-2015-beta-alanine.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/supplement/issn-2015-beta-alanine.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/supplement/issn-2015-beta-alanine.md"),
     ),
     (
         "supplement/issn-2017-creatine.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/supplement/issn-2017-creatine.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/supplement/issn-2017-creatine.md"),
     ),
     (
         "supplement/issn-2021-caffeine.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/supplement/issn-2021-caffeine.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/supplement/issn-2021-caffeine.md"),
     ),
     (
         "supplement/wolfe-2017-bcaa.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/supplement/wolfe-2017-bcaa.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/supplement/wolfe-2017-bcaa.md"),
     ),
-    // Physiological (6)
+    // Training prescription (60)
     (
-        "physiological/barnes-kilding-2015-running-economy.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/barnes-kilding-2015-running-economy.md"
-        ),
+        "training_prescription/aubry-2014-overreaching-before-taper.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/aubry-2014-overreaching-before-taper.md"),
     ),
-    (
-        "physiological/bergstrom-glycogen-depletion.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/bergstrom-glycogen-depletion.md"
-        ),
-    ),
-    (
-        "physiological/faude-2009-lactate-threshold.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/faude-2009-lactate-threshold.md"
-        ),
-    ),
-    (
-        "physiological/saltin-1968-vo2max-elite.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/saltin-1968-vo2max-elite.md"
-        ),
-    ),
-    (
-        "physiological/sjodin-1982-obla.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/sjodin-1982-obla.md"
-        ),
-    ),
-    (
-        "physiological/tanaka-2001-hrmax-formula.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/tanaka-2001-hrmax-formula.md"
-        ),
-    ),
-    // Training prescription (13)
     (
         "training_prescription/bosquet-2007-taper-meta-analysis.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md"),
+    ),
+    (
+        "training_prescription/buist-2008-ten-percent-rule-no-effect.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/buist-2008-ten-percent-rule-no-effect.md"),
     ),
     (
         "training_prescription/casado-2021-world-class-distance.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/casado-2021-world-class-distance.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/casado-2021-world-class-distance.md"),
+    ),
+    (
+        "training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/casado-2022-elite-runners-pyramidal-then-polarized.md"),
+    ),
+    (
+        "training_prescription/casado-2023-lactate-guided-threshold-model.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/casado-2023-lactate-guided-threshold-model.md"),
+    ),
+    (
+        "training_prescription/cloosterman-2026-acwr-not-associated.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/cloosterman-2026-acwr-not-associated.md"),
     ),
     (
         "training_prescription/denadai-2017-plyometrics.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/denadai-2017-plyometrics.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/denadai-2017-plyometrics.md"),
+    ),
+    (
+        "training_prescription/doherty-2020-marathon-dose-response.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/doherty-2020-marathon-dose-response.md"),
+    ),
+    (
+        "training_prescription/eihara-2022-heavy-vs-plyometric-runners.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/eihara-2022-heavy-vs-plyometric-runners.md"),
+    ),
+    (
+        "training_prescription/feely-2022-marathon-training-disruption.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/feely-2022-marathon-training-disruption.md"),
+    ),
+    (
+        "training_prescription/feng-2025-concurrent-session-order.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/feng-2025-concurrent-session-order.md"),
+    ),
+    (
+        "training_prescription/festa-2019-polarized-vs-threshold-recreational.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/festa-2019-polarized-vs-threshold-recreational.md"),
+    ),
+    (
+        "training_prescription/filipas-2022-pyramidal-then-polarized.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/filipas-2022-pyramidal-then-polarized.md"),
+    ),
+    (
+        "training_prescription/fokkema-2020-recreational-volume-and-time.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md"),
     ),
     (
         "training_prescription/foster-2022-polarized-optimal.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/foster-2022-polarized-optimal.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/foster-2022-polarized-optimal.md"),
+    ),
+    (
+        "training_prescription/gabbett-2016-chronic-load-protective.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/gabbett-2016-chronic-load-protective.md"),
+    ),
+    (
+        "training_prescription/galan-rioja-2023-no-superior-periodization.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/galan-rioja-2023-no-superior-periodization.md"),
+    ),
+    (
+        "training_prescription/galan-rioja-2023-periodization-long-term-unresolved.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/galan-rioja-2023-periodization-long-term-unresolved.md"),
+    ),
+    (
+        "training_prescription/gonzalez-rave-2022-reverse-periodization.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/gonzalez-rave-2022-reverse-periodization.md"),
     ),
     (
         "training_prescription/haugen-2022-world-class-distance.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/haugen-2022-world-class-distance.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/haugen-2022-world-class-distance.md"),
+    ),
+    (
+        "training_prescription/helgerud-2007-4x4-raises-vo2max.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/helgerud-2007-4x4-raises-vo2max.md"),
+    ),
+    (
+        "training_prescription/hellard-2019-swimmers-two-macrocycles.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/hellard-2019-swimmers-two-macrocycles.md"),
+    ),
+    (
+        "training_prescription/impellizzeri-2020-acwr-critique.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/impellizzeri-2020-acwr-critique.md"),
+    ),
+    (
+        "training_prescription/jamnick-2020-intensity-anchors.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/jamnick-2020-intensity-anchors.md"),
+    ),
+    (
+        "training_prescription/lauersen-2014-strength-halves-injuries.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/lauersen-2014-strength-halves-injuries.md"),
+    ),
+    (
+        "training_prescription/laursen-2002-tmax-intervals-cyclists.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/laursen-2002-tmax-intervals-cyclists.md"),
+    ),
+    (
+        "training_prescription/lenk-2025-hiit-sessions-per-week.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/lenk-2025-hiit-sessions-per-week.md"),
+    ),
+    (
+        "training_prescription/llanos-lagos-2026-heavy-strength-cyclists.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/llanos-lagos-2026-heavy-strength-cyclists.md"),
+    ),
+    (
+        "training_prescription/llanos-lagos-2026-heavy-strength-prescription.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/llanos-lagos-2026-heavy-strength-prescription.md"),
+    ),
+    (
+        "training_prescription/molmen-2019-block-periodization-meta.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/molmen-2019-block-periodization-meta.md"),
     ),
     (
         "training_prescription/mujika-padilla-2003-taper.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/mujika-padilla-2003-taper.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/mujika-padilla-2003-taper.md"),
+    ),
+    (
+        "training_prescription/muniz-pumares-2025-marathon-tid-by-level.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/muniz-pumares-2025-marathon-tid-by-level.md"),
     ),
     (
         "training_prescription/nielsen-2012-volume-injury.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/nielsen-2012-volume-injury.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/nielsen-2012-volume-injury.md"),
+    ),
+    (
+        "training_prescription/nielsen-2014-novice-progression-above-30-percent.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/nielsen-2014-novice-progression-above-30-percent.md"),
+    ),
+    (
+        "training_prescription/qin-2025-recreational-marathon-tid-responders.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/qin-2025-recreational-marathon-tid-responders.md"),
+    ),
+    (
+        "training_prescription/ramos-campo-2025-strength-no-vo2max-change.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/ramos-campo-2025-strength-no-vo2max-change.md"),
+    ),
+    (
+        "training_prescription/ramskov-2018-intensity-vs-volume-progression.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/ramskov-2018-intensity-vs-volume-progression.md"),
+    ),
+    (
+        "training_prescription/raysmith-drew-2016-training-availability.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/raysmith-drew-2016-training-availability.md"),
+    ),
+    (
+        "training_prescription/ronnestad-2010-strength-maintenance-in-season.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/ronnestad-2010-strength-maintenance-in-season.md"),
+    ),
+    (
+        "training_prescription/ronnestad-2014-block-periodization-cyclists.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/ronnestad-2014-block-periodization-cyclists.md"),
+    ),
+    (
+        "training_prescription/ronnestad-2015-30-15-short-intervals.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/ronnestad-2015-30-15-short-intervals.md"),
     ),
     (
         "training_prescription/rosenblat-2020-polarized-training.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/rosenblat-2020-polarized-training.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/rosenblat-2020-polarized-training.md"),
+    ),
+    (
+        "training_prescription/rosenblat-2025-tid-ipd-network-meta.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/rosenblat-2025-tid-ipd-network-meta.md"),
+    ),
+    (
+        "training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/sandbakk-2025-norwegian-coaches-hard-days.md"),
     ),
     (
         "training_prescription/schoenfeld-2017-strength-training.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/schoenfeld-2017-strength-training.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/schoenfeld-2017-strength-training.md"),
+    ),
+    (
+        "training_prescription/schumann-2022-concurrent-training-interference.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/schumann-2022-concurrent-training-interference.md"),
     ),
     (
         "training_prescription/seiler-2010-best-practice.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/seiler-2010-best-practice.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/seiler-2010-best-practice.md"),
+    ),
+    (
+        "training_prescription/seiler-2013-interval-duration-4x8.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/seiler-2013-interval-duration-4x8.md"),
+    ),
+    (
+        "training_prescription/silva-oliveira-2024-polarized-meta-analysis.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/silva-oliveira-2024-polarized-meta-analysis.md"),
+    ),
+    (
+        "training_prescription/smyth-lawlor-2021-recreational-marathon-taper.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/smyth-lawlor-2021-recreational-marathon-taper.md"),
+    ),
+    (
+        "training_prescription/spiering-2021-minimal-dose-maintenance.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/spiering-2021-minimal-dose-maintenance.md"),
     ),
     (
         "training_prescription/stoggl-sperlich-2014-polarized.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/stoggl-sperlich-2014-polarized.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/stoggl-sperlich-2014-polarized.md"),
+    ),
+    (
+        "training_prescription/storen-2008-maximal-strength-running-economy.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/storen-2008-maximal-strength-running-economy.md"),
+    ),
+    (
+        "training_prescription/sunde-2010-maximal-strength-cycling-economy.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/sunde-2010-maximal-strength-cycling-economy.md"),
     ),
     (
         "training_prescription/tjelta-2019-norwegian-elite.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/tjelta-2019-norwegian-elite.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/tjelta-2019-norwegian-elite.md"),
+    ),
+    (
+        "training_prescription/tonnessen-2024-norwegian-coach-session-models.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/tonnessen-2024-norwegian-coach-session-models.md"),
     ),
     (
         "training_prescription/treff-2019-polarization-index.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/treff-2019-polarization-index.md"
-        ),
-    ),
-    // Recovery (9)
-    (
-        "recovery/daanen-2018-heat-decay.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/daanen-2018-heat-decay.md"
-        ),
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/treff-2019-polarization-index.md"),
     ),
     (
-        "recovery/lorenzo-2010-heat-acclimation.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/lorenzo-2010-heat-acclimation.md"
-        ),
+        "training_prescription/wang-2023-taper-meta-analysis.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/wang-2023-taper-meta-analysis.md"),
     ),
     (
-        "recovery/periard-2015-heat-mechanisms.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/periard-2015-heat-mechanisms.md"
-        ),
-    ),
-    (
-        "recovery/plews-2013-hrv-recovery.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/plews-2013-hrv-recovery.md"
-        ),
-    ),
-    (
-        "recovery/racinais-2015-bjsm-consensus.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/racinais-2015-bjsm-consensus.md"
-        ),
-    ),
-    (
-        "recovery/roberts-2015-cold-immersion.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/roberts-2015-cold-immersion.md"
-        ),
-    ),
-    (
-        "recovery/scoon-2007-sauna-heat-adaptation.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/scoon-2007-sauna-heat-adaptation.md"
-        ),
-    ),
-    (
-        "recovery/tyler-2016-heat-meta-analysis.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/tyler-2016-heat-meta-analysis.md"
-        ),
-    ),
-    (
-        "recovery/watson-2015-sleep-duration.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/watson-2015-sleep-duration.md"
-        ),
-    ),
-    // Injury rehab (3)
-    (
-        "injury_rehab/alfredson-1998-eccentric-achilles.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/injury_rehab/alfredson-1998-eccentric-achilles.md"
-        ),
-    ),
-    (
-        "injury_rehab/bjsm-2017-achilles-return-to-run.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/injury_rehab/bjsm-2017-achilles-return-to-run.md"
-        ),
-    ),
-    (
-        "injury_rehab/jospt-2019-acl-return-to-sport.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/injury_rehab/jospt-2019-acl-return-to-sport.md"
-        ),
+        "training_prescription/yang-2025-interval-methods-network-meta.md",
+        include_str!("../../pierre-evals/fixtures/sports_science/training_prescription/yang-2025-interval-methods-network-meta.md"),
     ),
 ];
 
@@ -302,7 +494,7 @@ static CORPUS: OnceLock<EvidenceCorpus> = OnceLock::new();
 
 /// Return the compiled-in fallback corpus.
 ///
-/// Parses the 42 embedded markdown propositions on first call. Parse
+/// Parses the 111 embedded markdown propositions on first call. Parse
 /// failures log an error and return an empty corpus so verification
 /// gracefully degrades rather than panicking.
 ///
