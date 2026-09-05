@@ -24,6 +24,15 @@
 # only after main has merged. Building earlier would leave :latest pointing at a version
 # this repo never accepted, and since terraform's sciotte_image is that moving tag, the
 # next unrelated apply would deploy it.
+#
+# The diamond is wider than sciotte. enforme pins other dravr crates too, and a release
+# that moved one of them past the platform's own pin splits the lockfile just the same —
+# carnet#323 was dravr-equilibre, 0.2.4 beside 0.2.5, in a run whose sciotte and enforme
+# counts both read one. So before either push — the branch in `bump`, main in `merge` —
+# the lockfile is refused if ANY dravr-ecosystem crate resolves more than once
+# (scripts/ci/check-lockfile-duplicates.sh, compile-free, about a second), naming the
+# crate and both versions instead of leaving CI to report E0053/E0308 twenty
+# minutes into the gate, on a branch that can never merge.
 
 name: "Enforme: Release Integration"
 
@@ -185,26 +194,33 @@ jobs:
 
           cargo update -p dravr-sciotte -p dravr-enforme
 
-          # Prove the lock converged. `cargo update -p` resolves the new tag but leaves
-          # the old entry behind while anything still references it, and a second entry
-          # is exactly what ci-backend's `dravr-* duplicate check` hard-fails on. This is
-          # the whole reason both pins move in one commit, so assert it here rather than
-          # discover it twenty minutes into CI.
-          for dep in dravr-sciotte dravr-enforme; do
-            COUNT=$(grep -c "^name = \"${dep}\"" Cargo.lock || true)
-            if [ "${COUNT}" != "1" ]; then
-              echo "::error::Cargo.lock carries ${COUNT} ${dep} entries; expected exactly 1"
-              grep -A2 "^name = \"${dep}\"" Cargo.lock || true
-              exit 1
-            fi
-          done
+          # Prove the lock moved to both tags. Whether it CONVERGED is the next
+          # step's job: `cargo update -p` resolves the new tag but leaves the old
+          # entry behind while anything still references it, and that second entry
+          # is what ci-backend's `dravr-* duplicate check` hard-fails on.
           for want in "tag=${SCIOTTE}#" "tag=${ENFORME}#"; do
             if ! grep -q "${want}" Cargo.lock; then
               echo "::error::Cargo.lock did not move to ${want%#}"
               exit 1
             fi
           done
-          echo "lock converged on sciotte ${SCIOTTE} and enforme ${ENFORME}"
+          echo "lock moved to sciotte ${SCIOTTE} and enforme ${ENFORME}"
+
+      - name: Refuse to push a bump that splits the lockfile
+        # Compile-free, ~1s, and skipped with the rest of this job when both
+        # pins are already current, so the weekly no-op pays nothing. Both pins
+        # move in one commit precisely so the lock converges, and this is the
+        # assertion — for EVERY dravr-ecosystem crate, not the two this lane
+        # moved. The v0.1.49 run (2026-09-04, carnet#323) counted sciotte and
+        # enforme, found one each, and pushed a lockfile carrying dravr-equilibre
+        # at 0.2.4 and 0.2.5: the released enforme had moved onto 0.2.5 while
+        # the platform still pinned 0.2.4. The gate reported it twenty minutes
+        # in as E0053/E0308 in pierre-services/src/health_sync.rs, one copy's
+        # trait implemented with the other copy's types, on a branch that could
+        # never merge. Failing HERE names the crate and both versions before
+        # anything is pushed, files the stall through report-failure, and lets
+        # the weekly cron retry once the other pin has moved.
+        run: scripts/ci/check-lockfile-duplicates.sh
 
       - name: Push the branch and dispatch the gates onto it
         id: push
@@ -308,6 +324,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin "${BRANCH}"
           git merge --squash "origin/${BRANCH}"
+          # The gate validated the branch against the main it was cut from; this
+          # push lands the squash on whatever main is NOW, with GITHUB_TOKEN, so
+          # no push-triggered run validates it. A lockfile that merged cleanly but
+          # carries a pin main moved in the meantime is a split the gate never saw.
+          # One second, on the tree about to be pushed.
+          scripts/ci/check-lockfile-duplicates.sh
           git commit -m "chore(deps): integrate dravr-enforme ${ENFORME} with dravr-sciotte ${SCIOTTE}"
           git push origin main
           # Squash gives the merge a new SHA, so the branch is dead the moment it lands.
@@ -590,8 +612,11 @@ jobs:
 
           Both pins move in one commit because this repo depends on \`dravr-sciotte\`
           directly and through \`dravr-enforme\`, and CI hard-fails a build where a
-          \`dravr-*\` crate resolves to two versions. If the bump job failed on a lockfile
-          assertion, the two arms disagree and enforme is the one that has to move first.
+          \`dravr-*\` crate resolves to two versions. If the bump job refused the
+          lockfile, the run log names the crate that resolves twice and both versions:
+          for sciotte the two arms disagree and enforme is the one that has to move
+          first; for any other dravr crate the released enforme and the platform pin
+          it differently, and whichever lags has to catch up before this can merge.
 
           The chain is ordered so a stall is safe: the sciotte image is built and
           \`:latest\` advanced only after main has merged. If this stopped at or before

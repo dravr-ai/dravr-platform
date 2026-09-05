@@ -19,6 +19,14 @@
 # Scene types the platform serialises into, so a shape change compiles on one side and
 # fails to deserialise on the other; and its rendering depends on fonts present in the
 # image rather than in the crate, so "it builds" is not "it draws".
+#
+# Before either push — the branch in `bump`, main in `merge` — the lockfile is refused
+# if any dravr-ecosystem crate resolves more than once
+# (scripts/ci/check-lockfile-duplicates.sh, compile-free, about a second). Cargo
+# resolves two versions of a 0.x crate without complaint and the workspace then
+# compiles both; the gate would report that as E0053/E0308 twenty minutes in, on a
+# branch that can never merge. Counting only the crate a lane moved is how carnet#323
+# got through the enforme lane: the split was in dravr-equilibre.
 
 name: "Photograveur: Release Integration"
 
@@ -159,26 +167,30 @@ jobs:
 
           cargo update -p photograveur
 
-          # Assert the lockfile holds exactly one photograveur, at the tag just pinned.
-          # Borrowed from the sciotte chain, which learned it the expensive way: the
-          # platform depends on dravr-sciotte directly and again through dravr-enforme,
-          # so moving one arm produced a lockfile carrying two versions and a branch that
-          # could never merge — ci-backend hard-fails a build where a dravr-* crate
-          # resolves twice. photograveur has a single dependent today (pierre_mcp_server)
-          # and no such diamond, which is precisely why this belongs here now: the day
-          # something else pins it, that failure should surface in seconds rather than
-          # twenty minutes into CI, and on the cause rather than a symptom.
-          ENTRIES=$(grep -c '^name = "photograveur"$' Cargo.lock || true)
-          if [ "${ENTRIES}" != "1" ]; then
-            echo "::error::Cargo.lock holds ${ENTRIES} photograveur entries, expected 1 — a second consumer pins a different version, so this bump cannot merge"
-            grep -A2 '^name = "photograveur"$' Cargo.lock || true
-            exit 1
-          fi
+          # Assert the lockfile moved photograveur to the tag just pinned. Whether it
+          # resolves exactly ONCE is the next step's job, for every dravr-ecosystem
+          # crate at once — photograveur has a single dependent today
+          # (pierre_mcp_server) and no diamond, but a release that moved one of ITS
+          # dravr pins past the platform's would split the lockfile just the same.
           if ! grep -q "source = \"git+https://github.com/dravr-ai/dravr-photograveur.git?tag=${VERSION}#" Cargo.lock; then
             echo "::error::Cargo.lock does not resolve photograveur at ${VERSION} after the update"
             grep -A2 '^name = "photograveur"$' Cargo.lock || true
             exit 1
           fi
+
+      - name: Refuse to push a bump that splits the lockfile
+        # Compile-free, ~1s, and skipped with the rest of this job when the
+        # pin is already current, so the weekly no-op pays nothing. The check
+        # above proves photograveur moved; this proves EVERY dravr-ecosystem
+        # crate resolves exactly once — photograveur included, by its dravr-ai
+        # source rather than its bare name. Counting only the crate a lane
+        # moved is how carnet#323 got through the enforme lane: the split was
+        # in dravr-equilibre, and the gate reported it twenty minutes in as
+        # E0053/E0308 on a branch that could never merge. Failing HERE names
+        # the crate and both versions before anything is pushed, files the
+        # stall through report-failure, and lets the weekly cron retry once
+        # the other pin has moved.
+        run: scripts/ci/check-lockfile-duplicates.sh
 
       - name: Regenerate the scene types the frontends compile against
         env:
@@ -315,6 +327,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin "${BRANCH}"
           git merge --squash "origin/${BRANCH}"
+          # The gate validated the branch against the main it was cut from; this
+          # push lands the squash on whatever main is NOW, with GITHUB_TOKEN, so
+          # no push-triggered run validates it. A lockfile that merged cleanly but
+          # carries a pin main moved in the meantime is a split the gate never saw.
+          # One second, on the tree about to be pushed.
+          scripts/ci/check-lockfile-duplicates.sh
           git commit -m "chore(photograveur): integrate photograveur ${PINNED} -> ${VERSION}"
           git push origin main
           # Squash gives the merge a new SHA, so the branch is dead the moment it

@@ -28,6 +28,14 @@
 # That makes the dispatch in the final job the whole delivery, not a follow-up to it —
 # which is exactly the failure carnet#94 recorded against photograveur, where six
 # green jobs shipped nothing at all.
+#
+# Before either push — the branch in `bump`, main in `merge` — the lockfile is
+# refused if any dravr-ecosystem crate resolves more than once
+# (scripts/ci/check-lockfile-duplicates.sh, compile-free, about a second). Cargo
+# resolves two versions of a 0.x crate without complaint and the workspace then
+# compiles both; the gate would report that as E0053/E0308 twenty minutes in, on a
+# branch that can never merge. Counting only the crates a lane moved is how
+# carnet#323 got through the enforme lane: the split was in dravr-equilibre.
 
 name: "Embacle: Release Integration"
 
@@ -279,31 +287,36 @@ jobs:
             exit 0
           fi
 
-          # Assert the lockfile holds exactly one of each, both at the version just
-          # pinned. Borrowed from the sciotte chain, which learned it the expensive
-          # way: the platform depends on dravr-sciotte directly and again through
-          # dravr-enforme, so moving one arm produced a lockfile carrying two versions
-          # and a branch that could never merge — ci-backend hard-fails a build where
-          # a dravr-* crate resolves twice.
-          #
-          # For embacle the diamond is not hypothetical: embacle-tool-host depends on
-          # embacle, so a version that moves one but not the other compiles two copies
-          # of the ACP runner into one binary. Yesterday's manual bump had to remember
-          # this; here it is asserted.
+          # Assert the lockfile moved both crates to the version just pinned. Whether
+          # each resolves exactly ONCE is the next step's job, for every
+          # dravr-ecosystem crate at once rather than the two this lane moved — and
+          # for embacle that split is not hypothetical: embacle-tool-host depends on
+          # embacle, so a version that moves one but not the other compiles two
+          # copies of the ACP runner into one binary.
           for CRATE in embacle embacle-tool-host; do
-            ENTRIES=$(grep -c "^name = \"${CRATE}\"$" Cargo.lock || true)
-            if [ "${ENTRIES}" != "1" ]; then
-              echo "::error::Cargo.lock holds ${ENTRIES} ${CRATE} entries, expected 1 — this bump cannot merge"
+            if ! grep -A1 "^name = \"${CRATE}\"$" Cargo.lock | grep -q "^version = \"${VERSION}\"$"; then
+              echo "::error::Cargo.lock does not resolve ${CRATE} at ${VERSION} after the update"
               grep -A2 "^name = \"${CRATE}\"$" Cargo.lock || true
               exit 1
             fi
-            GOT=$(grep -A1 "^name = \"${CRATE}\"$" Cargo.lock | grep '^version = ' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-            if [ "${GOT}" != "${VERSION}" ]; then
-              echo "::error::Cargo.lock resolves ${CRATE} at ${GOT}, expected ${VERSION}"
-              exit 1
-            fi
-            echo "Cargo.lock: ${CRATE} ${GOT} (single entry)"
+            echo "Cargo.lock: ${CRATE} ${VERSION}"
           done
+
+      - name: Refuse to push a bump that splits the lockfile
+        # Compile-free, ~1s, and skipped with the rest of this job when the
+        # pin is already current, so the weekly no-op pays nothing. The loop
+        # above proves the two crates this lane moved resolve at the target;
+        # this proves EVERY dravr-ecosystem crate resolves exactly once. The
+        # difference is carnet#323: the enforme lane counted the crates it
+        # moved, and the split was in dravr-equilibre, which it did not. A
+        # second copy of any dravr crate compiles, and then a type from one
+        # copy meets a trait from the other as E0053/E0308 twenty minutes into
+        # the gate, on a branch that can never merge. Failing HERE names the
+        # crate and both versions before anything is pushed, files the stall
+        # through report-failure, and lets the weekly cron retry once the
+        # other pin has moved.
+        if: steps.bump.outputs.stand_down != 'true'
+        run: scripts/ci/check-lockfile-duplicates.sh
 
       - name: Push the branch and dispatch the gates onto it
         id: push
@@ -415,6 +428,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin "${BRANCH}"
           git merge --squash "origin/${BRANCH}"
+          # The gate validated the branch against the main it was cut from; this
+          # push lands the squash on whatever main is NOW, with GITHUB_TOKEN, so
+          # no push-triggered run validates it. A lockfile that merged cleanly but
+          # carries a pin main moved in the meantime is a split the gate never saw.
+          # One second, on the tree about to be pushed.
+          scripts/ci/check-lockfile-duplicates.sh
           git commit -m "chore(embacle): integrate embacle ${PINNED} -> ${VERSION}"
           git push origin main
           # Squash gives the merge a new SHA, so the branch is dead the moment it
