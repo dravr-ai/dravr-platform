@@ -126,6 +126,13 @@ pub fn answers_with<T: schemars::JsonSchema>(tool: Tool) -> Tool {
 /// and then answers with something else is worse than one that errors, because
 /// a conforming client rejects the reply and the athlete sees nothing either
 /// way — but only the error says why.
+///
+/// # Errors
+///
+/// Returns [`AppError::internal`] when `payload` does not serialize. For a
+/// type that derives `Serialize` over owned data this cannot happen in
+/// practice; it is an error rather than a panic because the alternative is
+/// taking the server down over one malformed reply.
 pub fn ok_typed<T: Serialize>(tool: &str, payload: T) -> AppResult<ToolResult> {
     serde_json::to_value(payload)
         .map(ToolResult::ok)

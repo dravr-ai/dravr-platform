@@ -87,8 +87,6 @@ pub fn parse_date_range(args: &Value) -> AppResult<(DateTime<Utc>, DateTime<Utc>
     Ok((start, end))
 }
 
-/// Apply TOON formatting to a stored-data result payload, mirroring
-
 /// Build the standard date-range + format property set used by stored
 /// health-data queries (sleep, recovery, snapshots). Inferred from the
 /// handler bodies in `handlers/health_data.rs`, which read `start`, `end`,

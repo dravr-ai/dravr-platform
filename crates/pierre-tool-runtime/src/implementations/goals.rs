@@ -202,8 +202,6 @@ fn extract_goal_params(args: &Value) -> AppResult<SetGoalParams> {
         .map_err(|e| AppError::invalid_input(e.to_string()))
 }
 
-/// Build goal creation response payload.
-
 /// Load user fitness profile from database.
 async fn load_user_profile(
     profiles: &dyn ProfileRepository,

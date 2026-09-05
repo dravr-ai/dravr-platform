@@ -154,13 +154,13 @@ fn the_tool_declares_the_schema_and_it_is_the_derived_one() {
 /// is what catches a call site missing its `answers_with`.
 fn assert_declares_and_accepts<T: serde::Serialize>(
     declared: Option<serde_json::Value>,
-    derived: serde_json::Value,
+    derived: &serde_json::Value,
     sample: &T,
     tool: &str,
 ) {
     let declared = declared.unwrap_or_else(|| panic!("{tool} must declare an outputSchema"));
     assert_eq!(
-        declared, derived,
+        &declared, derived,
         "{tool}'s declared schema must be the one derived from its result type"
     );
     let validator =
@@ -200,7 +200,7 @@ fn list_coaching_playbooks_declares_a_schema_that_accepts_its_payload() {
             &ListCoachingPlaybooksTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
         &sample,
         "list_coaching_playbooks",
     );
@@ -218,7 +218,7 @@ fn an_athlete_with_no_playbooks_still_conforms() {
             &ListCoachingPlaybooksTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
         &empty,
         "list_coaching_playbooks (empty)",
     );
@@ -235,7 +235,7 @@ fn forget_playbook_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <ForgetPlaybookTool as McpTool<dyn ToolRuntime>>::definition(&ForgetPlaybookTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(ForgetPlaybookResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(ForgetPlaybookResult)).expect("derives"),
         &sample,
         "forget_playbook",
     );
@@ -270,7 +270,7 @@ fn set_goal_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <SetGoalTool as McpTool<dyn ToolRuntime>>::definition(&SetGoalTool).output_schema,
-        serde_json::to_value(schemars::schema_for!(SetGoalResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(SetGoalResult)).expect("derives"),
         &sample,
         "set_goal",
     );
@@ -291,7 +291,7 @@ fn suggest_goals_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <SuggestGoalsTool as McpTool<dyn ToolRuntime>>::definition(&SuggestGoalsTool).output_schema,
-        serde_json::to_value(schemars::schema_for!(SuggestGoalsResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(SuggestGoalsResult)).expect("derives"),
         &sample,
         "suggest_goals",
     );
@@ -321,7 +321,7 @@ fn track_progress_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <TrackProgressTool as McpTool<dyn ToolRuntime>>::definition(&TrackProgressTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(TrackProgressResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(TrackProgressResult)).expect("derives"),
         &sample,
         "track_progress",
     );
@@ -359,7 +359,7 @@ fn analyze_goal_feasibility_declares_a_schema_that_accepts_its_payload() {
             &AnalyzeGoalFeasibilityTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(GoalFeasibilityResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(GoalFeasibilityResult)).expect("derives"),
         &sample,
         "analyze_goal_feasibility",
     );
@@ -373,7 +373,7 @@ fn coach_note_add_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <CoachNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&CoachNoteAddTool).output_schema,
-        serde_json::to_value(schemars::schema_for!(CoachNoteAddResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(CoachNoteAddResult)).expect("derives"),
         &sample,
         "coach_note_add",
     );
@@ -393,7 +393,7 @@ fn coach_followup_schedule_accepts_a_followup_with_no_due_date() {
             &CoachFollowupScheduleTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(CoachFollowupScheduleResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(CoachFollowupScheduleResult)).expect("derives"),
         &sample,
         "coach_followup_schedule",
     );
@@ -408,7 +408,7 @@ fn remember_fact_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <RememberFactTool as McpTool<dyn ToolRuntime>>::definition(&RememberFactTool).output_schema,
-        serde_json::to_value(schemars::schema_for!(RememberFactResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(RememberFactResult)).expect("derives"),
         &sample,
         "remember_fact",
     );
@@ -446,7 +446,7 @@ fn recall_user_memory_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <RecallUserMemoryTool as McpTool<dyn ToolRuntime>>::definition(&RecallUserMemoryTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(RecallUserMemoryResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(RecallUserMemoryResult)).expect("derives"),
         &sample,
         "recall_user_memory",
     );
@@ -470,7 +470,7 @@ fn calculate_daily_nutrition_declares_a_schema_that_accepts_its_payload() {
             &CalculateDailyNutritionTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(DailyNutritionResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(DailyNutritionResult)).expect("derives"),
         &sample,
         "calculate_daily_nutrition",
     );
@@ -500,7 +500,7 @@ fn get_nutrient_timing_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <GetNutrientTimingTool as McpTool<dyn ToolRuntime>>::definition(&GetNutrientTimingTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(NutrientTimingResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(NutrientTimingResult)).expect("derives"),
         &sample,
         "get_nutrient_timing",
     );
@@ -521,7 +521,7 @@ fn search_food_declares_a_schema_that_accepts_the_vendor_shape() {
     };
     assert_declares_and_accepts(
         <SearchFoodTool as McpTool<dyn ToolRuntime>>::definition(&SearchFoodTool).output_schema,
-        serde_json::to_value(schemars::schema_for!(SearchFoodResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(SearchFoodResult)).expect("derives"),
         &sample,
         "search_food (no matches)",
     );
@@ -547,7 +547,7 @@ fn get_food_details_accepts_a_food_with_no_stated_serving() {
     assert_declares_and_accepts(
         <GetFoodDetailsTool as McpTool<dyn ToolRuntime>>::definition(&GetFoodDetailsTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(FoodDetailsResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(FoodDetailsResult)).expect("derives"),
         &sample,
         "get_food_details",
     );
@@ -571,7 +571,7 @@ fn analyze_meal_nutrition_declares_a_schema_that_accepts_its_payload() {
             &AnalyzeMealNutritionTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(AnalyzeMealNutritionResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(AnalyzeMealNutritionResult)).expect("derives"),
         &sample,
         "analyze_meal_nutrition",
     );
@@ -604,7 +604,7 @@ fn list_stretching_exercises_declares_a_schema_that_accepts_its_payload() {
             &ListStretchingExercisesTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(ListStretchingExercisesResult))
+        &serde_json::to_value(schemars::schema_for!(ListStretchingExercisesResult))
             .expect("derives"),
         &sample,
         "list_stretching_exercises",
@@ -638,7 +638,7 @@ fn get_stretching_exercise_accepts_a_held_stretch_with_no_repetitions() {
             &GetStretchingExerciseTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(StretchingExerciseDetail)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(StretchingExerciseDetail)).expect("derives"),
         &sample,
         "get_stretching_exercise",
     );
@@ -667,7 +667,7 @@ fn suggest_stretches_for_activity_declares_a_schema_that_accepts_its_payload() {
             &SuggestStretchesForActivityTool,
         )
         .output_schema,
-        serde_json::to_value(schemars::schema_for!(SuggestStretchesResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(SuggestStretchesResult)).expect("derives"),
         &sample,
         "suggest_stretches_for_activity",
     );
@@ -693,7 +693,7 @@ fn list_yoga_poses_accepts_a_pose_with_no_sanskrit_name() {
     assert_declares_and_accepts(
         <ListYogaPosesTool as McpTool<dyn ToolRuntime>>::definition(&ListYogaPosesTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(ListYogaPosesResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(ListYogaPosesResult)).expect("derives"),
         &sample,
         "list_yoga_poses",
     );
@@ -729,7 +729,7 @@ fn get_yoga_pose_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <GetYogaPoseTool as McpTool<dyn ToolRuntime>>::definition(&GetYogaPoseTool).output_schema,
-        serde_json::to_value(schemars::schema_for!(YogaPoseDetail)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(YogaPoseDetail)).expect("derives"),
         &sample,
         "get_yoga_pose",
     );
@@ -762,7 +762,7 @@ fn suggest_yoga_sequence_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <SuggestYogaSequenceTool as McpTool<dyn ToolRuntime>>::definition(&SuggestYogaSequenceTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(SuggestYogaSequenceResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(SuggestYogaSequenceResult)).expect("derives"),
         &sample,
         "suggest_yoga_sequence",
     );
@@ -781,7 +781,7 @@ fn connect_provider_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <ConnectProviderTool as McpTool<dyn ToolRuntime>>::definition(&ConnectProviderTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(ConnectProviderResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(ConnectProviderResult)).expect("derives"),
         &sample,
         "connect_provider",
     );
@@ -792,12 +792,15 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
     // The tool answers a different shape depending on what was asked, so the
     // schema is a oneOf and every arm has to validate against it.
     let derived =
-        serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives");
+        &serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives");
     let declared =
         <GetConnectionStatusTool as McpTool<dyn ToolRuntime>>::definition(&GetConnectionStatusTool)
             .output_schema
             .expect("get_connection_status must declare an outputSchema");
-    assert_eq!(declared, derived, "declared schema must be the derived one");
+    assert_eq!(
+        &declared, derived,
+        "declared schema must be the derived one"
+    );
 
     let validator = jsonschema::validator_for(&declared).expect("compiles");
     for (label, shape) in [
@@ -869,7 +872,7 @@ fn disconnect_provider_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <DisconnectProviderTool as McpTool<dyn ToolRuntime>>::definition(&DisconnectProviderTool)
             .output_schema,
-        serde_json::to_value(schemars::schema_for!(DisconnectProviderResult)).expect("derives"),
+        &serde_json::to_value(schemars::schema_for!(DisconnectProviderResult)).expect("derives"),
         &sample,
         "disconnect_provider",
     );
