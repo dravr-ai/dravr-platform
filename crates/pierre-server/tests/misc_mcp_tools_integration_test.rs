@@ -80,16 +80,21 @@ fn assert_invalid_request(err: &ProtocolError, tool: &str) {
     }
 }
 
-/// Memory and verification tools call `context.require_tenant()` which surfaces
-/// an `AppError` with an authorization-class code that the executor maps to
-/// `ProtocolError::InternalError` (not the validation variants). Either kind
-/// of error is acceptable for "the tool refused to run without a tenant".
-fn assert_tool_errored(err: &ProtocolError, tool: &str) {
+/// Memory and verification tools call `context.require_tenant()`, which
+/// raises `AppError` with `ErrorCode::PermissionDenied`; the executor rebuilds
+/// that raised code as `ProtocolError::PermissionDenied` naming the tool, so a
+/// tenant-less call is refused as an authorization failure, not a validation
+/// or server one.
+fn assert_tenant_refused(err: &ProtocolError, tool: &str) {
     match err {
-        ProtocolError::InvalidParameters(_)
-        | ProtocolError::InvalidRequest(_)
-        | ProtocolError::InternalError(_) => {}
-        other => panic!("{tool}: expected error variant, got {other:?}"),
+        ProtocolError::PermissionDenied { tool_name, reason } => {
+            assert_eq!(tool_name, tool, "{tool}: refusal names another tool");
+            assert!(
+                reason.contains("Tenant context required"),
+                "{tool}: refusal does not name the missing tenant: {reason}"
+            );
+        }
+        other => panic!("{tool}: expected PermissionDenied, got {other:?}"),
     }
 }
 
@@ -238,7 +243,7 @@ async fn test_coach_note_add_rejects_no_tenant() -> Result<()> {
         ))
         .await
         .expect_err("no-tenant call must be rejected");
-    assert_tool_errored(&err, "coach_note_add");
+    assert_tenant_refused(&err, "coach_note_add");
     Ok(())
 }
 
@@ -314,7 +319,7 @@ async fn test_coach_followup_schedule_rejects_no_tenant() -> Result<()> {
         ))
         .await
         .expect_err("no-tenant call must be rejected");
-    assert_tool_errored(&err, "coach_followup_schedule");
+    assert_tenant_refused(&err, "coach_followup_schedule");
     Ok(())
 }
 
@@ -392,7 +397,7 @@ async fn test_remember_fact_rejects_no_tenant() -> Result<()> {
         ))
         .await
         .expect_err("no-tenant call must be rejected");
-    assert_tool_errored(&err, "remember_fact");
+    assert_tenant_refused(&err, "remember_fact");
     Ok(())
 }
 
@@ -525,7 +530,7 @@ async fn test_recall_user_memory_rejects_no_tenant() -> Result<()> {
         .execute_tool(make_request("recall_user_memory", json!({}), user_id, None))
         .await
         .expect_err("no-tenant call must be rejected");
-    assert_tool_errored(&err, "recall_user_memory");
+    assert_tenant_refused(&err, "recall_user_memory");
     Ok(())
 }
 
@@ -620,7 +625,7 @@ async fn test_verify_claim_rejects_no_tenant() -> Result<()> {
         ))
         .await
         .expect_err("no-tenant call must be rejected");
-    assert_tool_errored(&err, "verify_claim");
+    assert_tenant_refused(&err, "verify_claim");
     Ok(())
 }
 
