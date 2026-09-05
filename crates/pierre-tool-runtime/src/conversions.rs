@@ -91,6 +91,33 @@ pub fn task_capable(tool: Tool) -> Tool {
     }
 }
 
+/// Declare the shape this tool answers with, derived from the Rust type it
+/// actually returns.
+///
+/// Wraps [`tool_definition`] the way [`task_capable`] does, so declaring an
+/// output schema costs one call site rather than a new parameter on every
+/// tool that has not been typed yet.
+///
+/// Derived, never hand-written, and that is the whole point. MCP requires a
+/// tool that declares `outputSchema` to answer with conforming
+/// `structuredContent`, so a schema is a promise about the payload. A
+/// hand-written one is a promise nothing keeps: the first person to add a
+/// field to a `json!` literal makes it a lie that a conforming client
+/// validates against and rejects. Taking both from `T` means the compiler is
+/// what keeps them agreeing.
+///
+/// `schemars` is configured without `preserve_order`, so its object maps are
+/// `BTreeMap`s and the rendered schema is byte-stable between builds — the
+/// same property the tool *input* schemas needed when a `HashMap` made them
+/// render differently run to run.
+#[must_use]
+pub fn answers_with<T: schemars::JsonSchema>(tool: Tool) -> Tool {
+    Tool {
+        output_schema: serde_json::to_value(schemars::schema_for!(T)).ok(),
+        ..tool
+    }
+}
+
 /// Build the object input schema almost every tool declares.
 ///
 /// `JsonSchema` carries the full JSON Schema 2020-12 vocabulary — composition,

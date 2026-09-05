@@ -76,6 +76,7 @@ lru = "0.18.2"
 num-traits = "0.2"
 regex = "1.12"
 reqwest = { version = "0.12", features = ["json"] }
+schemars = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
@@ -83,6 +84,12 @@ tokio = { version = "1.50", features = ["sync", "macros"] }
 tokio-stream = "0.1"
 tracing = "0.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[dev-dependencies]
+# Validates a tool's declared outputSchema against the payload it actually
+# returns. Same version the chat pipeline validates structured replies with.
+jsonschema = { version = "0.46.5", default-features = false }
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true
