@@ -23,8 +23,9 @@ thing Maestro replaced.
    real simulator against a live 8081.
 2. **Every surface gets visited, in both roles.** Regular user *and* operator (admin). Mobile has
    no admin console; the role difference is a **gate** — `SettingsScreen.tsx` computes
-   `isAdminUser` (grep the identifier; it guards the `settings-data-section` block) and hides
-   the personal Data Providers section for admins. A screen you did not
+   `isAdminUser` (grep the identifier; it filters the pane list against `ADMIN_HIDDEN_PANES`,
+   each pane rendering as `settings-pane-<id>`) and hides the personal data-source panes for
+   admins. A screen you did not
    open is a screen you did not test — say so in the report rather than implying coverage.
 3. **Collect first, fix second.** Do not stop the sweep at the first bug. A half-swept app
    produces a fix list that shifts under you.
@@ -118,7 +119,8 @@ curl -sf http://127.0.0.1:9555/health && echo " fixture ok"
 
 The script launches Expo Go on the booted simulator (`expo start --ios --go`). If Expo Go is
 missing: `./bin/install-expo-go.sh`. For the native/dev-client build (needed only for speech
-recognition and native MMKV), the script takes `--native`.
+recognition and native MMKV), the script takes `--native`. For a booted Android emulator it
+takes `--android` (needs `ANDROID_HOME` exported — see the Android section in Phase 5).
 
 Two bundle ids are in play and confusing them wastes a run:
 
@@ -176,10 +178,14 @@ Two toolsets are available; they see the same simulator.
 |---|---|
 | `mcp__ios-simulator__*` | the accessibility tree (`ui_describe_all`, `ui_find_element`, `ui_describe_point`), precise `ui_tap` / `ui_type` / `ui_swipe`, `screenshot`, `record_video` / `stop_recording` |
 | `mcp__mobile-mcp__*` | device selection, app launch, deep links, crash reports — **verify it works before relying on it** |
+| `maestro mcp` (Maestro CLI ≥ 2.10, stdio) | the cross-platform driver: `list_devices`, `take_screenshot`, `inspect_screen` (compact JSON tree), `run` (inline Maestro YAML or flow files). Every working step is already a flow line. Not yet in `.mcp.json`; drive it over stdio or add `{"command": "maestro", "args": ["mcp", "--working-dir", "frontend-mobile"]}` |
 
 `mobile-mcp` is frequently unavailable: it fails with `mobilecli is not available or not working
-properly` and every call is a no-op. Probe it once with `mobile_list_available_devices`; if that
-errors, do the whole sweep through `mcp__ios-simulator__*` plus `xcrun simctl`, which is
+properly` and every call is a no-op, and on Android it lists no device at all when its spawned
+`mobilecli` has no `ANDROID_HOME` (2026-09-05: the variable was in the `~/.claude.json` project
+entry and still absent from the child's environment). Probe it once with
+`mobile_list_available_devices`; if that errors or returns `[]`, do the whole sweep through
+`mcp__ios-simulator__*` plus `xcrun simctl` on iOS, or `maestro mcp` plus `adb` on Android —
 sufficient for everything below. Do not spend time diagnosing it.
 
 Bring-up. Every step here has failed in practice — none is a formality:
@@ -269,9 +275,10 @@ dravr.coach_proposal_done.<userId>      # '1' = done
 Same key names as web, AsyncStorage instead of localStorage. Both hooks **fail open** (storage
 error ⇒ treated as done), so a hung onboarding step is a real defect, never a storage hiccup.
 
-Then walk all six tabs and their stacks. Navigate **by tapping the tab bar** (`tab-chat`,
-`tab-coaches`, `tab-discover`, `tab-groups`, `tab-insights`, `tab-settings`) — that exercises the
-nav itself. Deep-linking via `mobile_open_url` is for recovering from a stuck nav; file the stuck
+Then walk every tab and its stacks. Since the chat-first cutover the bar holds three tabs
+plus a menu: `tab-chat`, `tab-discover`, `tab-settings` and `expandable-tab-bar-plus`; the
+former coaches/groups/insights tabs are reached from those. Navigate **by tapping the tab bar** —
+that exercises the nav itself. Deep-linking via `mobile_open_url` is for recovering from a stuck nav; file the stuck
 nav as a finding.
 
 Full screen-by-screen checklist with routes, anchors and per-surface expectations:
@@ -289,8 +296,8 @@ dead end, the registry itself is wrong. Fix the registry in the same change as t
 Log out (Settings → `settings-logout-button`), then log in as the resolved `$ADMIN_EMAIL`.
 
 There is no admin console on mobile. What you are testing is the **pure-operator gate**: an
-`admin` / `super_admin` must **not** see the personal Data Providers section
-(grep `settings-data-section` in `SettingsScreen.tsx`), and a regular user must. Confirm both
+`admin` / `super_admin` must **not** see the panes listed in `ADMIN_HIDDEN_PANES`
+(`SettingsScreen.tsx`; each renders as `settings-pane-<id>`), and a regular user must. Confirm both
 directions — the gate rendering for an admin is a finding; the gate hiding it from a plain user
 is a P0-adjacent regression of a shipped behaviour (`__tests__/SettingsScreenAdminGate.test.tsx`
 is its unit-level pin).
@@ -323,9 +330,51 @@ Run these as the user unless noted.
    under a forced rotation is lower severity than one that crashes.
 7. **Accessibility.** `ui_describe_all` is the tree. Interactive elements need an
    `accessibilityRole` and a label (the tab bar sets both). Touch targets ≥44×44.
-8. **Android.** If an emulator is available, repeat the login + one tab per area with
-   `EXPO_PUBLIC_API_URL=http://10.0.2.2:8081`. Android-only defects are real and the nightly
-   Android suite already carries a reduced critical list, so it will not catch them for you.
+8. **Android — the full walk, not a spot check.** The nightly Android workflow runs one flow
+   (smoke mode on a scheduled run), so nothing there catches an Android-only defect. Repeat
+   Phases 1–5 on an emulator. What differs, each learned the hard way on 2026-09-05:
+
+   - **Toolchain.** The SDK lives at `/opt/homebrew/share/android-commandlinetools` but nothing
+     exports it: `export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools` and put
+     `$ANDROID_HOME/platform-tools` and `$ANDROID_HOME/emulator` on PATH first, or `adb`,
+     `emulator` and every tool that shells out to them report nothing. AVDs: `Pixel_6_API_33`
+     (Android 13) and `Dravr-Test-Android` (Pixel 7, Android 15 — where edge-to-edge is enforced
+     by the OS). Apple Silicon needs the arm64 images; CI's x86_64 image will not boot here.
+     `emulator -avd <name> -no-snapshot-save -gpu auto`, then `adb shell getprop sys.boot_completed`.
+   - **Stack.** `./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh --android`. It sets
+     `EXPO_PUBLIC_API_URL=http://10.0.2.2:8081` for the Expo process (beats the Cloud Run URL
+     that `frontend-mobile/.env` usually holds) and uninstalls a stale Expo Go first — an
+     older Expo Go makes `expo start` ask whether to upgrade, and that prompt is fatal in a
+     spawned process (`CI=1` does not bypass it). Confirm the login hit the local server in
+     `logs/pierre-server.log`, not just that a screen rendered.
+   - **Maestro.** Upgrade first (`curl -Ls "https://get.maestro.mobile.dev" | bash`); CI installs
+     latest and a months-old local CLI fails `launchApp` on Expo Go. Run flows **one file per
+     `maestro test` invocation**, never the folder — folder mode restarts the on-device driver
+     during the first `launchApp` and every later flow dies in ms with `Device server died`.
+     `helpers/launch-app.yaml` branches on platform (`when: platform: Android` → `clearState`
+     + `exp://10.0.2.2:8082`); flow headers keep `appId: ai.dravr.app` untouched.
+   - **Driving.** `maestro mcp` over stdio, or ad-hoc YAML through `maestro test`. Expo Go's
+     developer-menu sheet ("Continue") comes back after every `clearState` and hides the RN
+     tree while it is up; `helpers/launch-app.yaml` dismisses it with a bounded
+     `repeat … while: notVisible: login-screen` loop, never with timed taps (the timed
+     version lost the race on a loaded host, 2026-09-05). `pressKey: Back` dismisses the
+     full menu. **Back is the hardware Back**: with no keyboard up, Back on the
+     login screen leaves the project for Expo Go's home — only press it when
+     `adb shell dumpsys input_method | grep mInputShown` says `true`.
+   - **Android-only surfaces to cover**: hardware Back on every stack; keyboard covering the
+     next field and the submit control (nothing on Android honours `automaticallyAdjustKeyboardInsets`,
+     an iOS-only prop, and edge-to-edge disables resize mode); edge-to-edge insets under the
+     status bar and the gesture bar (Android 15 AVD); cold-start dark splash
+     (`adb shell cmd uimode night yes`); `pierre://` deep links via
+     `adb shell am start -a android.intent.action.VIEW -d <url>`; the notification-permission
+     prompt (Android 13+); Google Sign-In staying hidden (carnet#92); `Intl` subsets on Hermes.
+   - **Harvest.** `adb logcat -v time` to a file for the whole session; grep `ReactNativeJS`
+     for JS errors and `AndroidRuntime`/`FATAL` for native crashes. Expo's "Try the following
+     to fix the issue … Error: undefined" blocks are Metro-connection notices, not app errors.
+   - **Verified intentional, do not file**: French chrome on an en-US device (`DEFAULT_LANGUAGE`
+     is `fr`); dark scheme on a light device (`DEFAULT_PREF` is `dark`, and `system` resolves
+     dark when the OS reports none); an opaque status bar in Expo Go (edge-to-edge is a native
+     build setting).
 
 ## Phase 6 — Triage
 
@@ -435,10 +484,13 @@ appId: ai.dravr.app
       id: "settings-screen"
     timeout: 5000
 
-# Assert CONTENT, not mere presence of the screen.
+# Assert CONTENT, not mere presence of the screen — by test id, never by copy: the
+# chrome defaults to French, and a flow asserting English text fails on every platform
+# (login/04, login/05 and store/07 did exactly that until 2026-09-05).
 - assertVisible:
-    id: "settings-data-section"
-- assertVisible: "Data Providers"
+    id: "settings-pane-data-providers"
+- assertVisible:
+    id: "settings-pane-connected-apps"
 ```
 
 Flow rules learned the hard way in this repo — the existing flows encode them, follow them:

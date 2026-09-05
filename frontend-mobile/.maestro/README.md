@@ -13,13 +13,18 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
    curl -Ls "https://get.maestro.mobile.dev" | bash
    ```
 
-2. Ensure the app is running on a simulator/emulator:
+2. Boot the stack with the app loaded in Expo Go on a booted simulator or emulator.
+   The flows drive Expo Go (`host.exp.Exponent` on iOS, `host.exp.exponent` on Android)
+   through the `exp://` deep link in `helpers/launch-app.yaml`, which branches on
+   platform; `bun run ios` / `bun run android` are native Gradle/Xcode builds and are
+   not what the flows expect.
    ```bash
-   # Start iOS simulator
-   bun run ios
+   # iOS simulator (default)
+   ../bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
 
-   # Or Android emulator
-   bun run android
+   # Android emulator — boot an AVD first, then:
+   ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
+     ../bin/setup-db-with-seeds-and-oauth-and-start-servers.sh --android
    ```
 
 ## Directory Structure
@@ -65,6 +70,11 @@ maestro test .maestro/login/01-show-login-screen.yaml
 # Run with CI output format
 bun run maestro:ci
 ```
+
+On Android, run flows **one file per `maestro test` invocation** — the way both CI
+workflows do. Running the folder in one invocation restarts Maestro's on-device driver
+during the first flow's `launchApp` and every later flow fails within milliseconds with
+`Device server died … UNAVAILABLE` (observed 2026-09-05, Maestro 2.10.0, Pixel 6 API 33).
 
 ## Test Credentials
 

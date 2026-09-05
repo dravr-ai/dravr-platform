@@ -1,74 +1,75 @@
-# ABOUTME: Helper flow to launch the Dravr app fresh for Expo Go E2E testing
-# ABOUTME: Uses clearKeychain (not clearState) to preserve dev menu dismiss flag across tests
+# ABOUTME: Helper flow to launch the Dravr app fresh in Expo Go for E2E testing, on iOS and Android
+# ABOUTME: Branches on platform: keychain-only reset and 127.0.0.1 on iOS, full state reset and 10.0.2.2 on Android
 
 appId: host.exp.Exponent
 
 ---
-# Stop app process, clear keychain (auth tokens in SecureStore), then relaunch.
+# iOS: stop, clear the keychain (auth tokens in SecureStore), relaunch.
 # clearKeychain preserves UserDefaults (including EXDevMenuIsOnboardingFinished flag),
 # while clearing JWT tokens from SecureStore so the app shows the login screen.
 # clearState would wipe UserDefaults, causing Expo Go's dev menu overlay to reappear.
-- stopApp
-- clearKeychain
+# Launching Expo Go first, THEN opening the deep link, forwards the URL directly to
+# the app without the iOS "Open in Expo Go?" confirmation dialog.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - stopApp
+      - clearKeychain
+      - launchApp
+      - openLink: "exp://127.0.0.1:8082"
 
-# Launch Expo Go first (opens to its home screen), THEN open the deep link.
-# When Expo Go is already running, the URL forwards directly to the app
-# without showing the iOS "Open in Expo Go?" confirmation dialog.
-- launchApp
-- openLink: "exp://127.0.0.1:8082"
+# Android: the Expo Go package is lowercase and there is no keychain, so clearState
+# is the reset. 10.0.2.2 is the emulator's alias for the host machine. Expo Go needs a
+# moment after clearState before it registers its URL handler; a deep link sent
+# earlier is dropped silently, so a 3-second settle precedes the openLink.
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - stopApp: host.exp.exponent
+      - clearState: host.exp.exponent
+      - launchApp: host.exp.exponent
+      - swipe:
+          start: "50%,50%"
+          end: "50%,52%"
+          duration: 3000
+      - openLink: "exp://10.0.2.2:8082"
 
-# Coordinate taps to dismiss Expo Go developer menu overlay if present.
-# The overlay is a native view that blocks the React Native accessibility tree.
-# The "Continue" button is at ~92% screen height; tapping at 50%,10% dismisses
-# the full developer menu if it opens after the overlay.
-- tapOn:
-    point: "50%,92%"
-- tapOn:
-    point: "50%,10%"
-
-# Expo Go v55 shows a project info sheet ("Dravr", "Close", "Reload", "Go Home")
-# after loading via deep link. This sheet overlays the RN accessibility tree.
-# The `runFlow: when: visible:` check runs ONCE instantly (no polling/timeout),
-# so we retry with delays to catch sheets that appear late. We no longer assert
-# a specific text is visible first — Expo Go v55's bundle load timing is
-# inconsistent across CI iOS simulators, causing that assertion to flake.
-
-# Initial 5-second settle via micro-swipe (Maestro has no native sleep command).
-# Gives Expo Go time to download the bundle and render the project info sheet.
+# Expo Go puts two native sheets over the app after a deep link, and both hide the
+# React Native accessibility tree: the developer-menu onboarding ("Continue", every
+# launch after clearState on Android, first launch on iOS) and the v55 project-info
+# sheet ("Close"). When they appear depends on how long the bundle takes, so a fixed
+# sequence of taps and delays loses the race on a loaded machine (2026-09-05: three
+# flows failed at the 120 s login-screen wait with "Continue" still on screen). This
+# loop instead keeps dismissing until the login screen is actually in the tree. Each tap
+# is optional: a missing button is the normal case, and Maestro spends its 7 s optional
+# lookup budget on each miss, so a round in which neither sheet is present costs ~16 s,
+# not the swipe's 2 s — 6 rounds is the practical ceiling before the 120 s login-screen
+# wait. The tap at 50%,10% closes the full developer menu, which opens after "Continue".
 - swipe:
     start: "50%,30%"
     end: "50%,31%"
-    duration: 5000
-
-# Dismiss attempt 1
-- runFlow:
-    when:
-      visible: "Close"
-    file: dismiss-dev-panel.yaml
-
-# 3-second delay
-- swipe:
-    start: "50%,30%"
-    end: "50%,32%"
     duration: 3000
-
-# Dismiss attempt 2: catches sheet that appeared during the delay
-- runFlow:
-    when:
-      visible: "Close"
-    file: dismiss-dev-panel.yaml
-
-# 3-second delay
-- swipe:
-    start: "50%,30%"
-    end: "50%,28%"
-    duration: 3000
-
-# Dismiss attempt 3: final safety check
-- runFlow:
-    when:
-      visible: "Close"
-    file: dismiss-dev-panel.yaml
+- repeat:
+    times: 6
+    while:
+      notVisible:
+        id: "login-screen"
+    commands:
+      - tapOn:
+          text: "Continue"
+          optional: true
+      - tapOn:
+          text: "Close"
+          optional: true
+      - tapOn:
+          point: "50%,10%"
+          optional: true
+      - swipe:
+          start: "50%,30%"
+          end: "50%,32%"
+          duration: 2000
 
 # Wait for React Native to load and render login screen.
 # 120s timeout accounts for JS bundle compilation on cold start in CI.

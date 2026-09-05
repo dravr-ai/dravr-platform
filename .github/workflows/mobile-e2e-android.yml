@@ -205,114 +205,6 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Adapt Maestro tests for Expo Go
-        run: |
-          # Replace app IDs with Android Expo Go package name (lowercase).
-          # Two patterns: native bundle ID and iOS Expo Go ID (from checked-in helpers).
-          find frontend-mobile/.maestro -name "*.yaml" -exec sed -i 's/appId: ai.dravr.app/appId: host.exp.exponent/g' {} +
-          find frontend-mobile/.maestro -name "*.yaml" -exec sed -i 's/appId: host.exp.Exponent/appId: host.exp.exponent/g' {} +
-
-          # Override launch helper for Android Expo Go.
-          # Uses clearState (not clearKeychain) — Android has no UserDefaults issue.
-          # Uses 10.0.2.2 (Android emulator alias for host localhost).
-          cat > frontend-mobile/.maestro/helpers/launch-app.yaml << 'LAUNCH_EOF'
-          appId: host.exp.exponent
-          ---
-          - stopApp
-          - clearState
-          - launchApp
-          # Wait for Expo Go to fully initialize after clearState before opening deep link.
-          # Without this delay, the openLink may be received before Expo Go registers
-          # its URL handler, causing the deep link to silently fail.
-          - swipe:
-              start: "50%,50%"
-              end: "50%,52%"
-              duration: 3000
-          - openLink: "exp://10.0.2.2:8082"
-          # Dismiss Expo Go developer menu overlay. Coordinate taps at 90% and 10%.
-          - tapOn:
-              point: "50%,90%"
-          - tapOn:
-              point: "50%,10%"
-          # Wait for project to load
-          - extendedWaitUntil:
-              visible: "Dravr"
-              timeout: 120000
-          # Multi-attempt dev panel dismiss (same strategy as iOS).
-          - runFlow:
-              when:
-                visible: "Close"
-              file: dismiss-dev-panel.yaml
-          - swipe:
-              start: "50%,30%"
-              end: "50%,32%"
-              duration: 3000
-          - runFlow:
-              when:
-                visible: "Close"
-              file: dismiss-dev-panel.yaml
-          - swipe:
-              start: "50%,30%"
-              end: "50%,28%"
-              duration: 2000
-          - runFlow:
-              when:
-                visible: "Close"
-              file: dismiss-dev-panel.yaml
-          - extendedWaitUntil:
-              visible:
-                id: "login-screen"
-              timeout: 120000
-          - runFlow:
-              when:
-                visible: "Close"
-              file: dismiss-dev-panel.yaml
-          - extendedWaitUntil:
-              visible:
-                id: "email-input"
-              timeout: 30000
-          LAUNCH_EOF
-          echo "=== Generated launch-app.yaml ==="
-          cat frontend-mobile/.maestro/helpers/launch-app.yaml
-
-          # Override login helper to fix keyboard dismissal for Android.
-          # hideKeyboard fails in Expo Go v55; use coordinate tap instead.
-          cat > frontend-mobile/.maestro/helpers/login.yaml << 'LOGIN_EOF'
-          appId: host.exp.exponent
-          ---
-          - runFlow:
-              when:
-                visible: "Close"
-              file: dismiss-dev-panel.yaml
-          - extendedWaitUntil:
-              visible:
-                id: "login-screen"
-              timeout: 10000
-          - tapOn:
-              id: "email-input"
-          - inputText: "mobiletest@pierre.dev"
-          - tapOn:
-              point: "50%,20%"
-          - tapOn:
-              id: "password-input"
-          - inputText: "MobileTest1234"
-          - tapOn:
-              point: "50%,20%"
-          - tapOn:
-              id: "login-button"
-          - extendedWaitUntil:
-              notVisible:
-                id: "login-screen"
-              timeout: 45000
-          - takeScreenshot: "after-login-navigation"
-          - extendedWaitUntil:
-              visible:
-                id: "chat-screen"
-              timeout: 60000
-          LOGIN_EOF
-          echo "=== Generated login.yaml ==="
-          cat frontend-mobile/.maestro/helpers/login.yaml
-
       - name: Create Android E2E test script
         run: |
           cat > /tmp/run-android-e2e.sh << 'SCRIPT_EOF'
@@ -378,11 +270,18 @@ jobs:
 
           if [ "$SUITE_MODE" = "critical" ]; then
             echo "Running critical-path subset with per-test retry..."
-            # TODO: Re-enable coach-wizard/01-wizard-navigation.yaml and visual/01-authentication.yaml
-            # once Android-specific keyboard/navigation issues are fixed.
-            # social/01-friends-screen.yaml is excluded on Android: pre-existing flake
-            # unrelated to coach_id work. iOS E2E still covers this test.
-            CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml settings/01-screen-rendering.yaml chat/01-basic-visibility.yaml coaches/01-basic-rendering.yaml store/01-basic-rendering.yaml visual/02-home-screen.yaml"
+            # Flows measured passing on an Android emulator against the tree as checked in
+            # (Pixel 6 / API 33 and Pixel 7 / API 35, 2026-09-05), one per area. Two rules
+            # decided the list, and both matter more than the count:
+            #   - a flow asserting English copy is excluded: the chrome defaults to fr, so
+            #     it fails on every platform until it asserts by test id;
+            #   - a flow whose assertions sit inside `runFlow: when: visible:` guards is
+            #     excluded, because it goes green by skipping its own body. discover/01 is
+            #     out for that reason: its edit-sheet assertions need an installed coach.
+            # settings/06 earns its place only weakly — it is notVisible-only, so it would
+            # also pass on a blank screen; it stays as the settings smoke until a positive
+            # settings assertion exists that does not depend on English copy.
+            CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/04-send-message-response.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml visual/01-authentication.yaml"
           else
             echo "Push to main: smoke test already validated the environment."
             if [ -f maestro-smoke-android.xml ]; then

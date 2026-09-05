@@ -18,6 +18,7 @@ NC='\033[0m'
 BUILD_MODE="debug"
 TARGET_DIR="debug"
 NATIVE_BUILD=false
+MOBILE_PLATFORM="ios"   # --android targets the booted emulator instead of the iOS simulator
 STREAM_LOGS=false
 START_TUNNEL=false
 for arg in "$@"; do
@@ -29,6 +30,10 @@ for arg in "$@"; do
             ;;
         --native)
             NATIVE_BUILD=true
+            shift
+            ;;
+        --android)
+            MOBILE_PLATFORM="android"
             shift
             ;;
         --stream-logs)
@@ -430,9 +435,25 @@ if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
         EXPO_PID=$DEV_SPAWNED_PID
     else
         # Default: use Expo Go (fast, no Xcode needed)
-        # --ios installs Expo Go if missing and launches on simulator
-        # --go forces Expo Go mode (not dev client)
-        dev_spawn expo "$EXPO_LOG" npx expo start --ios --go --port "$EXPO_PORT"
+        # --ios / --android installs Expo Go if missing and launches it on the
+        # booted simulator or emulator; --go forces Expo Go mode (not dev client).
+        # The Android emulator reaches the host as 10.0.2.2, and a process-level
+        # EXPO_PUBLIC_API_URL beats the one in frontend-mobile/.env, so a stale
+        # Cloud Run URL there cannot silently redirect the emulator to deployed dev.
+        if [ "$MOBILE_PLATFORM" = "android" ]; then
+            # A previously installed Expo Go that is older than the one the SDK
+            # recommends makes `expo start` ask "Install the recommended Expo Go
+            # version?", and in a spawned, non-interactive process that question
+            # is fatal ("Input is required"); CI=1 does not bypass it. The
+            # fresh-install path asks nothing, so an installed copy is removed
+            # first. The APK comes from Expo's local cache after the first run.
+            "${ANDROID_HOME:?ANDROID_HOME must point at the Android SDK}/platform-tools/adb" \
+                uninstall host.exp.exponent >/dev/null 2>&1 || true
+            EXPO_PUBLIC_API_URL="http://10.0.2.2:$SERVER_PORT" \
+                dev_spawn expo "$EXPO_LOG" npx expo start --android --go --port "$EXPO_PORT"
+        else
+            dev_spawn expo "$EXPO_LOG" npx expo start --ios --go --port "$EXPO_PORT"
+        fi
         EXPO_PID=$DEV_SPAWNED_PID
     fi
 
