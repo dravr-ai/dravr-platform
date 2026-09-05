@@ -12,7 +12,7 @@
 //! unit, they are what the tests and the derived schemas both name, and nothing
 //! in them needs the tool plumbing next door.
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_config::constants::time_constants::{DAYS_PER_MONTH, SECONDS_PER_HOUR_F64};
 use pierre_core::models::Activity;
@@ -23,12 +23,9 @@ use pierre_intelligence::physiological_constants::goal_feasibility::{
 use tracing::warn;
 
 use super::goals::{safe_f64_to_u32, GoalDetails};
-use pierre_core::errors::{AppError, AppResult};
 use pierre_intelligence::goal_engine::GoalSuggestion;
 use schemars::JsonSchema;
 use serde::Serialize;
-
-use pierre_tools_core::ToolResult;
 
 /// What `set_goal` answers with.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -169,18 +166,6 @@ pub struct GoalFeasibilityResult {
     pub analysis: FeasibilityAnalysis,
     /// How much history it rests on.
     pub historical_context: FeasibilityHistoricalContext,
-}
-
-/// Serialize a typed tool result into the payload the tool answers with.
-///
-/// Fails loudly rather than degrading: a tool that declares an `outputSchema`
-/// and then answers with something else is worse than one that errors, because
-/// a conforming client rejects the reply and the athlete sees nothing either
-/// way — but only the error says why.
-pub(crate) fn ok_typed<T: Serialize>(tool: &str, payload: T) -> AppResult<ToolResult> {
-    serde_json::to_value(payload)
-        .map(ToolResult::ok)
-        .map_err(|e| AppError::internal(format!("{tool} result did not serialize: {e}")))
 }
 
 pub(crate) fn build_goal_creation_payload(

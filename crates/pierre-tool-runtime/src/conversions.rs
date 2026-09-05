@@ -25,9 +25,10 @@ use std::hash::BuildHasher;
 
 use dravr_tronc::mcp::schema::{Content, TaskSupport, Tool, ToolExecution, ToolResponse};
 use dravr_tronc::mcp::tool::ToolCapabilities as TroncCapabilities;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
+use serde::Serialize;
 
 use crate::capabilities::ToolCapabilities;
 
@@ -116,6 +117,18 @@ pub fn answers_with<T: schemars::JsonSchema>(tool: Tool) -> Tool {
         output_schema: serde_json::to_value(schemars::schema_for!(T)).ok(),
         ..tool
     }
+}
+
+/// Serialize a typed tool result into the payload the tool answers with.
+///
+/// Fails loudly rather than degrading: a tool that declares an `outputSchema`
+/// and then answers with something else is worse than one that errors, because
+/// a conforming client rejects the reply and the athlete sees nothing either
+/// way — but only the error says why.
+pub fn ok_typed<T: Serialize>(tool: &str, payload: T) -> AppResult<ToolResult> {
+    serde_json::to_value(payload)
+        .map(ToolResult::ok)
+        .map_err(|e| AppError::internal(format!("{tool} result did not serialize: {e}")))
 }
 
 /// Build the object input schema almost every tool declares.

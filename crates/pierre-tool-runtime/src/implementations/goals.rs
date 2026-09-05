@@ -21,8 +21,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
-use schemars::JsonSchema;
-use serde::Serialize;
 use serde_json::{from_value, json, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -30,12 +28,12 @@ use uuid::Uuid;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, task_capable, tool_definition,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
     tool_result_to_response,
 };
 use crate::implementations::goals_output::{
     build_feasibility_payload, build_goal_creation_payload, build_progress_payload,
-    format_goal_suggestions, ok_typed, FeasibilityResponseParams, GoalFeasibilityResult,
+    format_goal_suggestions, FeasibilityResponseParams, GoalFeasibilityResult,
     ProgressResponseParams, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
 };
 use crate::protocol::auth::AuthService;
@@ -54,7 +52,7 @@ use pierre_config::constants::time_constants::{
 };
 use pierre_core::errors::{AppError, AppResult, JsonResultExt};
 use pierre_core::models::Activity;
-use pierre_intelligence::goal_engine::{AdvancedGoalEngine, GoalEngineTrait, GoalSuggestion};
+use pierre_intelligence::goal_engine::{AdvancedGoalEngine, GoalEngineTrait};
 use pierre_intelligence::physiological_constants::goal_feasibility::{
     ADEQUATE_FREQUENCY_DATA_THRESHOLD, ASSUMED_TRAINING_HISTORY_WEEKS, DAYS_PER_MONTH_APPROX,
     DEFAULT_TIMEFRAME_DAYS as GOAL_DEFAULT_TIMEFRAME_DAYS, EXCELLENT_CONFIDENCE_THRESHOLD,

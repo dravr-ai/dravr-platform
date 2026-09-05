@@ -23,12 +23,15 @@ use pierre_database::repositories::{
     InsertCoachFollowupParams, InsertCoachNoteParams, UpsertUserFactParams,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
-use serde_json::{json, Value};
+use schemars::JsonSchema;
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -77,6 +80,73 @@ fn ctx_user_id(context: &ToolExecutionContext) -> String {
 // CoachNoteAddTool — write a private coach note about a user
 // ============================================================================
 
+/// What `coach_note_add` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CoachNoteAddResult {
+    /// Identifier of the stored note.
+    pub note_id: String,
+    /// RFC 3339 timestamp it was stored at.
+    pub created_at: String,
+}
+
+/// What `coach_followup_schedule` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CoachFollowupScheduleResult {
+    /// Identifier of the scheduled follow-up.
+    pub followup_id: String,
+    /// Always `pending` on creation; a value rather than an inference, so a
+    /// client reads state instead of assuming it from a successful call.
+    pub status: String,
+    /// When it comes due, RFC 3339. Absent when the coach scheduled no date —
+    /// the follow-up then rides the next conversation rather than a clock.
+    pub due_at: Option<String>,
+}
+
+/// What `remember_fact` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct RememberFactResult {
+    /// Identifier of the stored fact.
+    pub fact_id: String,
+    /// Which category it was filed under.
+    pub kind: String,
+    /// Extractor confidence, 0.0 to 1.0.
+    pub confidence: f32,
+}
+
+/// One fact as `recall_user_memory` reports it.
+///
+/// A projection of the stored row, not the row: tenant, user, coach and scope
+/// stay behind. `sentence` is the fact rendered in the athlete's own locale by
+/// the same renderer the memory screen uses, so the coach reads what they read.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct RecalledFact {
+    /// Stable identifier.
+    pub id: String,
+    /// Semantic category.
+    pub kind: String,
+    /// The closed predicate code behind the sentence.
+    pub predicate_code: String,
+    /// The fact as a sentence, in the athlete's language.
+    pub sentence: String,
+    /// The athlete's own words for the value asserted.
+    pub object: String,
+    /// Extractor confidence, 0.0 to 1.0.
+    pub confidence: f32,
+    /// Message the fact was extracted from, when it came from a conversation.
+    pub source_msg_id: Option<String>,
+    /// RFC 3339 timestamp of the last update.
+    pub updated_at: String,
+}
+
+/// What `recall_user_memory` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct RecallUserMemoryResult {
+    /// The facts recalled, most relevant first.
+    pub facts: Vec<RecalledFact>,
+    /// How many were returned.
+    pub count: usize,
+}
+
 /// Coach-authored note write tool.
 ///
 /// Lets the coach persist a note it intentionally wants to remember about
@@ -123,12 +193,12 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
             properties,
             Some(vec!["content".to_owned(), "coach_id".to_owned()]),
         );
-        tool_definition(
+        answers_with::<CoachNoteAddResult>(tool_definition(
             "coach_note_add",
             "Persist a private coach note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -176,10 +246,13 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                 .insert_coach_note(&params)
                 .await?;
 
-            Ok(ToolResult::ok(json!({
-            "note_id": note.id,
-            "created_at": note.created_at.to_rfc3339(),
-            })))
+            ok_typed(
+                "coach_note_add",
+                CoachNoteAddResult {
+                    note_id: note.id,
+                    created_at: note.created_at.to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -243,12 +316,12 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
             properties,
             Some(vec!["content".to_owned(), "coach_id".to_owned()]),
         );
-        tool_definition(
+        answers_with::<CoachFollowupScheduleResult>(tool_definition(
             "coach_followup_schedule",
             "Schedule a future check-in the coach should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -307,11 +380,14 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
                 .insert_coach_followup(&params)
                 .await?;
 
-            Ok(ToolResult::ok(json!({
-                "followup_id": followup.id,
-                "status": "pending",
-                "due_at": followup.due_at.map(|d| d.to_rfc3339()),
-            })))
+            ok_typed(
+                "coach_followup_schedule",
+                CoachFollowupScheduleResult {
+                    followup_id: followup.id,
+                    status: "pending".to_owned(),
+                    due_at: followup.due_at.map(|d| d.to_rfc3339()),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -392,12 +468,12 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 "confidence".to_owned(),
             ]),
         );
-        tool_definition(
+        answers_with::<RememberFactResult>(tool_definition(
             "remember_fact",
             "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the coach should remember next time.",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -459,11 +535,14 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 .upsert_user_fact(&params)
                 .await?;
 
-            Ok(ToolResult::ok(json!({
-                "fact_id": fact.id,
-                "kind": fact.kind.as_str(),
-                "confidence": fact.confidence,
-            })))
+            ok_typed(
+                "remember_fact",
+                RememberFactResult {
+                    fact_id: fact.id,
+                    kind: fact.kind.as_str().to_owned(),
+                    confidence: fact.confidence,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -515,12 +594,12 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<RecallUserMemoryResult>(tool_definition(
             "recall_user_memory",
             "Retrieve stored facts the harness has remembered about the user. Returns recent facts ordered by last-update timestamp. Use this when you need to confirm what you already know before answering.",
             schema,
             Some(read_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -563,26 +642,27 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             let sentences =
                 SentenceRenderer::new(context.resources.messaging_strings_registry(), &locale);
 
-            let payload: Vec<_> = facts
+            let recalled: Vec<RecalledFact> = facts
                 .into_iter()
-                .map(|f| {
-                    json!({
-                        "id": f.id,
-                        "kind": f.kind.as_str(),
-                        "predicate_code": f.predicate_code.as_str(),
-                        "sentence": sentences.render(f.predicate_code, &f.object),
-                        "object": f.object,
-                        "confidence": f.confidence,
-                        "source_msg_id": f.source_msg_id,
-                        "updated_at": f.updated_at.to_rfc3339(),
-                    })
+                .map(|f| RecalledFact {
+                    id: f.id,
+                    kind: f.kind.as_str().to_owned(),
+                    predicate_code: f.predicate_code.as_str().to_owned(),
+                    sentence: sentences.render(f.predicate_code, &f.object),
+                    object: f.object,
+                    confidence: f.confidence,
+                    source_msg_id: f.source_msg_id,
+                    updated_at: f.updated_at.to_rfc3339(),
                 })
                 .collect();
 
-            Ok(ToolResult::ok(json!({
-                "facts": payload,
-                "count": payload.len(),
-            })))
+            ok_typed(
+                "recall_user_memory",
+                RecallUserMemoryResult {
+                    count: recalled.len(),
+                    facts: recalled,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

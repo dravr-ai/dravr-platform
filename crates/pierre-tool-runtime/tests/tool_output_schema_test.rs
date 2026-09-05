@@ -25,6 +25,11 @@ use pierre_tool_runtime::implementations::goals_output::{
     FeasibilityAnalysis, FeasibilityHistoricalContext, GoalFeasibilityResult, GoalSuggestionEntry,
     ProgressSummary, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
 };
+use pierre_tool_runtime::implementations::memory::{
+    CoachFollowupScheduleResult, CoachFollowupScheduleTool, CoachNoteAddResult, CoachNoteAddTool,
+    RecallUserMemoryResult, RecallUserMemoryTool, RecalledFact, RememberFactResult,
+    RememberFactTool,
+};
 use pierre_tool_runtime::implementations::playbooks::{
     ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
     ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
@@ -339,5 +344,92 @@ fn analyze_goal_feasibility_declares_a_schema_that_accepts_its_payload() {
         serde_json::to_value(schemars::schema_for!(GoalFeasibilityResult)).expect("derives"),
         &sample,
         "analyze_goal_feasibility",
+    );
+}
+
+#[test]
+fn coach_note_add_declares_a_schema_that_accepts_its_payload() {
+    let sample = CoachNoteAddResult {
+        note_id: "note-1".to_owned(),
+        created_at: "2026-09-05T09:00:00+00:00".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <CoachNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&CoachNoteAddTool).output_schema,
+        serde_json::to_value(schemars::schema_for!(CoachNoteAddResult)).expect("derives"),
+        &sample,
+        "coach_note_add",
+    );
+}
+
+#[test]
+fn coach_followup_schedule_accepts_a_followup_with_no_due_date() {
+    // due_at is None when the coach scheduled no date — the follow-up rides the
+    // next conversation instead of a clock, and that is the common case.
+    let sample = CoachFollowupScheduleResult {
+        followup_id: "fu-1".to_owned(),
+        status: "pending".to_owned(),
+        due_at: None,
+    };
+    assert_declares_and_accepts(
+        <CoachFollowupScheduleTool as McpTool<dyn ToolRuntime>>::definition(
+            &CoachFollowupScheduleTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(CoachFollowupScheduleResult)).expect("derives"),
+        &sample,
+        "coach_followup_schedule",
+    );
+}
+
+#[test]
+fn remember_fact_declares_a_schema_that_accepts_its_payload() {
+    let sample = RememberFactResult {
+        fact_id: "fact-1".to_owned(),
+        kind: "preference".to_owned(),
+        confidence: 0.9,
+    };
+    assert_declares_and_accepts(
+        <RememberFactTool as McpTool<dyn ToolRuntime>>::definition(&RememberFactTool).output_schema,
+        serde_json::to_value(schemars::schema_for!(RememberFactResult)).expect("derives"),
+        &sample,
+        "remember_fact",
+    );
+}
+
+#[test]
+fn recall_user_memory_declares_a_schema_that_accepts_its_payload() {
+    // source_msg_id is absent for facts that came from onboarding or a device
+    // rather than a conversation, so the sample carries one of each.
+    let sample = RecallUserMemoryResult {
+        facts: vec![
+            RecalledFact {
+                id: "fact-1".to_owned(),
+                kind: "injury".to_owned(),
+                predicate_code: "has_injury".to_owned(),
+                sentence: "Tu as une douleur au genou droit.".to_owned(),
+                object: "genou droit".to_owned(),
+                confidence: 0.88,
+                source_msg_id: Some("msg-42".to_owned()),
+                updated_at: "2026-09-04T18:30:00+00:00".to_owned(),
+            },
+            RecalledFact {
+                id: "fact-2".to_owned(),
+                kind: "equipment".to_owned(),
+                predicate_code: "owns_equipment".to_owned(),
+                sentence: "Tu as un capteur de puissance.".to_owned(),
+                object: "capteur de puissance".to_owned(),
+                confidence: 1.0,
+                source_msg_id: None,
+                updated_at: "2026-08-30T12:00:00+00:00".to_owned(),
+            },
+        ],
+        count: 2,
+    };
+    assert_declares_and_accepts(
+        <RecallUserMemoryTool as McpTool<dyn ToolRuntime>>::definition(&RecallUserMemoryTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(RecallUserMemoryResult)).expect("derives"),
+        &sample,
+        "recall_user_memory",
     );
 }
