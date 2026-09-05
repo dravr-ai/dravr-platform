@@ -165,6 +165,7 @@ use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
 use std::{str, sync::Arc};
+use tokio::sync::OnceCell;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 mod helpers;
@@ -176,7 +177,12 @@ const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_routes_tests";
 struct AdminTestSetup {
     context: AdminApiContext,
     admin_token: GeneratedAdminToken,
-    super_admin_token: GeneratedAdminToken,
+    /// Minted on first read by [`AdminTestSetup::super_admin_token`].
+    ///
+    /// Minting bcrypt-hashes the token at the production cost — the most
+    /// expensive step in this setup, and every test builds a setup. Four tests
+    /// in this file need the token; the other thirty-two do not.
+    super_admin_token: OnceCell<GeneratedAdminToken>,
     invalid_token: String,
     expired_token: String,
     user_id: Uuid,
@@ -246,16 +252,6 @@ impl AdminTestSetup {
             )
             .await?;
 
-        let super_admin_token = database
-            .repositories()
-            .admin
-            .create_token(
-                &CreateAdminTokenRequest::super_admin("test_super_admin_service".to_owned()),
-                jwt_secret,
-                &*jwks_manager,
-            )
-            .await?;
-
         // Create invalid token
         let invalid_token = "invalid_token_for_testing".to_owned();
 
@@ -280,12 +276,36 @@ impl AdminTestSetup {
         Ok(Self {
             context,
             admin_token,
-            super_admin_token,
+            super_admin_token: OnceCell::new(),
             invalid_token,
             expired_token,
             user_id,
             user,
         })
+    }
+
+    /// The super-admin token, minted on first read.
+    ///
+    /// Same request, same secret and same JWKS the setup itself uses — the
+    /// context stores both — so the token is identical to the one the setup
+    /// used to hand out unconditionally.
+    async fn super_admin_token(&self) -> Result<&GeneratedAdminToken> {
+        self.super_admin_token
+            .get_or_try_init(|| async {
+                self.context
+                    .repos
+                    .admin
+                    .create_token(
+                        &CreateAdminTokenRequest::super_admin(
+                            "test_super_admin_service".to_owned(),
+                        ),
+                        &self.context.admin_jwt_secret,
+                        &*self.context.jwks_manager,
+                    )
+                    .await
+            })
+            .await
+            .map_err(Into::into)
     }
 
     /// Create authorization header with Bearer token
@@ -842,6 +862,10 @@ async fn test_list_admin_tokens() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
+    // The count below is over the tokens this setup mints, and the super-admin
+    // one is minted on first read — so read it before listing.
+    setup.super_admin_token().await?;
+
     let response = AxumTestRequest::get("/admin/tokens")
         .header(
             "authorization",
@@ -909,7 +933,7 @@ async fn test_create_super_admin_token() -> Result<()> {
     let response = AxumTestRequest::post("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.super_admin_token.jwt_token),
+            &setup.auth_header(&setup.super_admin_token().await?.jwt_token),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -1428,7 +1452,7 @@ async fn test_super_admin_privileges() -> Result<()> {
     let response = AxumTestRequest::get("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.super_admin_token.jwt_token),
+            &setup.auth_header(&setup.super_admin_token().await?.jwt_token),
         )
         .send(routes.clone())
         .await;
@@ -1445,11 +1469,12 @@ async fn test_super_admin_privileges() -> Result<()> {
 async fn test_super_admin_token_info() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
+    let super_admin_token = setup.super_admin_token().await?;
 
     let response = AxumTestRequest::get("/admin/token-info")
         .header(
             "authorization",
-            &setup.auth_header(&setup.super_admin_token.jwt_token),
+            &setup.auth_header(&super_admin_token.jwt_token),
         )
         .send(routes.clone())
         .await;
@@ -1457,7 +1482,7 @@ async fn test_super_admin_token_info() -> Result<()> {
     assert_eq!(response.status(), 200);
 
     let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["token_id"], setup.super_admin_token.token_id);
+    assert_eq!(body["token_id"], super_admin_token.token_id);
     assert_eq!(body["service_name"], "test_super_admin_service");
     assert!(body["is_super_admin"].as_bool().unwrap());
     assert!(body["permissions"].as_array().unwrap().len() > 3); // Should have all permissions

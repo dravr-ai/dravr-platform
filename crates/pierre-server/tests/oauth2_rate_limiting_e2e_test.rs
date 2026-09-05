@@ -9,6 +9,7 @@
 
 use futures_util::future::join_all;
 use pierre_auth::{
+    config::RateLimitConfig,
     oauth2_server::{
         client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
         rate_limiting::OAuth2RateLimiter,
@@ -23,6 +24,34 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::time::{sleep, Duration};
+
+/// Rate limit window, in seconds, for the two tests that cross a window boundary.
+///
+/// `OAuth2RateLimiter` measures the window with `std::time::Instant`, which
+/// tokio's paused clock does not move, so those tests wait real time. The
+/// window is a field of `RateLimitConfig`, so the wait is set by the
+/// configuration under test rather than by the shipped 60-second default.
+const TEST_WINDOW_SECS: u64 = 2;
+
+/// Age, in seconds, at which the lazy cleanup pass drops an idle per-IP entry.
+const TEST_STALE_ENTRY_TIMEOUT_SECS: u64 = 2;
+
+/// Wait that clears both `TEST_WINDOW_SECS` and `TEST_STALE_ENTRY_TIMEOUT_SECS`
+/// with a second of slack on a loaded runner.
+const TEST_EXPIRY_WAIT: Duration = Duration::from_secs(3);
+
+/// Distinct client IPs the cleanup test puts into the limiter's map.
+const CLEANUP_TEST_IP_COUNT: u8 = 100;
+
+/// Rate limit configuration whose window and stale-entry timeout expire in
+/// seconds instead of minutes, for the tests that observe an expiry.
+fn short_expiry_config() -> RateLimitConfig {
+    RateLimitConfig {
+        rate_limit_window_secs: TEST_WINDOW_SECS,
+        stale_entry_timeout_secs: TEST_STALE_ENTRY_TIMEOUT_SECS,
+        ..RateLimitConfig::default()
+    }
+}
 
 /// Test rate limiting on client registration endpoint
 #[tokio::test]
@@ -217,11 +246,15 @@ async fn test_retry_after_header() {
 /// Test rate limit window reset after expiration
 #[tokio::test]
 async fn test_rate_limit_window_reset() {
-    // This test uses a custom config with a very short window for testing
-    let mut config = OAuth2RateLimitConfig::new();
-    config.register_rpm = 3; // Only 3 requests allowed
+    // The window lives in RateLimitConfig, so this test drives the limiter
+    // through a real boundary at TEST_WINDOW_SECS instead of the 60-second
+    // default that `OAuth2RateLimiter::with_config` leaves in place.
+    let config = RateLimitConfig {
+        oauth_register_rpm: 3, // Only 3 requests allowed
+        ..short_expiry_config()
+    };
 
-    let rate_limiter = OAuth2RateLimiter::with_config(config);
+    let rate_limiter = OAuth2RateLimiter::from_rate_limit_config(config);
     let client_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 107));
     let endpoint = "register";
 
@@ -235,8 +268,8 @@ async fn test_rate_limit_window_reset() {
     let status = rate_limiter.check_rate_limit(endpoint, client_ip);
     assert!(status.is_limited, "Request 4 should be rate limited");
 
-    // Wait for window to expire (60 seconds + small buffer)
-    sleep(Duration::from_secs(61)).await;
+    // Wait for the configured window to expire
+    sleep(TEST_EXPIRY_WAIT).await;
 
     // After window reset, should be able to make requests again
     let status = rate_limiter.check_rate_limit(endpoint, client_ip);
@@ -336,11 +369,18 @@ async fn test_concurrent_requests_same_ip() {
 /// Test that rate limiter cleans up old entries
 #[tokio::test]
 async fn test_rate_limiter_cleanup() {
-    let rate_limiter = OAuth2RateLimiter::new();
+    // The cleanup pass runs only once the map exceeds cleanup_threshold, so the
+    // threshold sits below CLEANUP_TEST_IP_COUNT here; at the shipped threshold
+    // of 1000 these entries never reach it and the pass never runs.
+    let config = RateLimitConfig {
+        cleanup_threshold: usize::from(CLEANUP_TEST_IP_COUNT) / 2,
+        ..short_expiry_config()
+    };
+    let rate_limiter = OAuth2RateLimiter::from_rate_limit_config(config);
     let endpoint = "register";
 
     // Create requests from many different IPs
-    for i in 1..=100 {
+    for i in 1..=CLEANUP_TEST_IP_COUNT {
         let client_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, i));
         let status = rate_limiter.check_rate_limit(endpoint, client_ip);
         assert!(
@@ -349,8 +389,8 @@ async fn test_rate_limiter_cleanup() {
         );
     }
 
-    // Wait for cleanup window (2 minutes)
-    sleep(Duration::from_secs(121)).await;
+    // Wait for the configured stale-entry timeout to elapse
+    sleep(TEST_EXPIRY_WAIT).await;
 
     // Make another request to trigger cleanup
     let new_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));

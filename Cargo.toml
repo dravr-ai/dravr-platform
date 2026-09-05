@@ -15,6 +15,65 @@ overflow-checks = true
 # On macOS this is already the default behavior (dsymutil runs separately).
 split-debuginfo = "unpacked"
 
+# Cryptographic dependencies are optimized in dev and test builds.
+#
+# These crates are pure-Rust implementations of deliberately expensive
+# functions, so at opt-level 0 the whole test suite pays their cost: every test
+# that creates a user, registers an OAuth2 client, or mints an RS256 token.
+# Argon2::default() sits on the OAuth2 client registration and secret
+# verification path, and bcrypt hashing runs on every admin token mint.
+#
+# Measured on rustc 1.96.0 with only this override changed:
+#   argon2id, Argon2::default() (19 MiB, t=2)   2.185s -> 0.026s
+#   bcrypt, DEFAULT_COST (12)                  10.965s -> 1.28s
+#   RSA-2048 key generation                    24.611s -> 0.87s
+#
+# Named one crate at a time rather than through package."*" for two reasons.
+# rustc stops sharing monomorphized generics across crates at opt-level >= 2,
+# so a graph-wide override pushes generic instantiation into the workspace
+# crates -- and rust-cache runs with cache-workspace-crates off, so those
+# recompile on every CI run and the cost would never amortize. A graph-wide
+# override also invalidates every dependency unit at once; this list
+# invalidates eleven (the ten below plus jsonwebtoken, which depends on rsa).
+# sha2, hmac, digest and num-traits are left alone on purpose: they carry
+# fifteen to forty-three reverse-dependencies each, against two to four for
+# everything here.
+#
+# Only opt-level moves. debug-assertions and overflow-checks are not
+# overridden, so cargo still passes -C debug-assertions=on to these crates and
+# their runtime checks behave exactly as before. No security parameter changes:
+# production hashing costs are whatever bcrypt::DEFAULT_COST and
+# Argon2::default() say, and [profile.release] is not read by any of this.
+[profile.dev.package.argon2]
+opt-level = 2
+
+[profile.dev.package.blake2]
+opt-level = 2
+
+[profile.dev.package.bcrypt]
+opt-level = 2
+
+[profile.dev.package.blowfish]
+opt-level = 2
+
+[profile.dev.package.rsa]
+opt-level = 2
+
+[profile.dev.package.num-bigint-dig]
+opt-level = 2
+
+[profile.dev.package.aes]
+opt-level = 2
+
+[profile.dev.package.aes-gcm]
+opt-level = 2
+
+[profile.dev.package.ghash]
+opt-level = 2
+
+[profile.dev.package.polyval]
+opt-level = 2
+
 [profile.release]
 lto = "thin"
 codegen-units = 16

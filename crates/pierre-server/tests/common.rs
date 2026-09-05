@@ -68,6 +68,16 @@ static INIT_SERVER_CONFIG: Once = Once::new();
 /// provider fell back to and costed at zero.
 pub const PLACEHOLDER_LLM_MODEL: &str = "mock-model";
 
+/// Bcrypt cost the fixture users below are hashed at.
+///
+/// Production picks its own cost at each of its own call sites; this value
+/// reaches nothing but test fixtures. `bcrypt::verify` reads the cost back out
+/// of the hash, so the suites that log in as a fixture user with "password123"
+/// authenticate exactly as before — they just stop paying
+/// `bcrypt::DEFAULT_COST` (12), which is about a second per user at the test
+/// profile's opt-level, once per created user in over a hundred test files.
+pub const TEST_BCRYPT_COST: u32 = 4;
+
 /// Initialize server configuration for tests (call once per test process)
 pub fn init_server_config() {
     INIT_SERVER_CONFIG.call_once(|| {
@@ -224,7 +234,7 @@ pub async fn create_test_cache() -> Result<Cache> {
 /// Create a standard test user
 pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
     // Create a proper bcrypt hash for the default test password "password123"
-    let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
+    let password_hash = bcrypt::hash("password123", TEST_BCRYPT_COST)?;
 
     let mut user = User::new(
         "test@example.com".to_owned(),
@@ -279,7 +289,7 @@ pub async fn create_test_user_with_plan(
     plan: &str,
 ) -> Result<(Uuid, User, TenantId)> {
     // Create a proper bcrypt hash for the default test password "password123"
-    let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
+    let password_hash = bcrypt::hash("password123", TEST_BCRYPT_COST)?;
 
     let mut user = User::new(
         email.to_owned(),

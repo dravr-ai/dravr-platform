@@ -60,6 +60,15 @@ pub const BOT_USERNAME: &str = "dravr_command_e2e_bot";
 /// Webhook secret the fixture channel config registers and every post signs.
 pub const TG_SECRET: &str = "command_e2e_tg_secret";
 
+/// Bcrypt cost the fixture hashes its members' passwords at.
+///
+/// No fixture member ever authenticates by password: a member reaches the
+/// server through a signed Telegram webhook and a channel link, so the stored
+/// hash only has to be a well-formed bcrypt digest. At the test profile's
+/// opt-level `bcrypt::DEFAULT_COST` (12) costs about a second per member, and
+/// the catalog matrix builds one member per command in each of its two lanes.
+const FIXTURE_BCRYPT_COST: u32 = 4;
+
 /// System-prompt marker of a background fact-extraction request
 /// (`PROVENANCE_ADDENDUM`, `pierre-services/src/memory_extraction.rs`).
 const EXTRACTION_MARKER: &str = "## Provenance (required)";
@@ -251,7 +260,7 @@ pub fn commands_dir() -> PathBuf {
 
 async fn create_user_with_own_tenant(resources: &ServerContext, email: &str) -> (Uuid, TenantId) {
     let password_hash =
-        spawn_blocking(|| bcrypt::hash("CommandE2e123!", bcrypt::DEFAULT_COST).unwrap())
+        spawn_blocking(|| bcrypt::hash("CommandE2e123!", FIXTURE_BCRYPT_COST).unwrap())
             .await
             .unwrap();
     let mut user = User::new(
@@ -511,12 +520,12 @@ impl CommandE2e {
     /// for `session_id`; the delivery task persists them asynchronously after
     /// the channel send fails on test credentials.
     pub async fn wait_outbound_for_session(&self, session_id: &str, want: i64) -> i64 {
-        for _ in 0..300 {
+        for _ in 0..1200 {
             let n = self.outbound_count_for_session(session_id).await;
             if n >= want {
                 return n;
             }
-            sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_millis(25)).await;
         }
         let n = self.outbound_count_for_session(session_id).await;
         panic!("expected >= {want} outbound ledger rows for session {session_id}, found {n}");
@@ -566,12 +575,12 @@ impl CommandE2e {
 
     /// Poll (≤30s) until `want` outbound ledger rows carry `needle`.
     pub async fn wait_outbound_containing(&self, needle: &str, want: i64) -> i64 {
-        for _ in 0..300 {
+        for _ in 0..1200 {
             let n = self.outbound_count_containing(needle).await;
             if n >= want {
                 return n;
             }
-            sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_millis(25)).await;
         }
         let n = self.outbound_count_containing(needle).await;
         panic!("expected >= {want} outbound rows carrying {needle:?}, found {n}");

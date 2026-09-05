@@ -153,6 +153,7 @@ mod common;
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use futures_util::{stream, StreamExt, TryStreamExt};
 use pierre_auth::{
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     auth::{AuthMethod, AuthResult},
@@ -449,8 +450,25 @@ impl DashboardTestSetup {
     }
 
     /// Create test usage data for dashboard analytics
+    ///
+    /// The three keys carry 4543 usage rows between them and every test in this
+    /// file builds the whole set, so how the rows are WRITTEN decides the
+    /// file's run time. Two consequences, neither of which changes a single
+    /// row: the rows are built before any of them is written, so the repository
+    /// registry — which clones the backend and rebuilds sixty trait-object
+    /// handles — is constructed once instead of once per row; and the writes go
+    /// out `USAGE_WRITE_CONCURRENCY` at a time, which is safe because
+    /// `record_api_key` is a bare single-row INSERT on both backends, with no
+    /// counter row or trigger behind it to contend on. Every dashboard query
+    /// orders by timestamp or by an aggregate, never by insert order.
     async fn create_test_usage_data(database: &Database, api_keys: &[ApiKey]) -> Result<()> {
+        /// Writes in flight. The CI PostgreSQL test pool caps at three
+        /// connections, so this only has to be large enough to keep them all
+        /// busy; SQLite's single connection serialises regardless.
+        const USAGE_WRITE_CONCURRENCY: usize = 8;
+
         let now = Utc::now();
+        let mut rows = Vec::new();
 
         // Create some API key usage records for testing
         for (i, api_key) in api_keys.iter().enumerate() {
@@ -471,7 +489,7 @@ impl DashboardTestSetup {
 
                 // Create usage records using the available API
                 for j in 0..request_count {
-                    let usage = ApiKeyUsage {
+                    rows.push(ApiKeyUsage {
                         id: None,
                         api_key_id: api_key.id.clone(),
                         timestamp: timestamp + Duration::minutes(i64::from(j) * 2),
@@ -492,13 +510,21 @@ impl DashboardTestSetup {
                         response_size_bytes: Some(2048 + (j % 1024)),
                         ip_address: Some("127.0.0.1".to_owned()),
                         user_agent: Some("test-client".to_owned()),
-                    };
-
-                    // Record the usage
-                    database.repositories().usage.record_api_key(&usage).await?;
+                    });
                 }
             }
         }
+
+        // Record the usage
+        let usage_repo = database.repositories().usage;
+        stream::iter(rows)
+            .map(|usage| {
+                let repo = Arc::clone(&usage_repo);
+                async move { repo.record_api_key(&usage).await }
+            })
+            .buffer_unordered(USAGE_WRITE_CONCURRENCY)
+            .try_collect::<Vec<()>>()
+            .await?;
 
         Ok(())
     }

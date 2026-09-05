@@ -59,6 +59,25 @@ mod intake_tests {
 
     const TG_SECRET: &str = "intake_tg_secret";
 
+    /// Bcrypt cost the fixture hashes its athletes' passwords at.
+    ///
+    /// No athlete here authenticates by password — every turn arrives as a
+    /// signed Telegram webhook against a channel link — so the hash only has to
+    /// be a well-formed bcrypt digest. At the test profile's opt-level
+    /// `bcrypt::DEFAULT_COST` (12) costs about a second per athlete, and every
+    /// test in this file is `#[serial]`.
+    const FIXTURE_BCRYPT_COST: u32 = 4;
+
+    /// Poll cadence for the `wait_for_*` helpers below.
+    ///
+    /// The deadline each helper enforces is `POLL_TICKS * POLL_INTERVAL` —
+    /// twelve seconds, unchanged. A shorter tick does not shorten that
+    /// deadline; it shortens how long a helper keeps sleeping after the
+    /// condition it waits on has already become true.
+    const POLL_INTERVAL: Duration = Duration::from_millis(50);
+    /// Ticks before a `wait_for_*` helper gives up — 12s at [`POLL_INTERVAL`].
+    const POLL_TICKS: usize = 240;
+
     /// Deterministic offline LLM. The counter is the assertion that matters
     /// here: every intake turn that reached it would be a paraphrased question.
     struct MockLlm {
@@ -185,7 +204,7 @@ mod intake_tests {
         email: &str,
     ) -> (Uuid, TenantId) {
         let password_hash =
-            spawn_blocking(|| bcrypt::hash("Intake123!", bcrypt::DEFAULT_COST).unwrap())
+            spawn_blocking(|| bcrypt::hash("Intake123!", FIXTURE_BCRYPT_COST).unwrap())
                 .await
                 .unwrap();
         let mut user = User::new(
@@ -304,11 +323,11 @@ mod intake_tests {
 
     /// Wait until at least `n` turns have reached the LLM.
     async fn wait_for_turns(calls: &Arc<AtomicUsize>, n: usize) -> bool {
-        for _ in 0..60 {
+        for _ in 0..POLL_TICKS {
             if calls.load(Ordering::SeqCst) >= n {
                 return true;
             }
-            sleep(Duration::from_millis(200)).await;
+            sleep(POLL_INTERVAL).await;
         }
         false
     }
@@ -319,11 +338,11 @@ mod intake_tests {
     /// asynchronously, so the ledger is the only honest "the question went out"
     /// signal available to the caller.
     async fn wait_for_probes(resources: &ServerContext, user_id: Uuid, n: usize) -> bool {
-        for _ in 0..60 {
+        for _ in 0..POLL_TICKS {
             if probed_count(resources, user_id).await >= n {
                 return true;
             }
-            sleep(Duration::from_millis(200)).await;
+            sleep(POLL_INTERVAL).await;
         }
         false
     }
@@ -340,7 +359,7 @@ mod intake_tests {
     /// reached the model — the same reason `assert_instrument_never_paraphrased`
     /// reads the transcript rather than the counter.
     async fn wait_for_transcript(seen: &Arc<Mutex<Vec<String>>>, fragment: &str) -> bool {
-        for _ in 0..60 {
+        for _ in 0..POLL_TICKS {
             if seen
                 .lock()
                 .unwrap()
@@ -349,7 +368,7 @@ mod intake_tests {
             {
                 return true;
             }
-            sleep(Duration::from_millis(200)).await;
+            sleep(POLL_INTERVAL).await;
         }
         false
     }
@@ -365,14 +384,14 @@ mod intake_tests {
         step: &str,
         status: &str,
     ) -> bool {
-        for _ in 0..60 {
+        for _ in 0..POLL_TICKS {
             if onboarding_steps(resources, user_id)
                 .await
                 .contains(&(step.to_owned(), status.to_owned()))
             {
                 return true;
             }
-            sleep(Duration::from_millis(200)).await;
+            sleep(POLL_INTERVAL).await;
         }
         false
     }
@@ -457,11 +476,11 @@ mod intake_tests {
 
     /// Poll until the conversation carries `flow`.
     async fn wait_for_flow(resources: &ServerContext, user_id: Uuid, flow: &str) -> bool {
-        for _ in 0..60 {
+        for _ in 0..POLL_TICKS {
             if active_flow(resources, user_id).await.as_deref() == Some(flow) {
                 return true;
             }
-            sleep(Duration::from_millis(200)).await;
+            sleep(POLL_INTERVAL).await;
         }
         false
     }
