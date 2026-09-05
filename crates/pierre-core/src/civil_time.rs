@@ -162,6 +162,28 @@ pub fn format_local_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> Str
             weekday_short(date.weekday(), locale)
         );
     }
+    format_clock_stamp(instant, zone, locale)
+}
+
+/// `2026-09-01 lun 18:30` for a reading of the wall clock.
+///
+/// Deliberately NOT [`format_local_stamp`], and the same split [`clock_date`]
+/// makes against [`local_date`], for the same reason. That one treats a
+/// midnight-UTC instant as a date-only provider row and renders the UTC date
+/// unconverted (registre#258); a clock reading is always a real moment, so
+/// this always converts.
+///
+/// The `{{CURRENT_DATE}}` anchor is the caller that needed it. It floors `now`
+/// to a five-minute quantum so the prompt prefix stays byte-identical between
+/// requests, and that floor lands exactly on midnight UTC once a day, every
+/// day. Rendered through the sentinel-guessing stamp, the coach read the UTC
+/// weekday for those five minutes: a Toronto athlete at 20:00 on a Friday was
+/// told it was Saturday, in the block that LEADS the system prompt.
+///
+/// Takes the instant rather than reading the clock itself, so the boundary it
+/// exists for is testable.
+#[must_use]
+pub fn format_clock_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> String {
     let local = instant.with_timezone(&zone);
     format!(
         "{} {} {}",

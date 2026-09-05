@@ -15,7 +15,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL, KEY_TURN_LANGUAGE,
 };
 use pierre_contremaitre::PromptRegistry;
-use pierre_core::civil_time::{format_local_stamp, resolve_zone};
+use pierre_core::civil_time::{format_clock_stamp, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::{
@@ -466,8 +466,8 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
     // already refuses to ask of the model for epochs; on 2026-09-02 an athlete
     // left the conversation after correcting weekday claims three times.
     let datetime_str = Utc.timestamp_opt(quantized_epoch, 0).single().map_or_else(
-        || format_local_stamp(local.with_timezone(&Utc), tz, locale),
-        |q| format_local_stamp(q, tz, locale),
+        || format_clock_stamp(local.with_timezone(&Utc), tz, locale),
+        |q| format_clock_stamp(q, tz, locale),
     );
     let now_epoch = quantized_epoch;
 

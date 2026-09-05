@@ -23,7 +23,7 @@
 
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
-use pierre_core::civil_time::{clock_date, local_date};
+use pierre_core::civil_time::{clock_date, format_clock_stamp, format_local_stamp, local_date};
 
 /// 09:00 in Sydney on the 4th is 23:00 UTC on the 3rd. The athlete's "today" is
 /// a day ahead of the server's, and a window ending on the server's excludes
@@ -88,4 +88,60 @@ fn away_from_the_sentinel_the_two_agree() {
 
     assert_eq!(local_date(evening, toronto), clock_date(evening, toronto));
     assert_eq!(clock_date(evening, toronto).to_string(), "2026-09-01");
+}
+
+/// The two STAMP renderers split the same way, at the same instant — and this
+/// is the boundary the `{{CURRENT_DATE}}` anchor actually sits on.
+///
+/// `is_date_only` defends itself by calling a real session at exactly 00:00:00
+/// UTC "vanishingly rare". That holds for provider rows. It does not hold for
+/// the anchor, which floors `now` onto a five-minute quantum for prompt-cache
+/// stability and therefore lands on this instant once a day, every day. For
+/// those five minutes the coach was handed the UTC weekday.
+#[test]
+fn at_midnight_utc_the_clock_stamp_converts_and_a_provider_row_stamp_does_not() {
+    let midnight = Utc.with_ymd_and_hms(2026, 9, 5, 0, 0, 0).unwrap();
+    let toronto: Tz = "America/Toronto".parse().unwrap();
+
+    assert_eq!(
+        format_clock_stamp(midnight, toronto, "fr"),
+        "2026-09-04 ven 20:00",
+        "a clock reading always converts: midnight UTC is Friday evening in Toronto"
+    );
+    assert_eq!(
+        format_local_stamp(midnight, toronto, "fr"),
+        "2026-09-05 sam 00:00",
+        "a date-only provider row keeps the day its provider named (registre#258)"
+    );
+}
+
+/// Away from the sentinel the two renderers agree, which is why five minutes a
+/// day was the only window this ever showed in.
+#[test]
+fn away_from_the_sentinel_both_stamps_agree() {
+    let evening = Utc.with_ymd_and_hms(2026, 9, 5, 1, 30, 0).unwrap();
+    let toronto: Tz = "America/Toronto".parse().unwrap();
+
+    assert_eq!(
+        format_clock_stamp(evening, toronto, "fr"),
+        format_local_stamp(evening, toronto, "fr"),
+    );
+    assert_eq!(
+        format_clock_stamp(evening, toronto, "fr"),
+        "2026-09-04 ven 21:30"
+    );
+}
+
+/// A zone AHEAD of UTC is the other direction, and the anchor was wrong there
+/// too — just by naming the previous day instead of the next one.
+#[test]
+fn a_zone_ahead_of_utc_also_needs_the_clock_stamp() {
+    let midnight = Utc.with_ymd_and_hms(2026, 9, 5, 0, 0, 0).unwrap();
+    let sydney: Tz = "Australia/Sydney".parse().unwrap();
+
+    assert_eq!(
+        format_clock_stamp(midnight, sydney, "fr"),
+        "2026-09-05 sam 10:00",
+        "midnight UTC is Saturday mid-morning in Sydney"
+    );
 }
