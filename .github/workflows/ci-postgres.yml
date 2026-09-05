@@ -16,6 +16,10 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/ci-postgres.yml'
+      # The shard packing reads this, so a change to it changes which
+      # tests land on which shard. Without it here, a manifest edit ships
+      # with no run at all.
+      - '.github/ci-postgres-test-durations.tsv'
       - '.github/actions/rust-setup/**'
   pull_request:
     branches: [ main ]
@@ -27,6 +31,10 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/ci-postgres.yml'
+      # The shard packing reads this, so a change to it changes which
+      # tests land on which shard. Without it here, a manifest edit ships
+      # with no run at all.
+      - '.github/ci-postgres-test-durations.tsv'
       - '.github/actions/rust-setup/**'
   schedule:
     # Weekly full PostgreSQL validation (Sundays at 2:30 AM UTC)
