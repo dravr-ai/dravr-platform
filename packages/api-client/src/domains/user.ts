@@ -139,14 +139,6 @@ export interface OnboardingStatusResponse {
 export function createUserApi(axios: AxiosInstance) {
   return {
     /**
-     * Get user profile.
-     */
-    async getProfile(): Promise<User> {
-      const response = await axios.get<User>(ENDPOINTS.USER.PROFILE);
-      return response.data;
-    },
-
-    /**
      * Update user profile.
      */
     async updateProfile(data: { display_name: string }): Promise<UpdateProfileResponse> {

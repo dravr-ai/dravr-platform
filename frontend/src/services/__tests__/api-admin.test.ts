@@ -25,7 +25,7 @@ const { mockAxiosInstance } = vi.hoisted(() => ({
 // Mock @pierre/api-client to return our mock axios instance
 vi.mock('@pierre/api-client', () => ({
   createPierreApi: vi.fn(() => ({
-    auth: { login: vi.fn(), refreshToken: vi.fn().mockRejectedValue(new Error('No refresh token')) },
+    auth: { login: vi.fn() },
     chat: { getConversations: vi.fn() },
     coaches: { list: vi.fn() },
     oauth: {

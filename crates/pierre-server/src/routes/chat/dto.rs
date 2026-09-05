@@ -296,14 +296,12 @@ pub struct ParticipantListResponse {
     pub participants: Vec<ParticipantResponse>,
 }
 
-/// Request to send a message
+/// Request to send a message. Whether the reply streams is decided by the
+/// request's `Accept` header, not by the body.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendMessageRequest {
     /// Message content
     pub content: String,
-    /// Whether to stream the response
-    #[serde(default)]
-    pub stream: bool,
 }
 
 /// Response for a message

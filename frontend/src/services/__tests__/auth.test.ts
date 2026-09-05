@@ -2,18 +2,16 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the auth API surface exported from services/api (pierreApi.auth)
-// ABOUTME: Validates login, logout, register, and refresh calls go through the shared client
+// ABOUTME: Validates login, logout, and register calls go through the shared client
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-const { mockLogin, mockLoginWithFirebase, mockLogout, mockRegister, mockRefreshToken } =
-  vi.hoisted(() => ({
-    mockLogin: vi.fn(),
-    mockLoginWithFirebase: vi.fn(),
-    mockLogout: vi.fn(),
-    mockRegister: vi.fn(),
-    mockRefreshToken: vi.fn(),
-  }))
+const { mockLogin, mockLoginWithFirebase, mockLogout, mockRegister } = vi.hoisted(() => ({
+  mockLogin: vi.fn(),
+  mockLoginWithFirebase: vi.fn(),
+  mockLogout: vi.fn(),
+  mockRegister: vi.fn(),
+}))
 
 vi.mock('../api', async (importOriginal) => {
   const original = await importOriginal<typeof import('../api')>()
@@ -24,7 +22,6 @@ vi.mock('../api', async (importOriginal) => {
       loginWithFirebase: mockLoginWithFirebase,
       logout: mockLogout,
       register: mockRegister,
-      refreshToken: mockRefreshToken,
     },
   }
 })
@@ -103,24 +100,6 @@ describe('authApi (from @pierre/api-client via services/api barrel)', () => {
     })
   })
 
-  describe('refreshToken', () => {
-    it('should delegate to pierreApi.auth.refreshToken', async () => {
-      const mockResponse = { user: { id: '1' }, csrf_token: 'new-csrf' }
-      mockRefreshToken.mockResolvedValue(mockResponse)
-
-      const result = await authApi.refreshToken()
-
-      expect(mockRefreshToken).toHaveBeenCalled()
-      expect(result).toEqual(mockResponse)
-    })
-
-    it('should propagate refresh errors', async () => {
-      mockRefreshToken.mockRejectedValue(new Error('Token expired'))
-
-      await expect(authApi.refreshToken()).rejects.toThrow('Token expired')
-    })
-  })
-
   describe('API surface verification', () => {
     it('authApi is the pierreApi.auth instance (not a local module)', () => {
       // authApi is re-exported as pierreApi.auth in services/api/index.ts
@@ -130,7 +109,6 @@ describe('authApi (from @pierre/api-client via services/api barrel)', () => {
       expect(authApi.loginWithFirebase).toBe(mockLoginWithFirebase)
       expect(authApi.logout).toBe(mockLogout)
       expect(authApi.register).toBe(mockRegister)
-      expect(authApi.refreshToken).toBe(mockRefreshToken)
     })
   })
 })

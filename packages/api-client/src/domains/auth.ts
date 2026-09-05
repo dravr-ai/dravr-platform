@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Authentication domain API - login, logout, register, token refresh
+// ABOUTME: Authentication domain API - login, logout, register, session restore
 // ABOUTME: Platform-agnostic auth logic using the adapter for token storage
 
 import type { AxiosInstance } from 'axios';
@@ -103,39 +103,6 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
     },
 
     /**
-     * Refresh the access token using the refresh token.
-     */
-    async refreshToken(): Promise<LoginResponse> {
-      const refreshToken = await authStorage.getRefreshToken();
-      if (!refreshToken) {
-        throw new Error('No refresh token available');
-      }
-
-      const formData = new URLSearchParams();
-      formData.append('grant_type', 'refresh_token');
-      formData.append('refresh_token', refreshToken);
-
-      const response = await axios.post<LoginResponse>(ENDPOINTS.AUTH.TOKEN, formData.toString(), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-
-      const data = response.data;
-
-      // Update stored tokens
-      if (data.access_token) {
-        await authStorage.setToken(data.access_token);
-      }
-      if (data.refresh_token) {
-        await authStorage.setRefreshToken(data.refresh_token);
-      }
-      if (data.user) {
-        await authStorage.setUser(data.user);
-      }
-
-      return data;
-    },
-
-    /**
      * Restore session using httpOnly cookie authentication.
      * Returns user info and a fresh JWT for WebSocket auth.
      * Throws on 401 if no valid session exists.
@@ -167,13 +134,6 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
       await authStorage.setToken(token);
       await authStorage.setCsrfToken(csrfToken);
       await authStorage.setUser(user);
-    },
-
-    /**
-     * Clear all stored auth data.
-     */
-    async clearStoredAuth(): Promise<void> {
-      await authStorage.clear();
     },
 
     /**

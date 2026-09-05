@@ -100,7 +100,9 @@ impl ChatRoutes {
                 "/api/chat/groups/{group_id}/transcript",
                 get(group_transcript::get_group_transcript),
             )
-            // POST messages with MCP tool support (non-streaming)
+            // POST messages with MCP tool support — an event stream when the
+            // request's Accept header names text/event-stream, one JSON
+            // document otherwise
             .route(
                 "/api/chat/conversations/{conversation_id}/messages",
                 post(send_message::send_message),
