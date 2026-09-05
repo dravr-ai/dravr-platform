@@ -26,6 +26,7 @@ use std::hash::BuildHasher;
 use dravr_tronc::mcp::schema::{Content, TaskSupport, Tool, ToolExecution, ToolResponse};
 use dravr_tronc::mcp::tool::ToolCapabilities as TroncCapabilities;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
@@ -129,6 +130,78 @@ pub fn ok_typed<T: Serialize>(tool: &str, payload: T) -> AppResult<ToolResult> {
     serde_json::to_value(payload)
         .map(ToolResult::ok)
         .map_err(|e| AppError::internal(format!("{tool} result did not serialize: {e}")))
+}
+
+/// A tool payload after the caller's `format` argument has been applied.
+///
+/// Which shape arrives depends on the REQUEST rather than the data, which is
+/// why this is a type rather than three call sites deciding for themselves:
+/// `format=json` sends the tool's own shape, `format=toon` sends a compact
+/// string envelope, and a TOON conversion that fails falls back to JSON while
+/// saying so. Untagged, so the derived schema is a `oneOf` over exactly those
+/// three and a client can tell which it got.
+///
+/// The envelope keys are fixed (`toon`, `result`) rather than derived from a
+/// per-tool `data_key`. A property name that changes per tool cannot be stated
+/// in a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /
+/// `results_toon` spelling is gone — the key no longer carries information the
+/// tool name already gives, and the contract is now expressible.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum Formatted<T> {
+    /// `format=json`, the default: the tool's own shape, unchanged.
+    Json(T),
+    /// `format=toon`: the payload rendered as one compact TOON string.
+    Toon {
+        /// The rendered payload.
+        toon: String,
+        /// Always `toon`.
+        format: String,
+    },
+    /// TOON was asked for and could not be produced. The payload still arrives,
+    /// as JSON, and says why it is not what was requested — a caller that
+    /// silently received JSON would parse it as TOON and fail further away.
+    Fallback {
+        /// The payload, unformatted.
+        result: T,
+        /// Always `json`.
+        format: String,
+        /// Always true; present so the fallback is detectable on its own.
+        format_fallback: bool,
+        /// Why TOON rendering failed.
+        format_error: String,
+    },
+}
+
+/// Apply the caller's requested output format to a typed payload.
+///
+/// One copy. It previously existed verbatim in two tool modules — 17 identical
+/// lines each, nine call sites between them — with a third variant in
+/// `protocol::format`, so the TOON envelope had three places to drift.
+pub fn apply_format<T: Serialize>(payload: T, format: OutputFormat) -> Formatted<T> {
+    match format {
+        OutputFormat::Json => Formatted::Json(payload),
+        OutputFormat::Toon => match serde_json::to_value(&payload) {
+            Ok(value) => match format_output(&value, OutputFormat::Toon) {
+                Ok(formatted) => Formatted::Toon {
+                    toon: formatted.data,
+                    format: "toon".to_owned(),
+                },
+                Err(e) => Formatted::Fallback {
+                    result: payload,
+                    format: "json".to_owned(),
+                    format_fallback: true,
+                    format_error: e.to_string(),
+                },
+            },
+            Err(e) => Formatted::Fallback {
+                result: payload,
+                format: "json".to_owned(),
+                format_fallback: true,
+                format_error: e.to_string(),
+            },
+        },
+    }
 }
 
 /// Build the object input schema almost every tool declares.

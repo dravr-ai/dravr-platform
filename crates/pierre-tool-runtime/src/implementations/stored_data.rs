@@ -28,14 +28,14 @@ use serde_json::{json, Value};
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 
@@ -88,24 +88,6 @@ pub fn parse_date_range(args: &Value) -> AppResult<(DateTime<Utc>, DateTime<Utc>
 }
 
 /// Apply TOON formatting to a stored-data result payload, mirroring
-/// `apply_format_to_response` from `fitness_api`. JSON is the no-op identity.
-fn apply_format(payload: Value, data_key: &str, format: OutputFormat) -> Value {
-    match format {
-        OutputFormat::Json => payload,
-        OutputFormat::Toon => match format_output(&payload, OutputFormat::Toon) {
-            Ok(formatted) => json!({
-                format!("{data_key}_toon"): formatted.data,
-                "format": "toon",
-            }),
-            Err(e) => json!({
-                data_key: payload,
-                "format": "json",
-                "format_fallback": true,
-                "format_error": e.to_string(),
-            }),
-        },
-    }
-}
 
 /// Build the standard date-range + format property set used by stored
 /// health-data queries (sleep, recovery, snapshots). Inferred from the
@@ -203,7 +185,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
                             "end": end.to_rfc3339(),
                         },
                     });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
+                    ok_typed("get_sleep_sessions", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to fetch sleep sessions: {e}"),
@@ -272,7 +254,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
                             "end": end.to_rfc3339(),
                         },
                     });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
+                    ok_typed("get_recovery_metrics", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to fetch recovery metrics: {e}"),
@@ -341,7 +323,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
                             "end": end.to_rfc3339(),
                         },
                     });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
+                    ok_typed("get_health_snapshots", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to fetch health snapshots: {e}"),
@@ -412,7 +394,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
                         "count": sources.len(),
                         "sources": sources,
                     });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
+                    ok_typed("list_data_sources", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to list data sources: {e}"),

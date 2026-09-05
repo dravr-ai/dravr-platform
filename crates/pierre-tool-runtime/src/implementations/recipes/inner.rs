@@ -16,9 +16,10 @@ use pierre_intelligence::recipes::{
 };
 
 use crate::context::ToolExecutionContext;
+use crate::conversions::{apply_format, ok_typed};
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_formatters::{format_output, OutputFormat};
+use pierre_formatters::OutputFormat;
 use pierre_tools_core::ToolResult;
 
 /// TDEE context for calorie calculation.
@@ -54,25 +55,6 @@ fn parse_output_format(args: &Value) -> OutputFormat {
     args.get("format")
         .and_then(Value::as_str)
         .map_or(OutputFormat::Json, OutputFormat::from_str_param)
-}
-
-/// Apply TOON formatting to a payload, mirroring `apply_format_to_response`.
-fn apply_format(payload: Value, data_key: &str, format: OutputFormat) -> Value {
-    match format {
-        OutputFormat::Json => payload,
-        OutputFormat::Toon => match format_output(&payload, OutputFormat::Toon) {
-            Ok(formatted) => json!({
-                format!("{data_key}_toon"): formatted.data,
-                "format": "toon",
-            }),
-            Err(e) => json!({
-                data_key: payload,
-                "format": "json",
-                "format_fallback": true,
-                "format_error": e.to_string(),
-            }),
-        },
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -560,11 +542,7 @@ pub async fn handle_list_recipes(ctx: &ToolExecutionContext, args: Value) -> App
         "has_more": has_more,
     });
 
-    Ok(ToolResult::ok(apply_format(
-        payload,
-        "recipes",
-        output_format,
-    )))
+    ok_typed("search_recipes", apply_format(payload, output_format))
 }
 
 // ---------------------------------------------------------------------------
@@ -623,11 +601,7 @@ pub async fn handle_get_recipe(ctx: &ToolExecutionContext, args: Value) -> AppRe
                 "created_at": r.created_at.to_rfc3339(),
                 "updated_at": r.updated_at.to_rfc3339(),
             });
-            Ok(ToolResult::ok(apply_format(
-                payload,
-                "recipe",
-                output_format,
-            )))
+            ok_typed("get_recipe", apply_format(payload, output_format))
         }
         None => Ok(ToolResult::error(json!({
             "error": format!("Recipe not found: {recipe_id}"),
@@ -737,11 +711,10 @@ pub async fn handle_search_recipes(
         "has_more": has_more,
     });
 
-    Ok(ToolResult::ok(apply_format(
-        payload,
-        "results",
-        output_format,
-    )))
+    ok_typed(
+        "analyze_recipe_nutrition",
+        apply_format(payload, output_format),
+    )
 }
 
 // ---------------------------------------------------------------------------
