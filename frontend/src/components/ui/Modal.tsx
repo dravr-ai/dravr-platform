@@ -70,7 +70,7 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         ref={containerRef}
         tabIndex={-1}
-        className={`${sizeClasses[size]} w-full max-h-[90dvh] flex flex-col bg-surface-container-low border ghost-border rounded-xl shadow-xl overflow-hidden animate-scale-in`}
+        className={`${sizeClasses[size]} w-full max-h-[90dvh] flex flex-col bg-surface-container-low border ghost-border rounded-xl overflow-hidden animate-scale-in`}
       >
         {/* Gradient accent bar */}
         <div className="h-1 w-full boreal-hero-gradient flex-shrink-0" />

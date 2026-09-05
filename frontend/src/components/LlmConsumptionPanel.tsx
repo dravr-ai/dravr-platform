@@ -258,7 +258,7 @@ export default function LlmConsumptionPanel() {
                 onClick={() => setTimeRange(numValue)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   timeRange === numValue
-                    ? 'bg-primary text-on-primary shadow-sm'
+                    ? 'bg-primary text-on-primary'
                     : 'text-on-surface-variant hover:text-on-surface'
                 }`}
               >
@@ -278,7 +278,7 @@ export default function LlmConsumptionPanel() {
           <div className="text-sm text-on-surface-variant">Total Tokens</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary-container">
+          <div className="text-2xl font-bold text-primary">
             {summary.total_calls.toLocaleString()}
           </div>
           <div className="text-sm text-on-surface-variant">Total Calls</div>
@@ -330,22 +330,22 @@ export default function LlmConsumptionPanel() {
             <table className="min-w-full divide-y divide-white/10">
               <thead className="bg-surface-container-low">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                     Provider
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                     Model
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                     Call Type
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant">
                     Tokens
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant">
                     Calls
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant">
                     Cost
                   </th>
                 </tr>
@@ -364,7 +364,7 @@ export default function LlmConsumptionPanel() {
                         item.call_type === 'chat'
                           ? 'bg-primary/20 text-primary border border-primary/30'
                           : item.call_type === 'insight'
-                          ? 'bg-primary-container/20 text-primary-fixed-dim border border-primary-container/30'
+                          ? 'bg-primary-container text-on-primary-container border border-primary/20'
                           : 'bg-surface-container-high text-on-surface border ghost-border'
                       }`}>
                         {item.call_type.replace(/_/g, ' ')}

@@ -175,7 +175,7 @@ export default function GroupInsightsPanel({
                   <p className="text-xs text-on-surface-variant mt-0.5">{flag.detail}</p>
                 </div>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex-shrink-0 ${SEVERITY_STYLES[flag.severity]}`}
+                  className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${SEVERITY_STYLES[flag.severity]}`}
                 >
                   {t(FLAG_LABEL_KEYS[flag.flag_type])}
                 </span>

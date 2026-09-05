@@ -163,7 +163,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
   return (
     <div
       className={`
-        ${style.bg} ${style.border} border-l-4 rounded-lg shadow-lg overflow-hidden
+        ${style.bg} ${style.border} border-l-4 rounded-lg overflow-hidden
         pointer-events-auto animate-slide-up
       `}
     >

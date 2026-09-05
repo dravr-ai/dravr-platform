@@ -6,18 +6,8 @@
 
 import { useState, useCallback } from 'react';
 import { clsx } from 'clsx';
-import {
-  Bell,
-  CheckCheck,
-  Trash2,
-  Dumbbell,
-  Heart,
-  MessageCircle,
-  Trophy,
-  Settings,
-  Brain,
-  Clock,
-} from 'lucide-react';
+import { CheckCheck, Trash2 } from 'lucide-react';
+import { TabHeader } from '../ui/TabHeader';
 import {
   useNotificationFeed,
   useNotificationActions,
@@ -31,18 +21,6 @@ import {
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-
-/** Map Lucide icon components by category for rendering */
-const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
-  all: Bell,
-  training: Dumbbell,
-  recovery: Heart,
-  coach: MessageCircle,
-  achievement: Trophy,
-  system: Settings,
-  ai: Brain,
-  reminders: Clock,
-};
 
 interface NotificationsPanelProps {
   /** Callback when a notification with route data is clicked */
@@ -108,50 +86,43 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center">
-            <Bell className="w-5 h-5 text-on-surface" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-on-surface">{t('shell.navNotifications')}</h2>
-            <p className="text-xs text-on-surface-variant">
-              {unreadCount > 0 ? `${unreadCount} unread` : t('shell.notificationsCaughtUp')}
-              {total > 0 && ` · ${total} total`}
-            </p>
-          </div>
-        </div>
+      <TabHeader
+        title={t('shell.navNotifications')}
+        description={
+          <>
+            {unreadCount > 0 ? `${unreadCount} unread` : t('shell.notificationsCaughtUp')}
+            {total > 0 && ` · ${total} total`}
+          </>
+        }
+        actions={
+          unreadCount > 0 ? (
+            <button
+              onClick={() => markAllAsRead()}
+              disabled={isMarkingAllRead}
+              className="btn-base btn-tertiary min-h-[44px] gap-1.5 text-sm disabled:opacity-50"
+            >
+              <CheckCheck className="w-4 h-4" aria-hidden="true" />
+              {t('shell.notificationMarkAllRead')}
+            </button>
+          ) : null
+        }
+      />
 
-        {unreadCount > 0 && (
-          <button
-            onClick={() => markAllAsRead()}
-            disabled={isMarkingAllRead}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors disabled:opacity-50"
-          >
-            <CheckCheck className="w-3.5 h-3.5" />
-            {t('shell.notificationMarkAllRead')}
-          </button>
-        )}
-      </div>
-
-      {/* Category filters */}
-      <div className="flex items-center gap-2 px-6 py-3 border-b ghost-border overflow-x-auto">
+      {/* Categories as text tabs — every category the feed knows, no icons, scrolling on a narrow screen. */}
+      <div className="flex gap-5 border-b ghost-border px-6 overflow-x-auto">
         {categoryFilters.map(({ key, label }) => {
           const isActive = selectedCategory === key;
-          const Icon = CATEGORY_ICONS[key];
           return (
             <button
               key={key}
               onClick={() => setSelectedCategory(key)}
               className={clsx(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors',
+                '-mb-px flex min-h-[44px] min-w-[44px] items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-primary/20 text-primary border border-primary/30'
-                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface border border-transparent',
+                  ? 'border-primary text-on-surface'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface',
               )}
             >
-              <Icon className="w-3 h-3" />
               {label}
             </button>
           );
@@ -166,7 +137,6 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
           </div>
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-outline">
-            <Bell className="w-12 h-12 mb-3 opacity-30" />
             <p className="text-base font-medium text-on-surface-variant">{t('shell.notificationsEmpty')}</p>
             <p className="text-sm mt-1">
               {selectedCategory === 'all'
@@ -175,7 +145,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-outline-variant/40">
             {notifications.map((item) => {
               const isUnread = !item.read_at;
               const meta = NOTIFICATION_CATEGORY_META[item.category];
@@ -184,20 +154,12 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
               return (
                 <div
                   key={item.id}
-                  className={clsx(
-                    'flex items-start gap-3 sm:gap-4 px-4 sm:px-6 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors group',
-                    isUnread && 'bg-primary/[0.03]',
-                  )}
+                  className="flex items-start gap-3 sm:gap-4 px-4 sm:px-6 py-4 cursor-pointer hover:bg-surface-container-low/60 transition-colors group"
                   onClick={() => handleNotificationClick(item)}
                 >
-                  {/* Unread indicator */}
+                  {/* Unread indicator — the primary dot, the same mark the chat list uses */}
                   <div className="w-2 pt-2 flex-shrink-0">
-                    {isUnread && (
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: meta.color }}
-                      />
-                    )}
+                    {isUnread && <div className="w-2 h-2 rounded-full bg-primary" />}
                   </div>
 
                   {/* Image thumbnail */}
@@ -209,11 +171,9 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                     />
                   )}
 
-                  {/* Category badge */}
-                  <div
-                    className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
-                    style={{ color: meta.color, backgroundColor: `${meta.color}15` }}
-                  >
+                  {/* Category — its pillar as a dot beside the word, never a coloured chip */}
+                  <div className="inline-flex flex-shrink-0 items-center gap-1.5 pt-0.5 text-xs text-on-surface-variant whitespace-nowrap">
+                    <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: meta.color }} />
                     {t(meta.labelKey)}
                   </div>
 
@@ -224,7 +184,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                         {item.title}
                       </p>
                       {collapsedLabel && (
-                        <span className="text-[10px] text-outline bg-surface-container-low px-1.5 py-0.5 rounded whitespace-nowrap">
+                        <span className="text-xs text-outline bg-surface-container-low px-1.5 py-0.5 rounded whitespace-nowrap">
                           {collapsedLabel}
                         </span>
                       )}
@@ -241,7 +201,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                               e.stopPropagation();
                               handleActionClick(item, action);
                             }}
-                            className="text-xs font-medium px-2.5 py-1 rounded-md bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                            className="text-xs font-medium px-1 py-1 text-primary hover:text-primary-hover transition-colors"
                           >
                             {action.title}
                           </button>
@@ -252,7 +212,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
 
                   {/* Time and actions */}
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[11px] text-outline">{formatNotificationTime(item.created_at, t)}</span>
+                    <span className="text-xs text-outline">{formatNotificationTime(item.created_at, t)}</span>
                     {/* Always visible on touch (coarse pointers have no :hover);
                         hover-reveal retained on >=sm pointer-fine devices. 44x44
                         hit area so it's tappable, not just hoverable. */}

@@ -119,7 +119,7 @@ export default function CoachNotesAuditTab() {
 
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Notes shown
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -131,7 +131,7 @@ export default function CoachNotesAuditTab() {
               key={key}
               className="rounded-lg border border-outline-variant bg-surface-container p-3"
             >
-              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+              <div className="text-xs text-on-surface-variant">
                 {humanizeScope(key)}
               </div>
               <div className="mt-1 text-2xl font-semibold text-on-surface">

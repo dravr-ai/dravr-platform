@@ -127,7 +127,7 @@ describe('the Dravr lockup on the phone', () => {
   });
 
   describe('the lockup type spec (DESIGN.md §1 / §3)', () => {
-    it('sets Space Grotesk 600 at 0.15em in the brand ink — dark', async () => {
+    it('sets Space Grotesk 600 at 0.15em in the primary ink — dark', async () => {
       await AsyncStorage.setItem(APPEARANCE_KEY, 'dark');
       const screen = renderInTheme(<BrandLockup size={28} />);
 
@@ -141,11 +141,11 @@ describe('the Dravr lockup on the phone', () => {
 
       expect(style.fontFamily).toBe('SpaceGrotesk_SemiBold');
       expect(style.letterSpacing).toBeCloseTo(style.fontSize * BRAND_TRACKING_RATIO, 5);
-      expect(style.color).toBe(BOREAL_DARK.brand);
+      expect(style.color).toBe(BOREAL_DARK.primary);
       expect(style.color).toBe('#a3d0be');
     });
 
-    it('sets the same spec in the light scheme, in light-mode brand ink', async () => {
+    it('sets the same spec in the light scheme, in light-mode primary ink', async () => {
       await AsyncStorage.setItem(APPEARANCE_KEY, 'light');
       const screen = renderInTheme(<BrandLockup size={28} />);
 
@@ -153,7 +153,7 @@ describe('the Dravr lockup on the phone', () => {
         const node = screen.getByTestId('brand-lockup-wordmark');
         const nodeStyle = node.props.style as { color: string };
         // The persisted preference lands one frame after mount.
-        expect(nodeStyle.color).toBe(BOREAL_LIGHT.brand);
+        expect(nodeStyle.color).toBe(BOREAL_LIGHT.primary);
         return node;
       });
       const style = wordmark.props.style as {
@@ -165,10 +165,11 @@ describe('the Dravr lockup on the phone', () => {
 
       expect(style.fontFamily).toBe('SpaceGrotesk_SemiBold');
       expect(style.letterSpacing).toBeCloseTo(style.fontSize * BRAND_TRACKING_RATIO, 5);
-      // Not `primary` (#00241a), which reads as black at this size — that is
-      // the whole reason the brand ink exists.
+      // Sage-forest: the v1 primary (#00241a) read as black at this size, so
+      // the green lived in a separate `brand` ink; v2 promoted that ink to
+      // `primary`, and the wordmark reads the one token.
       expect(style.color).toBe('#255f4d');
-      expect(style.color).not.toBe(BOREAL_LIGHT.primary);
+      expect(style.color).toBe(BOREAL_LIGHT.primary);
     });
   });
 

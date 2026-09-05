@@ -36,7 +36,7 @@ export default function CoachInfoPanel({
   return (
     <div className="space-y-5" data-testid="coach-info-panel">
       <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-outline mb-1">{t('chat.coachPanelTitle')}</h4>
+        <h4 className="text-xs font-semibold text-outline mb-1">{t('chat.coachPanelTitle')}</h4>
         <p className="text-base font-semibold text-on-surface">{coach.title}</p>
         {coach.handle && (
           <p className="text-sm text-primary font-mono mt-0.5" data-testid="coach-info-handle">
@@ -48,7 +48,7 @@ export default function CoachInfoPanel({
 
       {coach.description && (
         <section>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-outline mb-1">
+          <h4 className="text-xs font-semibold text-outline mb-1">
             {t('chat.whatItDoesSection')}
           </h4>
           <p className="text-sm text-on-surface-variant">{coach.description}</p>

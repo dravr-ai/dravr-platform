@@ -43,7 +43,7 @@ export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellPr
   const openName = openTab ? tabs.find((entry) => entry.id === openTab)?.nameKey : undefined;
 
   return (
-    <div className="flex h-full min-h-0 bg-surface-container-low" data-testid="settings-shell">
+    <div className="flex h-full min-h-0 bg-surface" data-testid="settings-shell">
       {showMenu && (
         <div className="flex min-h-0 w-full shrink-0 flex-col border-r ghost-border lg:w-[360px] xl:w-[400px]">
           <SettingsMenu
@@ -59,13 +59,13 @@ export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellPr
       {showDetail && openTab && (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="settings-pane">
           {!isDesktop && (
-            <div className="flex items-center gap-2 border-b ghost-border bg-surface-container px-3 py-2">
+            <div className="flex items-center gap-2 border-b ghost-border bg-surface px-3 py-2">
               <button
                 type="button"
                 onClick={onBack}
                 aria-label={t('settings.backToMenu')}
                 title={t('settings.backToMenu')}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface focus-ring"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface focus-ring"
               >
                 <ArrowLeft className="h-5 w-5" aria-hidden="true" />
               </button>

@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The conversation list column — its title and "+", a search, filter chips, then flat rows sorted by last activity
+// ABOUTME: The conversation list column — its title and "+", a quiet search, text-tab filters, then flat rows sorted by last activity
 // ABOUTME: One list for every thread the athlete is in, whatever surface created it; the shape every messenger keeps on the left
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { clsx } from 'clsx';
-import { Search } from 'lucide-react';
 import type { ConversationRowModel } from '@pierre/chat-utils';
 import { useConversationList, useConversationMutations } from '../../hooks/useConversationList';
 import ConversationItem from '../chat/ConversationItem';
-import { Button, ConfirmDialog, Input } from '../ui';
+import { Button, ConfirmDialog, SearchField } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface ConversationListProps {
@@ -102,23 +101,20 @@ export default function ConversationList({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="conversation-list">
-      <div className="flex-shrink-0 px-4 pt-4 pb-2">
+      <div className="flex-shrink-0 px-5 pt-5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-display text-xl font-semibold text-on-surface">{t('chat.listTitle')}</h2>
           {compose ? <div className="flex items-center">{compose}</div> : null}
         </div>
         <div className="mt-3">
-          <Input
-            type="search"
-            size="sm"
-            leftIcon={<Search className="w-3.5 h-3.5" />}
+          <SearchField
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('convPanel.searchChats')}
             aria-label={t('convPanel.search')}
           />
         </div>
-        <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label={t('chat.listTitle')}>
+        <div className="mt-3 flex gap-5 border-b ghost-border" role="radiogroup" aria-label={t('chat.listTitle')}>
           {FILTERS.map((entry) => {
             const active = filter === entry.key;
             return (
@@ -130,10 +126,10 @@ export default function ConversationList({
                 data-testid={`conversation-filter-${entry.key}`}
                 onClick={() => setFilter(entry.key)}
                 className={clsx(
-                  'rounded-full px-3 py-1 text-xs font-medium transition-colors focus-ring',
+                  '-mb-px flex min-w-[44px] justify-center border-b-2 pb-2.5 text-sm font-medium transition-colors focus-ring',
                   active
-                    ? 'bg-primary/15 text-primary'
-                    : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface',
+                    ? 'border-primary text-on-surface'
+                    : 'border-transparent text-on-surface-variant hover:text-on-surface',
                 )}
               >
                 {t(entry.labelKey)}

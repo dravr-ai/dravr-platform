@@ -11,7 +11,7 @@ import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
-import { COMMAND_DRAFTS } from '@pierre/shared-constants';
+import { COMMAND_DRAFTS, PRODUCT_WORDMARK } from '@pierre/shared-constants';
 import type { PendingComposerAction } from './ChatTab';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
@@ -544,6 +544,35 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const railWidth = 72;
   const asideWidth = isAdminUser ? (sidebarCollapsed ? 72 : sidebarWidth) : railWidth;
 
+  // Desktop only: the sidebar itself is hidden below md. Expanded, the toggle
+  // ends the lockup row, where a sidebar keeps it; collapsed, no row is wide
+  // enough, so it joins the footer's column of icon buttons.
+  const collapseToggle = (
+    <button
+      onClick={() => {
+        const next = !userSidebarCollapsed;
+        localStorage.setItem('pierre.sidebar_collapsed', String(next));
+        setUserSidebarCollapsed(next);
+      }}
+      className="hidden lg:flex text-outline hover:text-primary transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] items-center justify-center"
+      title={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
+      aria-label={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
+    >
+      <svg
+        className={clsx(
+          'w-4 h-4 text-on-surface-variant transition-transform duration-300',
+          sidebarCollapsed && 'rotate-180'
+        )}
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+      </svg>
+    </button>
+  );
+
   return (
     <div className="min-h-dvh bg-surface flex">
       {!isAdminUser && (
@@ -566,27 +595,25 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       {isAdminUser && (
       <aside
         className={clsx(
-          'hidden md:flex fixed left-0 top-0 h-dvh bg-surface-container-low border-r ghost-border flex-col z-40 overflow-hidden',
+          'hidden md:flex fixed left-0 top-0 h-dvh bg-surface border-r ghost-border flex-col z-40 overflow-hidden',
           isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
         style={{ width: sidebarCollapsed ? 72 : sidebarWidth }}
       >
-        {/* Sidebar accent bar */}
-        <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b boreal-hero-gradient"></div>
-
         {/* Logo Section */}
         <div className={clsx(
           'flex items-center border-b ghost-border transition-all duration-300',
-          sidebarCollapsed ? 'px-3 py-4 justify-center' : 'px-5 py-5 gap-3'
+          sidebarCollapsed ? 'px-3 py-4 justify-center' : 'pl-5 pr-2 py-3 gap-3 justify-between'
         )}>
-          <DravrLogo />
-          {!sidebarCollapsed && (
-            <div className="flex flex-col">
-              <span className="text-lg font-semibold bg-gradient-to-r boreal-hero-gradient bg-clip-text text-transparent">
-                {t('shell.brandName')}
+          <div className="flex items-center gap-3">
+            <DravrLogo size={sidebarCollapsed ? 32 : 28} />
+            {!sidebarCollapsed && (
+              <span className="font-display text-lg font-semibold tracking-brand text-primary">
+                {PRODUCT_WORDMARK}
               </span>
-            </div>
-          )}
+            )}
+          </div>
+          {!sidebarCollapsed && collapseToggle}
         </div>
 
         {/* Navigation Items. On the Chat tab the nav keeps its own height
@@ -604,7 +631,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               return (
                 <li key={tab.id}>
                   {showSection && (
-                    <div className={clsx('px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-outline', index === 0 && '!pt-0')}>
+                    <div className={clsx('px-3 pt-5 pb-1.5 text-xs font-medium text-outline', index === 0 && '!pt-0')}>
                       {tab.section}
                     </div>
                   )}
@@ -622,23 +649,19 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                     className={clsx(
                       'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative min-h-[44px]',
                       {
-                        'bg-gradient-to-r from-primary/20 to-primary-container/10 text-primary shadow-sm': activeTab === tab.id,
+                        'bg-primary-container text-on-primary-container': activeTab === tab.id,
                         'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface': activeTab !== tab.id,
                       },
                       sidebarCollapsed && 'justify-center'
                     )}
                     title={sidebarCollapsed ? tab.name : undefined}
                   >
-                    {/* Active indicator */}
-                    {activeTab === tab.id && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />
-                    )}
                     <div className="relative flex-shrink-0">
                       {tab.icon}
                       {tab.badge && (
                         <span
                           data-testid="pending-users-badge"
-                          className="absolute -top-1 -right-1 bg-error text-on-primary text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
+                          className="absolute -top-1.5 -right-1.5 bg-primary text-on-primary text-xs rounded-full h-[18px] min-w-[18px] px-1 flex items-center justify-center font-semibold ring-2 ring-surface"
                         >
                           {tab.badge}
                         </span>
@@ -647,7 +670,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                     {!sidebarCollapsed && <span>{tab.name}</span>}
                     {/* Tooltip for collapsed state */}
                     {sidebarCollapsed && (
-                      <div className="absolute left-full ml-2 px-2 py-1 bg-surface-container-high backdrop-blur-sm text-on-surface text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
+                      <div className="absolute left-full ml-2 px-2 py-1 bg-surface-container-lowest border ghost-border shadow-floating text-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
                         {tab.name}
                       </div>
                     )}
@@ -679,26 +702,28 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             >
               {/* User Avatar with online indicator */}
               <div className="relative flex-shrink-0">
-                <div className="w-8 h-8 boreal-hero-gradient rounded-full flex items-center justify-center">
-                  <span className="text-xs font-bold text-on-primary">
+                <div className="w-8 h-8 bg-primary-container rounded-full flex items-center justify-center">
+                  <span className="text-xs font-semibold text-on-primary-container">
                     {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
                   </span>
                 </div>
                 {/* Online status dot */}
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-activity rounded-full border-2 border-surface-container-low" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-success rounded-full border-2 border-surface" />
               </div>
 
               {!sidebarCollapsed && (
                 <div className="flex-1 min-w-0 text-left">
-                  <p className="text-[11px] font-medium text-on-surface truncate leading-tight">
+                  <p className="text-xs font-medium text-on-surface truncate leading-tight">
                     {user?.display_name || user?.email}
                   </p>
                   {operatorRoleBadge && (
-                    <span className="text-xs text-on-surface-variant uppercase">{operatorRoleBadge}</span>
+                    <span className="text-xs text-on-surface-variant capitalize">{operatorRoleBadge}</span>
                   )}
                 </div>
               )}
             </button>
+
+            {sidebarCollapsed && collapseToggle}
 
             {/* Settings gear icon - visible shortcut to user settings */}
             <button
@@ -730,33 +755,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             </button>
           </div>
         </div>
-
-        {/* Collapse Toggle Button — desktop only; the sidebar itself is
-            md:hidden, but this button sits in absolute coords so it would
-            still escape the parent if rendered. */}
-        <button
-          onClick={() => {
-            const next = !userSidebarCollapsed;
-            localStorage.setItem('pierre.sidebar_collapsed', String(next));
-            setUserSidebarCollapsed(next);
-          }}
-          className="hidden lg:flex absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full items-center justify-center shadow-sm hover:bg-surface-container hover:border-primary transition-all duration-200 z-[60]"
-          title={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
-          aria-label={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
-        >
-          <svg
-            className={clsx(
-              'w-4 h-4 text-on-surface-variant transition-transform duration-300',
-              sidebarCollapsed && 'rotate-180'
-            )}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
 
         {/* Drag handle: a thin invisible strip on the right edge that
             users grab to resize the panel. Only active when expanded;
@@ -791,10 +789,10 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       >
         {/* Top Header Bar - only for admin tabs; user tabs have their own TabHeader */}
         {isAdminUser && (
-          <header className="bg-surface-container-low/80 backdrop-blur-lg shadow-sm border-b ghost-border sticky top-0 z-30 flex-shrink-0">
+          <header className="bg-surface border-b ghost-border sticky top-0 z-30 flex-shrink-0">
             <div className="px-4 md:px-6 py-3 md:py-4 flex items-center justify-between">
               <div className="min-w-0">
-                <h1 className="text-lg md:text-xl font-medium text-on-surface truncate">
+                <h1 className="font-display text-xl font-semibold text-on-surface truncate">
                   {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? t('shell.navSettings') : '')}
                 </h1>
               </div>

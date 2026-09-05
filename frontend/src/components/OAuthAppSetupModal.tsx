@@ -101,7 +101,7 @@ export default function OAuthAppSetupModal({
       aria-modal="true"
       aria-labelledby="oauth-setup-title"
     >
-      <div className="w-full max-w-md rounded-2xl bg-surface-container border border-outline-variant/30 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl bg-surface-container border border-outline-variant/30">
         <div className="px-6 py-5 border-b border-outline-variant/30 flex items-center justify-between">
           <h2 id="oauth-setup-title" className="text-lg font-semibold text-on-surface">
             {t('app.setUpOauthApp', { provider: displayName })}

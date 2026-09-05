@@ -43,7 +43,7 @@ export default function ServiceWorkerUpdatePrompt() {
       className="fixed left-1/2 -translate-x-1/2 z-50 w-[min(28rem,calc(100vw-2rem))]"
       style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
     >
-      <div className="flex items-center gap-3 rounded-xl border ghost-border bg-surface-container-low/95 px-4 py-3 shadow-lg backdrop-blur-sm">
+      <div className="flex items-center gap-3 rounded-xl border ghost-border bg-surface-container-low/95 px-4 py-3 backdrop-blur-sm">
         <p className="flex-1 text-sm text-on-surface">{t('shell.updateReady')}</p>
         <button
           type="button"

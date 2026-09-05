@@ -521,7 +521,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                           title={globallyDisabled ? 'Cannot toggle globally disabled tools' : undefined}
                         >
                           <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                               tool.is_enabled ? 'translate-x-6' : 'translate-x-1'
                             }`}
                           />

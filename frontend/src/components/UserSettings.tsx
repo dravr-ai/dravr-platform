@@ -62,7 +62,8 @@ interface McpToken {
 // use the Sciotte hosted-login flow (credentials handled in SciotteLoginModal)
 // and have no developer-app registration step the user controls.
 const PROVIDERS = [
-  { id: 'whoop', name: 'WHOOP', color: 'bg-black' },
+  // WHOOP's brand black — a third-party colour, not a token (DESIGN.md §2).
+  { id: 'whoop', name: 'WHOOP', color: 'bg-[#1A1A1A]' },
 ];
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -558,7 +559,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
 
   const getProviderInfo = (providerId: string) => {
-    return PROVIDERS.find((p) => p.id === providerId) || { id: providerId, name: providerId, color: 'bg-surface-container-low0' };
+    return PROVIDERS.find((p) => p.id === providerId) || { id: providerId, name: providerId, color: 'bg-surface-container-low' };
   };
 
   const configuredProviders = oauthApps.map((app) => app.provider);
@@ -645,9 +646,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 />
 
                 <div>
-                  <label className="block text-sm font-medium text-on-surface mb-2">{t('common.email')}</label>
-                  <p className="text-on-surface-variant bg-surface-container-low px-4 py-3 rounded-md border ghost-border">{user?.email}</p>
-                  <p className="text-xs text-outline mt-1">{t('profile.emailLocked')}</p>
+                  <p className="block text-sm font-medium text-on-surface-variant mb-2">{t('common.email')}</p>
+                  <p className="border-b border-outline-variant py-2 text-base text-on-surface-variant">{user?.email}</p>
+                  <p className="text-xs text-outline mt-1.5">{t('profile.emailLocked')}</p>
                 </div>
 
                 {message && (
@@ -667,7 +668,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   onClick={handleSaveProfile}
                   loading={isSaving}
                   disabled={displayName === user?.display_name}
-                  className="shadow-ambient hover:shadow-ambient"
+                  className=""
                 >
                   {t('settings.saveChanges')}
                 </Button>
@@ -773,7 +774,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <p>{t('providers.none')}</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="divide-y divide-outline-variant/40">
                   {fitnessProviders.map((provider) => {
                     const display = PROVIDER_DISPLAY[provider.provider] || {
                       color: '#607D8B',
@@ -784,12 +785,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     return (
                       <div
                         key={provider.provider}
-                        className={clsx(
-                          'p-4 rounded-xl border transition-all',
-                          provider.connected
-                            ? 'border-activity/30 bg-activity/10'
-                            : 'ghost-border bg-surface-container-low'
-                        )}
+                        className="py-4 first:pt-0 last:pb-0"
                       >
                         <div className="flex items-center gap-3">
                           <div
@@ -805,9 +801,15 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                               <p className="font-medium text-on-surface">{provider.display_name}</p>
                               {provider.connected && (
                                 provider.needs_reauth ? (
-                                  <Badge variant="warning">{t('providers.reconnectNeeded')}</Badge>
+                                  <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
+                                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
+                                    {t('providers.reconnectNeeded')}
+                                  </span>
                                 ) : (
-                                  <Badge variant="success">{t('settingsUi.connected')}</Badge>
+                                  <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
+                                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success" />
+                                    {t('settingsUi.connected')}
+                                  </span>
                                 )
                               )}
                             </div>
@@ -833,17 +835,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             {provider.connected && !provider.needs_reauth ? (
                               (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
                                 <Button
-                                  variant="secondary"
+                                  variant="tertiary"
                                   size="sm"
                                   onClick={() => setProviderToDisconnect(provider.connectionProvider)}
-                                  className="text-error hover:bg-error/20"
+                                  className="text-error"
                                 >
                                   {t('settingsUi.disconnect')}
                                 </Button>
                               )
                             ) : provider.provider === 'intervals_icu' ? (
                               <Button
-                                variant="gradient"
+                                variant="outline"
                                 size="sm"
                                 onClick={() => setIntervalsModalOpen(true)}
                               >
@@ -851,7 +853,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                               </Button>
                             ) : provider.provider === 'sciotte' || provider.provider === 'sciotte_garmin' ? (
                               <Button
-                                variant="gradient"
+                                variant="outline"
                                 size="sm"
                                 onClick={() => {
                                   // The `sciotte` card is the user-facing t('app.brandStrava') card. OAuth is
@@ -878,7 +880,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                               </Button>
                             ) : provider.requires_oauth ? (
                               <Button
-                                variant="gradient"
+                                variant="outline"
                                 size="sm"
                                 onClick={() => {
                                   if (!checkProviderConflict(provider.provider)) handleConnectProvider(provider.provider);
@@ -1387,8 +1389,8 @@ Authorization: Bearer <your-token-here>`}
                         rel="noopener noreferrer"
                         className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
                       >
-                        <div className="w-10 h-10 rounded-xl bg-primary-container/15 flex items-center justify-center flex-shrink-0">
-                          <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
                           </svg>
                         </div>

@@ -1,4 +1,4 @@
-/* Dravr — Boreal Editorial design system.
+/* Dravr — Boreal v2 design system: one paper ground, hairlines, one green.
    Class names are preserved from the prior Pierre system so existing consumers
    keep resolving; the underlying styles are the canonical Boreal tokens.
    Dark mode is driven by a `.dark` class on <html> that swaps CSS variables. */
@@ -12,25 +12,25 @@
    config so a single `.dark` toggle flips every surface in the app.
    ========================================================================== */
 :root {
-  --color-primary: 0 36 26;
+  /* Sage-forest, the one accent: filled CTAs, the send button, the unread
+     pill, links and the wordmark. The v1 primary (#00241a) read as black at
+     every size, so the green had to live in a separate `brand` ink token; this
+     value is that ink promoted, and one token now carries both roles. White
+     text clears 7.4:1 on it, and as text it clears 4.5:1 on every light tier
+     (4.7:1 on the darkest). */
+  --color-primary: 37 95 77;
   --color-on-primary: 255 255 255;
-  --color-primary-container: 13 59 46;
-  --color-on-primary-container: 121 166 148;
+  /* A tint, not a dense fill: the athlete's bubble, the active rail item, a
+     selected tile, an avatar ground. Its ink is the same forest carried down
+     until it clears 9.8:1 on the tint — the pair the dark scheme already had. */
+  --color-primary-container: 225 234 229;
+  --color-on-primary-container: 20 61 48;
   --color-primary-fixed-dim: 163 208 190;
-  /* The filled button's hover fill. This used to be `primary-container`, which
-     is a DARKER green — fine under white text in light mode, but in dark mode
-     the button is light mint with near-black `on-primary` text, so hovering
-     dropped it to 1.82:1. An explicit per-scheme hover keeps the same
-     foreground legible in both. */
-  --color-primary-hover: 13 59 46;
-
-  /* Brand ink. `primary` is #00241a in light — a forest green so deep it reads
-     as black at text sizes, which left the light theme with no visible green
-     at all. `brand` is the same forest moved up its own tonal ramp until it
-     reads as a colour: it clears 4.5:1 on every light surface tier. It is an
-     INK token — the wordmark, coach-prose links, brand accents. A filled brand
-     surface is still `primary` with `on-primary` text (DESIGN.md §2). */
-  --color-brand: 37 95 77;
+  /* The filled button's hover fill, one step darker than `primary` in light
+     (white on it: 9.2:1). In dark the button is light mint with near-black
+     `on-primary` text, so the hover has to stay light there — an explicit
+     per-scheme value keeps the same foreground legible in both. */
+  --color-primary-hover: 30 80 64;
 
   --color-tertiary: 3 35 29;
   --color-on-tertiary: 255 255 255;
@@ -49,23 +49,26 @@
   --color-recovery: 62 114 131;
   --color-mobility: 155 70 102;
 
-  --color-surface: 249 249 246;
-  --color-surface-dim: 218 218 215;
-  --color-surface-bright: 249 249 246;
-  /* The light ladder separates on FILL, because light has neither the
-     light-on-dark hairline nor the halo the dark scheme leans on. Adjacent
-     tiers clear 1.06:1 and a raised surface clears 1.18:1 over the canvas
-     under it — DESIGN.md §2 "Light tier separation" carries the measured
-     table. `surface` against `surface-container-lowest` stays the one
-     deliberate near-pair (1.05:1): a card on the page canvas is lifted by
-     the ghost border and the two-layer shadow, not by its fill. */
+  /* Warm paper, the one ground: the rail, the list column, the thread canvas
+     and every page sit on it, separated by hairlines rather than by fill
+     steps. The container tiers are for what sits ON the page — a composer
+     field, a search field, a hover, a day pill. */
+  --color-surface: 247 246 242;
+  --color-surface-dim: 215 214 209;
+  --color-surface-bright: 247 246 242;
+  /* The ladder still separates on FILL where it has to: adjacent tiers clear
+     1.06:1 (measured 1.11 / 1.11 / 1.09 / 1.08) and a raised surface clears
+     1.18:1 over the canvas under it (`lowest` on `low`: 1.21) — DESIGN.md §2
+     "Light tier separation" carries the table and the token test measures it.
+     `surface` against `surface-container-lowest` stays the one near-pair
+     (1.08:1): a card on the page is lifted by its hairline, not by its fill. */
   --color-surface-container-lowest: 255 255 255;
-  --color-surface-container-low: 234 234 231;
-  --color-surface-container: 222 222 219;
-  --color-surface-container-high: 214 214 211;
-  --color-surface-container-highest: 207 208 204;
-  --color-surface-variant: 226 227 224;
-  --color-surface-tint: 60 102 88;
+  --color-surface-container-low: 235 234 229;
+  --color-surface-container: 224 223 218;
+  --color-surface-container-high: 215 214 209;
+  --color-surface-container-highest: 207 206 201;
+  --color-surface-variant: 226 225 220;
+  --color-surface-tint: 37 95 77;
   /* The tone behind a drawer or sheet; reads as a shadow of the page, not as black. */
   --color-scrim: 26 28 27;
   --color-on-surface: 26 28 27;
@@ -109,13 +112,10 @@
   --ghost-border: rgba(155, 165, 159, 0.40);
   --ghost-border-strong: rgba(155, 165, 159, 0.55);
 
-  /* Card elevation stack — two-layer shadow for crisp resting elevation
-     (close shadow gives the edge, distant shadow gives the lift). Mirrors
-     the elevation language used by Linear / Stripe / Vercel dashboards. */
-  --shadow-card: 0 1px 2px rgba(26, 28, 27, 0.06), 0 1px 3px rgba(26, 28, 27, 0.08);
-  --shadow-card-hover: 0 4px 8px -2px rgba(26, 28, 27, 0.08), 0 2px 4px -1px rgba(26, 28, 27, 0.06);
+  /* The only shadow in the system. A resting card is lifted by its hairline;
+     shadow is reserved for what floats over the page — menus, popovers,
+     drawers, modals. */
   --shadow-floating: 0 12px 24px -6px rgba(26, 28, 27, 0.12), 0 6px 12px -3px rgba(26, 28, 27, 0.08);
-  --shadow-ambient: var(--shadow-card);
 }
 
 html.dark {
@@ -125,8 +125,6 @@ html.dark {
   --color-on-primary-container: 190 237 217;
   --color-primary-fixed-dim: 163 208 190;
   --color-primary-hover: 140 186 168;
-  /* Dark already had a legible brand green: it is `primary`. */
-  --color-brand: 163 208 190;
 
   --color-tertiary: 173 205 195;
   --color-on-tertiary: 1 32 26;
@@ -170,18 +168,16 @@ html.dark {
   --color-outline: 176 182 175;
   --color-outline-variant: 65 72 69;
 
-  /* Dark canvas needs more shadow opacity to read elevation against near-black. */
+  /* A pale hairline, because the ground is near-black; the floating shadow
+     needs more opacity to read at all against it. */
   --ghost-border: rgba(192, 200, 195, 0.22);
   --ghost-border-strong: rgba(192, 200, 195, 0.34);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.40);
-  --shadow-card-hover: 0 4px 8px -2px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.40);
   --shadow-floating: 0 12px 24px -6px rgba(0, 0, 0, 0.55), 0 6px 12px -3px rgba(0, 0, 0, 0.45);
-  --shadow-ambient: var(--shadow-card);
 }
 
 @layer base {
   html {
-    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     background-color: rgb(var(--color-surface));
     color: rgb(var(--color-on-surface));
     -webkit-font-smoothing: antialiased;
@@ -198,7 +194,8 @@ html.dark {
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+    font-family: 'Schibsted Grotesk', 'Plus Jakarta Sans', sans-serif;
+    letter-spacing: -0.01em;
     line-height: 1.15;
     @apply text-on-surface font-semibold;
   }
@@ -221,8 +218,8 @@ html.dark {
 @layer components {
   /* ==========================================================================
      Buttons — DESIGN.md §5
-     Primary: filled, rounded-md. Secondary: ghost with center-expand underline.
-     Tertiary: small-caps label. Danger: error surface.
+     Primary: filled, no shadow. Secondary: ghost with center-expand underline.
+     Tertiary: text only, sentence case. Danger: error surface.
      ========================================================================== */
 
   .btn-base {
@@ -234,11 +231,6 @@ html.dark {
      onto a filled primary surface and producing the dark-on-dark bug. */
   .btn-primary {
     @apply btn-base bg-primary !text-on-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed;
-    box-shadow: var(--shadow-card);
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    box-shadow: var(--shadow-card-hover);
   }
 
   /* Drop gradient/pill differentiation — everything funnels to primary.
@@ -270,7 +262,7 @@ html.dark {
   }
 
   .btn-tertiary {
-    @apply btn-base bg-transparent text-primary uppercase tracking-label text-xs;
+    @apply btn-base bg-transparent text-primary px-2;
   }
 
   .btn-danger {
@@ -312,14 +304,10 @@ html.dark {
      Cards — DESIGN.md §4 (tonal layering) + §5 (cards)
      ========================================================================== */
 
+  /* A sheet on the paper: white, a hairline, no shadow at rest or on hover. */
   .card {
-    @apply bg-surface-container-lowest rounded-xl p-4 md:p-6 transition-all duration-base;
+    @apply bg-surface-container-lowest rounded-xl p-4 md:p-6;
     border: 1px solid var(--ghost-border);
-    box-shadow: var(--shadow-card);
-  }
-
-  .card:hover {
-    box-shadow: var(--shadow-card-hover);
   }
 
   .card-header {
@@ -328,15 +316,8 @@ html.dark {
   }
 
   .stat-card {
-    @apply bg-surface-container-lowest rounded-xl p-4 md:p-6 text-center transition-all duration-base relative overflow-hidden;
+    @apply bg-surface-container-lowest rounded-xl p-4 md:p-6 text-center;
     border: 1px solid var(--ghost-border);
-    box-shadow: var(--shadow-card);
-  }
-
-  .stat-card::before {
-    @apply absolute top-0 left-0 right-0 h-1;
-    content: '';
-    background: linear-gradient(145deg, #00241a 0%, #0d3b2e 100%);
   }
 
   /* Legacy `card-dark` — the Pierre dark glassmorphism panel has been
@@ -347,10 +328,9 @@ html.dark {
     @apply card;
   }
 
-  /* Featured callout — same editorial card with stronger elevation. */
+  /* Featured callout — the same card; nothing in this system glows. */
   .card-glow {
     @apply card;
-    box-shadow: var(--shadow-ambient);
   }
 
   /* The true "Boreal Overlay" signature (DESIGN.md §5) — dark translucent
@@ -401,11 +381,11 @@ html.dark {
   }
 
   .input-field::placeholder {
-    color: #717974;
+    color: rgb(var(--color-outline));
   }
 
   .input-field:focus {
-    border-bottom: 2px solid #00241a;
+    border-bottom: 2px solid rgb(var(--color-primary));
     padding-bottom: calc(0.75rem - 1px);
   }
 
@@ -459,18 +439,14 @@ html.dark {
 
   .label {
     @apply block text-sm font-medium text-on-surface-variant mb-2;
-    font-family: 'Inter', system-ui, sans-serif;
-    letter-spacing: 0.02em;
   }
 
   .help-text {
     @apply text-xs text-outline mt-1;
-    font-family: 'Inter', system-ui, sans-serif;
   }
 
   .error-text {
     @apply text-xs text-error mt-1;
-    font-family: 'Inter', system-ui, sans-serif;
   }
 
   /* ==========================================================================
@@ -485,7 +461,6 @@ html.dark {
     @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
     background: rgb(var(--color-surface-container-high));
     color: rgb(var(--color-on-surface));
-    font-family: 'Inter', system-ui, sans-serif;
   }
 
   .badge-success,
@@ -607,16 +582,15 @@ html.dark {
   }
 
   /* ==========================================================================
-     Hover lift — replaces the old glow-lift. Now a tonal shift + ambient.
+     Hover lift — a one-pixel rise, no shadow.
      ========================================================================== */
 
   .hover-lift {
-    @apply transition-all duration-200;
+    @apply transition-transform duration-200;
   }
 
   .hover-lift:hover {
     transform: translateY(-1px);
-    box-shadow: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
   }
 
   /* pulse-glow: legacy name — now a subtle opacity breath, no violet. */
@@ -649,15 +623,10 @@ html.dark {
     background: rgb(var(--color-surface-container-high));
   }
 
+  /* The athlete's words sit on the sage tint in both schemes: a filled
+     `primary` reads as a call to action, not as a message. */
   .chat-bubble-user {
     @apply rounded-2xl rounded-br-md px-4 py-2.5 max-w-[85%] lg:max-w-[65%] ml-auto;
-    background: rgb(var(--color-primary));
-    color: rgb(var(--color-on-primary));
-  }
-
-  /* Mint `primary` on the dark canvas reads as a call to action, not as a
-     message; the container pair keeps the athlete's words a quiet green. */
-  html.dark .chat-bubble-user {
     background: rgb(var(--color-primary-container));
     color: rgb(var(--color-on-primary-container));
   }
@@ -772,17 +741,8 @@ html.dark {
     @apply card;
   }
 
-  .card-admin:hover {
-    box-shadow: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
-  }
-
   .stat-card-dark {
     @apply stat-card;
-  }
-
-  .stat-card-dark:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
   }
 
   .badge-dark,
@@ -795,12 +755,15 @@ html.dark {
     @apply badge;
   }
 
-  .badge-dark-success { background: rgba(60, 102, 88, 0.14); color: #234e40; }
-  .badge-dark-warning { background: rgba(143, 106, 46, 0.14); color: #6e5020; }
-  .badge-dark-error   { background: #ffdad6; color: #93000a; }
-  .badge-dark-info    { background: rgba(13, 59, 46, 0.12); color: #0d3b2e; }
-  .badge-dark-violet  { background: rgba(0, 36, 26, 0.1); color: #00241a; }
-  .badge-dark-cyan    { background: rgba(163, 208, 190, 0.2); color: #0d3b2e; }
+  .badge-dark-success { @apply badge-success; }
+  .badge-dark-warning { @apply badge-warning; }
+  .badge-dark-error   { @apply badge-error; }
+  .badge-dark-info    { @apply badge-info; }
+  .badge-dark-violet,
+  .badge-dark-cyan {
+    background: rgb(var(--color-primary-container));
+    color: rgb(var(--color-on-primary-container));
+  }
 
   .btn-dark-secondary {
     @apply btn-base bg-surface-container-low text-on-surface hover:bg-surface-container-high;
@@ -820,9 +783,7 @@ html.dark {
   }
 
   .table-dark th {
-    @apply px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase;
-    font-family: 'Inter', system-ui, sans-serif;
-    letter-spacing: 0.05em;
+    @apply px-4 py-3 text-left text-xs font-medium text-outline;
   }
 
   .table-dark tbody tr {
@@ -893,11 +854,6 @@ html.dark {
   .boreal-underline-input option {
     background-color: rgb(var(--color-surface-container-low));
     color: rgb(var(--color-on-surface));
-  }
-
-  /* Text glow for hero brand marks (matches website) */
-  .text-glow {
-    text-shadow: 0 0 30px rgba(163, 208, 190, 0.2);
   }
 
   /* Boreal hero gradient — 145° primary → primary_container.

@@ -139,7 +139,6 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
     return (
       <Card variant="dark">
         <div className="text-center">
-          <div className="text-6xl mb-4">🎉</div>
           <h2 className="text-2xl font-bold text-on-surface mb-2">{t('a2a.createdTitle')}</h2>
           <p className="text-on-surface-variant mb-6">
             {t('a2a.createdBody')}
@@ -148,7 +147,6 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4 mb-6">
           <div className="flex items-center mb-2">
-            <span className="text-nutrition mr-2">⚠️</span>
             <h3 className="text-sm font-medium text-nutrition">{t('a2a.securityNoticeTitle')}</h3>
           </div>
           <p className="text-sm text-on-surface">
@@ -368,7 +366,6 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
         {createMutation.error && (
           <div className="bg-error/15 border border-error/30 rounded-lg p-4">
             <div className="flex items-center">
-              <span className="text-error mr-2">❌</span>
               <div>
                 <h3 className="text-sm font-medium text-error">{t('a2a.registrationFailed')}</h3>
                 <p className="text-sm text-on-surface mt-1">

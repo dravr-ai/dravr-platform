@@ -57,8 +57,6 @@ interface ThemeColors {
     default: string;
     strong: string;
   };
-  /** Brand ink at text sizes — the wordmark, links, brand accents. */
-  brand: string;
   /** Semantic flags. */
   success: string;
   warning: string;
@@ -104,7 +102,12 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
     tokens,
     pierre: {
       violet: tokens.primary,
-      cyan: tokens.primaryContainer,
+      // The gradient endpoint beside `violet`. Boreal v2 made `primaryContainer`
+      // a pale tint (the athlete bubble's ground), so a violet→container
+      // gradient would fade to paper in light; `onPrimaryContainer` is the same
+      // hue carried the other way — forest in light, pale mint in dark — which
+      // keeps the settings header's sweep a green-to-green one in both schemes.
+      cyan: tokens.onPrimaryContainer,
       activity: pillars.activity,
       nutrition: pillars.nutrition,
       recovery: pillars.recovery,
@@ -123,14 +126,13 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
       primary: tokens.onSurface,
       secondary: tokens.onSurfaceVariant,
       tertiary: tokens.outline,
-      accent: tokens.brand,
+      accent: tokens.primary,
     },
     border: {
       subtle: `rgba(${ink.rgb}, ${ink.subtle})`,
       default: `rgba(${ink.rgb}, ${ink.default})`,
       strong: `rgba(${ink.rgb}, ${ink.strong})`,
     },
-    brand: tokens.brand,
     success: scheme === 'dark' ? '#79a694' : '#2e7d5b',
     warning: scheme === 'dark' ? '#d6b87a' : '#8f6a2e',
     error: tokens.error,

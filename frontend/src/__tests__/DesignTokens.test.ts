@@ -128,15 +128,15 @@ describe('the contrast helper agrees with WCAG', () => {
 describe('light surface ladder — DESIGN.md §2 "Light tier separation"', () => {
   it('separates every adjacent tier on fill alone', () => {
     // `surface` against `surface-container-lowest` is the documented exemption:
-    // a card on the page canvas is lifted by the ghost border and the two-layer
-    // shadow, so those two tones stay a half-step apart on purpose.
+    // a card on the page canvas is lifted by the ghost-border hairline, so
+    // those two tones stay a half-step apart on purpose.
     const measured = LIGHT_LADDER.slice(1).map(([name, hex], index) => {
       const [aboveName, aboveHex] = LIGHT_LADDER[index];
       return { pair: `${aboveName} → ${name}`, ratio: contrast(aboveHex, hex) };
     });
 
     expect(measured[0].pair).toBe('surface-container-lowest → surface');
-    expect(measured[0].ratio).toBeCloseTo(1.05, 2);
+    expect(measured[0].ratio).toBeCloseTo(1.08, 2);
 
     for (const step of measured.slice(1)) {
       expect(step.ratio, `${step.pair} measured ${step.ratio.toFixed(3)}:1`).toBeGreaterThanOrEqual(
@@ -165,7 +165,7 @@ describe('light surface ladder — DESIGN.md §2 "Light tier separation"', () =>
       ['on-surface', BOREAL_LIGHT.onSurface],
       ['on-surface-variant', BOREAL_LIGHT.onSurfaceVariant],
       ['outline', BOREAL_LIGHT.outline],
-      ['brand', BOREAL_LIGHT.brand],
+      ['primary', BOREAL_LIGHT.primary],
     ];
 
     for (const [inkName, ink] of inks) {
@@ -179,25 +179,32 @@ describe('light surface ladder — DESIGN.md §2 "Light tier separation"', () =>
   });
 });
 
-describe('the brand ink is a usable green in both schemes', () => {
-  it('is not `primary` in light, where `primary` reads as black', () => {
-    expect(BOREAL_LIGHT.brand).not.toBe(BOREAL_LIGHT.primary);
-    expect(BOREAL_LIGHT.brand).toBe('#255f4d');
-    // Its green channel dominates by a real margin — a colour, not an ink dot.
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(BOREAL_LIGHT.brand.slice(i, i + 2), 16));
+describe('primary is a usable green in both schemes', () => {
+  it('reads as a colour in light, not as black', () => {
+    // The v1 primary (#00241a) was so deep it needed a separate `brand` ink
+    // to put any green on screen. One token now carries both roles.
+    expect(BOREAL_LIGHT.primary).toBe('#255f4d');
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(BOREAL_LIGHT.primary.slice(i, i + 2), 16));
     expect(g).toBeGreaterThan(r + 40);
     expect(g).toBeGreaterThan(b + 10);
+    // White on the filled primary, and the filled hover under the same white.
+    expect(contrast('#ffffff', BOREAL_LIGHT.primary)).toBeGreaterThanOrEqual(7);
+    expect(contrast('#ffffff', cssToken(WEB_CSS, 'primary-hover', 1))).toBeGreaterThanOrEqual(7);
   });
 
-  it('is `primary` in dark, which was already legible there', () => {
-    expect(BOREAL_DARK.brand).toBe(BOREAL_DARK.primary);
+  it('keeps the athlete bubble ink well clear of its tint in both schemes', () => {
+    expect(contrast(BOREAL_LIGHT.onPrimaryContainer, BOREAL_LIGHT.primaryContainer)).toBeGreaterThanOrEqual(7);
+    expect(contrast(BOREAL_DARK.onPrimaryContainer, BOREAL_DARK.primaryContainer)).toBeGreaterThanOrEqual(7);
+  });
+
+  it('is the mint ink on the dark canvas', () => {
     for (const tier of [
       BOREAL_DARK.surface,
       BOREAL_DARK.surfaceContainerLow,
       BOREAL_DARK.surfaceContainer,
       BOREAL_DARK.surfaceContainerHigh,
     ]) {
-      expect(contrast(BOREAL_DARK.brand, tier)).toBeGreaterThanOrEqual(AA_TEXT);
+      expect(contrast(BOREAL_DARK.primary, tier)).toBeGreaterThanOrEqual(AA_TEXT);
     }
   });
 });
@@ -211,7 +218,9 @@ describe('the three token mirrors agree with DESIGN.md', () => {
     ['surface-container-high', 'surfaceContainerHigh'],
     ['surface-container-highest', 'surfaceContainerHighest'],
     ['outline', 'outline'],
-    ['brand', 'brand'],
+    ['primary', 'primary'],
+    ['primary-container', 'primaryContainer'],
+    ['on-primary-container', 'onPrimaryContainer'],
   ];
 
   it.each(mirrored)('%s matches across DESIGN.md, web CSS, mobile CSS and shared-constants', (cssName, tsName) => {
@@ -221,9 +230,11 @@ describe('the three token mirrors agree with DESIGN.md', () => {
     expect(cssToken(MOBILE_CSS, cssName, 1)).toBe(source);
   });
 
-  it('mirrors the dark brand ink too', () => {
-    expect(cssToken(WEB_CSS, 'brand', 2)).toBe(BOREAL_DARK.brand);
-    expect(cssToken(MOBILE_CSS, 'brand', 2)).toBe(BOREAL_DARK.brand);
+  it('mirrors the dark primary pair too', () => {
+    expect(cssToken(WEB_CSS, 'primary', 2)).toBe(BOREAL_DARK.primary);
+    expect(cssToken(MOBILE_CSS, 'primary', 2)).toBe(BOREAL_DARK.primary);
+    expect(cssToken(WEB_CSS, 'primary-container', 2)).toBe(BOREAL_DARK.primaryContainer);
+    expect(cssToken(MOBILE_CSS, 'primary-container', 2)).toBe(BOREAL_DARK.primaryContainer);
   });
 
   it('gives light the darker ghost-border ink and dark the pale one', () => {

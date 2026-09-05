@@ -47,11 +47,11 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           <span className="min-w-0">
             <span className="block text-sm text-on-surface">{label}</span>
             {description && (
-              <span className="block text-xs text-outline font-label mt-0.5">{description}</span>
+              <span className="block text-xs text-outline mt-0.5">{description}</span>
             )}
           </span>
         </label>
-        {error && <p className="mt-1.5 text-xs text-error font-label">{error}</p>}
+        {error && <p className="mt-1.5 text-xs text-error">{error}</p>}
       </div>
     );
   }
@@ -86,11 +86,11 @@ export const Radio = forwardRef<HTMLInputElement, RadioProps>(
           <span className="min-w-0">
             <span className="block text-sm text-on-surface">{label}</span>
             {description && (
-              <span className="block text-xs text-outline font-label mt-0.5">{description}</span>
+              <span className="block text-xs text-outline mt-0.5">{description}</span>
             )}
           </span>
         </label>
-        {error && <p className="mt-1.5 text-xs text-error font-label">{error}</p>}
+        {error && <p className="mt-1.5 text-xs text-error">{error}</p>}
       </div>
     );
   }

@@ -160,7 +160,7 @@ export default function OnboardingConnectProvider({
       <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
         <div className="flex flex-col items-center gap-4">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface-variant font-label">
+          <p className="text-sm text-on-surface-variant">
             {t('onboarding.providerConnectedPreparing')}
           </p>
         </div>
@@ -174,7 +174,7 @@ export default function OnboardingConnectProvider({
       <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface font-label">
+          <p className="text-sm text-on-surface">
             {t('frag.awaiting')} {friendlyName} consent…
           </p>
           <p className="text-xs text-on-surface-variant">
@@ -201,7 +201,7 @@ export default function OnboardingConnectProvider({
         heading={userDisplayName ? t('onboarding.welcomeNamed', { name: userDisplayName }) : t('onboarding.welcomeToDravr')}
       >
         <div className="flex flex-col">
-          <p className="mt-3 text-sm text-on-surface-variant text-center mx-auto max-w-md font-label">
+          <p className="mt-3 text-sm text-on-surface-variant text-center mx-auto max-w-md">
             {t('onboarding.connectProviderIntro')}
           </p>
 
@@ -245,12 +245,8 @@ export default function OnboardingConnectProvider({
               </div>
             )}
 
-            <div className="mt-8">
-              <Button
-                variant="secondary"
-                onClick={logout}
-                className="w-full"
-              >
+            <div className="mt-8 flex justify-center">
+              <Button variant="tertiary" onClick={logout}>
                 {t('common.logout')}
               </Button>
             </div>

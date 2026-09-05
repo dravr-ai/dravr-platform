@@ -84,7 +84,7 @@ export default function OnboardingCoachProposal({
       <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface font-label">{t('onboarding.analyzingTrainingData')}</p>
+          <p className="text-sm text-on-surface">{t('onboarding.analyzingTrainingData')}</p>
           <p className="text-xs text-on-surface-variant max-w-sm text-center">
             {t('onboarding.readingActivitiesHint')}
           </p>
@@ -97,7 +97,7 @@ export default function OnboardingCoachProposal({
     return (
       <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
-          <p className="text-sm text-on-surface font-label">
+          <p className="text-sm text-on-surface">
             {t('onboarding.coachSuggestionsFailed')}
           </p>
           <Button variant="primary" onClick={onComplete}>
@@ -121,7 +121,7 @@ export default function OnboardingCoachProposal({
       <div className="mt-6 rounded-xl border border-outline-variant bg-surface-container px-5 py-4">
         {profile.has_profile ? (
           <>
-            <p className="text-sm text-on-surface font-label">
+            <p className="text-sm text-on-surface">
               {t('app.obWindowSummary', {
                 days: profile.window_days,
                 count: profile.total_activities,
@@ -146,7 +146,7 @@ export default function OnboardingCoachProposal({
             </div>
           </>
         ) : (
-          <p className="text-sm text-on-surface-variant font-label">
+          <p className="text-sm text-on-surface-variant">
             {t('onboarding.coachProposalNoActivities')}
           </p>
         )}
@@ -195,7 +195,7 @@ function CoachProposalCard({
           <h3 className="font-display font-semibold text-base text-on-surface truncate">
             {coach.title}
           </h3>
-          <p className="mt-0.5 text-xs uppercase tracking-wide text-on-surface-variant">
+          <p className="mt-0.5 text-xs text-on-surface-variant">
             {t(coachCategoryLabelKey(coach.category))}
           </p>
         </div>
@@ -203,7 +203,7 @@ function CoachProposalCard({
           {selecting ? t('onboarding.starting') : t('onboarding.startButton')}
         </Button>
       </div>
-      {reason ? <p className="mt-2 text-sm text-on-surface-variant font-label">{reason}</p> : null}
+      {reason ? <p className="mt-2 text-sm text-on-surface-variant">{reason}</p> : null}
     </div>
   );
 }

@@ -66,7 +66,7 @@ function Section({
 }) {
   return (
     <section className="space-y-2">
-      <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-outline">
+      <h4 className="flex items-center gap-1.5 text-xs font-semibold text-outline">
         {icon}
         {title}
       </h4>
@@ -400,7 +400,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
       </Section>
 
       <section className="space-y-3 rounded-lg border border-error/20 p-4">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-error">{t('chat.dangerZone')}</h4>
+        <h4 className="text-xs font-semibold text-error">{t('chat.dangerZone')}</h4>
         {!isOwner && (
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">

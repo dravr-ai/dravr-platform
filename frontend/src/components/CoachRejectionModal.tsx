@@ -77,7 +77,7 @@ export default function CoachRejectionModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]">
-      <div className="bg-surface-container-lowest shadow-ambient rounded-xl border ghost-border max-w-md w-full mx-4 shadow-2xl">
+      <div className="bg-surface-container-lowest rounded-xl border ghost-border max-w-md w-full mx-4">
         {/* Red accent bar */}
         <div className="h-1 bg-gradient-to-r from-error to-error rounded-t-xl" />
 

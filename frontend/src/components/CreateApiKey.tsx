@@ -226,7 +226,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
               {selectedPermissions.size === 0 && (
                 <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-3">
                   <p className="text-sm text-nutrition">
-                    ⚠️ At least one permission must be selected for the token to be useful.
+                    At least one permission must be selected for the token to be useful.
                   </p>
                 </div>
               )}
@@ -300,8 +300,8 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
       </div>
 
       {/* Security Reminder */}
-      <div className="bg-primary-container/15 border border-primary-container/30 rounded-lg p-4">
-        <h4 className="font-medium text-primary-container mb-2">🔒 Security Reminder</h4>
+      <div className="bg-primary-container border border-primary/20 rounded-lg p-4">
+        <h4 className="font-medium text-primary mb-2">Security Reminder</h4>
         <ul className="text-sm text-on-surface space-y-1">
           <li>• The API token will be shown only once after creation</li>
           <li>• Store the token securely in your environment</li>

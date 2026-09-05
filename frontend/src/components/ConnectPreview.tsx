@@ -37,7 +37,7 @@ export default function ConnectPreview() {
 
       {open && (
         <div className="mt-4 rounded-xl border border-outline-variant bg-surface-container-low p-4">
-          <p className="text-xs uppercase tracking-wide text-on-surface-variant font-label">
+          <p className="text-xs text-on-surface-variant">
             {t('shell.previewExampleBadge')}
           </p>
           <p className="mt-1 text-xs text-on-surface-variant">

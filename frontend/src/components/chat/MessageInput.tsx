@@ -88,7 +88,7 @@ export default function MessageInput({
   };
 
   return (
-    <div className="border-t ghost-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-surface-container-low">
+    <div className="border-t ghost-border bg-surface px-4 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] md:px-8">
       <div className="max-w-3xl mx-auto">
         <CommandPalette
           matches={palette.matches}
@@ -106,7 +106,7 @@ export default function MessageInput({
               looking. It types the character the palette watches for rather
               than opening a second, parallel list. */}
           <IconButton
-            variant="tonal"
+            variant="ghost"
             aria-label={t('chat.commandsLabel')}
             title={t('chat.commandsLabel')}
             data-testid="slash-command-button"
@@ -122,7 +122,8 @@ export default function MessageInput({
           {/* The composer is a chat surface, not a form field — DESIGN.md §5
               lists the two separately. It keeps its enclosing rounded field so
               the embedded 44x44 send button has something to sit inside; the
-              editorial underline has no box to host it. */}
+              editorial underline has no box to host it. The field is the one
+              filled shape on the canvas, so it carries no hairline of its own. */}
           {/* eslint-disable-next-line no-restricted-syntax */}
           <textarea
             ref={inputRef}
@@ -136,7 +137,7 @@ export default function MessageInput({
             onClick={syncCaret}
             onSelect={syncCaret}
             placeholder={t('chat.messageDravrPlaceholder')}
-            className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-colors overflow-hidden"
+            className="w-full resize-none rounded-xl border-0 bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm transition-colors overflow-hidden"
             rows={1}
             disabled={isStreaming || disabled}
           />
@@ -145,9 +146,9 @@ export default function MessageInput({
             disabled={!value.trim() || isStreaming || disabled}
             aria-label={t('chat.sendMessageAria')}
             className={clsx(
-              'absolute right-2 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg transition-colors',
+              'absolute right-2 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors',
               value.trim() && !isStreaming && !disabled
-                ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-ambient'
+                ? 'bg-primary text-on-primary hover:bg-primary-hover'
                 : 'text-on-surface-variant cursor-not-allowed'
             )}
           >

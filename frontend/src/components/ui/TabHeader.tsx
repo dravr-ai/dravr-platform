@@ -1,41 +1,38 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-// ABOUTME: Shared header row for user-facing tabs (Chat, Discover, Groups)
-// ABOUTME: Renders icon in gradient circle + description + optional action buttons
 
-import React from 'react';
-import { clsx } from 'clsx';
+// ABOUTME: The page header every athlete destination opens with — a title, one line under it, actions on the right
+// ABOUTME: One idiom for Discover, Notifications and the settings panes, so a page never has to explain its own shape
+
+import type { ReactNode } from 'react';
 
 export interface TabHeaderProps {
-  /** Icon element (e.g. lucide-react component) rendered inside the gradient circle */
-  icon: React.ReactNode;
-  /** Tailwind gradient classes for the icon circle (e.g. "boreal-hero-gradient") */
-  gradient: string;
-  /** Description text shown next to the icon */
-  description: React.ReactNode;
-  /** Optional action buttons rendered on the right side */
-  actions?: React.ReactNode;
+  /** The page's name, in the display face. */
+  title: string;
+  /** One line under the title: what the page is for, or a count. */
+  description?: ReactNode;
+  /** Controls that belong to the whole page: a search, a primary action, a filter. */
+  actions?: ReactNode;
 }
 
-export function TabHeader({ icon, gradient, description, actions }: TabHeaderProps) {
+/**
+ * Title in Schibsted Grotesk, a subtitle in the secondary ink, actions on the
+ * right, a hairline below. The v1 header put a gradient icon square before a
+ * description and no title at all, so every destination read differently;
+ * this is the shape the chat list column already has.
+ */
+export function TabHeader({ title, description, actions }: TabHeaderProps) {
   return (
-    <div className="p-4 md:p-6 border-b ghost-border flex items-center justify-between gap-3 flex-shrink-0">
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className={clsx(
-            'w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl text-on-surface shadow-ambient bg-gradient-to-br',
-            gradient
-          )}
-        >
-          {icon}
-        </div>
-        <p data-testid="tab-header-description" className="text-sm text-on-surface-variant min-w-0 truncate">{description}</p>
+    <div className="flex flex-shrink-0 items-center justify-between gap-6 border-b ghost-border px-5 py-4 md:px-6 md:py-5">
+      <div className="min-w-0">
+        <h2 className="font-display text-xl font-semibold text-on-surface">{title}</h2>
+        {description && (
+          <p data-testid="tab-header-description" className="mt-0.5 min-w-0 truncate text-sm text-on-surface-variant">
+            {description}
+          </p>
+        )}
       </div>
-      {actions && (
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {actions}
-        </div>
-      )}
+      {actions && <div className="flex flex-shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );
 }

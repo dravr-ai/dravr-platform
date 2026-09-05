@@ -157,7 +157,7 @@ export default function GuardianConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
+        <h3 className="mb-3 text-sm font-semibold text-on-surface-variant">
           Enforcement
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -195,7 +195,7 @@ export default function GuardianConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
+        <h3 className="mb-3 text-sm font-semibold text-on-surface-variant">
           Per-turn budgets
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -223,7 +223,7 @@ export default function GuardianConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
+        <h3 className="mb-3 text-sm font-semibold text-on-surface-variant">
           External send allowlist
         </h3>
         <ExternalSendField

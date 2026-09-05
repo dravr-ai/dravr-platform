@@ -170,72 +170,41 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
   return (
     <div className="min-h-dvh flex bg-surface text-on-surface">
       {/*
-        Editorial hero column. The hero stays fixed deep-forest in both
-        light and dark mode — it's the brand moment, and its text/tokens
-        are hardcoded so nothing inverts when the scheme flips.
+        Editorial aside — the brand moment on a paper ground. It follows the
+        scheme like the form beside it: the mark swaps its ink under `.dark`,
+        and nothing here is pinned to a dark fill.
       */}
-      <aside className="hidden lg:flex lg:w-1/2 xl:w-3/5 relative overflow-hidden">
-        <div
-          className="absolute inset-0"
-          style={{ background: 'linear-gradient(145deg, #00241a 0%, #0d3b2e 100%)' }}
-        />
-        <div className="relative flex flex-col justify-between w-full p-16" style={{ color: '#ffffff' }}>
-          {/* Brand mark */}
-          <div className="flex items-center gap-4">
-            <DravrLogo size={80} />
-            <span
-              className="font-display font-semibold text-2xl tracking-brand"
-              style={{ color: '#a3d0be' }}
-            >
-              {PRODUCT_WORDMARK}
-            </span>
-          </div>
+      <aside className="hidden lg:flex lg:w-1/2 xl:w-3/5 flex-col justify-between border-r ghost-border bg-surface-container-low p-12 xl:p-16">
+        {/* Lockup */}
+        <div className="flex items-center gap-3">
+          <DravrLogo size={32} />
+          <span className="font-display text-xl font-semibold tracking-brand text-primary">
+            {PRODUCT_WORDMARK}
+          </span>
+        </div>
 
-          {/* Editorial headline */}
-          <div className="max-w-xl space-y-6">
-            <p
-              className="text-xs font-label uppercase"
-              style={{
-                letterSpacing: '0.18em',
-                color: '#a3d0be',
-                opacity: 0.85,
-              }}
-            >
-              {t('auth.taglinePersona')}
-            </p>
-            <h2
-              className="font-display font-semibold text-4xl xl:text-5xl leading-tight"
-              style={{ color: '#ffffff' }}
-            >
-              {t('auth.taglineLead')}
-              <br />
-              {t('auth.taglineTail')}
-            </h2>
-            <p
-              className="text-base leading-relaxed"
-              style={{ color: '#a3d0be' }}
-            >
-              {t('auth.landingBlurb')}
-            </p>
-          </div>
+        {/* The mark, large, and the one serif line in the product */}
+        <div className="max-w-xl">
+          <DravrLogo size={220} />
+          <h2 className="mt-8 font-serif text-4xl italic leading-tight text-on-surface xl:text-5xl">
+            {t('auth.taglineLead')}
+            <br />
+            {t('auth.taglineTail')}
+          </h2>
+          <p className="mt-6 max-w-md text-base leading-relaxed text-on-surface-variant">
+            {t('auth.landingBlurb')}
+          </p>
+        </div>
 
-          {/* Footer band */}
-          <div
-            className="flex items-center gap-6 text-xs font-label uppercase"
-            style={{
-              letterSpacing: '0.12em',
-              color: '#a3d0be',
-              opacity: 0.7,
-            }}
-          >
-            <span>{t('auth.activityLabel')}</span>
-            <span aria-hidden>·</span>
-            <span>{t('chat.categoryNutrition')}</span>
-            <span aria-hidden>·</span>
-            <span>{t('chat.categoryRecovery')}</span>
-            <span aria-hidden>·</span>
-            <span>{t('chat.categoryMobility')}</span>
-          </div>
+        {/* The four pillars, in sentence case */}
+        <div className="flex items-center gap-3 text-sm text-on-surface-variant">
+          <span>{t('auth.activityLabel')}</span>
+          <span aria-hidden className="text-outline">·</span>
+          <span>{t('chat.categoryNutrition')}</span>
+          <span aria-hidden className="text-outline">·</span>
+          <span>{t('chat.categoryRecovery')}</span>
+          <span aria-hidden className="text-outline">·</span>
+          <span>{t('chat.categoryMobility')}</span>
         </div>
       </aside>
 
@@ -270,8 +239,8 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               (lg+) keeps the left-aligned form layout because the hero
               column owns the brand moment. */}
           <div className="lg:hidden flex items-center justify-center gap-3">
-            <DravrLogo size={80} />
-            <span className="font-display font-semibold text-xl tracking-brand text-on-surface">
+            <DravrLogo size={40} />
+            <span className="font-display font-semibold text-lg tracking-brand text-primary">
               {PRODUCT_WORDMARK}
             </span>
           </div>
@@ -280,7 +249,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
             <h1 className="font-display font-semibold text-3xl text-on-surface">
               {t('auth.signInButton')}
             </h1>
-            <p className="mt-2 text-sm text-on-surface-variant font-label">
+            <p className="mt-2 text-sm text-on-surface-variant">
               {t('auth.welcomeBackHint')}
             </p>
           </div>
@@ -290,11 +259,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               <div
                 role="alert"
                 aria-live="polite"
-                className="px-4 py-3 text-sm rounded-md"
-                style={{
-                  background: 'var(--color-error-container)',
-                  color: 'var(--color-on-error-container)',
-                }}
+                className="px-4 py-3 text-sm rounded-lg bg-error-container text-on-error-container"
               >
                 {error}
               </div>
@@ -336,8 +301,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 <button
                   type="button"
                   onClick={onNavigateToForgotPassword}
-                  className="btn-secondary text-xs font-label uppercase"
-                  style={{ letterSpacing: '0.08em' }}
+                  className="btn-tertiary text-sm"
                 >
                   {t('auth.forgotPasswordLink')}
                 </button>
@@ -360,8 +324,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                     <div className="w-full border-t" style={{ borderColor: 'var(--ghost-border)' }} />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-3 bg-surface text-xs font-label uppercase text-on-surface-variant"
-                          style={{ letterSpacing: '0.12em' }}>
+                    <span className="px-3 bg-surface text-xs text-on-surface-variant">
                       {t('auth.orDivider')}
                     </span>
                   </div>
@@ -371,8 +334,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={isGoogleLoading}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-md bg-surface-container-low hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-on-surface font-medium"
-                  style={{ boxShadow: 'inset 0 0 0 1px var(--ghost-border)' }}
+                  className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg border ghost-border-strong bg-transparent hover:bg-surface-container-low transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-on-surface font-medium"
                 >
                   {isGoogleLoading ? (
                     <div className="pierre-spinner w-5 h-5"></div>

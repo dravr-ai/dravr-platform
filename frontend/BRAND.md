@@ -1,10 +1,19 @@
-# Dravr - Brand Identity & Design System
+# Dravr — Brand Identity
 
-## Brand Concept: "Holistic Intelligence"
+The brand: what Dravr is called, how it is written, the mark it wears and the
+palette it is drawn in. Everything about how the product is *built* from these
+— surfaces, type roles, components, layout, motion, accessibility — lives in
+[DESIGN.md](DESIGN.md), which is the source of truth the token mirrors and
+the design-system validation script answer to. This file does not repeat it.
 
-Dravr is a complete fitness intelligence platform that connects AI assistants with fitness data providers. The visual identity represents the human in motion, with data flowing between three core wellness pillars.
+## Brand concept
 
-> **Design Review**: This design system incorporates recommendations from professional UI/UX analysis to ensure a premium, accessible, and modern fitness app experience.
+Dravr is fitness intelligence for athletes and coaches: every session, meal
+and night of recovery, read into one legible story. The identity is a boreal
+forest on paper — one sage-forest green, warm paper, hairlines — calm and
+editorial, never glossy or hype. Boreal v2 (2026-09) is the current
+expression; the direction and its decisions are in the team vault under
+`Design/`.
 
 ## Color Palette
 
@@ -13,12 +22,12 @@ Dravr is a complete fitness intelligence platform that connects AI assistants wi
 > never hardcode hex. The `pierre-*` Tailwind class names are retained aliases that now carry
 > **Boreal** semantics (e.g. `pierre-violet` resolves to the forest primary, not violet).
 
-### Primary Colors — "Boreal Editorial"
+### Primary Colors — Boreal v2
 | Name | Hex | Token / Alias | Usage |
 |------|-----|---------------|-------|
-| Forest | `#00241a` | `primary` / `pierre-violet` | Primary brand, filled CTAs, wordmark ink |
-| Forest Container | `#0d3b2e` | `primaryContainer` / `pierre-cyan` | Hero gradient endpoint, overlay base |
-| Sage (light) | `#a3d0be` | `inversePrimary` | Accents/links on dark surfaces |
+| Sage-forest | `#255f4d` | `primary` / `pierre-violet` | The one accent: filled CTAs, links, the wordmark ink |
+| Sage tint | `#e1eae5` | `primaryContainer` / `pierre-cyan` | The tint under the athlete bubble, selections and avatars |
+| Mint | `#a3d0be` | `primary` in dark / `inversePrimary` | The accent on the dark canvas |
 
 ### Three Pillars (Semantic Accents)
 | Pillar | Color | Hex | Tailwind Class | Usage |
@@ -28,335 +37,94 @@ Dravr is a complete fitness intelligence platform that connects AI assistants wi
 | Recovery | Slate | `#3e7283` | `pierre-recovery` | Rest, sleep, restoration |
 | Mobility | Aged Rose | `#9b4666` | `pierre-mobility` | Range of motion, flexibility |
 
-> **WCAG**: Pillar shades are tuned to meet AA 4.5:1 contrast against the light surface (`#f9f9f6`). Mobile lifts them for OLED dark mode via `BOREAL_DARK`.
+> Pillar hues appear as an 8px dot beside a word or as an avatar ground; as text they use their `on-*-container` ink (DESIGN.md §2). Mobile lifts them for the dark canvas via `PILLAR_COLORS_DARK`.
 
 ### Neutrals
 | Name | Hex | Usage |
 |------|-----|-------|
-| Surface (light) | `#f9f9f6` | Light backgrounds |
-| Boreal Dark | `#11130f` | Dark backgrounds (mobile/docs) |
-| Dark Container | `#1d201d` | Secondary dark backgrounds |
+| Paper | `#f7f6f2` | The one light ground: rail, lists, thread, page |
+| Boreal Dark | `#11130f` | The one dark ground |
 | Ink | `#1a1c1b` | Body text (never pure black) |
+| Forest ink | `#05331f` | The mark on light surfaces only |
 
-### Gradients
-```css
-/* Primary gradient (forest) */
-background: linear-gradient(135deg, #00241a 0%, #0d3b2e 100%);
+## Logo — "Boreal Ripple"
 
-/* Activity gradient (sage) */
-background: linear-gradient(135deg, #0f7d68 0%, #0b5d4d 100%);
+The mark is a boreal treeline and its reflection on the left, concentric ripple
+arcs on the right, in a single forest ink. It is the mark the phone has worn as
+its app icon since 2026-08 and, since Boreal v2, the mark every web surface
+carries too: the rail, the login aside, the admin sidebar, the auth pages, the
+favicon and the PWA icons. The Momentum ribbon badge is gone.
 
-/* Nutrition gradient (bronze) */
-background: linear-gradient(135deg, #b08326 0%, #8a6420 100%);
+### Inks and grounds
 
-/* Recovery gradient (slate) */
-background: linear-gradient(135deg, #3e7283 0%, #2f5664 100%);
-```
+| Ink | Hex | Where |
+|-----|-----|-------|
+| Forest | `#05331f` | Every light surface — the mark is the darkest thing on the page, the way a signature is |
+| Mint | `#a3d0be` | The dark canvas; `DravrLogo` swaps to it under `.dark` |
 
-## Logo — "Momentum"
+No plate, no gradient, no drop shadow: the mark sits directly on the ground.
+The opaque members of the family (PWA icons, the Apple touch icon) are
+flattened onto the `#f7f6f2` surface only because Apple rejects alpha and a
+maskable icon needs a full bleed.
 
-The mark is three upward **momentum ribbons** rising left-to-right to a single bright
-node, on the Boreal forest badge. The ribbons read as speed / progress / a training
-trajectory — fitting for a coaching product — and carry the three pillar hues (sage,
-slate, bronze) fading in from the left into the brand greens. The badge is self-contained
-(forest-green rounded square) so it stays legible on light, dark, and green surfaces.
+### Files and pipeline
 
-### Framing variants
-| Variant | Files | Composition |
-|---------|-------|-------------|
-| **Badge** | `dravr-icon.svg`, `dravr-favicon.svg`, web/server `dravr-logo*.svg`, mobile `dravr-logo` | Forest-green rounded square + Momentum ribbons + node. |
+| Asset | Path | Generated by |
+|-------|------|--------------|
+| In-app mark, forest, 96 / 192 / 512 | `public/brand/mark-ink-*.png` | `scripts/generate-brand-assets.py` |
+| In-app mark, mint, 96 / 192 / 512 | `public/brand/mark-mint-*.png` | same |
+| PWA icons and Apple touch icon | `public/pwa-*.png`, `public/apple-touch-icon.png` | same — the mobile fill recipe (82 %, maskable 66 %) |
+| Favicon — the reduced mark | `public/favicon.svg` | hand-drawn |
 
-## Mobile app icon — "Boreal Ripple"
+The master is `frontend-mobile/assets/sources/boreal-ripple-mark.png`, a 1024px
+generative raster with no vector original; both the mobile and the web
+generators read it directly rather than pretending an SVG master exists. The
+script is dev-only — no build or CI step runs it, so the PNGs are committed.
+Regenerate with `python3 frontend/scripts/generate-brand-assets.py` (Pillow).
 
-The installable app carries a different mark from the web surfaces: a boreal
-forest and its reflection on the left, concentric ripple arcs on the right, in
-forest ink on the `#f9f9f6` surface. It covers the mobile `icon`, `adaptive-icon`,
-`splash-icon` and `favicon`.
+`DravrLogo` renders the pair and picks the smallest asset at least twice the
+rendered size, so a 2× display never upsamples.
 
-This is a real split, not a migration in flight: every web, server and marketing
-surface still ships Momentum, and reconciling the two is not scheduled. The
-master and the regeneration pipeline live in
-`frontend-mobile/assets/sources/` — see the README there for the fill
-percentages, the Android safe zone, and why the App Store icon carries no alpha.
+### Sizes
 
-Like the bare ribbons, this mark gets muddy small; unlike them it is used small
-anyway, so the 48px favicon reads as a dark disc.
+| Placement | Size |
+|-----------|------|
+| Athlete rail | 40px, the mark alone |
+| Lockup (admin sidebar, auth pages, onboarding) | 28–32px beside the DRAVR wordmark |
+| Login aside | 220px hero mark |
+| Chat empty state | 64px |
+| Favicon, notification icon | the reduced mark — arcs and shoreline only |
+
+The full mark degrades below ~40px: the dashed arcs merge and the trees lose
+their separation. `favicon.svg` is the reduced derivative for those sizes; it
+is a proposal to be finalised from a vector master, and until that master
+exists the mobile app keeps its 48px downsample.
 
 ### Logo Don'ts
-- Don't bake the "Dravr" wordmark into the icon — it is a mark-only symbol (the wordmark is set in HTML using Plus Jakarta Sans).
-- Don't recolor the ribbons outside the Boreal pillar hues (sage / slate / bronze).
-- Don't stretch or distort proportions.
-- Prefer the badge for any placement under ~48px — the bare ribbons get muddy small.
+- Don't bake the "Dravr" wordmark into the mark — the wordmark is set in HTML, Schibsted Grotesk 600 at 0.15em, in the `primary` ink, and appears only in the lockup.
+- Don't recolour the mark outside forest, mint and sage (`#255f4d`, for a hero mark on a coloured ground). Never a pillar hue.
+- Don't put it on a badge, a plate or a gradient, and don't cast a shadow behind it.
+- Don't stretch or distort proportions; leave one quarter of its height clear on every side.
+- Don't use it as an avatar: the coach's avatar is the coach's initials.
 
 ## Typography
 
-### Font Stack
-```css
-/* Primary font - Premium tech aesthetic */
-font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+| Role | Family | Notes |
+|------|--------|-------|
+| Headings and the wordmark | Schibsted Grotesk 500–600 | A Norwegian newspaper grotesk; `letter-spacing: -0.01em` on headings, `0.15em` on the wordmark |
+| Body and labels | Plus Jakarta Sans 400–500 | Sentence case everywhere; there is no separate label face |
+| Editorial accent | Newsreader italic 400 | The one serif line, on the login and onboarding pages |
+| Numbers that get compared | JetBrains Mono 400 | Tabular figures |
 
-/* Monospace for data/code */
-font-family-mono: 'JetBrains Mono', Monaco, Menlo, 'Ubuntu Mono', Consolas, monospace;
-```
-
-> **Typography Upgrade**: Plus Jakarta Sans provides a more premium, characterful feel compared to system fonts. It's particularly well-suited for fitness/lifestyle apps. Inter serves as a reliable fallback. For mobile, consider Satoshi as an alternative.
-
-### Font Loading
-```html
-<!-- Google Fonts -->
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-<!-- Or self-hosted for performance -->
-@font-face {
-  font-family: 'Plus Jakarta Sans';
-  src: url('/fonts/PlusJakartaSans-Variable.woff2') format('woff2');
-  font-weight: 400 700;
-  font-display: swap;
-}
-```
-
-### Type Scale
-| Name | Size | Usage |
-|------|------|-------|
-| xs | 0.75rem | Helper text, badges |
-| sm | 0.875rem | Body small, labels |
-| base | 1rem | Body text |
-| lg | 1.125rem | Lead text |
-| xl | 1.25rem | Section headers |
-| 2xl | 1.5rem | Page headers |
-| 3xl | 1.875rem | Hero text |
-
-## Component Patterns
-
-### Cards (Glassmorphism 2.0)
-
-Modern card patterns using backdrop blur and subtle borders for depth:
-
-```css
-/* Light theme card */
-.card-light {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  border-radius: 1rem;
-}
-
-/* Dark theme card - Glassmorphism */
-.card-dark {
-  background: rgba(30, 30, 46, 0.6);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 1rem;
-}
-
-/* Card with glow effect (for featured items) */
-.card-glow {
-  background: rgba(30, 30, 46, 0.8);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 36, 26, 0.3);
-  box-shadow: 0 0 20px rgba(0, 36, 26, 0.15);
-  border-radius: 1rem;
-}
-```
-
-> **Design Upgrade**: Glassmorphism 2.0 uses backdrop-blur with subtle 1px borders (white at 10% opacity) instead of heavy shadows. This creates depth and hierarchy without visual noise.
-
-### Tailwind Card Classes
-```jsx
-// Dark theme glassmorphism card
-<div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-
-// Light theme card
-<div className="bg-white/80 backdrop-blur-lg border border-black/5 rounded-2xl p-6">
-
-// Featured/glow card
-<div className="bg-slate-800/80 backdrop-blur-xl border border-pierre-violet/30 shadow-[0_0_20px_rgba(0,36,26,0.15)] rounded-2xl p-6">
-```
-
-### Buttons
-
-**Primary Button** - Gradient with glow effect:
-```css
-.btn-primary {
-  background: linear-gradient(135deg, #00241a 0%, #0d3b2e 100%);
-  color: white;
-  border-radius: 0.75rem;
-  padding: 0.75rem 1.5rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(0, 36, 26, 0.25);
-}
-
-.btn-primary:hover {
-  box-shadow: 0 6px 20px rgba(0, 36, 26, 0.4);
-  transform: translateY(-1px);
-}
-```
-
-**Pillar Buttons** - Semantic actions with glow:
-- Activity: Sage for fitness-related actions (glow: `rgba(15, 125, 104, 0.3)`)
-- Nutrition: Bronze for food-related actions (glow: `rgba(176, 131, 38, 0.3)`)
-- Recovery: Slate for rest/sleep-related actions (glow: `rgba(62, 114, 131, 0.3)`)
-
-**Tailwind Button Classes**:
-```jsx
-// Primary gradient button
-<button className="bg-gradient-to-r from-pierre-violet to-pierre-cyan text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-pierre-violet/25 hover:shadow-xl hover:shadow-pierre-violet/40 hover:-translate-y-0.5 transition-all">
-
-// Activity button
-<button className="bg-pierre-activity text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-sage-500/25 hover:shadow-sage-500/40 transition-all">
-```
-
-### Status Indicators
-- Connected/Active: Sage (`#0f7d68`)
-- Warning/Pending: Bronze (`#b08326`)
-- Error/Disconnected: Red (`#EF4444`)
-- Info/Processing: Cyan (`#0d3b2e`)
-
-### Three Pillar Badges
-When displaying data from different fitness domains:
-```jsx
-<Badge variant="activity">Running</Badge>   // Sage
-<Badge variant="nutrition">Calories</Badge> // Bronze
-<Badge variant="recovery">Sleep</Badge>     // Slate
-```
-
-## Micro-Interactions
-
-Subtle animations enhance the premium feel:
-
-```css
-/* Hover glow effect */
-.hover-glow {
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
-}
-.hover-glow:hover {
-  box-shadow: 0 0 20px rgba(0, 36, 26, 0.3);
-  transform: translateY(-2px);
-}
-
-/* Pulse animation for active states */
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 36, 26, 0.4); }
-  50% { box-shadow: 0 0 0 8px rgba(0, 36, 26, 0); }
-}
-.pulse-active {
-  animation: pulse-glow 2s infinite;
-}
-
-/* Smooth state transitions */
-.transition-smooth {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-```
-
-### Tailwind Animation Classes
-```jsx
-// Hover lift effect
-className="hover:-translate-y-1 hover:shadow-xl transition-all duration-200"
-
-// Press effect
-className="active:scale-95 transition-transform"
-
-// Loading shimmer
-className="animate-pulse bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700"
-```
-
-## Dashboard Layouts (Bento Grid)
-
-Organize the three pillars using a bento-grid layout:
-
-```jsx
-// Bento grid for dashboard
-<div className="grid grid-cols-4 gap-4 auto-rows-[140px]">
-  {/* Large Activity card - spans 2 cols, 2 rows */}
-  <div className="col-span-2 row-span-2 bg-gradient-to-br from-sage-500/20 to-sage-600/10 ...">
-    Activity
-  </div>
-
-  {/* Nutrition card - spans 2 cols */}
-  <div className="col-span-2 bg-gradient-to-br from-pierre-nutrition/20 to-pierre-nutrition/10 ...">
-    Nutrition
-  </div>
-
-  {/* Recovery card - spans 2 cols */}
-  <div className="col-span-2 bg-gradient-to-br from-pierre-recovery/20 to-pierre-recovery/10 ...">
-    Recovery
-  </div>
-</div>
-```
-
-> **Layout Pattern**: Bento grids allow flexible, magazine-style layouts that work well with the three-pillar system. Each pillar can have variable sizing based on data importance.
-
-## Tailwind Configuration
-
-The brand colors are available in `tailwind.config.js` under the `pierre` namespace:
-
-```js
-// tailwind.config.js
-module.exports = {
-  theme: {
-    extend: {
-      fontFamily: {
-        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Monaco', 'monospace'],
-      },
-      colors: {
-        pierre: {
-          violet: '#00241a', // forest primary (legacy alias name)
-          cyan: '#0d3b2e',
-          activity: '#0f7d68',
-          nutrition: '#b08326',  // bronze
-          recovery: '#3e7283',   // slate
-          dark: '#11130f',
-          slate: '#1d201d',
-        },
-      },
-      backdropBlur: {
-        xs: '2px',
-      },
-      boxShadow: {
-        'glow-violet': '0 0 20px rgba(0, 36, 26, 0.3)',
-        'glow-cyan': '0 0 20px rgba(13, 59, 46, 0.3)',
-        'glow-activity': '0 0 20px rgba(15, 125, 104, 0.3)',
-        'glow-nutrition': '0 0 20px rgba(176, 131, 38, 0.3)',
-        'glow-recovery': '0 0 20px rgba(62, 114, 131, 0.3)',
-      },
-    },
-  },
-}
-```
-
-### Usage Examples
-```jsx
-// Primary
-className="bg-pierre-violet"
-className="bg-pierre-cyan"
-
-// Three Pillars
-className="bg-pierre-activity"  // Sage
-className="bg-pierre-nutrition" // Bronze (dark-mode optimized)
-className="bg-pierre-recovery"  // Slate (dark-mode optimized)
-
-// Neutrals
-className="bg-pierre-dark"
-className="bg-pierre-slate"
-
-// Glow shadows
-className="shadow-glow-violet"
-className="shadow-glow-activity"
-
-// Glassmorphism card
-className="bg-pierre-slate/60 backdrop-blur-xl border border-white/10 rounded-2xl"
-```
+The Google Fonts request, the scale and the roles are in DESIGN.md §3; the
+web loads them from `frontend/index.html`, the phone via `expo-font`.
 
 ## Accessibility
 
-- Maintain minimum 4.5:1 contrast ratio for text
-- Use semantic colors consistently (activity=sage, etc.)
-- Provide text alternatives for color-coded information
-- Logo includes proper ARIA labels and descriptions
+- Body text clears 4.5:1 on every surface tier; DESIGN.md §8 carries the measured table and `DesignTokens.test.ts` re-measures it.
+- Colour is never the only channel: a pillar or status hue is a dot beside a word.
+- The mark is decorative (`aria-hidden`) wherever the wordmark or the chrome already names the app.
 
 ## Provider Agnosticism
 
-Dravr's branding intentionally avoids referencing specific fitness providers (Strava, Fitbit, etc.). The three-pillar system (Activity, Nutrition, Recovery) is universal and provider-neutral.
+Dravr's branding never references a fitness provider. The four-pillar system (Activity, Nutrition, Recovery, Mobility) is universal and provider-neutral; a provider's own colour appears only on its connection tile, marked as a third-party colour.

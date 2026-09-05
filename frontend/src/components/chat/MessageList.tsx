@@ -17,6 +17,7 @@ import {
 import MessageItem from './MessageItem';
 import MessageBubble from './MessageBubble';
 import DaySeparator from './DaySeparator';
+import CoachAvatar from './CoachAvatar';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
@@ -66,11 +67,6 @@ interface MessageListProps {
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;
-}
-
-/** The coach's mark beside a live row — the same one a persisted reply carries. */
-function CoachAvatar({ label }: { label: string }) {
-  return <img src="/dravr-icon.svg" alt={label} className="h-8 w-8 rounded-full" />;
 }
 
 export default function MessageList({

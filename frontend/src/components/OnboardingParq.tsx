@@ -75,7 +75,7 @@ export default function OnboardingParq({
     <OnboardingShell
       heading={userDisplayName ? t('app.obParqGreeting', { name: userDisplayName }) : t('onboarding.parqHeading')}
     >
-      <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
+      <p className="mt-3 text-sm text-on-surface-variant text-center">
         {t('onboarding.parqIntro')}
       </p>
 

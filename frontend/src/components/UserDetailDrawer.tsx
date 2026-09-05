@@ -184,7 +184,7 @@ export default function UserDetailDrawer({
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface-container-low shadow-xl z-50 overflow-y-auto">
+      <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface-container-low z-50 overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-surface-container-low border-b ghost-border px-6 py-4 flex justify-between items-center">
           <h2 className="text-xl font-semibold text-on-surface">User Details</h2>

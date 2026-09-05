@@ -29,7 +29,8 @@ interface IconRailProps {
 }
 
 /**
- * The 72px rail every messenger keeps on the left.
+ * The 72px rail every messenger keeps on the left, on the same paper as the
+ * list beside it — a hairline separates them, not a fill step.
  *
  * The tab list is a real `<ul>` of exactly the destinations the athlete has;
  * the gear and the avatar sit below it, outside the list, so a count of the
@@ -47,9 +48,9 @@ export function IconRail({
   return (
     <aside
       data-testid="icon-rail"
-      className="hidden md:flex fixed left-0 top-0 z-40 h-dvh w-[72px] flex-col items-center border-r ghost-border bg-surface-container py-3"
+      className="hidden md:flex fixed left-0 top-0 z-40 h-dvh w-[72px] flex-col items-center border-r ghost-border bg-surface py-4"
     >
-      <DravrLogo size={36} />
+      <DravrLogo size={40} />
       <nav className="mt-4 flex-1" aria-label={t('shell.mobileNavPrimary')}>
         <ul className="flex flex-col items-center gap-1">
           {tabs.map((tab) => {
@@ -65,22 +66,16 @@ export function IconRail({
                   className={clsx(
                     'relative flex h-11 w-11 items-center justify-center rounded-xl transition-colors focus-ring',
                     active
-                      ? 'bg-primary/15 text-primary'
-                      : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface',
+                      ? 'bg-primary-container text-primary'
+                      : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface',
                   )}
                 >
-                  {active && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute -left-3.5 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-primary"
-                    />
-                  )}
                   {tab.icon}
                   <span className="sr-only">{tab.name}</span>
                   {tab.badge !== undefined && tab.badge > 0 && (
                     <span
                       data-testid="pending-users-badge"
-                      className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-error px-1 text-xs font-semibold text-on-primary"
+                      className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold text-on-primary ring-2 ring-surface"
                     >
                       {tab.badge > 99 ? '99+' : tab.badge}
                     </span>
@@ -100,8 +95,8 @@ export function IconRail({
           className={clsx(
             'flex h-11 w-11 items-center justify-center rounded-xl transition-colors focus-ring',
             settingsActive
-              ? 'bg-primary/15 text-primary'
-              : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface',
+              ? 'bg-primary-container text-primary'
+              : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface',
           )}
         >
           <Settings className="h-5 w-5" aria-hidden="true" />
@@ -113,7 +108,7 @@ export function IconRail({
           title={t('shell.navOpenSettings')}
           className="flex h-11 w-11 items-center justify-center focus-ring rounded-full"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-container text-sm font-semibold text-on-primary-container">
             {userInitial}
           </span>
         </button>

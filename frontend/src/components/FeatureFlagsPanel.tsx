@@ -117,7 +117,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
           return (
             <div
               key={flag.key}
-              className="flex items-start justify-between gap-4 p-3 rounded-md bg-surface-container-high"
+              className="flex items-start justify-between gap-4 p-3 rounded-lg bg-surface-container-low"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -126,8 +126,8 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                     className={
                       'text-xs px-2 py-0.5 rounded-full ' +
                       (effective
-                        ? 'bg-success text-success'
-                        : 'bg-error text-error')
+                        ? 'bg-success/15 text-on-success-container'
+                        : 'bg-error/15 text-error')
                     }
                   >
                     {effective ? 'enabled' : 'disabled'}
@@ -152,7 +152,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                     className={
                       'px-2 py-1 text-xs rounded ' +
                       (effective
-                        ? 'bg-success text-white'
+                        ? 'bg-success text-on-primary'
                         : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high')
                     }
                   >
@@ -165,7 +165,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                     className={
                       'px-2 py-1 text-xs rounded ' +
                       (!effective && flag.storedRow != null
-                        ? 'bg-error text-white'
+                        ? 'bg-error text-on-error'
                         : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high')
                     }
                   >

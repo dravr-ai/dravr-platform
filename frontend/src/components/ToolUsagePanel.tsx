@@ -85,7 +85,7 @@ export default function ToolUsagePanel() {
                 onClick={() => setTimeRange(numValue)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   timeRange === numValue
-                    ? 'bg-primary text-on-primary shadow-sm'
+                    ? 'bg-primary text-on-primary'
                     : 'text-on-surface-variant hover:text-on-surface'
                 }`}
               >

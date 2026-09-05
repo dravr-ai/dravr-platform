@@ -1,4 +1,4 @@
-// ABOUTME: Dismissible banner nudging the user to connect a fitness provider.
+// ABOUTME: Dismissible one-line nudge to connect a fitness provider — a hairline row, not a boxed card
 // ABOUTME: Shown on coach screens when no provider is connected; routes to the connections pane.
 
 import { useState } from 'react';
@@ -31,7 +31,7 @@ export function ConnectProviderBanner({ onNavigate }: { onNavigate: (route: stri
   return (
     <div
       data-testid="connect-provider-banner"
-      className="mb-4 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3"
+      className="mb-2 flex items-center gap-3 border-b ghost-border py-2"
     >
       <svg className="w-5 h-5 flex-shrink-0 text-primary" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
@@ -45,7 +45,7 @@ export function ConnectProviderBanner({ onNavigate }: { onNavigate: (route: stri
       <button
         type="button"
         onClick={() => onNavigate(CONNECTIONS_ROUTE)}
-        className="btn-base btn-primary flex-shrink-0 min-h-[44px] px-4 text-sm"
+        className="btn-base btn-tertiary flex-shrink-0 min-h-[44px] px-2 text-sm"
       >
         {t('shell.connectBannerAction')}
       </button>

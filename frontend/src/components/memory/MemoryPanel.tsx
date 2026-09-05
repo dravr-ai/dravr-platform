@@ -104,7 +104,7 @@ export default function MemoryPanel() {
             ring and its own type, and the two clients then answer the same
             question with two different widgets. */}
         <div className="mt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-outline">
+          <p className="text-xs font-medium text-outline">
             {t('shell.memoryFilterByKind')}
           </p>
           <div

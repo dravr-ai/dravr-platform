@@ -159,7 +159,7 @@ function ChartView({ scene }: { scene: Scene }) {
           ))}
         </ul>
       )}
-      <p className="mt-1 text-[11px] text-on-surface-variant">
+      <p className="mt-1 text-xs text-on-surface-variant">
         source: {scene.source_tool}
       </p>
     </figure>
@@ -182,7 +182,7 @@ function SceneTable({ view }: { view: TableView }) {
               {view.columns.map((column, i) => (
                 <th
                   key={column}
-                  className={`border-b border-outline-variant px-3 py-2 text-xs font-medium uppercase tracking-wide text-on-surface-variant ${
+                  className={`border-b border-outline-variant px-3 py-2 text-xs font-medium text-on-surface-variant ${
                     view.alignments[i] === 'right' ? 'text-right' : 'text-left'
                   }`}
                 >
@@ -211,7 +211,7 @@ function SceneTable({ view }: { view: TableView }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-1 text-[11px] text-on-surface-variant">
+      <p className="mt-1 text-xs text-on-surface-variant">
         source: {view.source_tool}
       </p>
     </figure>

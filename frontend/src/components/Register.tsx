@@ -58,18 +58,15 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
   return (
     <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
-        {/* Card with glassmorphism and gradient accent bar */}
+        {/* The one card language: white, a hairline, no strip */}
         <div
-          className="rounded-xl border ghost-border overflow-hidden relative bg-surface-container"
+          className="rounded-xl border ghost-border overflow-hidden relative bg-surface-container-lowest"
         >
-          {/* Gradient accent bar at top */}
-          <div className="h-1 w-full boreal-hero-gradient" />
-
           <div className="px-8 py-10 space-y-6">
             {/* Logo and brand */}
             <div className="flex flex-col items-center">
-              <DravrLogo size={80} />
-              <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
+              <DravrLogo size={64} />
+              <h1 className="mt-4 font-display text-2xl font-semibold text-on-surface">
                 {t('auth.createAccountTitle')}
               </h1>
               <p className="mt-1 text-sm text-on-surface-variant">
@@ -149,7 +146,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 type="submit"
                 variant="gradient"
                 loading={isLoading}
-                className="w-full shadow-ambient"
+                className="w-full"
               >
                 {isLoading ? t('auth.creatingAccount') : t('auth.createAccountButton')}
               </Button>

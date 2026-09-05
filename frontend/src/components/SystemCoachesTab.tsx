@@ -261,8 +261,7 @@ export default function SystemCoachesTab() {
             {coaches.map((coach) => (
               <div
                 key={coach.id}
-                className="cursor-pointer hover:border-white/30 transition-all border-l-4 card-dark"
-                style={{ borderLeftColor: getCategoryColor(coach.category) }}
+                className="cursor-pointer hover:border-primary/40 transition-colors card-dark"
                 onClick={() => setSelectedCoach(coach)}
               >
                 <div className="flex items-start justify-between mb-3">
@@ -277,7 +276,7 @@ export default function SystemCoachesTab() {
                       </span>
                       {coach.source && coach.source !== 'custom' && (
                         <span className={clsx(
-                          'inline-block px-1.5 py-0.5 text-[10px] font-medium rounded',
+                          'inline-block px-1.5 py-0.5 text-xs font-medium rounded',
                           coach.source === 'contremaitre'
                             ? 'bg-activity/10 text-on-activity-container'
                             : 'bg-on-surface-variant/10 text-on-surface-variant'
@@ -611,7 +610,7 @@ export default function SystemCoachesTab() {
       {/* Assign Users Modal */}
       {showAssignModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-surface-container-low rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col border ghost-border">
+          <div className="bg-surface-container-low rounded-xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col border ghost-border">
             <div className="p-6 border-b ghost-border">
               <h3 className="text-lg font-semibold text-on-surface">Assign Users to Coach</h3>
               <p className="text-sm text-on-surface-variant mt-1">
@@ -693,21 +692,6 @@ export default function SystemCoachesTab() {
       )}
     </div>
   );
-}
-
-// Helper function to get category accent color
-function getCategoryColor(category: string): string {
-  const colors: Record<string, string> = {
-    Training: '#3c6658',
-    Nutrition: '#8f6a2e',
-    Recovery: '#5e7a82',
-    Recipes: '#F97316',
-    Mobility: '#7a4d5e',
-    Custom: '#00241a',
-  };
-  // Normalize category to title case for lookup
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return colors[normalized] || colors.Custom;
 }
 
 // Simple token count estimation (roughly 4 chars per token)

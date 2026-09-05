@@ -287,13 +287,13 @@ async function openConversation(page: Page) {
 
 /**
  * The assistant turn, anchored on its OWN author avatar rather than on any
- * text that also appears in the conversation header (whose icon carries an
- * empty alt precisely so it cannot be confused for an author).
+ * text that also appears in the conversation header (whose avatar is
+ * aria-hidden precisely so it cannot be confused for an author).
  */
 function assistantTurn(page: Page) {
   return page
     .locator('[data-testid="message-row"][data-role="assistant"]')
-    .filter({ has: page.locator(`img[alt="${COACH_TITLE}"]`) });
+    .filter({ has: page.getByRole('img', { name: COACH_TITLE, exact: true }) });
 }
 
 test.describe('Chat - the assistant turn is authored by the coach', () => {
@@ -303,9 +303,9 @@ test.describe('Chat - the assistant turn is authored by the coach', () => {
     await openConversation(page);
 
     // The header renders the coach title too, so a bare getByText would pass
-    // even with the bug present. The avatar's alt text is the author element.
-    await expect(page.locator(`img[alt="${COACH_TITLE}"]`)).toHaveCount(1);
-    await expect(page.locator('img[alt="Dravr"]')).toHaveCount(0);
+    // even with the bug present. The avatar's accessible name is the author element.
+    await expect(page.getByRole('img', { name: COACH_TITLE, exact: true })).toHaveCount(1);
+    await expect(page.getByRole('img', { name: 'Dravr', exact: true })).toHaveCount(0);
 
     const turn = assistantTurn(page);
     await expect(turn).toHaveCount(1);

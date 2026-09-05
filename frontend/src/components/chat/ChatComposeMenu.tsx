@@ -98,7 +98,7 @@ export default function ChatComposeMenu({
         aria-expanded={open}
         aria-label={t('chat.newMenuButton')}
         title={t('chat.newMenuButton')}
-        className="rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
+        className="rounded-lg text-on-primary bg-primary hover:bg-primary-hover transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
       >
         <Plus className="w-4 h-4" aria-hidden="true" />
       </button>
@@ -108,7 +108,7 @@ export default function ChatComposeMenu({
           role="menu"
           aria-label={t('chat.startConversationPrompt')}
           data-testid="chat-compose-menu"
-          className="absolute right-0 z-30 mt-2 w-72 max-w-[90vw] rounded-xl border ghost-border bg-surface shadow-lg p-1.5"
+          className="absolute right-0 z-30 mt-2 w-72 max-w-[90vw] rounded-xl border ghost-border bg-surface p-1.5"
         >
           <button type="button" role="menuitem" onClick={() => choose(onNewChat)} className={itemClass}>
             <MessageSquarePlus className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />

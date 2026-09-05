@@ -16,8 +16,6 @@ interface ThreadHeaderProps {
   subtitle?: string | null;
   initials: string;
   avatarSlot: number;
-  /** A coach thread shows the brand mark instead of initials. */
-  showBrandMark: boolean;
   onOpenInfo: () => void;
   /** Present only where the list is hidden behind the thread. */
   onBack?: () => void;
@@ -29,7 +27,6 @@ export default function ThreadHeader({
   subtitle,
   initials,
   avatarSlot,
-  showBrandMark,
   onOpenInfo,
   onBack,
   actions,
@@ -38,7 +35,7 @@ export default function ThreadHeader({
   return (
     <div
       data-testid="thread-header"
-      className="flex items-center gap-2 border-b ghost-border bg-surface-container px-3 py-2 md:px-4"
+      className="flex items-center gap-2 border-b ghost-border bg-surface px-3 py-2 md:px-5"
     >
       {onBack && (
         <button
@@ -46,7 +43,7 @@ export default function ThreadHeader({
           onClick={onBack}
           aria-label={t('chat.backToList')}
           title={t('chat.backToList')}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface focus-ring"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface focus-ring"
         >
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>
@@ -57,21 +54,17 @@ export default function ThreadHeader({
         aria-haspopup="dialog"
         data-testid="conversation-header-title"
         title={title}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-left transition-colors hover:bg-surface-container-high focus-ring"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-left transition-colors hover:bg-surface-container-low focus-ring"
       >
-        {showBrandMark ? (
-          <img src="/dravr-icon.svg" alt="" className="h-10 w-10 shrink-0 rounded-full" />
-        ) : (
-          <span
-            aria-hidden="true"
-            className={clsx(
-              'flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full text-sm font-semibold',
-              avatarSlotClass(avatarSlot),
-            )}
-          >
-            {initials}
-          </span>
-        )}
+        <span
+          aria-hidden="true"
+          className={clsx(
+            'flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full text-sm font-semibold',
+            avatarSlotClass(avatarSlot),
+          )}
+        >
+          {initials}
+        </span>
         <span className="flex min-w-0 flex-col">
           <span className="flex items-center gap-1 text-base font-semibold leading-tight text-on-surface">
             <span className="truncate" data-testid="thread-title">

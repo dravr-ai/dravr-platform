@@ -65,7 +65,7 @@ export default function PasswordResetModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-surface-container-low border ghost-border rounded-xl shadow-xl max-w-md w-full m-4">
+      <div className="bg-surface-container-low border ghost-border rounded-xl max-w-md w-full m-4">
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
             <h2 className="text-xl font-semibold text-on-surface">
@@ -128,7 +128,7 @@ export default function PasswordResetModal({
                 <Button
                   onClick={handleReset}
                   disabled={resetMutation.isPending}
-                  className="flex-1 bg-primary hover:bg-primary-container text-on-primary"
+                  className="flex-1 bg-primary hover:bg-primary-hover text-on-primary"
                 >
                   {resetMutation.isPending ? (
                     <div className="flex items-center justify-center">

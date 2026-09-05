@@ -50,10 +50,8 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
     <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
         <div
-          className="rounded-xl border ghost-border overflow-hidden relative bg-surface-container"
+          className="rounded-xl border ghost-border overflow-hidden relative bg-surface-container-lowest"
         >
-          <div className="h-1 w-full boreal-hero-gradient" />
-
           <div className="px-8 py-10 space-y-6">
             <div className="flex flex-col items-center">
               <svg
@@ -106,7 +104,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 type="submit"
                 variant="gradient"
                 loading={isLoading}
-                className="w-full shadow-ambient"
+                className="w-full"
               >
                 {isLoading ? t('auth.sendingCode') : t('auth.sendResetCode')}
               </Button>

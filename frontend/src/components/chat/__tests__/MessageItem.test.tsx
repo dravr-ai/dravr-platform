@@ -36,7 +36,7 @@ describe('MessageItem', () => {
 
       expect(screen.getByText('Dravr')).toBeInTheDocument();
       expect(screen.getByText('This is a test response from Dravr.')).toBeInTheDocument();
-      expect(screen.getByAltText('Dravr')).toBeInTheDocument();
+      expect(screen.getByRole('img', { name: 'Dravr' })).toBeInTheDocument();
     });
 
     it('should render user message with user avatar', () => {

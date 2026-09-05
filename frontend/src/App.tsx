@@ -260,7 +260,7 @@ function AppContent() {
             className="fixed left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4"
             style={{ top: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
           >
-            <div className="bg-activity/20 border border-activity text-on-surface px-4 py-3 rounded-lg shadow-lg backdrop-blur-sm">
+            <div className="bg-activity/20 border border-activity text-on-surface px-4 py-3 rounded-lg backdrop-blur-sm">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">{registrationMessage}</p>
                 <button

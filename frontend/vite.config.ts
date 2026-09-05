@@ -33,7 +33,7 @@ export default defineConfig(({ mode }) => {
         // injected into index.html, because the app has to hold the
         // updateServiceWorker callback to offer the reload at all.
         injectRegister: null,
-        includeAssets: ['dravr-favicon.svg', 'apple-touch-icon.png'],
+        includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
         manifest: {
           // A stable identity, independent of start_url. Without `id` the app's
           // identity IS its start_url, so ever moving the landing route would
@@ -53,8 +53,8 @@ export default defineConfig(({ mode }) => {
           // desktop or tablet PWA honours — a laptop window that refuses to be
           // wider than it is tall. Phones are portrait by habit, not by
           // manifest.
-          background_color: '#00241a',
-          theme_color: '#00241a',
+          background_color: '#f7f6f2',
+          theme_color: '#f7f6f2',
           categories: ['health', 'fitness', 'sports'],
           icons: [
             { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

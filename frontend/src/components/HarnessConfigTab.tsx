@@ -261,7 +261,7 @@ export default function HarnessConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
+        <h3 className="mb-3 text-sm font-semibold text-on-surface-variant">
           Conversation compaction
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -339,7 +339,7 @@ export default function HarnessConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
+        <h3 className="mb-3 text-sm font-semibold text-on-surface-variant">
           Response text guardrails
         </h3>
         <div className="space-y-4">
@@ -429,7 +429,7 @@ export default function HarnessConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
+        <h3 className="mb-3 text-sm font-semibold text-on-surface-variant">
           Claim verification
         </h3>
         <label className="flex items-start gap-3 text-sm">

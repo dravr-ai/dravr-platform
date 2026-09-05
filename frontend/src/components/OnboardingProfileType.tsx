@@ -76,7 +76,7 @@ export default function OnboardingProfileType({
           : t('onboarding.welcomeToDravr')
       }
     >
-      <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
+      <p className="mt-3 text-sm text-on-surface-variant text-center">
         {t('onboarding.profileTypeIntro')}
       </p>
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -122,7 +122,7 @@ function ChoiceCard({
       className="flex flex-col items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-low px-5 py-5 text-left transition-colors hover:border-primary hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-60"
     >
       <span className="font-display font-semibold text-base text-on-surface">{title}</span>
-      <span className="text-sm text-on-surface-variant font-label">{description}</span>
+      <span className="text-sm text-on-surface-variant">{description}</span>
       {busy ? (
         <span className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
           <span className="pierre-spinner w-4 h-4 border-on-surface border-t-transparent" />

@@ -77,7 +77,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label={t('discover.coachLoadFailed')}>
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative bg-surface rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
+        <div className="relative bg-surface rounded-2xl max-w-sm w-full mx-4 p-6 text-center">
           <h2 className="text-lg font-semibold text-on-surface mb-2">{t('discover.coachLoadFailedTitle')}</h2>
           <p className="text-sm text-on-surface-variant mb-4">
             {error instanceof Error && error.message ? error.message : t('discover.coachDetailMissing')}

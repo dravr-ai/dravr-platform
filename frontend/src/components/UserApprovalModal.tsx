@@ -69,7 +69,7 @@ export default function UserApprovalModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-surface-container-low rounded-lg shadow-xl max-w-md w-full m-4 border ghost-border">
+      <div className="bg-surface-container-low rounded-lg max-w-md w-full m-4 border ghost-border">
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
             <h2 className="text-xl font-semibold text-on-surface">

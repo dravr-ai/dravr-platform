@@ -28,6 +28,7 @@ import {
 import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
 import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
+import CoachAvatar from './CoachAvatar';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import MessageBubble from './MessageBubble';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
@@ -456,7 +457,7 @@ const MessageItem = memo(function MessageItem({
       <MessageBubble
         side="assistant"
         authorLabel={author}
-        avatar={<img src="/dravr-icon.svg" alt={author} className="h-8 w-8 rounded-full" />}
+        avatar={<CoachAvatar label={author} />}
         timestamp={timestamp}
         groupStart={groupStart}
         finishReason={message.finish_reason}

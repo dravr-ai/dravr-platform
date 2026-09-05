@@ -122,17 +122,17 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-activity">{dailyActive}</div>
           <div className="text-sm text-on-surface-variant">Daily Active</div>
-          <div className="text-[10px] text-on-surface-variant">Last 24h</div>
+          <div className="text-xs text-on-surface-variant">Last 24h</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary-container">{weeklyActive}</div>
+          <div className="text-2xl font-bold text-primary">{weeklyActive}</div>
           <div className="text-sm text-on-surface-variant">Weekly Active</div>
-          <div className="text-[10px] text-on-surface-variant">Last 7d</div>
+          <div className="text-xs text-on-surface-variant">Last 7d</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-primary">{monthlyActive}</div>
           <div className="text-sm text-on-surface-variant">Monthly Active</div>
-          <div className="text-[10px] text-on-surface-variant">Last 30d</div>
+          <div className="text-xs text-on-surface-variant">Last 30d</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-outline">{dormant}</div>
@@ -154,10 +154,10 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
               <table className="min-w-full divide-y divide-white/10">
                 <thead className="bg-surface-container-low">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">#</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">Coach</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">Category</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider" title="Coach system-prompt size (chars), proxy for setup cost — not real per-coach consumption">Prompt Size</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">#</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">Coach</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">Category</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant" title="Coach system-prompt size (chars), proxy for setup cost — not real per-coach consumption">Prompt Size</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">

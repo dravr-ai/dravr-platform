@@ -64,7 +64,7 @@ export default function CoachFormModal({
         onClick={onClose}
       />
       {/* Modal Content */}
-      <div className="relative bg-surface rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           {/* Close button */}
           <button

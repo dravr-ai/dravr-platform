@@ -146,7 +146,7 @@ export default function ClaimVerdictsTab() {
               key={key}
               className="rounded-lg border border-outline-variant bg-surface-container p-3"
             >
-              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+              <div className="text-xs text-on-surface-variant">
                 {key}
               </div>
               <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -205,22 +205,22 @@ export default function ClaimVerdictsTab() {
             <table className="min-w-full divide-y divide-outline-variant">
               <thead className="bg-surface-container">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Claim
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Status
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Strength
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Category
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Layer
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     When
                   </th>
                 </tr>

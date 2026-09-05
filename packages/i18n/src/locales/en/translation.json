@@ -33,6 +33,7 @@
     "descriptionRequired": "Description *",
     "documentationUrl": "Documentation URL",
     "emptyBody": "Register your first app to enable secure agent-to-agent communication with AI assistants and third-party integrations.",
+    "secretShownOnce": "The client secret and API key are shown once, at registration.",
     "emptyCta": "Register Your First App",
     "emptyTitle": "No Connected Apps Yet",
     "hideCredentials": "Hide Credentials",

@@ -80,8 +80,8 @@ export default function ChatEmptyState({
       className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10"
       data-testid="chat-empty-state"
     >
-      <div className="flex w-full max-w-md flex-col items-center rounded-xl border ghost-border bg-surface-container-lowest px-8 py-10 text-center shadow-card">
-        <DravrLogo size={72} />
+      <div className="flex w-full max-w-md flex-col items-center rounded-xl border ghost-border bg-surface-container-lowest px-8 py-10 text-center">
+        <DravrLogo size={64} />
         <h2 className="mt-6 font-display text-xl font-semibold text-on-surface">
           {t('chat.emptyStatePrompt')}
         </h2>

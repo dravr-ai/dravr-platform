@@ -184,7 +184,7 @@ const ConversationItem = memo(function ConversationItem({
   const avatar = (
     <div
       className={clsx(
-        'flex h-12 w-12 flex-shrink-0 select-none items-center justify-center rounded-full text-base font-semibold',
+        'flex h-11 w-11 flex-shrink-0 select-none items-center justify-center rounded-full text-base font-semibold',
         avatarSlotClass(row.avatarSlot),
       )}
       data-testid="conversation-avatar"
@@ -197,7 +197,7 @@ const ConversationItem = memo(function ConversationItem({
   if (isEditing) {
     return (
       <li
-        className="flex items-center gap-3 bg-surface-container-high px-3 py-2"
+        className="flex items-center gap-3 bg-surface-container-low px-5 py-2"
         data-testid="conversation-row"
         data-conversation-id={row.id}
       >
@@ -242,8 +242,8 @@ const ConversationItem = memo(function ConversationItem({
         onClick={onSelect}
         aria-current={isSelected ? 'true' : undefined}
         className={clsx(
-          'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors min-h-[72px] focus-ring',
-          isSelected ? 'bg-surface-container-high' : 'hover:bg-surface-container-low',
+          'flex w-full items-center gap-3 px-5 py-2 text-left transition-colors min-h-[72px] focus-ring',
+          isSelected ? 'bg-surface-container-low' : 'hover:bg-surface-container-low/60',
         )}
       >
         {avatar}

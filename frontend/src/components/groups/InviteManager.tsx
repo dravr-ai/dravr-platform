@@ -234,7 +234,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                     <Link2 className="w-4 h-4 text-primary flex-shrink-0" />
                     <code className="text-sm text-on-surface font-mono truncate">{invite.code}</code>
                     {invite.kind === 'coach' && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-primary/20 text-primary rounded-full">
+                      <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
                         <UserCog className="w-3 h-3" />
                         {t('groups.coach')}
                       </span>

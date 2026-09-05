@@ -90,7 +90,7 @@ export default function CoachStoreManagement() {
         <button
           onClick={() => setActiveTab('review')}
           className={clsx(
-            'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
+            'bg-surface-container-lowest border rounded-xl p-5 text-left transition-all',
             activeTab === 'review'
               ? 'border-primary/50 ring-1 ring-primary/30'
               : 'ghost-border hover:border-primary/30'
@@ -122,7 +122,7 @@ export default function CoachStoreManagement() {
         <button
           onClick={() => setActiveTab('published')}
           className={clsx(
-            'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
+            'bg-surface-container-lowest border rounded-xl p-5 text-left transition-all',
             activeTab === 'published'
               ? 'border-activity/50 ring-1 ring-activity/30'
               : 'ghost-border hover:border-activity/30'
@@ -155,10 +155,10 @@ export default function CoachStoreManagement() {
         </button>
 
         {/* Total Installs */}
-        <div className="bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-5">
+        <div className="bg-surface-container-lowest border ghost-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-primary-container/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 rounded-lg bg-primary-container flex items-center justify-center">
+              <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
             </div>
@@ -177,7 +177,7 @@ export default function CoachStoreManagement() {
         <button
           onClick={() => setActiveTab('rejected')}
           className={clsx(
-            'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
+            'bg-surface-container-lowest border rounded-xl p-5 text-left transition-all',
             activeTab === 'rejected'
               ? 'border-nutrition/50 ring-1 ring-nutrition/30'
               : 'ghost-border hover:border-nutrition/30'

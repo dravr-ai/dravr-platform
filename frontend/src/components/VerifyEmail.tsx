@@ -81,15 +81,13 @@ export default function VerifyEmail({
   const showResend = status === 'invalid' || status === 'error';
 
   return (
-    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
         <Card className="overflow-hidden">
-          <div className="h-1 w-full boreal-hero-gradient" />
-
           <div className="px-8 py-10">
             <div className="flex flex-col items-center text-center">
               <DravrLogo size={64} />
-              <h1 className="mt-6 text-xl font-bold text-on-surface">{copy.heading}</h1>
+              <h1 className="mt-6 font-display text-2xl font-semibold text-on-surface">{copy.heading}</h1>
               <p className="mt-3 text-sm text-on-surface-variant max-w-sm">{copy.body}</p>
             </div>
 

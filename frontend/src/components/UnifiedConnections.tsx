@@ -37,7 +37,7 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-surface-container-low rounded-lg shadow-xl max-w-2xl mx-4 w-full p-6 border ghost-border">
+      <div className="bg-surface-container-low rounded-lg max-w-2xl mx-4 w-full p-6 border ghost-border">
         <div className="mb-6">
           <h3 className="text-lg font-semibold text-on-surface">
             API Token Generated Successfully
@@ -78,7 +78,7 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
                 className="absolute top-2 right-2"
                 onClick={copyToClipboard}
               >
-                {copied ? '✓ Copied!' : 'Copy'}
+                {copied ? 'Copied' : 'Copy'}
               </Button>
             </div>
           </div>
@@ -139,7 +139,6 @@ export default function UnifiedConnections() {
               setErrorMessage(null);
             }}
           >
-            <span>🔑</span>
             <span>API Tokens</span>
           </button>
         )}
@@ -152,7 +151,6 @@ export default function UnifiedConnections() {
             setErrorMessage(null);
           }}
         >
-          <span>🤖</span>
           <span>Connected Apps</span>
         </button>
       </nav>

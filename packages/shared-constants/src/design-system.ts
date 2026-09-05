@@ -9,10 +9,12 @@
  * system color scheme is light. Values mirror docs/design/boreal-tokens.reference.css.
  */
 export const BOREAL_LIGHT = {
-  primary: '#00241a',
+  /** Sage-forest — the one accent, legible as text (4.7:1 on the darkest tier) and under white (7.4:1). */
+  primary: '#255f4d',
   onPrimary: '#ffffff',
-  primaryContainer: '#0d3b2e',
-  onPrimaryContainer: '#79a694',
+  /** A tint, not a dense fill: the athlete bubble, the active rail item, an avatar ground. */
+  primaryContainer: '#e1eae5',
+  onPrimaryContainer: '#143d30',
   primaryFixed: '#beedd9',
   primaryFixedDim: '#a3d0be',
   onPrimaryFixed: '#002117',
@@ -35,29 +37,27 @@ export const BOREAL_LIGHT = {
   errorContainer: '#ffdad6',
   onErrorContainer: '#93000a',
 
-  surface: '#f9f9f6',
-  surfaceDim: '#dadad7',
-  surfaceBright: '#f9f9f6',
+  /** Warm paper — the one ground for rail, lists, thread and page. */
+  surface: '#f7f6f2',
+  surfaceDim: '#d7d6d1',
+  surfaceBright: '#f7f6f2',
   surfaceContainerLowest: '#ffffff',
-  surfaceContainerLow: '#eaeae7',
-  surfaceContainer: '#dededb',
-  surfaceContainerHigh: '#d6d6d3',
-  surfaceContainerHighest: '#cfd0cc',
-  surfaceVariant: '#e2e3e0',
-  surfaceTint: '#3c6658',
+  surfaceContainerLow: '#ebeae5',
+  surfaceContainer: '#e0dfda',
+  surfaceContainerHigh: '#d7d6d1',
+  surfaceContainerHighest: '#cfcec9',
+  surfaceVariant: '#e2e1dc',
+  surfaceTint: '#255f4d',
   onSurface: '#1a1c1b',
   onSurfaceVariant: '#414845',
   inverseSurface: '#2f312f',
   inverseOnSurface: '#f1f1ee',
 
-  background: '#f9f9f6',
+  background: '#f7f6f2',
   onBackground: '#1a1c1b',
 
   outline: '#525a55',
   outlineVariant: '#c0c8c3',
-
-  /** Brand ink at text sizes — the wordmark, prose links, brand accents. */
-  brand: '#255f4d',
 } as const;
 
 // ========== BOREAL DARK — tuned variant for mobile OLED night use ==========
@@ -115,9 +115,6 @@ export const BOREAL_DARK = {
 
   outline: '#8a9389',
   outlineVariant: '#414845',
-
-  /** Brand ink at text sizes — the same role `primary` fills on the dark canvas. */
-  brand: '#a3d0be',
 } as const;
 
 /** Color scheme identifier for runtime theme selection. */
@@ -142,9 +139,9 @@ export const BOREAL: Record<ColorScheme, BorealTokens> = {
  * the fields now carry Boreal semantics. Web and mobile both read from here.
  */
 export const PIERRE_COLORS = {
-  /** Deep forest green — primary brand, filled CTAs, wordmark ink. */
+  /** Sage-forest — primary brand, filled CTAs, wordmark ink. */
   violet: BOREAL_LIGHT.primary,
-  /** primary_container — hero gradient endpoint, boreal overlay base. */
+  /** primary_container — the sage tint under the athlete bubble and selections. */
   cyan: BOREAL_LIGHT.primaryContainer,
   /** on_surface ink tone — never pure black. */
   dark: BOREAL_LIGHT.onSurface,
@@ -156,8 +153,9 @@ export const PIERRE_COLORS = {
 
 /**
  * The four fitness pillars retain their semantic identity (activity / nutrition
- * / recovery / mobility) but are reshaded to sit naturally on the surface (#F9F9F6)
- * palette. Values were chosen to meet WCAG AA 4.5:1 contrast against surface.
+ * / recovery / mobility) and are shaded to sit on the paper surface. They are
+ * used as an 8px dot beside a word or as an avatar ground; as text they use
+ * their `on-*-container` ink, which the token test measures over every tier.
  */
 export const PILLAR_COLORS = {
   activity: '#0f7d68',   // sage — Product Tier lift (chroma +~15% over surface_tint)
@@ -235,9 +233,9 @@ export const SURFACE_HIERARCHY = {
 
 /** Surface stack — web body background is `primary` (light canvas). */
 export const BACKGROUND_COLORS = {
-  primary: BOREAL_LIGHT.surface,              // #F9F9F6 — base canvas
-  secondary: BOREAL_LIGHT.surfaceContainerLow,// #EAEAE7 — sections
-  tertiary: BOREAL_LIGHT.surfaceContainer,    // #DEDEDB — elevated surfaces
+  primary: BOREAL_LIGHT.surface,              // #F7F6F2 — the paper ground
+  secondary: BOREAL_LIGHT.surfaceContainerLow,// #EBEAE5 — fields, hover
+  tertiary: BOREAL_LIGHT.surfaceContainer,    // #E0DFDA — pressed
   elevated: BOREAL_LIGHT.surfaceContainerLowest, // #FFFFFF — floating cards
 } as const;
 
@@ -246,7 +244,7 @@ export const TEXT_COLORS = {
   primary: BOREAL_LIGHT.onSurface,         // #1A1C1B — default body copy
   secondary: BOREAL_LIGHT.onSurfaceVariant,// #414845 — muted body copy
   tertiary: BOREAL_LIGHT.outline,          // #525A55 — helper / label
-  accent: BOREAL_LIGHT.primary,            // #00241A — links, active state
+  accent: BOREAL_LIGHT.primary,            // #255F4D — links, active state
 } as const;
 
 /**
@@ -419,15 +417,16 @@ export const BUTTON_GLOW = {
 // ========== TYPOGRAPHY ==========
 
 /**
- * Typography roles from DESIGN.md §3. Space Grotesk carries display/headline
- * + the DRAVR wordmark; Plus Jakarta Sans handles body; Inter serves labels;
- * Newsreader is reserved for editorial serif accents.
+ * Typography roles from DESIGN.md §3. Schibsted Grotesk carries display,
+ * headline and the DRAVR wordmark; Plus Jakarta Sans handles body and labels
+ * alike (there is no separate label face); Newsreader italic is the one
+ * editorial serif line on the auth pages.
  */
 export const TYPOGRAPHY = {
-  display: 'Space Grotesk',
-  headline: 'Space Grotesk',
+  display: 'Schibsted Grotesk',
+  headline: 'Schibsted Grotesk',
   body: 'Plus Jakarta Sans',
-  label: 'Inter',
+  label: 'Plus Jakarta Sans',
   serif: 'Newsreader',
   mono: 'JetBrains Mono',
 } as const;

@@ -21,10 +21,11 @@ The script is dev-only — no build or CI step runs it, so the PNGs are committe
 
 ## Why the master is a raster
 
-The rest of the brand is vector (`dravr-logo.svg`, and the web marks under
-`frontend/`). This mark arrived as a 1024×1024 generative render with no vector
-original, so the pipeline reads the raster directly rather than pretending an
-SVG master exists. Two consequences worth knowing before editing:
+This mark arrived as a 1024×1024 generative render with no vector original,
+so the pipeline reads the raster directly rather than pretending an SVG master
+exists — and so does the web's `frontend/scripts/generate-brand-assets.py`,
+which cuts the in-app marks, the PWA icons and the Apple touch icon from this
+same file. Two consequences worth knowing before editing:
 
 - The master's background is not a flat white (it measures 249–255), so the
   generator floors near-white to transparent instead of a plain inversion.
@@ -38,11 +39,3 @@ silhouettes lose their separation. Rendered at real device sizes, it holds up at
 120px and above. This was accepted deliberately so the favicon and notification
 icon match the App Store icon rather than carrying a second mark; `BRAND.md`
 records the same caution for the Momentum badge.
-
-## Divergence from BRAND.md
-
-`frontend/BRAND.md` documents the **Momentum** ribbon mark as the badge for web,
-server, marketing and mobile alike. As of this change the mobile icon family
-uses this mark instead, while every web and marketing surface still ships
-Momentum. That split is deliberate and currently unreconciled — see the
-"Framing variants" table in `BRAND.md`.

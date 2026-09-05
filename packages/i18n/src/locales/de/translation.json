@@ -33,6 +33,7 @@
     "descriptionRequired": "Beschreibung *",
     "documentationUrl": "Dokumentations-URL",
     "emptyBody": "Registriere deine erste App, um sichere Agent-zu-Agent-Kommunikation mit KI-Assistenten und Drittanbieter-Integrationen zu ermöglichen.",
+    "secretShownOnce": "Client-Secret und API-Schlüssel werden nur einmal angezeigt, bei der Registrierung.",
     "emptyCta": "Erste App registrieren",
     "emptyTitle": "Noch keine verbundenen Apps",
     "hideCredentials": "Zugangsdaten ausblenden",

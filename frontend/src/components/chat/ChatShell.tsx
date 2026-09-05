@@ -28,11 +28,11 @@ export default function ChatShell({ list, thread, hasSelection }: ChatShellProps
   const showList = isDesktop || !hasSelection;
   const showThread = isDesktop || hasSelection;
   return (
-    <div className="flex h-full min-h-0 bg-surface-container-low" data-testid="chat-shell">
+    <div className="flex h-full min-h-0 bg-surface" data-testid="chat-shell">
       {showList && (
         <div
           data-testid="conversation-pane"
-          className="flex min-h-0 w-full shrink-0 flex-col border-r ghost-border bg-surface-container-lowest lg:w-[360px] xl:w-[400px]"
+          className="flex min-h-0 w-full shrink-0 flex-col border-r ghost-border bg-surface lg:w-[360px] xl:w-[400px]"
         >
           {list}
         </div>

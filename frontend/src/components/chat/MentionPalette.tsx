@@ -37,7 +37,7 @@ export default function MentionPalette({
       role="listbox"
       aria-label={t('chat.coachMentionsAria')}
       data-testid="mention-palette"
-      className="mb-2 max-h-64 overflow-y-auto rounded-xl border ghost-border bg-surface-container-low shadow-ambient"
+      className="mb-2 max-h-64 overflow-y-auto rounded-xl border ghost-border bg-surface-container-low"
     >
       {matches.map((candidate, index) => (
         <button

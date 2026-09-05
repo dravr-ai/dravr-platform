@@ -17,6 +17,14 @@ module.exports = {
   ],
   darkMode: 'class',
   theme: {
+    // The one shadow in the system — what floats over the page (menus,
+    // popovers, drawers, modals). A resting card is lifted by its hairline
+    // (DESIGN.md §4), so the stock sm/md/lg/xl scale is retired with it: this
+    // sits outside `extend` to replace the default scale, not add to it.
+    boxShadow: {
+      'floating': 'var(--shadow-floating)',
+      'none': 'none',
+    },
     extend: {
       colors: {
         // ── Boreal MD3 tokens (canonical) ──
@@ -28,9 +36,6 @@ module.exports = {
         'on-primary': 'rgb(var(--color-on-primary) / <alpha-value>)',
         'on-primary-container': 'rgb(var(--color-on-primary-container) / <alpha-value>)',
         'primary-hover': 'rgb(var(--color-primary-hover) / <alpha-value>)',
-        // Brand ink (DESIGN.md §2). An ink token, never a fill: a filled brand
-        // surface is `primary` paired with `on-primary`.
-        brand: 'rgb(var(--color-brand) / <alpha-value>)',
 
         tertiary: {
           DEFAULT: 'rgb(var(--color-tertiary) / <alpha-value>)',
@@ -98,7 +103,7 @@ module.exports = {
         tier: {
           trial: '#8f6a2e',       // warm bronze
           starter: '#3c6658',     // sage
-          professional: '#00241a',// primary
+          professional: '#255f4d',// primary
           enterprise: '#5e7a82',  // muted slate
         },
         'api-blue': '#234e40',
@@ -107,11 +112,14 @@ module.exports = {
         'api-yellow': '#8f6a2e',
       },
       fontFamily: {
-        // Boreal typography stack per DESIGN.md §3
-        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
-        display: ['Space Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
-        headline: ['Space Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
-        label: ['Inter', 'system-ui', 'sans-serif'],
+        // Boreal v2 typography per DESIGN.md §3: Schibsted Grotesk for headings
+        // and the wordmark, Plus Jakarta Sans for everything else (labels
+        // included — there is no separate label face), Newsreader italic for
+        // the one editorial line on the auth pages.
+        sans: ['Plus Jakarta Sans', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        display: ['Schibsted Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
+        headline: ['Schibsted Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
+        serif: ['Newsreader', 'Georgia', 'serif'],
         mono: ['JetBrains Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'monospace'],
       },
       fontSize: {
@@ -132,8 +140,7 @@ module.exports = {
         'body-mobile': ['0.9375rem', { lineHeight: '1.5' }],
       },
       letterSpacing: {
-        brand: '0.15em',   // DRAVR wordmark
-        label: '0.05em',   // tertiary buttons / small caps
+        brand: '0.15em',   // DRAVR wordmark — the only tracked text in the product
       },
       spacing: {
         '1': '0.25rem',
@@ -158,32 +165,6 @@ module.exports = {
         'xl': '0.75rem',
         // `full` (9999px) still available from core for chips only
       },
-      boxShadow: {
-        // Boreal Product Tier elevation stack — two-layer shadows. Reads
-        // from CSS vars so dark mode swaps to the deepened recipe via
-        // `html.dark` overrides in index.css.
-        'card': 'var(--shadow-card)',
-        'card-hover': 'var(--shadow-card-hover)',
-        'floating': 'var(--shadow-floating)',
-        'ambient': 'var(--shadow-card)',
-        // Tailwind sm/md/lg/xl utility scale, tuned to the same two-layer recipe.
-        'sm': '0 1px 2px rgba(26, 28, 27, 0.05)',
-        'md': '0 4px 8px -2px rgba(26, 28, 27, 0.08), 0 2px 4px -1px rgba(26, 28, 27, 0.06)',
-        'lg': '0 12px 24px -6px rgba(26, 28, 27, 0.12), 0 6px 12px -3px rgba(26, 28, 27, 0.08)',
-        'xl': '0 24px 48px -12px rgba(26, 28, 27, 0.18), 0 8px 16px -4px rgba(26, 28, 27, 0.10)',
-        // Legacy glow-* names — kept resolving as the resting card shadow so
-        // call sites compile during the sweep.
-        'glow': 'var(--shadow-card)',
-        'glow-sm': 'var(--shadow-card)',
-        'glow-lg': 'var(--shadow-card-hover)',
-        'glow-violet': 'var(--shadow-card)',
-        'glow-cyan': 'var(--shadow-card)',
-        'glow-activity': 'var(--shadow-card)',
-        'glow-nutrition': 'var(--shadow-card)',
-        'glow-recovery': 'var(--shadow-card)',
-        // Inset ghost border, repointed at the lifted Product Tier opacity.
-        'glass': 'inset 0 0 0 1px rgba(155, 165, 159, 0.40)',
-      },
       // Coach prose runs through @tailwindcss/typography, whose stock palette
       // is Tailwind gray in both schemes. Every prose variable — and its
       // `invert` twin, so `dark:prose-invert` stays inert — reads the Boreal
@@ -194,13 +175,13 @@ module.exports = {
             '--tw-prose-body': 'rgb(var(--color-on-surface))',
             '--tw-prose-headings': 'rgb(var(--color-on-surface))',
             '--tw-prose-lead': 'rgb(var(--color-on-surface-variant))',
-            '--tw-prose-links': 'rgb(var(--color-brand))',
+            '--tw-prose-links': 'rgb(var(--color-primary))',
             '--tw-prose-bold': 'rgb(var(--color-on-surface))',
             '--tw-prose-counters': 'rgb(var(--color-on-surface-variant))',
             '--tw-prose-bullets': 'rgb(var(--color-outline-variant))',
             '--tw-prose-hr': 'var(--ghost-border)',
             '--tw-prose-quotes': 'rgb(var(--color-on-surface))',
-            '--tw-prose-quote-borders': 'rgb(var(--color-brand))',
+            '--tw-prose-quote-borders': 'rgb(var(--color-primary))',
             '--tw-prose-captions': 'rgb(var(--color-on-surface-variant))',
             '--tw-prose-code': 'rgb(var(--color-on-surface))',
             '--tw-prose-pre-code': 'rgb(var(--color-on-surface))',
@@ -210,13 +191,13 @@ module.exports = {
             '--tw-prose-invert-body': 'rgb(var(--color-on-surface))',
             '--tw-prose-invert-headings': 'rgb(var(--color-on-surface))',
             '--tw-prose-invert-lead': 'rgb(var(--color-on-surface-variant))',
-            '--tw-prose-invert-links': 'rgb(var(--color-brand))',
+            '--tw-prose-invert-links': 'rgb(var(--color-primary))',
             '--tw-prose-invert-bold': 'rgb(var(--color-on-surface))',
             '--tw-prose-invert-counters': 'rgb(var(--color-on-surface-variant))',
             '--tw-prose-invert-bullets': 'rgb(var(--color-outline-variant))',
             '--tw-prose-invert-hr': 'var(--ghost-border)',
             '--tw-prose-invert-quotes': 'rgb(var(--color-on-surface))',
-            '--tw-prose-invert-quote-borders': 'rgb(var(--color-brand))',
+            '--tw-prose-invert-quote-borders': 'rgb(var(--color-primary))',
             '--tw-prose-invert-captions': 'rgb(var(--color-on-surface-variant))',
             '--tw-prose-invert-code': 'rgb(var(--color-on-surface))',
             '--tw-prose-invert-pre-code': 'rgb(var(--color-on-surface))',

@@ -40,7 +40,7 @@ const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }
 
 // Default style for unknown providers
 const DEFAULT_STYLE = {
-  brandColor: 'bg-surface-container-low0',
+  brandColor: 'bg-surface-container-low',
   hoverColor: 'hover:border-on-surface-variant',
 };
 
@@ -346,12 +346,12 @@ export default function ProviderConnectionCards({
                     ? 'border-primary'
                     : isNonOAuth
                       ? 'border-outline-variant/20 opacity-60'
-                      : `border-outline-variant/30 ${style.hoverColor} hover:shadow-md`
+                      : `border-outline-variant/30 ${style.hoverColor}`
               }`}
             >
               <div className="flex items-center gap-4">
                 <div
-                  className={`flex-shrink-0 w-12 h-12 rounded-xl ${style.brandColor} flex items-center justify-center text-on-surface shadow-sm`}
+                  className={`flex-shrink-0 w-12 h-12 rounded-xl ${style.brandColor} flex items-center justify-center text-on-surface`}
                 >
                   {isConnecting ? (
                     <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
@@ -409,10 +409,10 @@ export default function ProviderConnectionCards({
         >
           <Card
             variant="dark"
-            className="px-5 py-4 transition-all duration-200 border border-outline-variant/30 hover:border-primary hover:shadow-md"
+            className="px-5 py-4 transition-all duration-200 border border-outline-variant/30 hover:border-primary"
           >
             <div className="flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl boreal-hero-gradient flex items-center justify-center text-on-primary shadow-sm">
+              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container">
                 {isSkipPending ? (
                   <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
                 ) : (

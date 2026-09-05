@@ -106,7 +106,7 @@ export default function ConversationParticipants({
         <div
           role="dialog"
           aria-label={t('chat.participantsAria')}
-          className="absolute right-0 z-20 mt-2 w-80 max-w-[90vw] rounded-xl border ghost-border bg-surface shadow-lg p-3"
+          className="absolute right-0 z-20 mt-2 w-80 max-w-[90vw] rounded-xl border ghost-border bg-surface p-3"
         >
           <ul className="space-y-1 max-h-60 overflow-y-auto" aria-label={t('chat.participantListAria')}>
             {participants.map(p => (

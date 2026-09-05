@@ -176,7 +176,7 @@ export default function NotificationSettingsTab() {
               {pref.enabled && (
                 <button
                   type="button"
-                  className="mt-3 text-xs font-label uppercase tracking-wide text-primary"
+                  className="mt-3 text-xs text-primary"
                   data-testid={`notification-pref-details-${pref.category}`}
                   aria-expanded={isOpen}
                   onClick={() => setExpanded(isOpen ? null : pref.category)}

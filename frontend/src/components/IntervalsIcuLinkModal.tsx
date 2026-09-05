@@ -82,7 +82,7 @@ export default function IntervalsIcuLinkModal({
       <div
         ref={containerRef}
         tabIndex={-1}
-        className="bg-surface-container-highest rounded-2xl border ghost-border shadow-2xl max-w-md w-full mx-4 overflow-hidden"
+        className="bg-surface-container-highest rounded-2xl border ghost-border max-w-md w-full mx-4 overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
@@ -181,7 +181,7 @@ export default function IntervalsIcuLinkModal({
               <button
                 type="submit"
                 disabled={isLoading || !athleteId.trim() || !apiKey.trim()}
-                className="w-full py-3 bg-primary rounded-lg text-on-primary font-medium hover:shadow-lg hover:shadow-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                className="w-full py-3 bg-primary rounded-lg text-on-primary font-medium /40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 {isLoading ? t('shell.intervalsVerifying') : t('shell.intervalsConnectAction')}
               </button>

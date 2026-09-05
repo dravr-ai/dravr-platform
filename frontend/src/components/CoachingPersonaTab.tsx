@@ -121,7 +121,7 @@ export default function CoachingPersonaTab() {
               <div className="flex items-center justify-between gap-3 mb-2">
                 <h3 className="text-base font-semibold text-on-surface">{persona.display_name}</h3>
                 {isSelected && (
-                  <span className="text-xs font-medium text-primary uppercase tracking-wide">
+                  <span className="text-xs font-medium text-primary">
                     {t('common.active')}
                   </span>
                 )}
@@ -144,7 +144,7 @@ export default function CoachingPersonaTab() {
                   logged — the one thing about a persona the athlete cannot
                   infer from how it reads. */}
               <span
-                className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                   persona.enforcement === 'verified'
                     ? 'bg-success/15 text-on-success-container'
                     : 'bg-surface-container-high text-on-surface-variant'

@@ -37,9 +37,9 @@ interface BrandLockupProps {
  * forest-ink mark hold on the near-black canvas. `splash-icon.png` is the same
  * artwork with an alpha channel and would sink into that canvas.
  *
- * The wordmark is Space Grotesk SemiBold at `0.15em`, in the `brand` ink, which
- * is the one green legible at text sizes in both schemes: `primary` is
- * `#00241a` in light and reads as black.
+ * The wordmark is Space Grotesk SemiBold at `0.15em`, in the `primary` ink —
+ * sage-forest in light, mint in dark, the one green legible at text sizes in
+ * both schemes.
  */
 export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityLabel }: BrandLockupProps) {
   const colors = useThemeColors();
@@ -48,7 +48,7 @@ export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityL
     fontFamily: 'SpaceGrotesk_SemiBold',
     fontSize: size * 0.72,
     letterSpacing: size * 0.72 * BRAND_TRACKING_RATIO,
-    color: colors.brand,
+    color: colors.text.accent,
   };
 
   return (

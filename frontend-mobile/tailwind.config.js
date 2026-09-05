@@ -139,7 +139,7 @@ module.exports = {
           primary: 'rgb(var(--color-on-surface) / <alpha-value>)',
           secondary: 'rgb(var(--color-on-surface-variant) / <alpha-value>)',
           tertiary: 'rgb(var(--color-outline) / <alpha-value>)',
-          accent: 'rgb(var(--color-brand) / <alpha-value>)',
+          accent: 'rgb(var(--color-primary) / <alpha-value>)',
         },
 
         // Product Tier border opacities — lifted from the 0.08/0.14/0.22 marketing
@@ -149,10 +149,6 @@ module.exports = {
           DEFAULT: 'rgb(var(--color-border) / 0.40)',
           strong: 'rgb(var(--color-border) / 0.55)',
         },
-
-        // Brand ink (DESIGN.md §2). An ink token, never a fill: a filled brand
-        // surface is `primary` paired with `on-primary`.
-        brand: 'rgb(var(--color-brand) / <alpha-value>)',
 
         success: 'rgb(var(--color-success) / <alpha-value>)',
         warning: 'rgb(var(--color-warning) / <alpha-value>)',

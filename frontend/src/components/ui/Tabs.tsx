@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Reusable Tabs component with Pierre design system styling
-// ABOUTME: Supports icons, badges, and active state with violet underline
+// ABOUTME: Reusable Tabs component — the underline variant is the Boreal v2 text-tab language
+// ABOUTME: Sentence-case words with a primary underline on the active one and a mono count beside it
 
 import React, { useCallback } from 'react';
 
@@ -40,11 +40,12 @@ export const Tabs: React.FC<TabsProps> = ({
     [onChange]
   );
 
-  const sizeClasses = {
-    sm: 'text-sm px-3 py-2',
-    md: 'text-sm px-4 py-3',
-    lg: 'text-base px-5 py-4',
-  };
+  // Text tabs carry no horizontal padding: the row's gap spaces them, so the
+  // underline is exactly as wide as the word. The boxed variants keep theirs.
+  const sizeClasses =
+    variant === 'underline'
+      ? { sm: 'text-sm pb-2 pt-1', md: 'text-sm pb-2.5 pt-1', lg: 'text-base pb-3 pt-1' }
+      : { sm: 'text-sm px-3 py-2', md: 'text-sm px-4 py-3', lg: 'text-base px-5 py-4' };
 
   const getTabClasses = (tab: Tab) => {
     const isActive = tab.id === activeTab;
@@ -72,10 +73,10 @@ export const Tabs: React.FC<TabsProps> = ({
 
       case 'underline':
       default:
-        return `${baseClasses} border-b-2 ${
+        return `${baseClasses} -mb-px min-w-[44px] justify-center border-b-2 ${
           isActive
-            ? 'border-primary text-primary'
-            : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline-variant'
+            ? 'border-primary text-on-surface'
+            : 'border-transparent text-on-surface-variant hover:text-on-surface'
         }`;
     }
   };
@@ -85,7 +86,7 @@ export const Tabs: React.FC<TabsProps> = ({
   // whitespace-nowrap + flex-shrink-0 tabs above). Mirrors the pattern already
   // used by StoreScreen / NotificationsPanel category rows.
   const containerClasses = {
-    underline: 'flex border-b ghost-border overflow-x-auto',
+    underline: 'flex gap-5 border-b ghost-border overflow-x-auto',
     pills: 'flex gap-2 p-1 bg-surface-container-low/60 rounded-lg overflow-x-auto',
     bordered: 'flex gap-2 overflow-x-auto',
   };
@@ -106,16 +107,17 @@ export const Tabs: React.FC<TabsProps> = ({
           <span>{tab.label}</span>
           {tab.badge !== undefined && (
             <span
-              className={`
-                px-2 py-0.5 text-xs font-semibold rounded-full
-                ${
-                  tab.id === activeTab
-                    ? variant === 'pills'
-                      ? 'bg-surface-container-highest text-on-surface'
-                      : 'bg-primary/10 text-primary'
-                    : 'bg-surface-container-high text-on-surface-variant'
-                }
-              `}
+              className={
+                variant === 'underline'
+                  ? 'font-mono text-xs text-outline'
+                  : `px-2 py-0.5 text-xs font-semibold rounded-full ${
+                      tab.id === activeTab
+                        ? variant === 'pills'
+                          ? 'bg-surface-container-highest text-on-surface'
+                          : 'bg-primary-container text-on-primary-container'
+                        : 'bg-surface-container-high text-on-surface-variant'
+                    }`
+              }
             >
               {tab.badge}
             </span>

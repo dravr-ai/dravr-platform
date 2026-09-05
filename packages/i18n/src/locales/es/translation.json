@@ -33,6 +33,7 @@
     "descriptionRequired": "Descripción *",
     "documentationUrl": "URL de la documentación",
     "emptyBody": "Registra tu primera app para habilitar la comunicación segura entre agentes con asistentes de IA e integraciones de terceros.",
+    "secretShownOnce": "El secreto de cliente y la clave API se muestran una sola vez, al registrarse.",
     "emptyCta": "Registrar tu primera app",
     "emptyTitle": "Aún no hay apps conectadas",
     "hideCredentials": "Ocultar credenciales",

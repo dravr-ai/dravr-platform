@@ -66,7 +66,7 @@ export default function OnboardingAboutYou({
     <OnboardingShell
       heading={userDisplayName ? t('app.obTellMeGreeting', { name: userDisplayName }) : t('onboarding.tellMeAboutTraining')}
     >
-      <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
+      <p className="mt-3 text-sm text-on-surface-variant text-center">
         {t('onboarding.aboutYouHint')}
       </p>
 

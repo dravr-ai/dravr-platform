@@ -53,16 +53,19 @@ describe('Boreal editorial form fields', () => {
         expect(field.className).not.toContain('bg-surface-container-low');
       });
 
-      it('renders the small-caps editorial label', () => {
+      it('renders the sentence-case label in the body face', () => {
         c.render();
         // Label is associated via htmlFor/id — getByLabelText above already
-        // proves the wiring; here we pin the typography.
+        // proves the wiring; here we pin the typography. Boreal v2 retired the
+        // 11px tracked caps: the only tracked text in the product is the wordmark.
         const label = document.querySelector('label');
         expect(label).not.toBeNull();
-        expect(label?.className).toContain('uppercase');
-        expect(label?.className).toContain('text-[11px]');
-        expect(label?.className).toContain('font-label');
-        expect(label?.style.letterSpacing).toBe('0.08em');
+        expect(label?.className).toContain('text-sm');
+        expect(label?.className).toContain('font-medium');
+        expect(label?.className).toContain('text-on-surface-variant');
+        expect(label?.className).not.toContain('uppercase');
+        expect(label?.className).not.toContain('font-label');
+        expect(label?.style.letterSpacing).toBe('');
       });
     });
   }

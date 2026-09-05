@@ -103,7 +103,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       case 'trial':
         return 'bg-nutrition/20 text-on-nutrition-container border border-nutrition/30';
       case 'standard':
-        return 'bg-primary-container/20 text-primary-container border border-primary-container/30';
+        return 'bg-primary-container text-on-primary-container border border-primary/20';
       case 'professional':
         return 'bg-activity/20 text-on-activity-container border border-activity/30';
       case 'enterprise':
@@ -115,11 +115,11 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
   const getCapabilityBadgeColor = (capability: string) => {
     const colorMap: { [key: string]: string } = {
-      'fitness-data-analysis': 'bg-primary-container/20 text-primary-container border border-primary-container/30',
+      'fitness-data-analysis': 'bg-primary-container text-on-primary-container border border-primary/20',
       'activity-intelligence': 'bg-activity/20 text-on-activity-container border border-activity/30',
       'goal-management': 'bg-primary/20 text-primary border border-primary/30',
       'performance-prediction': 'bg-nutrition/20 text-on-nutrition-container border border-nutrition/30',
-      'training-analytics': 'bg-primary-container/20 text-primary-container border border-primary-container/30',
+      'training-analytics': 'bg-primary-container text-on-primary-container border border-primary/20',
       'provider-integration': 'bg-recovery/20 text-on-recovery-container border border-recovery/30',
     };
     return colorMap[capability] || 'bg-surface-container-high text-on-surface-variant border ghost-border';
@@ -161,7 +161,6 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
     return (
       <Card variant="dark">
         <div className="text-center py-8">
-          <div className="text-error mb-4">❌</div>
           <h3 className="text-lg font-medium text-on-surface mb-2">{t('a2a.loadFailedTitle')}</h3>
           <p className="text-on-surface-variant mb-4">{t('a2a.loadFailedBody')}</p>
           <Button onClick={() => window.location.reload()}>
@@ -175,7 +174,6 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
   if (allClients.length === 0) {
     return (
       <div className="text-center py-16 bg-surface-container-low rounded-lg border-2 border-dashed ghost-border">
-        <div className="text-6xl mb-4">🤖</div>
         <h3 className="text-lg font-semibold text-on-surface mb-2">{t('a2a.emptyTitle')}</h3>
         <p className="text-on-surface-variant mb-6 max-w-md mx-auto">
           {t('a2a.emptyBody')}
@@ -296,7 +294,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       </code>
                     </div>
                     <div className="text-outline text-xs">
-                      ⚠️ Client secret and API key are only shown once during registration
+                      {t('a2a.secretShownOnce')}
                     </div>
                   </div>
                 </div>

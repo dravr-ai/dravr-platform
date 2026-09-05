@@ -65,7 +65,7 @@ function SessionCell({ session, label }: { session: WorkoutSession; label?: stri
   return (
     <div className="mb-1 last:mb-0">
       {label && (
-        <span className="mr-1 rounded bg-surface-container-high px-1 text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
+        <span className="mr-1 rounded bg-surface-container-low px-1 text-xs font-medium text-on-surface-variant">
           {label}
         </span>
       )}
@@ -92,7 +92,7 @@ function DayRow({ day }: { day: WorkoutDay }) {
   const { t } = useTranslation();
   const rest = !day.session && !day.pm_session;
   return (
-    <tr className="border-b border-outline-variant/40 last:border-0">
+    <tr className="border-b ghost-border last:border-0">
       <td className="py-2 pr-3 align-top font-semibold text-on-surface">{day.day}</td>
       <td className="py-2 align-top">
         {rest && <span className="text-on-surface-variant">{t('chat.restDay')}</span>}
@@ -116,9 +116,9 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
   const hasZones = zones.some((z) => typeof z === 'number');
 
   return (
-    <div className="my-2 overflow-hidden rounded-xl border border-outline-variant bg-surface-container">
+    <div className="my-2 overflow-hidden rounded-xl border ghost-border bg-surface">
       {/* Header */}
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-outline-variant bg-surface-container-high px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b ghost-border px-4 py-3">
         <div className="text-sm font-semibold text-on-surface">
           {t('chat.trainingPlanTitle')}
           <span className="ml-2 font-normal text-on-surface-variant">
@@ -126,7 +126,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
           </span>
         </div>
         {plan.lactate_fallback_mode && (
-          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
+          <span className="rounded-full bg-primary-container px-2 py-0.5 text-xs font-medium text-on-primary-container">
             {plan.lactate_fallback_mode.replace('_', '/')} targets
           </span>
         )}
@@ -172,7 +172,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
         {plan.weeks.map((week) => (
           <div key={week.week_index} className="mb-4 last:mb-0">
             {plan.weeks.length > 1 && (
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+              <div className="mb-1 text-xs font-semibold text-on-surface-variant">
                 {t('frag.week')} {week.week_index}
                 {typeof week.ctl_target === 'number' && (
                   <span className="ml-2 font-normal normal-case">{t('frag.ctlTarget')} {week.ctl_target}</span>

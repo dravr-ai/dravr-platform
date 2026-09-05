@@ -114,23 +114,24 @@ describe('ChatTab assistant author label', () => {
     });
   });
 
-  // The assistant avatar's alt text IS the author label (MessageItem renders
-  // `alt={assistantLabel ?? 'Dravr'}`), and the conversation header's own icon
-  // is decorative with alt="". So an alt-text query resolves to exactly the
-  // assistant turn — the header showing the same title cannot satisfy it.
+  // The assistant avatar's accessible name IS the author label (CoachAvatar
+  // renders `role="img"` with `aria-label={assistantLabel ?? 'Dravr'}`), and
+  // the conversation header's own avatar is aria-hidden. So an image-role query
+  // resolves to exactly the assistant turn — the header showing the same title
+  // cannot satisfy it.
   it('labels the assistant turn with the coach title, not the literal Dravr', async () => {
     renderChatTab();
 
-    const avatar = await screen.findByAltText(COACH_TITLE);
+    const avatar = await screen.findByRole('img', { name: COACH_TITLE });
     expect(avatar).toBeInTheDocument();
-    expect(screen.queryByAltText('Dravr')).toBeNull();
+    expect(screen.queryByRole('img', { name: 'Dravr' })).toBeNull();
   });
 
   it('renders the coach title as the visible author name on the assistant turn', async () => {
     renderChatTab();
 
-    const avatar = await screen.findByAltText(COACH_TITLE);
-    // MessageItem: <div flex gap-3><div avatar><img/></div><div body><div>LABEL</div>…
+    const avatar = await screen.findByRole('img', { name: COACH_TITLE });
+    // MessageItem: <div flex gap-3><div avatar><span role=img/></div><div body><div>LABEL</div>…
     const turn = avatar.parentElement?.parentElement as HTMLElement;
     expect(within(turn).getByText(COACH_TITLE)).toBeInTheDocument();
     expect(within(turn).getByText('Your aerobic decoupling held under 5%.')).toBeInTheDocument();
@@ -144,8 +145,8 @@ describe('ChatTab assistant author label', () => {
 
     renderChatTab();
 
-    await waitFor(() => expect(screen.getByAltText('Dravr')).toBeInTheDocument());
-    expect(screen.queryByAltText(COACH_TITLE)).toBeNull();
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Dravr' })).toBeInTheDocument());
+    expect(screen.queryByRole('img', { name: COACH_TITLE })).toBeNull();
   });
 
   it('names the conversation in the header when no coach is attached', async () => {

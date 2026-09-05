@@ -47,7 +47,7 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <Card variant="dark" className="max-w-2xl mx-4 w-full">
         <CardHeader
-          title="🔄 API Token Rotated Successfully"
+          title="API Token Rotated Successfully"
           subtitle="Your new API token is ready"
         />
 
@@ -243,7 +243,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                   onClick={handleRotate}
                   loading={rotateTokenMutation.isPending}
                 >
-                  🔄 Rotate Key
+                  Rotate Key
                 </Button>
                 <Button
                   variant="danger"
@@ -350,7 +350,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center">
-                  <div className="text-2xl font-semibold text-primary-container">
+                  <div className="text-2xl font-semibold text-primary">
                     {stats.total_actions.toLocaleString()}
                   </div>
                   <div className="text-xs text-on-surface-variant">Total Actions</div>

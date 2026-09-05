@@ -128,7 +128,7 @@ export default function CoachFollowupsTab() {
 
         <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Pending
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -136,7 +136,7 @@ export default function CoachFollowupsTab() {
             </div>
           </div>
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Overdue
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -144,7 +144,7 @@ export default function CoachFollowupsTab() {
             </div>
           </div>
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Total fetched
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -191,22 +191,22 @@ export default function CoachFollowupsTab() {
             <table className="min-w-full divide-y divide-outline-variant">
               <thead className="bg-surface-container">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Content
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Due
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Coach
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     User
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     Created
                   </th>
-                  <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-4 py-2 text-right text-xs font-medium text-on-surface-variant">
                     Action
                   </th>
                 </tr>

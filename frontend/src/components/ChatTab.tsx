@@ -860,7 +860,6 @@ export default function ChatTab({
         subtitle={headerSubtitle}
         initials={initialsFor(headerTitle)}
         avatarSlot={activeConversation ? avatarSlot(activeConversation) : 0}
-        showBrandMark={Boolean(activeCoachTitle) && !activeConversation?.group_id}
         onOpenInfo={() => {
           setInfoOpensParticipants(false);
           setInfoOpen(true);

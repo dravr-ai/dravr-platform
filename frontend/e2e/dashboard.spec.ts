@@ -174,21 +174,21 @@ test.describe('Dashboard Navigation', () => {
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Start at Users - check tab is active (has gradient background)
+    // Start at Users - check tab is active (sits on the primary-container tint, DESIGN.md §6)
     const usersTab = page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') });
-    await expect(usersTab).toHaveClass(/bg-gradient/);
+    await expect(usersTab).toHaveClass(/bg-primary-container/);
 
     // Navigate to Connections - check tab becomes active
     await navigateToTab(page, 'Service Tokens');
     const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("Service Tokens")') });
-    await expect(connectionsTab).toHaveClass(/bg-gradient/);
-    await expect(usersTab).not.toHaveClass(/bg-gradient/);
+    await expect(connectionsTab).toHaveClass(/bg-primary-container/);
+    await expect(usersTab).not.toHaveClass(/bg-primary-container/);
 
     // Navigate to Analytics - check tab becomes active
     await navigateToTab(page, 'Analytics');
     const analyticsTab = page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') });
-    await expect(analyticsTab).toHaveClass(/bg-gradient/);
-    await expect(connectionsTab).not.toHaveClass(/bg-gradient/);
+    await expect(analyticsTab).toHaveClass(/bg-primary-container/);
+    await expect(connectionsTab).not.toHaveClass(/bg-primary-container/);
   });
 
   test('highlights active tab in sidebar', async ({ page }) => {
@@ -199,13 +199,13 @@ test.describe('Dashboard Navigation', () => {
 
     // Users tab should be active by default
     const usersButton = page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') });
-    await expect(usersButton).toHaveClass(/bg-gradient/);
+    await expect(usersButton).toHaveClass(/bg-primary-container/);
 
     // Click Analytics and check it becomes active
     await navigateToTab(page, 'Analytics');
     const analyticsButton = page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') });
-    await expect(analyticsButton).toHaveClass(/bg-gradient/);
-    await expect(usersButton).not.toHaveClass(/bg-gradient/);
+    await expect(analyticsButton).toHaveClass(/bg-primary-container/);
+    await expect(usersButton).not.toHaveClass(/bg-primary-container/);
   });
 });
 
@@ -217,8 +217,8 @@ test.describe('Dashboard Sidebar', () => {
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Check for Dravr branding text
-    await expect(page.getByText('Dravr', { exact: true })).toBeVisible();
+    // The sidebar lockup sets the DRAVR wordmark (PRODUCT_WORDMARK), never a translated brand name
+    await expect(page.getByText('DRAVR', { exact: true })).toBeVisible();
   });
 
   test('collapses and expands sidebar', async ({ page }) => {
@@ -235,8 +235,8 @@ test.describe('Dashboard Sidebar', () => {
     // Click to collapse
     await collapseButton.click();
 
-    // Sidebar should be collapsed - branding text should be hidden
-    await expect(page.getByText('Dravr', { exact: true })).not.toBeVisible();
+    // Sidebar should be collapsed - the wordmark should be hidden
+    await expect(page.getByText('DRAVR', { exact: true })).not.toBeVisible();
 
     // Expand button should now be present
     const expandButton = page.locator('button[title="Expand sidebar"]');
@@ -245,8 +245,8 @@ test.describe('Dashboard Sidebar', () => {
     // Click to expand
     await expandButton.click();
 
-    // Branding should be visible again
-    await expect(page.getByText('Dravr', { exact: true })).toBeVisible();
+    // The wordmark should be visible again
+    await expect(page.getByText('DRAVR', { exact: true })).toBeVisible();
   });
 
   test('shows tooltips in collapsed state', async ({ page }) => {

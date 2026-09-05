@@ -17,8 +17,13 @@ in tone:
 
 Both tiers share colors, type, radius, and motion. **The Product Tier adds the
 affordances a dense data UI needs** that an editorial marketing surface does
-not: real card elevation, visible borders, lifted pillar saturation, mandatory
-on-color text pairings.
+not: visible hairline borders, lifted pillar saturation, mandatory on-color
+text pairings.
+
+**Boreal v2 (2026-09).** One paper ground, hairlines instead of fill steps,
+one green that reads as green, Schibsted Grotesk headings, and the Boreal
+Ripple mark on every surface. The direction, the decisions behind it and the
+phased plan live in the team vault under `Design/`; this file is the spec.
 
 ---
 
@@ -26,9 +31,10 @@ on-color text pairings.
 
 | Property | Value |
 |---|---|
-| Brand name (lockup) | DRAVR — `letter-spacing: 0.15em`, `brand` ink |
+| Brand name (lockup) | DRAVR — Schibsted Grotesk 600, `letter-spacing: 0.15em`, `primary` ink |
+| Mark | Boreal Ripple — a boreal treeline reflected into ripple arcs; forest ink on light, mint on dark, no badge (`DravrLogo`, see `BRAND.md`) |
 | Tone | Calm, premium, editorial — never glossy or hype |
-| Motif | Boreal forest at dusk — deep greens, paper-white, warm bronze |
+| Motif | Boreal forest on paper — sage-forest green, warm paper, hairlines |
 
 The brand does not change between tiers. The Product Tier inherits the
 identity and adds discipline for high-density screens.
@@ -41,41 +47,42 @@ identity and adds discipline for high-density screens.
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `primary` | `#00241a` | `#a3d0be` | Filled CTAs, active state |
-| `primary-container` | `#0d3b2e` | `#234e40` | Hero gradient endpoint, dense fills |
+| `primary` | `#255f4d` | `#a3d0be` | The one accent: filled CTAs, the send button, the unread pill, links, the wordmark |
+| `primary-hover` | `#1e5040` | `#8cbaa8` | Hover fill of a filled primary (white text 9.2:1) |
+| `primary-container` | `#e1eae5` | `#234e40` | A tint, never a dense fill: athlete bubble, active rail item, selected tile, avatar ground |
 | `on-primary` | `#ffffff` | `#002117` | **Mandatory** text color on `primary` surfaces |
-| `on-primary-container` | `#79a694` | `#beedd9` | Text on `primary-container` |
-| `brand` | `#255f4d` | `#a3d0be` | Brand **ink**: the DRAVR wordmark, coach-prose links, brand accents |
+| `on-primary-container` | `#143d30` | `#beedd9` | Text on `primary-container` (9.8:1 light, 7.5:1 dark) |
 
 **Dark-on-dark is a bug, never a style choice.** Any element with `bg-primary`
 or any inline `backgroundColor` ≤ `#234e40` MUST use `text-on-primary`
 (`#ffffff` in light, `#002117` in dark). The `.btn-primary` class enforces this
 with `!text-on-primary` so inherited text colors cannot bleed through.
 
-**`brand` is ink, never a fill.** `primary` in light is `#00241a` — a forest
-green so deep it reads as black at text sizes, which left the light theme with
-no visible green anywhere: the wordmark, the coach's prose links and the focus
-accent were all effectively black on white. `brand` is the same forest moved up
-its own tonal ramp (between `PRIMARY_PALETTE` 600 and 500) until it reads as a
-colour, and it clears 4.5:1 against every tier of the light surface stack —
-`#ffffff` 7.4:1 down to `surface-container-highest` 4.8:1. In dark it *is*
-`primary`, which was already legible there. A filled brand surface stays
-`bg-primary` + `text-on-primary`; the rule above is untouched.
+**`primary` is green, and it is the only accent.** The v1 primary (`#00241a`)
+was a forest so deep it read as black at every size, so the green had to live
+in a separate `brand` ink token and every CTA looked black. Sage-forest
+`#255f4d` is that ink promoted: one token carries the fill role (white text
+7.4:1) and the ink role (4.7:1 as text on the darkest light tier, 7.4:1 on
+white). There is no `brand` token any more. Filled primary is for the one call
+to action per view, the send button and the unread pill; everything else that
+is green is the `primary-container` tint or `primary` ink.
 
 ### Surface stack (light)
 
 | Token | Hex | Role |
 |---|---|---|
-| `surface` | `#f9f9f6` | App canvas (body background) |
-| `surface-container-lowest` | `#ffffff` | Cards, modals, popovers |
-| `surface-container-low` | `#eaeae7` | Section fills, input backgrounds, thread canvas |
-| `surface-container` | `#dededb` | Neutral chips, secondary surfaces |
-| `surface-container-high` | `#d6d6d3` | Hover states on neutral chips |
-| `surface-container-highest` | `#cfd0cc` | Pressed states, very dense rows |
+| `surface` | `#f7f6f2` | **The one ground**: rail, list column, thread canvas, every page |
+| `surface-container-lowest` | `#ffffff` | Cards, coach bubbles, popovers, table bodies |
+| `surface-container-low` | `#ebeae5` | Composer and search fields, row hover, the day pill, the login aside |
+| `surface-container` | `#e0dfda` | Pressed states |
+| `surface-container-high` | `#d7d6d1` | Reserved |
+| `surface-container-highest` | `#cfcec9` | Reserved |
 
-Cards sit on **`surface-container-lowest` (pure white) with a 1px Product Tier
-ghost border + two-layer ambient shadow**. The page canvas (`surface`) is
-intentionally a half-step warmer than pure white so cards "lift off" the page.
+Cards sit on `surface-container-lowest` (pure white) with a 1px ghost-border
+hairline and **no shadow**. The page canvas (`surface`) is warm paper, a
+half-step off white, so a card reads as a sheet on it. The rail, the list
+column and the thread canvas all sit on `surface`, separated by hairlines —
+a fill step between panes is the "four greys at once" look v2 retires.
 
 ### Light tier separation
 
@@ -89,9 +96,9 @@ while dark read as a system.
 
 | Pair | Minimum | Measured |
 |---|---|---|
-| Adjacent tiers — `surface`→`…-low`→`…`→`…-high`→`…-highest` | **1.06:1** | 1.14 / 1.12 / 1.08 / 1.06 |
+| Adjacent tiers — `surface`→`…-low`→`…`→`…-high`→`…-highest` | **1.06:1** | 1.11 / 1.11 / 1.09 / 1.08 |
 | A raised surface over the canvas under it — `…-lowest` on `…-low` | **1.18:1** | **1.21:1** |
-| `surface` vs `surface-container-lowest` | — (exempt) | 1.05:1 |
+| `surface` vs `surface-container-lowest` | — (exempt) | 1.08:1 |
 
 The 1.18:1 floor is not invented: it is the separation the **dark** scheme
 already carried for the same pair (`surface-container-high` on
@@ -100,14 +107,13 @@ follows sit — WhatsApp's light thread runs a white bubble on `#efeae2`
 (1.20:1), Telegram's on `#e6ebee` (1.24:1).
 
 The last row is the one deliberate exemption. A card on the page canvas is
-lifted by the ghost border and the two-layer shadow — the Product Tier card
-recipe above — not by its fill, so those two tones stay a half-step apart on
-purpose. Everything that has no border and no shadow under it (chips, the
-composer field, a bubble, a hovered row) answers to the table.
+lifted by the ghost border — the card recipe above — not by its fill, so those
+two tones stay a half-step apart on purpose. Everything that has no border
+under it (the composer field, a bubble, a hovered row) answers to the table.
 
 Body ink (`on-surface`, `#1a1c1b`) clears WCAG AA on every tier of the stack,
-17.1:1 at the top and 11.1:1 at the bottom; `on-surface-variant` clears it at
-6.0:1 in the worst case. `outline` — a *text* role — is what the deeper tiers
+17.3:1 at the top and 10.9:1 at the bottom; `on-surface-variant` clears it at
+5.95:1 in the worst case, and `primary` as text at 4.7:1. `outline` — a *text* role — is what the deeper tiers
 bind, which is why its value tracks this ladder (see below).
 
 ### Pillar accents — Product Tier
@@ -189,15 +195,19 @@ measured 4.25:1 on the canvas and 2.9:1 on the darkest tier.
 
 | Role | Family | Weight | Notes |
 |---|---|---|---|
-| Display, headlines | Space Grotesk | 600–700 | Hero text, page H1, the DRAVR wordmark (600) |
+| Display, headlines | Schibsted Grotesk | 500–600 | Page titles, auth headlines, row and card titles, the DRAVR wordmark (600); `letter-spacing: -0.01em` |
 | Body | Plus Jakarta Sans | 400–500 | All running text |
-| Labels, caps | Inter | 500 | Buttons, chips, table headers, small caps |
-| Serif accent | Newsreader | 400 | Editorial pull-quotes only (sparingly) |
-| Mono | JetBrains Mono | 400 | Code, IDs, raw data |
+| Labels | Plus Jakarta Sans | 500 | Field labels, tabs, buttons, table headers — **sentence case, no tracking**. There is no separate label face. |
+| Serif accent | Newsreader italic | 400 | The one editorial line on the login and onboarding pages, nowhere else |
+| Mono | JetBrains Mono | 400 | Numbers that get compared (TSS, CTL, dates in tables), code, IDs |
 
-**Mobile** uses the same families via `expo-font`. The native font fallback
-chain in `tailwind.config.js` is `'System', 'sans-serif'` so unloaded screens
-still render correctly.
+The wordmark is the only tracked text in the product (`tracking-brand`,
+0.15em). Uppercase tracked labels — the Inter 11px caps of v1 — are retired.
+
+**Mobile** still loads Space Grotesk and Inter via `expo-font`; its switch to
+this pairing is a separate change (see the vault `Design/` plan). The native
+font fallback chain in `tailwind.config.js` is `'System', 'sans-serif'` so
+unloaded screens still render correctly.
 
 ### Scale
 
@@ -218,34 +228,36 @@ Mobile-first responsive variants: `text-h1-mobile`, `text-h2-mobile`,
 
 ## 4. Elevation
 
-The Product Tier replaces the editorial-tier 24px ambient blur (which produced
-"no visible shadow" on cards) with a **two-layer shadow** that gives both edge
-definition and lift. Mirrors the elevation language used by Linear, Stripe
-Dashboard, and Vercel.
+**Hairlines lift; shadows float.** A resting card, a coach bubble, a table, a
+popover at rest — every one of them is a white sheet with a 1px ghost-border
+hairline and no shadow. The one shadow in the system belongs to what floats
+over the page:
 
 | CSS var | Light | Dark | Use |
 |---|---|---|---|
-| `--shadow-card` | `0 1px 2px rgba(26,28,27,.06), 0 1px 3px rgba(26,28,27,.08)` | `0 1px 2px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.40)` | Resting cards |
-| `--shadow-card-hover` | `0 4px 8px -2px rgba(26,28,27,.08), 0 2px 4px -1px rgba(26,28,27,.06)` | `0 4px 8px -2px rgba(0,0,0,.45), 0 2px 4px -1px rgba(0,0,0,.40)` | Hover, focus |
-| `--shadow-floating` | `0 12px 24px -6px rgba(26,28,27,.12), 0 6px 12px -3px rgba(26,28,27,.08)` | `0 12px 24px -6px rgba(0,0,0,.55), 0 6px 12px -3px rgba(0,0,0,.45)` | Modals, drawers, popovers |
+| `--shadow-floating` | `0 12px 24px -6px rgba(26,28,27,.12), 0 6px 12px -3px rgba(26,28,27,.08)` | `0 12px 24px -6px rgba(0,0,0,.55), 0 6px 12px -3px rgba(0,0,0,.45)` | Menus, popovers, drawers, modals |
+
+`shadow-floating` is the only shadow utility Tailwind emits: the config
+replaces the default `sm/md/lg/xl` scale rather than extending it, so a stock
+shadow class is a no-op rather than a regression.
 
 React Native collapses to a single shadow per view. The mobile tokens in
 `packages/shared-constants/src/design-system.ts` export `AMBIENT_SHADOW.card`,
-`.hover`, `.floating` with the strongest spread of the recipe.
+`.hover`, `.floating`; only `.floating` has a web counterpart.
 
 No glow. No violet ring. No backdrop-blur on standard cards (reserved for the
 `boreal-overlay` callout pattern used over photographic backgrounds only).
 
 ### Which channel does the lifting
 
-Every shadow in this system is cast in `on-surface` ink — near-black. That is
-a **light**-scheme instrument: on the near-black dark canvas a black shadow is
+The floating shadow is cast in `on-surface` ink — near-black. That is a
+**light**-scheme instrument: on the near-black dark canvas a black shadow is
 inert, and no opacity rescues it. So the two schemes lift a surface with
 different tools, and a component that reaches for the wrong one ships flat:
 
 | Scheme | What separates a raised surface | What is inert |
 |---|---|---|
-| Light | the **fill step** (§2 "Light tier separation") + the `ghost-border` hairline in `155 165 159` + the two-layer shadow | a pale hairline — invisible on white |
+| Light | the **fill step** (§2 "Light tier separation") + the `ghost-border` hairline in `155 165 159` | a pale hairline — invisible on white |
 | Dark | the **fill step** + the `ghost-border` hairline in `192 200 195` | the shadow — a black halo on a black ground |
 
 The fill step is the half both schemes share, and it is the half that has to be
@@ -264,7 +276,7 @@ a third channel — there is no glow in this system.
 |---|---|---|
 | Primary | `.btn-primary` | Sole CTA per view. `bg-primary !text-on-primary`. |
 | Secondary | `.btn-secondary` | Confirmation, ghost-style with center-expanding underline. |
-| Tertiary | `.btn-tertiary` | Small-caps text-only action (Inter, `tracking-label`). |
+| Tertiary | `.btn-tertiary` | Text-only action in `primary` ink, sentence case, no tracking. |
 | Danger | `.btn-danger` | Destructive — paired with confirmation pattern. |
 | Outline | `.btn-outline` | Inverse of primary for primary-tinted backgrounds. |
 | Size | `.btn-sm`, `.btn-lg` | Override default size. |
@@ -285,9 +297,8 @@ action shortcuts within cards — see the Coach card "Chat" button.
 ```
 
 `.card` = `surface-container-lowest` background, 12px border-radius, 1px
-ghost-border, `--shadow-card` resting elevation, `--shadow-card-hover` on
-hover. The hover transition is 200ms — long enough to be felt, short enough to
-feel responsive.
+ghost-border, no shadow at rest or on hover. A card that has to float over the
+page (a menu, a popover) adds `shadow-floating` itself.
 
 **Variants** (`.card-activity`, `.card-nutrition`, `.card-recovery`,
 `.card-mobility`): tonal washes at 8% opacity over the same card surface. Use
@@ -313,7 +324,7 @@ for inputs floating over photographic backgrounds (rare in product).
 
 **One language, three primitives.** `<Input>`, `<Textarea>` and `<Select>` in
 `frontend/src/components/ui/` are the only form fields. All three render the
-same label (Inter, 11px, uppercase, `0.08em` tracking), the same transparent
+same label (Plus Jakarta Sans 500, 14px, sentence case, no tracking), the same transparent
 field with a 1px bottom rule at radius 0, and the same 12px help/error line.
 Stacking a boxed field beside an underlined one is the drift this system exists
 to prevent — it reads as two products in one card.
@@ -339,6 +350,27 @@ send button. It carries a local `eslint-disable` naming the reason.
 Checkbox, radio, number, file and range have no primitive yet — that is why the
 raw-`<input>` rule is a ratchet rather than a hard zero.
 
+### Page header
+
+Every athlete destination opens the same way (`ui/TabHeader`): the page's
+name in Schibsted Grotesk (`text-xl`, 600), one line under it in
+`on-surface-variant`, the page's own controls on the right (a search, a
+primary action, a filter), a hairline below. No icon square, no gradient.
+Filters under it are **text tabs**: sentence-case words in a row with a 2px
+`primary` underline on the active one, a mono count beside a word when there
+is one, and a 44px minimum target. Pill chips are retired from athlete
+surfaces.
+
+### Auth and onboarding
+
+Login is a paper page: the aside sits on `surface-container-low` with the
+lockup top-left, the mark at 220px and the one serif line in the product
+(Newsreader italic), and nothing on it is pinned to a dark fill — it follows
+the scheme like the form. The other auth pages are one white card with a
+hairline on `surface`, and every onboarding step is a bare column on
+`surface` under a row of small dots and sentence-case step labels. There is
+no gradient strip anywhere.
+
 ### Chat surfaces — the messenger layout
 
 The athlete app is a messenger, and reads like one: WhatsApp Web is the
@@ -348,13 +380,13 @@ then the thread with a back button in its header.
 
 | Region | Light | Dark | Notes |
 |---|---|---|---|
-| Icon rail (72px) — **web only** | `surface-container` | `surface-container-lowest` | Brand mark, one icon per destination (Chat, Discover, Notifications), gear + avatar at the bottom. No name or role text — the name lives at the top of Settings. |
+| Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px, one icon per destination (Chat, Discover, Notifications), gear + avatar at the bottom; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
 | Chat-tab header — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title, then the appearance toggle, the bell and the `+`. The other tabs keep their own titles. |
-| List column (360/400px) | `surface-container-lowest` | `surface` | Title + `+`, a search field, filter chips (All / Unread / Groups / Coaches), then rows. |
-| List row | hover `surface-container-low`, selected `surface-container-high` | same tokens | 48px initials avatar, title + time on line 1, preview + unread pill on line 2, inset ghost-border divider. Unread pill = `bg-primary text-on-primary`. |
-| Thread header | `surface-container` | `surface-container-low` | Avatar, title (the way into the info drawer), one subtitle line, `+`. |
-| Thread canvas | `surface-container-low` | `surface-container-low` | Bubbles on it, a day pill (`surface-container-high`) between days. |
-| Composer bar | `surface-container` with field `surface-container-lowest` | bar `surface-container-low`, field `surface-container-high` | The field must sit a step off its bar in both schemes. |
+| List column (360/400px) | `surface` | `surface` | Title + `+`, a quiet search field (`SearchField`), text tabs (All / Unread / Groups / Coaches) under a primary underline, then rows. A hairline on the right separates it from the thread. |
+| List row | hover `surface-container-low` at 60 %, selected `surface-container-low` | same tokens | 44px initials avatar, title + time on line 1, preview + unread pill on line 2, inset ghost-border divider. Unread pill = `bg-primary text-on-primary`. |
+| Thread header | `surface` | `surface` | Avatar, title (the way into the info drawer), one subtitle line, `+`; a hairline below. |
+| Thread canvas | `surface` | `surface` | Bubbles on it — the coach's on `surface-container-lowest` (light) / `surface-container-high` (dark) with a hairline, the athlete's on `primary-container` — and a day pill on `surface-container-low` between days. |
+| Composer bar | `surface` with field `surface-container-low` | same tokens | A hairline above the bar; the field is the one filled shape on the canvas, so it carries no border, and the send button sits inside it. |
 
 **Mark only on web, mark plus name on the phone — because they are different
 shells.** The rail is a persistent 72px column that never leaves the screen, so
@@ -363,15 +395,15 @@ app this is. The phone has no rail: it has four unlabelled tab glyphs and one
 header per screen, so past the login screen there is nowhere else for identity
 to live. The chat tab's header is that place, and only that one — the wordmark
 on every screen would turn identity back into chrome. Set it the way §1 and §3
-define the lockup: Space Grotesk 600, `letter-spacing: 0.15em`, `brand` ink.
-The mark is self-contained (it brings its own deep-forest badge), so the same
-asset holds on both canvases — 14.9:1 at its darkest against the light one,
-9.5:1 at its lightest ripple against the dark one.
+define the lockup: Schibsted Grotesk 600, `letter-spacing: 0.15em`, `primary` ink.
+The mark carries no badge: `DravrLogo` draws it in forest ink on the paper
+canvas and swaps to mint under `.dark`, so it holds on both grounds without a
+plate of its own.
 
 | Element | Class | Notes |
 |---|---|---|
-| Coach bubble | `.chat-bubble-ai` | Left side. Light: `surface-container-lowest` + ghost-border; dark: `surface-container-high` — a step **above** the dark canvas, where "lowest" would sink below it. `rounded-2xl` with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]`. |
-| Athlete bubble | `.chat-bubble-user` | Right side. Light: `bg-primary text-on-primary`; dark: `primary-container` / `on-primary-container` — mint `primary` on the dark canvas reads as a CTA, not a message. |
+| Coach bubble | `.chat-bubble-ai` | Left side. Light: `surface-container-lowest` + ghost-border on the paper (the documented 1.08 near-pair, lifted by the hairline); dark: `surface-container-high` — a step **above** the dark canvas, where "lowest" would sink below it. `rounded-2xl` with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]`. |
+| Athlete bubble | `.chat-bubble-user` | Right side. `primary-container` / `on-primary-container` in both schemes — a filled `primary` reads as a CTA, not as a message. |
 | Time stamp | inside the bubble, `text-xs` | 24-hour clock in every locale, the same clock the list row shows. |
 | Author line | `text-xs font-semibold text-primary` | Coach's name, on the first bubble of a run only; the athlete's side carries no label (alignment says it). |
 | Actions row | under the bubble | Copy / share / rate / regenerate and model·latency show on hover, focus, or a coarse pointer — never as a permanent line under every reply. |
@@ -415,6 +447,14 @@ Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
 
 Content max-width: 1280px main, 720px reading. Athlete shell: icon rail 72px + list column 360px (`lg`) / 400px (`xl`); operator shell: sidebar 260px, rail 72px when collapsed.
 
+The operator sidebar sits on `surface` behind a hairline, like the athlete
+rail: the lockup at 28px, 12px sentence-case section labels in `outline`,
+the active row on the `primary-container` tint with no side bar, a count
+badge in `primary`, and the collapse control among the footer's icon buttons.
+No accent stripe, no gradient wordmark, no blur. The mobile-web bottom bar
+follows the same rule — `surface`, a hairline above, the active tab in
+`primary` ink with no indicator bar.
+
 ---
 
 ## 7. Motion
@@ -441,7 +481,10 @@ All motion respects `prefers-reduced-motion: reduce`.
 | Tap targets | ≥ 44×44px (mobile and product chrome) |
 | Color encoding | Never the sole channel — pair with icon, label, or position |
 
-Pillar colors meet AA at 4.5:1 against `surface` (`#f9f9f6`).
+Pillar and feedback hues appear as an 8px dot beside a word or as an avatar
+ground; as text they use their `on-*-container` ink, which the token test
+measures over every tier at the /15 tint. Bare `nutrition`/`warning` on
+`surface` is 3.2:1 and is never used as body text.
 
 The surface ladder itself is measured, not assumed:
 `frontend/src/__tests__/DesignTokens.test.ts` computes every ratio in §2 from
@@ -452,24 +495,30 @@ string, so it is identical in all five locales by construction.
 
 ---
 
-## 9. What changed from the previous (Editorial-Tier) docs
+## 9. History
 
-This document supersedes the Pierre Violet/Cyan design system that previously
-lived in this file. That system shipped a dark-glassmorphism aesthetic
-(`#7C3AED` violet, `#06B6D4` cyan, deep-space backgrounds, backdrop-blur
-cards). It was retired in commit `cf8c01d8` when the platform rebranded to
-dravr.ai.
+**Boreal v2 (2026-09).** The Product Tier had grown four visible greys, a
+primary that read as black, three header idioms, a gradient-decorated operator
+shell and a second logo on the phone. The refresh, planned in the team vault
+under `Design/` and landed in seven commits on `feature/boreal-v2`, changed:
 
-Differences from the *Editorial Tier* (dravr.ai marketing site):
-
-| | Editorial | Product (this doc) |
+| | Boreal v1 (Product Tier) | Boreal v2 (this doc) |
 |---|---|---|
-| Card border opacity | 15% | **40%** |
-| Card shadow | 24px ambient blur (visually flat) | **Two-layer crisp elevation** |
-| Pillar saturation | Heavily muted | **~15% chroma lift** |
-| Default body bg | `surface` (pure off-white) | Same, but cards now lift visibly |
-| Pure-color primary text pairing | Convention | **`!text-on-primary` enforced in `.btn-primary`** |
-| Default card radius | 8px (lg) | **12px (xl)** — softer, modern |
+| Ground | rail `surface-container`, thread `…-low`, page `surface`, cards white | **one paper ground** (`surface` `#f7f6f2`), hairlines between panes |
+| Primary | `#00241a` fill + a separate `brand` ink | **`#255f4d`**, one token for fill and ink; `brand` deleted |
+| Athlete bubble | filled `primary` in light | `primary-container` tint in both schemes |
+| Elevation | two-layer shadow on every resting card | **hairline only**; `shadow-floating` for floating layers |
+| Headings | Space Grotesk | **Schibsted Grotesk** |
+| Labels | Inter 11px caps, 0.08em | Plus Jakarta Sans 500, sentence case |
+| Filters | pill chips | **text tabs** with a primary underline |
+| Page header | three idioms | one (`TabHeader`: title, line, actions) |
+| Mark | Momentum ribbon badge (web) vs Boreal Ripple (phone) | **Boreal Ripple everywhere** |
+| Coach avatar | the brand icon | the coach's initials |
+| Status | tinted chips | dot + word |
+| Empty states | emoji and a sad face | one sentence, one action |
 
-The brand identity (forest green primary, Plus Jakarta Sans / Space Grotesk
-type, ambient calm) is preserved.
+**Boreal v1 (2026-06).** Superseded the Pierre Violet/Cyan system (`#7C3AED`
+violet, `#06B6D4` cyan, deep-space backgrounds, backdrop-blur cards), retired
+in commit `cf8c01d8` when the platform rebranded to dravr.ai. It introduced the
+Product Tier over the marketing site's Editorial Tier: 40 % card borders,
+lifted pillar saturation, mandatory on-colour pairings, 12px card radius.

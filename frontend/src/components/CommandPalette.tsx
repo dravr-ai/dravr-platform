@@ -43,7 +43,7 @@ export default function CommandPalette({
       role="listbox"
       aria-label={t('shell.commandPaletteSlashCommands')}
       data-testid="command-palette"
-      className="mb-2 max-h-64 overflow-y-auto rounded-xl border ghost-border bg-surface-container-low shadow-ambient"
+      className="mb-2 max-h-64 overflow-y-auto rounded-xl border ghost-border bg-surface-container-low"
     >
       {matches.map((entry, index) => (
         <button
@@ -68,7 +68,7 @@ export default function CommandPalette({
             )}
           </span>
           <span className="text-xs text-on-surface-variant truncate">{entry.description}</span>
-          <span className="ml-auto text-[10px] font-label uppercase tracking-wide text-outline whitespace-nowrap">
+          <span className="ml-auto text-xs text-outline whitespace-nowrap">
             {domainLabel(entry.domain)}
           </span>
         </button>

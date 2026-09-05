@@ -1,84 +1,45 @@
-// ABOUTME: Shared Dravr brand mark — the "Momentum" badge as an inline SVG React component.
-// ABOUTME: Single source of truth for the in-app logo; replaces the per-screen inline node-graph SVGs.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
-import { useId } from 'react';
+// ABOUTME: Shared Dravr brand mark — the Boreal Ripple mark as a theme-aware image, forest ink on light and mint on dark
+// ABOUTME: Single source of truth for the in-app logo; the assets come from frontend/scripts/generate-brand-assets.py
+
+import { clsx } from 'clsx';
 
 interface DravrLogoProps {
-  /** Rendered width/height in px. Defaults to 48 (sidebar size). */
+  /** Rendered width and height in px. Defaults to 40, the rail size. */
   size?: number;
   className?: string;
 }
 
+/** The generated asset edges, smallest first — see frontend/scripts/generate-brand-assets.py. */
+const ASSET_EDGES = [96, 192, 512] as const;
+
 /**
- * The canonical Dravr mark: three upward "momentum" ribbons rising to a node, on
- * the Boreal forest badge. Self-contained (brings its own background) so it stays
- * legible on light, dark, and green surfaces alike. Gradient ids are namespaced
- * per instance via useId so multiple logos on one page never collide.
+ * The smallest generated asset that is at least twice the rendered size, so a
+ * 2× display never upsamples; anything past 256px draws from the 512 file.
+ */
+function markAssetEdge(size: number): (typeof ASSET_EDGES)[number] {
+  return ASSET_EDGES.find((edge) => edge >= size * 2) ?? ASSET_EDGES[ASSET_EDGES.length - 1];
+}
+
+/**
+ * The canonical Dravr mark: a boreal treeline reflected into ripple arcs, the
+ * same raster master the phone wears as its app icon. It carries no badge and
+ * no gradient — a single ink, forest on the paper surfaces and mint on the dark
+ * canvas, swapped by the `.dark` class like every other token.
  *
  * Rendered as decorative (aria-hidden): every placement sits beside the visible
- * "Dravr" wordmark, so the mark must not be announced a second time.
+ * DRAVR wordmark or inside chrome that already names the app, so the mark must
+ * not be announced a second time.
  */
-export function DravrLogo({ size = 48, className }: DravrLogoProps) {
-  const uid = useId();
-  const bg = `${uid}-bg`;
-  const r1 = `${uid}-r1`;
-  const r2 = `${uid}-r2`;
-  const r3 = `${uid}-r3`;
-  const clip = `${uid}-clip`;
+export function DravrLogo({ size = 40, className }: DravrLogoProps) {
+  const edge = markAssetEdge(size);
+  const box = { width: size, height: size };
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 1024 1024"
-      className={className}
-      aria-hidden="true"
-      focusable="false"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <defs>
-        <linearGradient id={bg} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#00261c" />
-          <stop offset="1" stopColor="#0e4030" />
-        </linearGradient>
-        <linearGradient id={r1} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#5e7a82" stopOpacity="0.25" />
-          <stop offset="1" stopColor="#9bb3bb" />
-        </linearGradient>
-        <linearGradient id={r2} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#79a694" stopOpacity="0.3" />
-          <stop offset="1" stopColor="#b6e0c9" />
-        </linearGradient>
-        <linearGradient id={r3} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#8f6a2e" stopOpacity="0.35" />
-          <stop offset="1" stopColor="#e9d2a3" />
-        </linearGradient>
-        <clipPath id={clip}>
-          <rect width="1024" height="1024" rx="230" />
-        </clipPath>
-      </defs>
-      <g clipPath={`url(#${clip})`}>
-        <rect width="1024" height="1024" fill={`url(#${bg})`} />
-        <circle cx="720" cy="300" r="520" fill="#ffffff" opacity="0.05" />
-        {size <= 48 ? (
-          // Compact: two bold ribbons + a larger node — stays crisp at favicon size.
-          <>
-            <g fill="none" strokeLinecap="round">
-              <path stroke="#9fd4ba" strokeWidth="122" d="M250 650 C470 630 580 540 770 330" />
-              <path stroke="#e3c489" strokeWidth="96" d="M300 800 C500 788 585 705 715 540" />
-            </g>
-            <circle cx="792" cy="300" r="86" fill="#f4f1e8" />
-          </>
-        ) : (
-          <>
-            <g fill="none" strokeLinecap="round">
-              <path stroke={`url(#${r1})`} strokeWidth="70" d="M230 660 C420 660 520 600 720 380" />
-              <path stroke={`url(#${r2})`} strokeWidth="84" d="M250 540 C460 540 600 470 800 250" />
-              <path stroke={`url(#${r3})`} strokeWidth="58" d="M300 780 C460 780 540 730 700 560" />
-            </g>
-            <circle cx="800" cy="250" r="46" fill="#f4f1e8" />
-          </>
-        )}
-      </g>
-    </svg>
+    <span className={clsx('inline-block shrink-0', className)} style={box} aria-hidden="true">
+      <img src={`/brand/mark-ink-${edge}.png`} alt="" width={size} height={size} draggable={false} className="block dark:hidden" />
+      <img src={`/brand/mark-mint-${edge}.png`} alt="" width={size} height={size} draggable={false} className="hidden dark:block" />
+    </span>
   );
 }

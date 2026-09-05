@@ -34,7 +34,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
   return (
     <nav
       aria-label={t('shell.mobileNavPrimary')}
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface-container-low/95 backdrop-blur-boreal border-t ghost-border"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t ghost-border"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       <ul className="flex items-stretch justify-around">
@@ -57,20 +57,14 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
                   {tab.icon}
                   {tab.badge !== undefined && tab.badge > 0 && (
                     <span
-                      className="absolute -top-1 -right-1.5 bg-error text-on-primary text-[10px] rounded-full h-4 min-w-4 px-1 flex items-center justify-center font-bold"
+                      className="absolute -top-1.5 -right-2 bg-primary text-on-primary text-xs rounded-full h-[18px] min-w-[18px] px-1 flex items-center justify-center font-semibold ring-2 ring-surface"
                       aria-label={`${tab.badge} unread`}
                     >
                       {tab.badge > 99 ? '99+' : tab.badge}
                     </span>
                   )}
                 </span>
-                <span className="text-[10px] font-medium leading-none tracking-tight">{tab.name}</span>
-                {active && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full"
-                  />
-                )}
+                <span className="text-xs font-medium leading-none">{tab.name}</span>
               </button>
             </li>
           );
@@ -88,12 +82,12 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
               </svg>
               {drawerHasBadge && (
                 <span
-                  className="absolute -top-1 -right-1.5 bg-error text-on-primary text-[10px] rounded-full h-2.5 w-2.5"
+                  className="absolute -top-1 -right-1.5 bg-primary rounded-full h-2.5 w-2.5 ring-2 ring-surface"
                   aria-hidden="true"
                 />
               )}
             </span>
-            <span className="text-[10px] font-medium leading-none tracking-tight">{t('shell.mobileNavMenu')}</span>
+            <span className="text-xs font-medium leading-none">{t('shell.mobileNavMenu')}</span>
           </button>
         </li>
       </ul>
@@ -224,7 +218,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         aria-modal="true"
         aria-label={t('shell.mobileNavSecondary')}
         className={clsx(
-          'absolute left-0 top-0 bottom-0 w-[78vw] max-w-[320px] bg-surface-container-low border-r ghost-border flex flex-col',
+          'absolute left-0 top-0 bottom-0 w-[78vw] max-w-[320px] bg-surface border-r ghost-border flex flex-col',
           'transition-transform duration-200 ease-out',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
@@ -232,13 +226,13 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
       >
         <header className="flex items-center justify-between px-5 py-4 border-b ghost-border">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-full boreal-hero-gradient flex items-center justify-center flex-shrink-0">
-              <span className="text-sm font-bold text-on-primary">{userInitial}</span>
+            <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0">
+              <span className="text-sm font-semibold text-on-primary-container">{userInitial}</span>
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-on-surface truncate">{userLabel}</p>
               {userRole && (
-                <p className="text-[10px] uppercase tracking-wider text-on-surface-variant">{userRole}</p>
+                <p className="text-xs capitalize text-on-surface-variant">{userRole}</p>
               )}
             </div>
           </div>
@@ -271,14 +265,14 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                       'w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium min-h-[48px]',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                       active
-                        ? 'bg-gradient-to-r from-primary/20 to-primary-container/10 text-primary'
+                        ? 'bg-primary-container text-on-primary-container'
                         : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface',
                     )}
                   >
                     <span className="flex-shrink-0">{tab.icon}</span>
                     <span className="flex-1 text-left">{tab.name}</span>
                     {tab.badge !== undefined && tab.badge > 0 && (
-                      <span className="bg-error text-on-primary text-[10px] rounded-full h-5 min-w-5 px-1.5 flex items-center justify-center font-bold">
+                      <span className="bg-primary text-on-primary text-xs rounded-full h-5 min-w-5 px-1.5 flex items-center justify-center font-semibold">
                         {tab.badge > 99 ? '99+' : tab.badge}
                       </span>
                     )}

@@ -9,13 +9,13 @@ import { AVATAR_SLOTS } from '@pierre/chat-utils';
 /**
  * The avatar palette, indexed by the row model's `avatarSlot`.
  *
- * Six DESIGN.md §2 tokens — the brand pair and the four pillar accents — so a
+ * Six DESIGN.md §2 pairs — the primary tint and its ink, tertiary, and the four pillar accents — so a
  * row's colour follows the theme like every other surface. Its length is
  * pinned to `AVATAR_SLOTS` by test: the shared hash spreads rows over exactly
  * this many slots, and a shorter list would leave a slot with no colour.
  */
 export const AVATAR_SLOT_CLASSES: readonly string[] = [
-  'bg-primary/15 text-primary',
+  'bg-primary-container text-on-primary-container',
   'bg-tertiary/15 text-tertiary',
   'bg-activity/15 text-on-activity-container',
   'bg-nutrition/15 text-on-nutrition-container',

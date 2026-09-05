@@ -102,7 +102,7 @@ function VerdictCard({
       </div>
 
       <section>
-        <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
+        <h4 className="mb-1 text-xs font-semibold text-outline">
           {t('chat.theClaim')}
         </h4>
         <blockquote className="border-l-2 border-primary bg-surface-container-low p-3 text-on-surface">
@@ -112,7 +112,7 @@ function VerdictCard({
 
       {verdict.explanation ? (
         <section>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
+          <h4 className="mb-1 text-xs font-semibold text-outline">
             {t('chat.detectorFindings')}
           </h4>
           <p className="text-on-surface">{verdict.explanation}</p>
@@ -121,7 +121,7 @@ function VerdictCard({
 
       {references.length > 0 ? (
         <section>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
+          <h4 className="mb-1 text-xs font-semibold text-outline">
             {t('chat.evidenceReferences')}
           </h4>
           <ul className="space-y-1">
@@ -136,7 +136,7 @@ function VerdictCard({
 
       {hasProvenance ? (
         <section>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
+          <h4 className="mb-1 text-xs font-semibold text-outline">
             {t('chat.provenanceHeading')}
           </h4>
           <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">

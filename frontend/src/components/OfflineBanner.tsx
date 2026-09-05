@@ -32,7 +32,7 @@ export default function OfflineBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="bg-error text-on-primary px-4 py-2 sticky top-0 z-50 shadow-lg"
+      className="bg-error text-on-primary px-4 py-2 sticky top-0 z-50"
       style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top, 0px))' }}
       data-testid="offline-banner"
     >

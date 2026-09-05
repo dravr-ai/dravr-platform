@@ -49,8 +49,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-[11px] font-medium font-label uppercase text-on-surface-variant mb-2"
-            style={{ letterSpacing: '0.08em' }}
+            className="block text-sm font-medium text-on-surface-variant mb-2"
           >
             {label}
           </label>
@@ -77,9 +76,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             </div>
           )}
         </div>
-        {error && <p className="mt-1.5 text-xs text-error font-label">{error}</p>}
+        {error && <p className="mt-1.5 text-xs text-error">{error}</p>}
         {helpText && !error && (
-          <p className="mt-1.5 text-xs text-outline font-label">{helpText}</p>
+          <p className="mt-1.5 text-xs text-outline">{helpText}</p>
         )}
       </div>
     );

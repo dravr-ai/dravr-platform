@@ -121,7 +121,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
           <div className="max-w-lg w-full">
             {/* Error Card */}
-            <div className="bg-surface-container-low rounded-xl shadow-xl overflow-hidden border border-on-surface">
+            <div className="bg-surface-container-low rounded-xl overflow-hidden border border-on-surface">
               {/* Header with gradient */}
               <div className="h-1.5 w-full bg-error" />
 

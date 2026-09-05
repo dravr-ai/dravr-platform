@@ -120,7 +120,7 @@ export default function EvalHarnessTab() {
 
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Fixture files
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -128,7 +128,7 @@ export default function EvalHarnessTab() {
             </div>
           </div>
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Total cases
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -136,7 +136,7 @@ export default function EvalHarnessTab() {
             </div>
           </div>
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Distinct personas
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -144,7 +144,7 @@ export default function EvalHarnessTab() {
             </div>
           </div>
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
-            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <div className="text-xs text-on-surface-variant">
               Assertions
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
@@ -396,7 +396,7 @@ function FixtureEditorModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       data-testid="fixture-editor-modal"
     >
-      <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl">
+      <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white">
         <div className="border-b border-outline-variant px-6 py-4">
           <h3 className="text-lg font-semibold text-on-surface">
             {state.mode === 'create' ? 'New fixture' : `Edit ${state.name}`}
@@ -527,7 +527,7 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
           </p>
         </div>
         <div className="text-right">
-          <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+          <div className="text-xs text-on-surface-variant">
             Pass rate
           </div>
           <div
@@ -556,7 +556,7 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
         </p>
       ) : (
         <div className="mt-5">
-          <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+          <div className="text-xs text-on-surface-variant">
             Daily drift
           </div>
           <div
@@ -591,7 +591,7 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
               );
             })}
           </div>
-          <div className="mt-1 flex justify-between text-[10px] text-outline">
+          <div className="mt-1 flex justify-between text-xs text-outline">
             <span>{stats.daily[0]?.date}</span>
             <span>{stats.daily[stats.daily.length - 1]?.date}</span>
           </div>
@@ -619,7 +619,7 @@ function StatusPill({ label, count, tone }: StatusPillProps) {
     <div
       className={`rounded-lg border bg-white px-3 py-2 ${toneClasses[tone]}`}
     >
-      <div className="text-[10px] uppercase tracking-wide">{label}</div>
+      <div className="text-xs">{label}</div>
       <div className="text-lg font-semibold">{count}</div>
     </div>
   );

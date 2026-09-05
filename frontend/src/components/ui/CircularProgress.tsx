@@ -94,7 +94,7 @@ export const CircularProgress: React.FC<CircularProgressProps> = ({
             <span className={clsx(
               'text-on-surface-variant',
               size === 'sm' && 'text-[8px]',
-              size === 'md' && 'text-[10px]',
+              size === 'md' && 'text-xs',
               size === 'lg' && 'text-xs'
             )}>
               {label}

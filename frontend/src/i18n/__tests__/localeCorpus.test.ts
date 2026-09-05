@@ -154,8 +154,13 @@ describe('client locale corpus', () => {
     // past the cap: it names the limit and the reset and never prints the
     // comparison. One key, five locales, because a surface gained a state it
     // already had and could not describe (carnet#251).
+    //
+    // 2383 until the Boreal v2 emoji sweep. The A2A client list's "shown once"
+    // notice opened with a warning emoji, which the untranslated scanner read
+    // as decoration and skipped; without it the sentence was a bare English
+    // literal on screen. `a2a.secretShownOnce` is the key it always needed, +1.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2383);
+    expect(reference).toHaveLength(2384);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

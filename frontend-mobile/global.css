@@ -12,12 +12,12 @@
      so they compose with `<alpha-value>` slots in tailwind.config.js.
      ────────────────────────────────────────────────────────────────────── */
   :root {
-    --color-primary: 0 36 26;
-    --color-primary-container: 13 59 46;
+    --color-primary: 37 95 77;
+    --color-primary-container: 225 234 229;
     --color-primary-fixed: 190 237 217;
     --color-primary-fixed-dim: 163 208 190;
     --color-on-primary: 255 255 255;
-    --color-on-primary-container: 121 166 148;
+    --color-on-primary-container: 20 61 48;
 
     --color-tertiary: 3 35 29;
     --color-tertiary-container: 27 57 50;
@@ -30,21 +30,19 @@
     --color-on-error: 255 255 255;
     --color-on-error-container: 147 0 10;
 
-    --color-surface: 249 249 246;
-    --color-surface-dim: 218 218 215;
-    --color-surface-bright: 249 249 246;
-    --color-surface-tint: 60 102 88;
-    --color-surface-variant: 226 227 224;
-    /* The light container ladder separates on FILL. Light carries neither the
-       light-on-dark hairline nor the halo the dark scheme leans on, so tiers
-       that sat 1.05:1 apart read as one flat sheet. Adjacent tiers now clear
-       1.06:1 and a raised surface clears 1.18:1 over the canvas beneath it —
-       DESIGN.md §2 "Light tier separation". */
-    --color-surface-container: 222 222 219;
+    --color-surface: 247 246 242;
+    --color-surface-dim: 215 214 209;
+    --color-surface-bright: 247 246 242;
+    --color-surface-tint: 37 95 77;
+    --color-surface-variant: 226 225 220;
+    /* Warm paper with a container ladder that still separates on FILL where it
+       has to: adjacent tiers clear 1.06:1 and a raised surface clears 1.18:1
+       over the canvas beneath it — DESIGN.md §2 "Light tier separation". */
+    --color-surface-container: 224 223 218;
     --color-surface-container-lowest: 255 255 255;
-    --color-surface-container-low: 234 234 231;
-    --color-surface-container-high: 214 214 211;
-    --color-surface-container-highest: 207 208 204;
+    --color-surface-container-low: 235 234 229;
+    --color-surface-container-high: 215 214 209;
+    --color-surface-container-highest: 207 206 201;
 
     --color-on-surface: 26 28 27;
     --color-on-surface-variant: 65 72 69;
@@ -52,11 +50,6 @@
        including the darkest — the MD3 #717974 measured 4.25:1 on the canvas. */
     --color-outline: 82 90 85;
     --color-outline-variant: 192 200 195;
-
-    /* Brand ink at text sizes — the wordmark, links, brand accents. `primary`
-       is #00241a in light and reads as black, so it cannot carry the green.
-       An ink token: a filled brand surface is `primary` + `on-primary`. */
-    --color-brand: 37 95 77;
 
     /* Pillar tints — Product Tier lift (~15% chroma) so semantic colors
        remain readable in dense data UIs. WCAG AA against surface (#F9F9F6). */
@@ -147,9 +140,6 @@
     --color-on-surface-variant: 192 200 195;
     --color-outline: 138 147 137;
     --color-outline-variant: 65 72 69;
-
-    /* Dark already had a legible brand green: it is `primary`. */
-    --color-brand: 163 208 190;
 
     --color-pillar-activity: 121 166 148;
     --color-pillar-nutrition: 214 184 122;

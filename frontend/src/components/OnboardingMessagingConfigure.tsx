@@ -68,7 +68,7 @@ export default function OnboardingMessagingConfigure({
       <OnboardingShell heading={`Connect ${displayName}`}>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface font-label">{t('frag.preparingYour')} {displayName} link…</p>
+          <p className="text-sm text-on-surface">{t('frag.preparingYour')} {displayName} link…</p>
         </div>
       </OnboardingShell>
     );
@@ -78,7 +78,7 @@ export default function OnboardingMessagingConfigure({
     return (
       <OnboardingShell heading={`Connect ${displayName}`}>
         <div className="flex flex-col items-center gap-4 py-8">
-          <p className="text-sm text-on-surface font-label">
+          <p className="text-sm text-on-surface">
             {t('frag.couldntStartThe')} {displayName} connection just now.
           </p>
           <div className="flex gap-3">
@@ -111,13 +111,13 @@ export default function OnboardingMessagingConfigure({
                 className="h-44 w-44"
               />
             </div>
-            <p className="max-w-sm text-center text-sm text-on-surface-variant font-label">
+            <p className="max-w-sm text-center text-sm text-on-surface-variant">
               {t('onboarding.messagingScanPrefix', { app: displayName })}
               <span className="font-semibold"> {t('onboarding.messagingStartButton')}</span> {t('onboarding.messagingScanSuffix')}
             </p>
           </>
         ) : (
-          <p className="max-w-sm text-center text-sm text-on-surface-variant font-label">
+          <p className="max-w-sm text-center text-sm text-on-surface-variant">
             {t('frag.tapBelowToConnect')} {displayName}. You&apos;ll come back here automatically once it&apos;s
             done.
           </p>

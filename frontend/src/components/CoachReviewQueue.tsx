@@ -126,7 +126,7 @@ export default function CoachReviewQueue() {
           <button
             key={coach.id}
             onClick={() => setSelectedCoach(coach)}
-            className="w-full text-left bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-4 hover:border-primary/30 transition-all group"
+            className="w-full text-left bg-surface-container-lowest border ghost-border rounded-xl p-4 hover:border-primary/30 transition-all group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">

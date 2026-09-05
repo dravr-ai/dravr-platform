@@ -104,7 +104,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-[480px] bg-surface shadow-2xl z-50 border-l ghost-border flex flex-col">
+      <div className="fixed inset-y-0 right-0 w-full max-w-[480px] bg-surface z-50 border-l ghost-border flex flex-col">
         {/* Header - Sticky */}
         <div className="sticky top-0 bg-surface/95 backdrop-blur-lg border-b ghost-border px-6 py-4 flex justify-between items-center z-10">
           <h2 className="text-xl font-semibold text-on-surface">Review Coach</h2>

@@ -39,7 +39,7 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
           <li key={step.id} className="flex items-start">
             {index > 0 ? (
               <span
-                className={`mt-[6px] h-0.5 w-8 rounded-full sm:w-12 ${
+                className={`mt-[4px] h-0.5 w-8 rounded-full sm:w-12 ${
                   steps[index - 1].status === 'done' ? 'bg-primary' : 'bg-outline-variant'
                 }`}
               />
@@ -47,7 +47,7 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
             <div className="flex min-w-16 flex-col items-center gap-1.5">
               <StepDot status={step.status} />
               <span
-                className={`text-center text-[11px] leading-tight ${labelClass(step.status)}`}
+                className={`text-center text-xs leading-tight ${labelClass(step.status)}`}
               >
                 {t(step.labelKey)}
               </span>
@@ -62,12 +62,12 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
 /** The dot marker for a single step, styled per its status. */
 function StepDot({ status }: { status: OnboardingStepStatus }) {
   if (status === 'current') {
-    return <span className="h-3.5 w-3.5 rounded-full bg-primary ring-4 ring-primary/20" />;
+    return <span className="h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-primary/25" />;
   }
   if (status === 'done') {
-    return <span className="h-3.5 w-3.5 rounded-full bg-primary" />;
+    return <span className="h-2.5 w-2.5 rounded-full bg-primary" />;
   }
-  return <span className="h-3.5 w-3.5 rounded-full border border-outline-variant bg-surface" />;
+  return <span className="h-2.5 w-2.5 rounded-full border border-outline-variant bg-surface" />;
 }
 
 function labelClass(status: OnboardingStepStatus): string {

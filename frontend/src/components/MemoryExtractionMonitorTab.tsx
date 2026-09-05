@@ -229,7 +229,7 @@ export default function MemoryExtractionMonitorTab() {
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+              <div className="text-xs text-on-surface-variant">
                 Total facts
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
@@ -237,7 +237,7 @@ export default function MemoryExtractionMonitorTab() {
               </div>
             </Card>
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+              <div className="text-xs text-on-surface-variant">
                 Last 24 hours
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
@@ -245,7 +245,7 @@ export default function MemoryExtractionMonitorTab() {
               </div>
             </Card>
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+              <div className="text-xs text-on-surface-variant">
                 Last 7 days
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
@@ -253,7 +253,7 @@ export default function MemoryExtractionMonitorTab() {
               </div>
             </Card>
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
+              <div className="text-xs text-on-surface-variant">
                 Distinct users
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">

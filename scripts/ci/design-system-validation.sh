@@ -38,11 +38,16 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # comment and explaining why in the commit, because it means the design system
 # lost ground.
 # ============================================================================
-BASELINE_WEB_RAW_INPUT=31
+BASELINE_WEB_RAW_INPUT=30
 BASELINE_WEB_RAW_PALETTE=2
 BASELINE_MOBILE_RAW_PALETTE=26
 BASELINE_MOBILE_RAW_TEXTINPUT=14
 BASELINE_WEB_LEGACY_PIERRE=0
+# Boreal v2 (DESIGN.md §4, §5): backdrop blur belongs to overlays over
+# photography and `boreal-hero-gradient` to nothing at all any more. Both are
+# ratcheted from the count the refresh left, so they can only fall.
+BASELINE_WEB_BACKDROP_BLUR=16
+BASELINE_WEB_HERO_GRADIENT=7
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,
 # outline, and the pillar tokens) never match: the colour name must follow the
@@ -277,6 +282,56 @@ MOBILE_PALETTE=$(grep -rEoh "$PALETTE_RE" "$PROJECT_ROOT/frontend-mobile/src" --
 check_ratchet "mobile stock-palette classnames" \
     "$MOBILE_PALETTE" "$BASELINE_MOBILE_RAW_PALETTE" \
     "Use the DESIGN.md §2 tokens via NativeWind."
+echo ""
+
+# ----------------------------------------------------------------------------
+# HARD, Boreal v2 (DESIGN.md §2–§5): four things the refresh removed and that a
+# copy-paste from an old screen brings back without any other gate noticing.
+#
+#   emoji as icons — the audit found fifteen (a wrench, a lock, a robot, a
+#   party popper); every icon is inline SVG or a lucide glyph now.
+#   text under 12px — `text-[9px|10px|11px]` sat in 34 places below the §3 floor.
+#   caps-tracked labels — `uppercase tracking-wide(r)` was the Inter 11px label
+#   idiom; the only tracked text in the product is the wordmark.
+#   retired faces and scale — Inter, Space Grotesk, `font-label`,
+#   `tracking-label`, and the stock `shadow-sm/md/lg/xl` classes (the Tailwind
+#   scale now holds only `floating`).
+# ----------------------------------------------------------------------------
+echo "-- Boreal v2 retirements (DESIGN.md §2–§5) --"
+# Code points through perl — U+1F300–U+1FAFF (pictographs) and U+2600–U+27BF
+# (dingbats) — because BSD grep on a Mac and GNU grep in CI do not agree on
+# byte-range classes, and a gate that silently reads 0 is worse than none.
+WEB_EMOJI=$(find "$PROJECT_ROOT/frontend/src" -name '*.tsx' -not -path '*/__tests__/*' -print0 2>/dev/null \
+    | xargs -0 perl -CSD -ne 'print "$ARGV:$.\n" if /[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/' \
+    | wc -l | tr -d ' ')
+check_ratchet "web emoji used as icons" "$WEB_EMOJI" 0 \
+    "Draw an inline SVG or use a lucide glyph; emoji are not part of the brand."
+
+WEB_TINY_TEXT=$(grep -rEoh 'text-\[(9|10|11)px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | grep -v '__tests__' | wc -l | tr -d ' ')
+check_ratchet "web text below the 12px floor" "$WEB_TINY_TEXT" 0 \
+    "The smallest step is text-xs (DESIGN.md §3)."
+
+WEB_CAPS_LABELS=$(grep -rEoh 'uppercase tracking-wider?|tracking-wider? uppercase' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | wc -l | tr -d ' ')
+check_ratchet "web caps-tracked labels" "$WEB_CAPS_LABELS" 0 \
+    "Labels are sentence case with no tracking; only the wordmark is tracked (DESIGN.md §3)."
+
+WEB_RETIRED_FACES=$(grep -rEo "'Inter'|Space Grotesk|\bfont-label\b|\btracking-label\b|\bshadow-(sm|md|lg|xl|2xl)\b" \
+    "$PROJECT_ROOT/frontend/src" "$PROJECT_ROOT/frontend/tailwind.config.cjs" --include='*.tsx' --include='*.ts' --include='*.css' --include='*.cjs' 2>/dev/null \
+    | grep -v '__tests__' | wc -l | tr -d ' ')
+check_ratchet "web retired faces and shadow classes" "$WEB_RETIRED_FACES" 0 \
+    "Schibsted Grotesk for headings, Plus Jakarta Sans for everything else, and shadow-floating is the only shadow (DESIGN.md §3, §4)."
+
+WEB_BLUR=$(grep -rEoh 'backdrop-blur(-[a-z]+)?' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | grep -v '__tests__' | wc -l | tr -d ' ')
+check_ratchet "web backdrop-blur outside the overlay pattern" "$WEB_BLUR" "$BASELINE_WEB_BACKDROP_BLUR" \
+    "Blur is for .card-boreal-overlay over photography; a scrim is bg-scrim/60 with no blur (DESIGN.md §4)."
+
+WEB_HERO_GRADIENT=$(grep -rEoh 'boreal-hero-gradient|bg-boreal-hero' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | wc -l | tr -d ' ')
+check_ratchet "web hero-gradient decoration" "$WEB_HERO_GRADIENT" "$BASELINE_WEB_HERO_GRADIENT" \
+    "A filled surface is bg-primary; a tint is bg-primary-container; nothing is a gradient (DESIGN.md §2)."
 echo ""
 
 # ----------------------------------------------------------------------------

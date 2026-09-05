@@ -141,7 +141,7 @@ export default function PublishedCoachesList() {
         {coaches.map((coach) => (
           <div
             key={coach.id}
-            className="bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-4 hover:ghost-border transition-all"
+            className="bg-surface-container-lowest border ghost-border rounded-xl p-4 hover:ghost-border transition-all"
           >
             {/* Header */}
             <div className="flex items-start gap-3 mb-3">

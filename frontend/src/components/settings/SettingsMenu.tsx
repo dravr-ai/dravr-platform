@@ -32,12 +32,12 @@ export default function SettingsMenu({
     <nav
       aria-label={t('settings.tabsLabel')}
       data-testid="settings-menu"
-      className="flex h-full min-h-0 flex-col bg-surface-container-lowest"
+      className="flex h-full min-h-0 flex-col bg-surface"
     >
       <div className="flex flex-col items-center px-6 pb-6 pt-8 text-center">
         <span
           aria-hidden="true"
-          className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/15 font-display text-3xl font-semibold text-primary"
+          className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-container font-display text-2xl font-semibold text-on-primary-container"
         >
           {initial}
         </span>
@@ -57,7 +57,7 @@ export default function SettingsMenu({
                 data-testid={`settings-menu-${tab.id}`}
                 className={clsx(
                   'flex w-full items-center gap-4 px-6 py-3 text-left transition-colors min-h-[64px] focus-ring',
-                  active ? 'bg-surface-container-high' : 'hover:bg-surface-container-low',
+                  active ? 'bg-surface-container-low' : 'hover:bg-surface-container-low/60',
                 )}
               >
                 <span className={clsx('shrink-0', active ? 'text-primary' : 'text-on-surface-variant')}>{tab.icon}</span>

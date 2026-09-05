@@ -37,21 +37,15 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
 
 
   return (
-    <div className="min-h-dvh bg-surface-container-low flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-surface rounded-xl shadow-lg overflow-hidden">
-        {/* Top gradient bar */}
-        <div
-          className={`h-1 w-full ${
-            success
-              ? 'bg-gradient-to-r from-activity to-activity'
-              : 'bg-error'
-          }`}
-        />
+    <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-surface-container-lowest border ghost-border rounded-xl overflow-hidden">
+        {/* The outcome as a hairline of colour — meaning, not decoration */}
+        <div className={`h-0.5 w-full ${success ? 'bg-success' : 'bg-error'}`} />
 
         <div className="px-8 py-10 text-center">
           {/* Logo */}
           <div className="mb-6">
-            <DravrLogo size={80} className="mx-auto" />
+            <DravrLogo size={64} className="mx-auto" />
           </div>
 
           <div className="text-lg font-bold text-on-surface mb-6">{t('shell.brandName')}</div>

@@ -105,7 +105,7 @@ export default function RejectedCoachesList() {
         {coaches.map((coach) => (
           <div
             key={coach.id}
-            className="bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-4"
+            className="bg-surface-container-lowest border ghost-border rounded-xl p-4"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
@@ -118,7 +118,7 @@ export default function RejectedCoachesList() {
                       className="w-10 h-10 rounded-lg object-cover border ghost-border flex-shrink-0"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/50 to-primary-container/50 flex items-center justify-center flex-shrink-0 opacity-60">
+                    <div className="w-10 h-10 rounded-lg bg-primary-container flex items-center justify-center flex-shrink-0 opacity-60">
                       <span className="text-sm font-bold text-on-surface">
                         {coach.title.charAt(0).toUpperCase()}
                       </span>

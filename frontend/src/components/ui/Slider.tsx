@@ -127,7 +127,7 @@ export const Slider: React.FC<SliderProps> = ({
             [&::-webkit-slider-thumb]:bg-white
             [&::-webkit-slider-thumb]:border-2
             [&::-webkit-slider-thumb]:border-primary
-            [&::-webkit-slider-thumb]:shadow-md
+            [&::-webkit-slider-thumb]:
             [&::-webkit-slider-thumb]:cursor-pointer
             [&::-webkit-slider-thumb]:transition-transform
             [&::-webkit-slider-thumb]:hover:scale-110
@@ -139,7 +139,7 @@ export const Slider: React.FC<SliderProps> = ({
             [&::-moz-range-thumb]:bg-white
             [&::-moz-range-thumb]:border-2
             [&::-moz-range-thumb]:border-primary
-            [&::-moz-range-thumb]:shadow-md
+            [&::-moz-range-thumb]:
             [&::-moz-range-thumb]:cursor-pointer
           `}
         />

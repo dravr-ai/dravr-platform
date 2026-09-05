@@ -96,7 +96,7 @@ export default function ConversationInfoPanel({
       onClick={onClose}
     >
       <div
-        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest text-on-surface shadow-xl"
+        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest text-on-surface"
         onClick={(e) => e.stopPropagation()}
         data-testid="conversation-info-panel"
       >
@@ -158,7 +158,7 @@ export default function ConversationInfoPanel({
               </section>
 
               <section>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-outline">
+                <h4 className="mb-2 text-xs font-semibold text-outline">
                   {t('chat.participantsHeading')}
                 </h4>
                 <ConversationParticipants
@@ -169,7 +169,7 @@ export default function ConversationInfoPanel({
               </section>
 
               <section className="space-y-3 rounded-lg border border-error/20 p-4">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-error">
+                <h4 className="text-xs font-semibold text-error">
                   {t('chat.dangerZone')}
                 </h4>
                 <div className="flex items-center justify-between gap-3">

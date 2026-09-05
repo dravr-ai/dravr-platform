@@ -33,6 +33,7 @@
     "descriptionRequired": "Description *",
     "documentationUrl": "URL de la documentation",
     "emptyBody": "Enregistre ta première application pour activer une communication agent-à-agent sécurisée avec des assistants IA et des intégrations tierces.",
+    "secretShownOnce": "Le secret client et la clé API ne s'affichent qu'une fois, à l'inscription.",
     "emptyCta": "Enregistrer ta première application",
     "emptyTitle": "Aucune application connectée pour l'instant",
     "hideCredentials": "Masquer les identifiants",

@@ -40,7 +40,7 @@ export default function OnboardingMessagingChannel({
     <OnboardingShell
       heading={userDisplayName ? t('app.obAlmostThereGreeting', { name: userDisplayName }) : t('onboarding.almostThere')}
     >
-      <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
+      <p className="mt-3 text-sm text-on-surface-variant text-center">
         {t('onboarding.messagingChannelIntro')}
       </p>
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -92,12 +92,12 @@ function ChannelCard({
           {channel.display_name}
         </span>
         {channel.recommended ? (
-          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
             {t('onboarding.channelRecommended')}
           </span>
         ) : null}
       </span>
-      <span className="text-sm text-on-surface-variant font-label">{hint}</span>
+      <span className="text-sm text-on-surface-variant">{hint}</span>
       {busy ? (
         <span className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
           <span className="pierre-spinner w-4 h-4 border-on-surface border-t-transparent" />

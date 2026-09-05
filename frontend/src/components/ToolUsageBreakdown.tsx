@@ -33,7 +33,6 @@ export default function ToolUsageBreakdownComponent({
     return (
       <div className="card-dark">
         <div className="text-center py-8 text-on-surface-variant">
-          <div className="text-4xl mb-4">🔧</div>
           <p className="text-lg mb-2 text-on-surface">No tool usage data</p>
           <p>Start making API calls to see tool usage breakdown</p>
         </div>
@@ -166,22 +165,22 @@ export default function ToolUsageBreakdownComponent({
           <table className="min-w-full divide-y divide-white/10">
             <thead className="bg-surface-container-low">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                   Tool Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                   Requests
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                   Success Rate
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                   Avg Response Time
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                   Errors
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
                   Share
                 </th>
               </tr>
@@ -261,7 +260,7 @@ export default function ToolUsageBreakdownComponent({
           <div className="text-sm text-on-surface-variant">Tools Used</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary-container">
+          <div className="text-2xl font-bold text-primary">
             {toolUsage.reduce((sum, tool) => sum + tool.request_count, 0).toLocaleString()}
           </div>
           <div className="text-sm text-on-surface-variant">Total Requests</div>

@@ -299,7 +299,7 @@ export default function SciotteLoginModal({
       <div
         ref={containerRef}
         tabIndex={-1}
-        className="bg-surface-container-highest rounded-2xl border ghost-border shadow-2xl max-w-md w-full mx-4 overflow-hidden"
+        className="bg-surface-container-highest rounded-2xl border ghost-border max-w-md w-full mx-4 overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
@@ -442,7 +442,7 @@ export default function SciotteLoginModal({
 />
                   </div>
                 </div>
-                <button type="submit" disabled={isLoading || !email || !password} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-nutrition/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                <button type="submit" disabled={isLoading || !email || !password} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium /40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                   {isLoading ? t('shell.sciotteLoggingIn') : t('shell.sciotteLogIn')}
                 </button>
               </form>
@@ -534,7 +534,7 @@ export default function SciotteLoginModal({
               </div>
               <form onSubmit={handleOtpSubmit} className="space-y-4">
                 <input type="text" placeholder={t('shell.sciotteVerificationCode')} value={otpCode} onChange={(e) => setOtpCode(e.target.value)} className="input-glass w-full text-center text-lg tracking-widest" required autoFocus autoComplete="one-time-code" inputMode="numeric" />
-                <button type="submit" disabled={isLoading || !otpCode} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-nutrition/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                <button type="submit" disabled={isLoading || !otpCode} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium /40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                   {t('shell.sciotteVerify')}
                 </button>
               </form>

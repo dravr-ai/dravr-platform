@@ -203,7 +203,7 @@ export default function SystemPromptsTab() {
                     </span>
                     <span
                       className={clsx(
-                        'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
+                        'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium',
                         prompt.source === 'contremaitre'
                           ? 'bg-activity/10 text-on-activity-container'
                           : 'bg-on-surface-variant/10 text-on-surface-variant',
@@ -242,7 +242,7 @@ export default function SystemPromptsTab() {
                   <div className="flex items-center gap-2 mt-1">
                     <span
                       className={clsx(
-                        'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
+                        'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium',
                         promptDetail.source === 'contremaitre'
                           ? 'bg-activity/10 text-on-activity-container'
                           : 'bg-on-surface-variant/10 text-on-surface-variant',
