@@ -18,6 +18,7 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
     DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
@@ -50,6 +51,11 @@ use pierre_tool_runtime::implementations::nutrition::{
 use pierre_tool_runtime::implementations::playbooks::{
     ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
     ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
+};
+use pierre_tool_runtime::implementations::stored_data::{
+    DataSourcesResult, DateRange, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
+    GetSleepSessionsTool, HealthSnapshotsResult, ListDataSourcesTool, RecoveryMetricsResult,
+    SleepSessionsResult,
 };
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -875,5 +881,107 @@ fn disconnect_provider_declares_a_schema_that_accepts_its_payload() {
         &serde_json::to_value(schemars::schema_for!(DisconnectProviderResult)).expect("derives"),
         &sample,
         "disconnect_provider",
+    );
+}
+
+/// The stored-data tools declare Formatted<T>, because their payload shape
+/// depends on the caller's `format` argument rather than on the data. These
+/// assert the JSON arm — the one an athlete's client actually receives.
+#[test]
+fn get_sleep_sessions_declares_a_schema_that_accepts_an_empty_window() {
+    // Empty is the ordinary case for a window with no sleep recorded, and the
+    // one an over-strict schema would reject.
+    let sample = Formatted::Json(SleepSessionsResult {
+        count: 0,
+        sessions: vec![],
+        range: DateRange {
+            start: "2026-08-06T00:00:00+00:00".to_owned(),
+            end: "2026-09-05T00:00:00+00:00".to_owned(),
+        },
+    });
+    assert_declares_and_accepts(
+        <GetSleepSessionsTool as McpTool<dyn ToolRuntime>>::definition(&GetSleepSessionsTool)
+            .output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<SleepSessionsResult>))
+            .expect("derives"),
+        &sample,
+        "get_sleep_sessions",
+    );
+}
+
+#[test]
+fn get_recovery_metrics_declares_a_schema_that_accepts_its_payload() {
+    let sample = Formatted::Json(RecoveryMetricsResult {
+        count: 0,
+        metrics: vec![],
+        range: DateRange {
+            start: "2026-08-06T00:00:00+00:00".to_owned(),
+            end: "2026-09-05T00:00:00+00:00".to_owned(),
+        },
+    });
+    assert_declares_and_accepts(
+        <GetRecoveryMetricsTool as McpTool<dyn ToolRuntime>>::definition(&GetRecoveryMetricsTool)
+            .output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<RecoveryMetricsResult>))
+            .expect("derives"),
+        &sample,
+        "get_recovery_metrics",
+    );
+}
+
+#[test]
+fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
+    let sample = Formatted::Json(HealthSnapshotsResult {
+        count: 0,
+        snapshots: vec![],
+        range: DateRange {
+            start: "2026-08-06T00:00:00+00:00".to_owned(),
+            end: "2026-09-05T00:00:00+00:00".to_owned(),
+        },
+    });
+    assert_declares_and_accepts(
+        <GetHealthSnapshotsTool as McpTool<dyn ToolRuntime>>::definition(&GetHealthSnapshotsTool)
+            .output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<HealthSnapshotsResult>))
+            .expect("derives"),
+        &sample,
+        "get_health_snapshots",
+    );
+}
+
+#[test]
+fn list_data_sources_declares_a_schema_that_accepts_its_payload() {
+    let sample = Formatted::Json(DataSourcesResult {
+        count: 0,
+        sources: vec![],
+    });
+    assert_declares_and_accepts(
+        <ListDataSourcesTool as McpTool<dyn ToolRuntime>>::definition(&ListDataSourcesTool)
+            .output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<DataSourcesResult>))
+            .expect("derives"),
+        &sample,
+        "list_data_sources",
+    );
+}
+
+/// The TOON arm is a different shape entirely, and it is the arm nobody would
+/// have hand-written into a schema for a sleep tool.
+#[test]
+fn the_stored_data_schema_also_accepts_the_toon_envelope() {
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(Formatted<SleepSessionsResult>))
+            .expect("derives"),
+    )
+    .expect("compiles");
+
+    let toon: Formatted<SleepSessionsResult> = Formatted::Toon {
+        toon: "count:0\nsessions:[]".to_owned(),
+        format: "toon".to_owned(),
+    };
+    let payload = serde_json::to_value(&toon).expect("serializes");
+    assert!(
+        validator.is_valid(&payload),
+        "format=toon is a real reply from this tool and must satisfy its schema:\n{payload:#}"
     );
 }

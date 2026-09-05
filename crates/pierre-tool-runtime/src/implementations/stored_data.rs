@@ -22,14 +22,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::TenantId;
+use pierre_core::models::{
+    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+};
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::runtime::ToolRuntime;
@@ -126,6 +129,69 @@ fn date_range_properties() -> BTreeMap<String, PropertySchema> {
     properties
 }
 
+/// The window a stored-data read covered.
+///
+/// Echoed back rather than left implicit: the caller may omit the range, in
+/// which case the server picks the last thirty days, and a client that assumed
+/// its own default would mislabel the data it got.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DateRange {
+    /// RFC 3339 start of the window, inclusive.
+    pub start: String,
+    /// RFC 3339 end of the window.
+    pub end: String,
+}
+
+/// What `get_sleep_sessions` answers with.
+///
+/// The sessions are dravr-equilibre's own `StoredSleepSession`, forwarded
+/// rather than projected. That crate derives `JsonSchema` for exactly this
+/// reason, so the declared schema is the stored shape and cannot drift from
+/// it by a projection someone forgot to update.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SleepSessionsResult {
+    /// How many sessions the window held.
+    pub count: usize,
+    /// The sessions, as stored.
+    pub sessions: Vec<StoredSleepSession>,
+    /// The window that was read.
+    pub range: DateRange,
+}
+
+/// What `get_recovery_metrics` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecoveryMetricsResult {
+    /// How many readings the window held.
+    pub count: usize,
+    /// The readings, as stored.
+    pub metrics: Vec<StoredRecoveryMetrics>,
+    /// The window that was read.
+    pub range: DateRange,
+}
+
+/// What `get_health_snapshots` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct HealthSnapshotsResult {
+    /// How many snapshots the window held.
+    pub count: usize,
+    /// The snapshots, as stored.
+    pub snapshots: Vec<StoredHealthMetrics>,
+    /// The window that was read.
+    pub range: DateRange,
+}
+
+/// What `list_data_sources` answers with.
+///
+/// No range: the sources an athlete has connected are current state, not a
+/// window over history.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DataSourcesResult {
+    /// How many sources are on file.
+    pub count: usize,
+    /// The sources, as stored.
+    pub sources: Vec<DataSource>,
+}
+
 // ============================================================================
 // GetSleepSessionsTool - Query stored sleep sessions
 // ============================================================================
@@ -143,12 +209,12 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<Formatted<SleepSessionsResult>>(tool_definition(
             "get_sleep_sessions",
             "Get stored sleep sessions from the database",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -175,14 +241,14 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
                 .await
             {
                 Ok(sessions) => {
-                    let payload = json!({
-                        "count": sessions.len(),
-                        "sessions": sessions,
-                        "range": {
-                            "start": start.to_rfc3339(),
-                            "end": end.to_rfc3339(),
+                    let payload = SleepSessionsResult {
+                        count: sessions.len(),
+                        sessions,
+                        range: DateRange {
+                            start: start.to_rfc3339(),
+                            end: end.to_rfc3339(),
                         },
-                    });
+                    };
                     ok_typed("get_sleep_sessions", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
@@ -212,12 +278,12 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<Formatted<RecoveryMetricsResult>>(tool_definition(
             "get_recovery_metrics",
             "Get stored recovery and readiness metrics",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -244,14 +310,14 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
                 .await
             {
                 Ok(metrics) => {
-                    let payload = json!({
-                        "count": metrics.len(),
-                        "metrics": metrics,
-                        "range": {
-                            "start": start.to_rfc3339(),
-                            "end": end.to_rfc3339(),
+                    let payload = RecoveryMetricsResult {
+                        count: metrics.len(),
+                        metrics,
+                        range: DateRange {
+                            start: start.to_rfc3339(),
+                            end: end.to_rfc3339(),
                         },
-                    });
+                    };
                     ok_typed("get_recovery_metrics", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
@@ -281,12 +347,12 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<Formatted<HealthSnapshotsResult>>(tool_definition(
             "get_health_snapshots",
             "Get stored health snapshots (body composition, vitals)",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -313,14 +379,14 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
                 .await
             {
                 Ok(snapshots) => {
-                    let payload = json!({
-                        "count": snapshots.len(),
-                        "snapshots": snapshots,
-                        "range": {
-                            "start": start.to_rfc3339(),
-                            "end": end.to_rfc3339(),
+                    let payload = HealthSnapshotsResult {
+                        count: snapshots.len(),
+                        snapshots,
+                        range: DateRange {
+                            start: start.to_rfc3339(),
+                            end: end.to_rfc3339(),
                         },
-                    });
+                    };
                     ok_typed("get_health_snapshots", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
@@ -357,12 +423,12 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
         );
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        answers_with::<Formatted<DataSourcesResult>>(tool_definition(
             "list_data_sources",
             "List connected data sources (devices and providers)",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -388,10 +454,10 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
                 .await
             {
                 Ok(sources) => {
-                    let payload = json!({
-                        "count": sources.len(),
-                        "sources": sources,
-                    });
+                    let payload = DataSourcesResult {
+                        count: sources.len(),
+                        sources,
+                    };
                     ok_typed("list_data_sources", apply_format(payload, format))
                 }
                 Err(e) => Ok(ToolResult::error(json!({
