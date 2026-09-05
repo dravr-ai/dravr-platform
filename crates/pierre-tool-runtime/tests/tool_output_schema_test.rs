@@ -18,6 +18,10 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_tool_runtime::implementations::playbooks::{
+    ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
+    ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
+};
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -110,5 +114,115 @@ fn the_tool_declares_the_schema_and_it_is_the_derived_one() {
     assert!(
         validator.is_valid(&payload),
         "the schema the client receives must accept the payload the tool sends"
+    );
+}
+
+/// The three things that must hold for any tool declaring a schema, in one
+/// place so adding a tool costs one call rather than four copied tests.
+///
+/// Takes the DECLARED schema off the tool rather than deriving it here — that
+/// is what catches a call site missing its `answers_with`.
+fn assert_declares_and_accepts<T: serde::Serialize>(
+    declared: Option<serde_json::Value>,
+    derived: serde_json::Value,
+    sample: &T,
+    tool: &str,
+) {
+    let declared = declared.unwrap_or_else(|| panic!("{tool} must declare an outputSchema"));
+    assert_eq!(
+        declared, derived,
+        "{tool}'s declared schema must be the one derived from its result type"
+    );
+    let validator =
+        jsonschema::validator_for(&declared).unwrap_or_else(|e| panic!("{tool} schema: {e}"));
+    let payload = serde_json::to_value(sample).expect("sample serializes");
+    assert!(
+        validator.is_valid(&payload),
+        "{tool}: the declared schema rejected the payload the tool sends:\n{payload:#}"
+    );
+}
+
+#[test]
+fn list_coaching_playbooks_declares_a_schema_that_accepts_its_payload() {
+    let sample = ListCoachingPlaybooksResult {
+        playbooks: vec![PlaybookEntry {
+            id: "pb-1".to_owned(),
+            trigger: TriggerEntry {
+                kind: "load_spike".to_owned(),
+                sport: Some("run".to_owned()),
+                magnitude: "high".to_owned(),
+            },
+            intervention: InterventionEntry {
+                kind: "reduce_volume".to_owned(),
+                magnitude: Some(20),
+            },
+            success_count: 18,
+            failure_count: 2,
+            neutral_count: 1,
+            confidence: 0.71,
+            last_outcome_at: Some("2026-09-01T10:00:00+00:00".to_owned()),
+        }],
+        count: 1,
+    };
+
+    assert_declares_and_accepts(
+        <ListCoachingPlaybooksTool as McpTool<dyn ToolRuntime>>::definition(
+            &ListCoachingPlaybooksTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
+        &sample,
+        "list_coaching_playbooks",
+    );
+}
+
+#[test]
+fn an_athlete_with_no_playbooks_still_conforms() {
+    // The common first-run case, and the one an over-strict schema breaks.
+    let empty = ListCoachingPlaybooksResult {
+        playbooks: vec![],
+        count: 0,
+    };
+    assert_declares_and_accepts(
+        <ListCoachingPlaybooksTool as McpTool<dyn ToolRuntime>>::definition(
+            &ListCoachingPlaybooksTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
+        &empty,
+        "list_coaching_playbooks (empty)",
+    );
+}
+
+#[test]
+fn forget_playbook_declares_a_schema_that_accepts_its_payload() {
+    // `deleted` is a row COUNT, not a flag — 0 means "not yours or not there",
+    // deliberately indistinguishable. The schema has to say number, not boolean.
+    let sample = ForgetPlaybookResult {
+        deleted: 0,
+        playbook_id: "pb-missing".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <ForgetPlaybookTool as McpTool<dyn ToolRuntime>>::definition(&ForgetPlaybookTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(ForgetPlaybookResult)).expect("derives"),
+        &sample,
+        "forget_playbook",
+    );
+}
+
+#[test]
+fn forget_playbook_schema_rejects_a_boolean_deleted() {
+    // The wart typing exposed: the field reads like a flag and is a count. A
+    // client that assumed boolean would have been wrong, and the schema now
+    // says so out loud.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(ForgetPlaybookResult)).expect("derives"),
+    )
+    .expect("compiles");
+
+    assert!(
+        !validator.is_valid(&json!({"deleted": true, "playbook_id": "pb-1"})),
+        "deleted is a count; a schema that accepts `true` is not describing it"
     );
 }
