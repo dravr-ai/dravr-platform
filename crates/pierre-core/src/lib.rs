@@ -97,6 +97,10 @@ pub mod billing;
 #[cfg(feature = "http-client")]
 pub mod http_client;
 
+/// GCP access-token source (`TokenProvider`) shared by every Google API client
+#[cfg(feature = "http-client")]
+pub mod gcp_token;
+
 /// Outbound W3C trace-context propagation middleware for the shared HTTP clients
 #[cfg(feature = "telemetry")]
 pub mod trace_propagation;

@@ -32,6 +32,12 @@
 //!    on its own (the broadcast channel closes when the `RunScope`
 //!    drops).
 //!
+//! A turn the shutdown drain interrupted is re-run on another instance with
+//! its placeholder still standing; that path enters at
+//! [`attach_status_adapter`] instead of step 1, binding the adapter to the
+//! stored placeholder id so the athlete's one message is the one that turns
+//! into the answer.
+//!
 //! `WhatsApp` and Messenger have no edit-message semantic (each
 //! `sendMessage` is a new row in the user's chat history).
 //!
@@ -138,6 +144,97 @@ pub async fn open_status_adapter(params: &OpenStatusParams<'_>) -> Option<Opened
         // final-reply path.
         ChannelType::WhatsApp | ChannelType::Messenger => None,
     }
+}
+
+/// Attach a [`StatusAdapter`] to a placeholder an earlier turn already sent.
+///
+/// The resume path: a turn the shutdown drain interrupted left its
+/// "thinking…" placeholder standing, and the instance re-running the turn
+/// must edit *that* message rather than post a second one under it. Nothing
+/// is sent here — the adapter is built around the stored channel-native id
+/// (Telegram `message_id`, Slack `ts`, Discord snowflake) and its first edit
+/// is whatever the resumed pipeline emits next.
+///
+/// Returns `None` on the same conditions as [`open_status_adapter`], plus a
+/// stored id the channel cannot parse — the caller then treats the turn as
+/// one without a placeholder, exactly as when the open fails.
+#[must_use]
+pub fn attach_status_adapter(
+    params: &OpenStatusParams<'_>,
+    placeholder_message_id: &str,
+) -> Option<OpenedStatus> {
+    match params.channel_type {
+        ChannelType::Telegram => attach_telegram(params, placeholder_message_id),
+        ChannelType::Slack => attach_slack(params, placeholder_message_id),
+        ChannelType::Discord => attach_discord(params, placeholder_message_id),
+        ChannelType::WhatsApp | ChannelType::Messenger => None,
+    }
+}
+
+fn attach_telegram(params: &OpenStatusParams<'_>, message_id: &str) -> Option<OpenedStatus> {
+    let bot_token = params.channel_config.bot_token.as_deref()?;
+    let thread_id = params.thread_id.and_then(|t| t.parse::<i64>().ok());
+    let Ok(message_id) = message_id.parse::<i64>() else {
+        warn!(
+            message_id,
+            "Telegram placeholder id is not numeric; resuming without the placeholder"
+        );
+        return None;
+    };
+    let adapter = params.api_base_override.map_or_else(
+        || {
+            TelegramStatusAdapter::from_message_id(
+                bot_token,
+                params.conversation_id,
+                thread_id,
+                message_id,
+            )
+        },
+        |base| {
+            TelegramStatusAdapter::from_message_id_with_base(
+                bot_token,
+                params.conversation_id,
+                thread_id,
+                message_id,
+                base,
+            )
+        },
+    );
+    Some(OpenedStatus {
+        channel_message_id: adapter.message_id().to_string(),
+        adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+    })
+}
+
+fn attach_slack(params: &OpenStatusParams<'_>, ts: &str) -> Option<OpenedStatus> {
+    let bot_token = params.channel_config.api_key.as_deref()?;
+    let adapter = params.api_base_override.map_or_else(
+        || SlackStatusAdapter::from_ts(bot_token, params.conversation_id, ts),
+        |base| SlackStatusAdapter::from_ts_with_base(bot_token, params.conversation_id, ts, base),
+    );
+    Some(OpenedStatus {
+        channel_message_id: adapter.ts().to_owned(),
+        adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+    })
+}
+
+fn attach_discord(params: &OpenStatusParams<'_>, message_id: &str) -> Option<OpenedStatus> {
+    let bot_token = params.channel_config.bot_token.as_deref()?;
+    let adapter = params.api_base_override.map_or_else(
+        || DiscordStatusAdapter::from_message_id(bot_token, params.conversation_id, message_id),
+        |base| {
+            DiscordStatusAdapter::from_message_id_with_base(
+                bot_token,
+                params.conversation_id,
+                message_id,
+                base,
+            )
+        },
+    );
+    Some(OpenedStatus {
+        channel_message_id: adapter.message_id().to_owned(),
+        adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+    })
 }
 
 async fn open_telegram(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {

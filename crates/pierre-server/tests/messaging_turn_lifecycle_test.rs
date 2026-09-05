@@ -22,12 +22,14 @@
 //!    shutdown can see it;
 //! 2. shutdown **spends its grace window on it** rather than sleeping through
 //!    it, and signals whatever is left instead of dying quietly;
-//! 3. a turn that cannot finish **says so**, so the athlete stops waiting.
+//! 3. a turn that cannot finish here is **handed to the next instance** and
+//!    answered there (registre#126) — and only a turn drained twice tells the
+//!    athlete its answer is not coming.
 //!
-//! The e2e test at the bottom is the incident itself: a hung provider, a
-//! drain, and an assertion that the athlete's channel receives the localized
-//! interruption notice. On the code before the fix it hangs forever and the
-//! athlete gets nothing at all.
+//! The e2e tests at the bottom are the incident itself: a hung provider, a
+//! drain, and an assertion on what the athlete's channel receives. On the
+//! code before registre#109 the turn hung forever and the athlete got
+//! nothing; on the code before registre#126 they got an apology.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -340,275 +342,58 @@ fn the_interruption_notice_speaks_all_five_locales() {
 
 #[cfg(feature = "client-messaging")]
 mod drained_mid_turn {
-    use crate::common::create_test_server_resources_with_chat_provider;
-    use crate::helpers::axum_test::AxumTestRequest;
-    use async_trait::async_trait;
-    use axum::http::StatusCode;
-    use chrono::Utc;
-    use futures_util::stream;
-    use hmac::{Hmac, Mac};
-    use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_TURN_INTERRUPTED};
-    use pierre_core::errors::AppError;
-    use pierre_core::llm::{
-        ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
-    };
-    use pierre_core::models::ConnectionType;
-    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
-    use pierre_database::backends::{
-        CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
-    };
-    use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use serde_json::json;
-    use sha2::Sha256;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::task::spawn_blocking;
+
+    use axum::http::StatusCode;
+    use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_TURN_INTERRUPTED};
+    use pierre_core::llm::LlmProvider;
+    use pierre_core::models::messaging::MessageContent;
+    use pierre_core::models::TenantId;
+    use pierre_database::backends::MessagingRepository;
+    use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_mcp_server::routes::messaging::MessagingRoutes;
+    use pierre_mcp_server::services::messaging_ingress::resume::sweep_resumable_turns;
     use tokio::time::sleep;
-    use uuid::Uuid;
 
-    /// A provider that never answers, standing in for the ACP session the
-    /// 2026-08-26 turn was parked on when its instance was drained.
-    struct HangingProvider;
+    use crate::common::{
+        create_sibling_server_resources_with_chat_provider,
+        create_test_server_resources_with_chat_provider,
+    };
+    use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::drained_turn::{
+        compute_whatsapp_sig, create_active_user, link_channel, outbound_bodies,
+        setup_whatsapp_config, wait_for_a_tracked_turn, wait_for_turns_to_finish,
+        whatsapp_text_payload, HangingProvider, ParkedProvider,
+    };
+    use crate::helpers::offline_channel::OfflineSendAdapters;
 
-    #[async_trait]
-    impl LlmProvider for HangingProvider {
-        fn name(&self) -> &'static str {
-            "hanging_mock"
-        }
-        fn display_name(&self) -> &'static str {
-            "Hanging Mock LLM (turn-lifecycle e2e)"
-        }
-        fn capabilities(&self) -> LlmCapabilities {
-            LlmCapabilities::SYSTEM_MESSAGES
-        }
-        fn default_model(&self) -> &'static str {
-            "mock-model"
-        }
-        fn available_models(&self) -> &[String] {
-            &[]
-        }
+    /// The coaching the athlete was owed. Distinctive enough that no other
+    /// outbound row (a coach proposal, an intake question) can match it.
+    const ANSWER: &str = "Ton NP sur la dernière course: 245 W, soit 3,4 W/kg — solide.";
 
-        async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
-            // Far longer than the test's drain budget: the turn must be ended
-            // by the drain, never by this returning.
-            sleep(Duration::from_mins(10)).await;
-            Err(AppError::internal("hanging provider must never answer"))
-        }
-
-        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
-            sleep(Duration::from_mins(10)).await;
-            let chunk = StreamChunk {
-                delta: String::new(),
-                is_final: true,
-                finish_reason: Some("stop".to_owned()),
-            };
-            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
-        }
-
-        async fn health_check(&self) -> Result<bool, AppError> {
-            Ok(true)
-        }
-    }
-
-    fn compute_whatsapp_sig(secret: &str, body: &[u8]) -> String {
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
-        mac.update(body);
-        format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
-    }
-
-    /// An Active user with a tenant and a synthetic provider, so the turn
-    /// clears the status and onboarding gates and reaches the pipeline.
-    async fn create_active_user(resources: &ServerContext, email: &str) -> (Uuid, TenantId) {
-        let password_hash =
-            spawn_blocking(|| bcrypt::hash("DrainPin123!", bcrypt::DEFAULT_COST).unwrap())
-                .await
-                .unwrap();
-
-        let mut user = User::new(
-            email.to_owned(),
-            password_hash,
-            Some("Drain User".to_owned()),
-        );
-        user.user_status = UserStatus::Active;
-        user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
-
-        let user_id = user.id;
-        resources.common.repos.users.create(&user).await.unwrap();
-
-        let tenant_id = TenantId::generate();
-        let tenant = Tenant {
-            id: tenant_id,
-            name: format!("Drain Tenant {email}"),
-            slug: format!("drain-tenant-{tenant_id}"),
-            domain: None,
-            plan: "starter".to_owned(),
-            owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        resources
-            .common
-            .repos
-            .tenants
-            .create(&tenant)
-            .await
-            .unwrap();
-
-        resources
-            .common
-            .repos
-            .provider_connections
-            .register_connection(
-                user_id,
-                tenant_id,
-                "synthetic",
-                &ConnectionType::Synthetic,
-                None,
-            )
-            .await
-            .unwrap();
-
-        (user_id, tenant_id)
-    }
-
-    async fn setup_whatsapp_config(
-        db: &dyn MessagingRepository,
-        tenant_id: TenantId,
-        secret: &str,
-    ) {
-        let config_id = Uuid::new_v4().to_string();
-        db.upsert_channel_config(&UpsertChannelConfigParams {
-            id: &config_id,
-            tenant_id,
-            channel_type: "whatsapp",
-            api_key: Some("wa_drain_test_token"),
-            api_secret: None,
-            webhook_secret: Some(secret),
-            verify_token: None,
-            account_id: Some("wa_drain_test_business_id"),
-            phone_number: Some("15550000003"),
-            bot_token: None,
-            is_active: true,
-        })
-        .await
-        .unwrap();
-    }
-
-    async fn link_channel(
-        db: &dyn MessagingRepository,
-        tenant_id: TenantId,
-        user_id: Uuid,
+    /// Seed one `WhatsApp` athlete and post one question through the real
+    /// webhook route. Returns the tenant the session lives under.
+    async fn ask_via_webhook(
+        resources: &Arc<ServerContext>,
+        email: &str,
         sender_id: &str,
-    ) {
-        let link_id = Uuid::new_v4().to_string();
-        let user_id_str = user_id.to_string();
-        db.create_channel_link(&CreateChannelLinkParams {
-            id: &link_id,
-            tenant_id,
-            user_id: &user_id_str,
-            channel_type: "whatsapp",
-            channel_user_id: sender_id,
-            display_name: Some("Drain Linked User"),
-        })
-        .await
-        .unwrap();
-    }
-
-    fn whatsapp_text_payload(sender_id: &str, msg_id: &str, text: &str) -> serde_json::Value {
-        json!({
-            "object": "whatsapp_business_account",
-            "entry": [{
-                "id": "wa_drain_test_business_id",
-                "changes": [{
-                    "value": {
-                        "messaging_product": "whatsapp",
-                        "metadata": {
-                            "display_phone_number": "+15550000003",
-                            "phone_number_id": "15550000003"
-                        },
-                        "messages": [{
-                            "from": sender_id,
-                            "id": msg_id,
-                            "timestamp": "1234567890",
-                            "type": "text",
-                            "text": { "body": text }
-                        }]
-                    },
-                    "field": "messages"
-                }]
-            }]
-        })
-    }
-
-    /// Outbound bodies stored for the sender's session. A reply whose live
-    /// send fails in tests is still persisted alongside its retry-queue
-    /// entry, so the notice is observable here either way.
-    async fn outbound_bodies(
-        db: &dyn MessagingRepository,
-        tenant_id: TenantId,
-        sender_id: &str,
-    ) -> Vec<String> {
-        let Ok(Some(session)) = db
-            .get_session_by_channel_identity(tenant_id, "whatsapp", sender_id, None)
-            .await
-        else {
-            return Vec::new();
-        };
-        let Some(session_id) = session["id"].as_str() else {
-            return Vec::new();
-        };
-        db.get_session_messages(session_id, tenant_id, 100, 0)
-            .await
-            .map(|rows| {
-                rows.into_iter()
-                    .filter(|r| r["direction"].as_str() == Some("outbound"))
-                    .filter_map(|r| r["content_body"].as_str().map(ToOwned::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// The 2026-08-26 incident, reproduced and closed.
-    ///
-    /// An athlete asks a question, the turn parks on a provider that never
-    /// answers, and the instance shuts down underneath it. Before the fix
-    /// this is exactly where the athlete's answer disappeared: the turn was
-    /// spawned detached, nothing counted it, nothing signalled it, and the
-    /// status placeholder stayed open forever.
-    ///
-    /// Three assertions, in the order the fix has to hold:
-    ///
-    /// 1. the running turn is visible to shutdown at all;
-    /// 2. the drain reaches it and it closes inside the signal window;
-    /// 3. the athlete's channel receives the localized interruption notice.
-    ///
-    /// The third is the one the athlete experiences, and it is why the first
-    /// two exist.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_turn_drained_mid_flight_tells_the_athlete_instead_of_vanishing() {
-        let resources = create_test_server_resources_with_chat_provider(Arc::new(HangingProvider))
-            .await
-            .unwrap();
+        msg_id: &str,
+    ) -> TenantId {
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
-
-        let (user_id, tenant_id) =
-            create_active_user(&resources, "drained_mid_turn@example.com").await;
-
+        let (user_id, tenant_id) = create_active_user(resources, email).await;
         let wa_secret = "wa_turn_lifecycle_secret";
         setup_whatsapp_config(db, tenant_id, wa_secret).await;
-        let sender_id = "15550009002";
         link_channel(db, tenant_id, user_id, sender_id).await;
 
         let payload = whatsapp_text_payload(
             sender_id,
-            "wamid.drain_001",
+            msg_id,
             "peux-tu sortir le NP de ma dernière course?",
         );
         let body_bytes = serde_json::to_vec(&payload).unwrap();
         let sig = compute_whatsapp_sig(wa_secret, &body_bytes);
-        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let router = MessagingRoutes::routes(Arc::clone(resources));
 
         let status = AxumTestRequest::post("/api/messaging/webhook/whatsapp")
             .header("content-type", "application/json")
@@ -618,54 +403,212 @@ mod drained_mid_turn {
             .await
             .status_code();
         assert_eq!(status, StatusCode::OK, "webhooks always ack");
+        tenant_id
+    }
 
-        // 1. The turn the webhook started is countable. Before the fix this
-        //    was a bare `tokio::spawn` whose handle was dropped, so the
-        //    process had no way to know a turn existed at all.
-        let mut tracked = false;
-        for _ in 0..100 {
-            if !resources.common.turns.is_empty() {
-                tracked = true;
-                break;
-            }
-            sleep(Duration::from_millis(100)).await;
+    fn text_of(content: &MessageContent) -> Option<&str> {
+        match content {
+            MessageContent::Text { body } | MessageContent::RichText { body } => Some(body),
+            MessageContent::Media { .. }
+            | MessageContent::Location { .. }
+            | MessageContent::Card { .. } => None,
         }
-        assert!(
-            tracked,
-            "the turn the webhook spawned must be visible to shutdown"
-        );
+    }
 
-        // 2. SIGTERM. The turn is parked on a provider that will not answer
-        //    for another ten minutes, so the grace window expires and the
-        //    drain signal is what ends it.
+    /// SIGTERM, as the tracker sees it: a short grace, then the signal.
+    async fn drain(resources: &ServerContext) {
         let report = resources
             .common
             .turns
             .drain(Duration::from_millis(200), Duration::from_secs(30))
             .await;
-
         assert_eq!(
             report.signalled, 1,
             "the hung turn must outlive the grace and be signalled"
         );
         assert_eq!(
             report.abandoned, 0,
-            "the signalled turn must finish closing inside its window, \
+            "the signalled turn must finish its hand-off inside its window, \
              got report: {report:?}"
         );
+    }
 
-        // 3. What the athlete reads. The turn produced no answer and never
-        //    could, but it says so — the placeholder that used to stay open
-        //    forever now carries this.
-        let expected = resources
+    /// The 2026-08-26 incident, reproduced and closed the second time.
+    ///
+    /// An athlete asks a question, the turn parks on a provider that never
+    /// answers, and the instance shuts down underneath it. registre#109
+    /// made the drain visible and told the athlete the answer was not
+    /// coming. This is what replaces that apology: the drained turn is
+    /// recorded, the next instance's sweep claims it, and the athlete gets
+    /// the coaching they asked for — once.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_turn_drained_mid_flight_is_handed_off_and_answered_by_the_next_instance() {
+        let provider = Arc::new(ParkedProvider::answering(ANSWER));
+        let llm: Arc<dyn LlmProvider> = Arc::clone(&provider) as Arc<dyn LlmProvider>;
+        let resources = create_test_server_resources_with_chat_provider(llm)
+            .await
+            .unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let sender_id = "15550009002";
+        let tenant_id = ask_via_webhook(
+            &resources,
+            "drained_mid_turn@example.com",
+            sender_id,
+            "wamid.drain_001",
+        )
+        .await;
+
+        // 1. The turn the webhook started is countable.
+        assert!(
+            wait_for_a_tracked_turn(&resources).await,
+            "the turn the webhook spawned must be visible to shutdown"
+        );
+
+        // 2. SIGTERM. The turn is parked on a provider that will not answer,
+        //    so the grace expires and the drain signal ends it — as a
+        //    hand-off, not a closing notice.
+        drain(&resources).await;
+
+        let notice = resources
             .mcp
             .messaging_strings_registry
             .get(KEY_TURN_INTERRUPTED, DEFAULT_LOCALE);
-        let bodies = outbound_bodies(db, tenant_id, sender_id).await;
+        let after_drain = outbound_bodies(db, tenant_id, sender_id).await;
         assert!(
-            bodies.iter().any(|b| b == &expected),
-            "a drained turn must tell the athlete its answer is not coming \
-             (expected {expected:?}), got outbound bodies: {bodies:?}"
+            !after_drain.iter().any(|b| b == &notice),
+            "a drained turn with an attempt left must not apologise, got {after_drain:?}"
+        );
+        assert!(
+            !after_drain.iter().any(|b| b == ANSWER),
+            "nothing was answered on the drained instance"
+        );
+
+        // 3. The next instance boots — a fresh process over the same rows,
+        //    with its own tracker and an unfired drain token — and sweeps:
+        //    the row is claimed and the same dispatch path runs again, this
+        //    time to an answer. The provider the first run was parked on died
+        //    with its instance; from here the provider answers.
+        let calls_before_resume = provider.calls();
+        provider.release();
+        let next_instance = create_sibling_server_resources_with_chat_provider(
+            &resources,
+            Arc::clone(&provider) as Arc<dyn LlmProvider>,
+        )
+        .await
+        .unwrap();
+        let adapters = OfflineSendAdapters::default();
+        let claimed = sweep_resumable_turns(&next_instance, &adapters).await;
+        assert_eq!(claimed, 1, "the drained turn is on file for the sweep");
+        assert!(
+            wait_for_turns_to_finish(&next_instance, Duration::from_mins(1)).await,
+            "the resumed turn must run to its end"
+        );
+
+        let bodies = outbound_bodies(db, tenant_id, sender_id).await;
+        assert_eq!(
+            bodies.iter().filter(|b| *b == ANSWER).count(),
+            1,
+            "the athlete gets their answer exactly once, got {bodies:?}"
+        );
+        assert!(
+            !bodies.iter().any(|b| b == &notice),
+            "no apology anywhere in a turn that was answered, got {bodies:?}"
+        );
+        let sent: Vec<String> = adapters
+            .sends()
+            .iter()
+            .filter_map(|m| text_of(&m.content).map(str::to_owned))
+            .collect();
+        assert!(
+            sent.iter().any(|b| b == ANSWER),
+            "the answer must go through the channel adapter, sent: {sent:?}"
+        );
+        // How many calls the pipeline makes per turn is the pipeline's
+        // business; what matters is that the resumed run reached the provider
+        // at all, on top of whatever the drained run managed before it died.
+        assert!(
+            provider.calls() > calls_before_resume,
+            "the resumed run must call the provider, got {} calls before and {} after",
+            calls_before_resume,
+            provider.calls()
+        );
+
+        // 4. Idempotent: the row is gone the moment the turn is answered, so
+        //    a sibling sweeping later finds nothing and answers nobody twice.
+        let again = sweep_resumable_turns(&next_instance, &OfflineSendAdapters::default()).await;
+        assert_eq!(again, 0, "an answered turn is never resumed again");
+    }
+
+    /// Two scaledowns in a row: the hand-off is used up and the athlete is
+    /// told, through the same channel, that the answer is not coming.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_turn_drained_twice_is_apologised_for_and_finished() {
+        let resources = create_test_server_resources_with_chat_provider(Arc::new(HangingProvider))
+            .await
+            .unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let sender_id = "15550009004";
+        let tenant_id = ask_via_webhook(
+            &resources,
+            "drained_twice@example.com",
+            sender_id,
+            "wamid.drain_002",
+        )
+        .await;
+        assert!(wait_for_a_tracked_turn(&resources).await);
+
+        // First drain: handed off, nothing said.
+        drain(&resources).await;
+        let notice = resources
+            .mcp
+            .messaging_strings_registry
+            .get(KEY_TURN_INTERRUPTED, DEFAULT_LOCALE);
+        assert!(
+            !outbound_bodies(db, tenant_id, sender_id)
+                .await
+                .iter()
+                .any(|b| b == &notice),
+            "the first drain is a hand-off, not an apology"
+        );
+
+        // The next instance resumes it, on a provider that still never
+        // answers.
+        let next_instance = create_sibling_server_resources_with_chat_provider(
+            &resources,
+            Arc::new(HangingProvider),
+        )
+        .await
+        .unwrap();
+        let adapters = OfflineSendAdapters::default();
+        assert_eq!(sweep_resumable_turns(&next_instance, &adapters).await, 1);
+        assert!(
+            wait_for_a_tracked_turn(&next_instance).await,
+            "the resumed turn is countable like any other"
+        );
+
+        // Second drain, of the second instance: no attempt left, so the
+        // placeholder the athlete is still looking at carries the notice,
+        // and the row is finished.
+        drain(&next_instance).await;
+        let mut bodies = outbound_bodies(db, tenant_id, sender_id).await;
+        for _ in 0..50 {
+            if bodies.iter().any(|b| b == &notice) {
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+            bodies = outbound_bodies(db, tenant_id, sender_id).await;
+        }
+        assert!(
+            bodies.iter().any(|b| b == &notice),
+            "a turn drained twice must tell the athlete its answer is not coming \
+             (expected {notice:?}), got outbound bodies: {bodies:?}"
+        );
+        assert_eq!(
+            sweep_resumable_turns(&next_instance, &OfflineSendAdapters::default()).await,
+            0,
+            "an apologised-for turn is finished, not re-run"
         );
     }
 }

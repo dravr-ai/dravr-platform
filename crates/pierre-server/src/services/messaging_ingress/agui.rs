@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::agui::{AgUiEventFilter, BroadcastSink, RunScope};
 use pierre_contremaitre::messaging_strings::KEY_THINKING_PLACEHOLDER;
 use pierre_services::messaging_status_bridge::{
-    open_status_adapter, spawn_status_consumer, OpenStatusParams,
+    attach_status_adapter, open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
 
 use super::dispatch::reply_message;
@@ -107,6 +107,16 @@ impl MessagingAgUiWiring {
                 false
             }
         }
+    }
+
+    /// Channel-native id of the placeholder this turn is editing, when the
+    /// channel has one open.
+    ///
+    /// What the drain hand-off records: the instance that re-runs the turn
+    /// attaches to this exact message, so the athlete's one "thinking…" bubble
+    /// is the one that becomes the answer rather than gaining a twin.
+    pub(super) fn placeholder_message_id(&self) -> Option<&str> {
+        self.status_message_id.as_deref()
     }
 
     /// Stop mirroring pipeline progress into the placeholder.
@@ -242,6 +252,10 @@ struct StatusBridge {
 /// Open a status adapter + consumer task against the pre-loaded
 /// channel config.
 ///
+/// A resumed turn whose drained run left a placeholder standing attaches to
+/// that placeholder instead of sending a second one; every other turn opens a
+/// fresh one.
+///
 /// Returns `None` when either:
 ///
 /// - (a) the channel does not support progress rendering (`WhatsApp`/Messenger);
@@ -277,12 +291,19 @@ async fn maybe_open_status_bridge(
         conversation_id,
         thread_id: dispatch.thread_id.as_deref(),
         placeholder_text: &placeholder_text,
-        // Production always hits the real platform base URLs; the
-        // override exists so integration tests can point at a local
-        // mock server to verify dispatch routing per `ChannelType`.
-        api_base_override: None,
+        // `None` in production, so the bridge hits the real platform base
+        // URLs; the ingress's adapter factory supplies a mock server here
+        // when a test needs to read the placeholder back.
+        api_base_override: dispatch.status_api_base.as_deref(),
     };
-    let opened = open_status_adapter(&params).await?;
+    let standing_placeholder = dispatch
+        .record
+        .as_ref()
+        .and_then(|record| record.placeholder_message_id.as_deref());
+    let opened = match standing_placeholder {
+        Some(placeholder_id) => attach_status_adapter(&params, placeholder_id)?,
+        None => open_status_adapter(&params).await?,
+    };
 
     let consumer = spawn_status_consumer(
         &dispatch.resources.sse.agui_registry,

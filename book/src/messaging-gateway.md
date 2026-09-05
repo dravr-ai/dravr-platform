@@ -532,16 +532,33 @@ All HTML templates use `html_escape::encode_text()` on template variables before
 ## Turn Lifecycle
 
 A webhook answers `200 OK` as soon as the inbound message is persisted; the LLM
-turn keeps running behind it. That is deliberate — Telegram retries a webhook
-that takes seconds to answer — but it means the turn is invisible to anything
-reasoning about the process being busy. Cloud Run counts in-flight *requests*,
-so from its side the instance goes idle in the same second the athlete asks
-their question, and any rollout or scaledown is free to terminate it.
+turn cannot run inside it — Telegram retries a webhook that takes seconds to
+answer. So the turn has to become work of its own, and Cloud Run counts
+in-flight *requests*: a turn running behind an answered webhook leaves the
+instance looking idle in the same second the athlete asks their question, and
+any rollout or scaledown is free to terminate it.
 
-Every turn is therefore spawned through `InFlightTurns`
-(`services::turn_lifecycle`), which the server context holds, and which all
-three ingress paths use — webhook, Discord Gateway, and Slack socket mode.
-Three things follow from that:
+**Every turn is recorded before it runs.** All three ingress paths — webhook,
+Discord Gateway, Slack socket mode — call one entry point,
+`messaging_ingress::start_turn`, which writes the turn to
+`messaging_resumable_turns` (the three resolved tenants, the session, the
+sanitized text, the locale, the thread) and then hands the row's id to the
+configured **turn runner**. The inbound channel message id is unique on that
+table, so a webhook redelivery of a message already recorded is not started a
+second time.
+
+**On GCP the turn runs inside a request.** With `PIERRE_TURN_RUNNER=cloud_tasks`
+the ingress enqueues a Cloud Tasks task instead of spawning anything, and the
+queue delivers `POST /internal/turns/{id}/run` back to this same service. The
+turn runs inside that request, so Cloud Run sees the instance processing a
+request for the turn's whole duration and an idle scaledown never picks it
+(registre#126). The route exists only on this runner; with the default
+in-process runner it is not mounted at all and the turn is spawned locally,
+which is what every test and every local `./bin/start-server.sh` does.
+
+Whatever runs the turn, it is spawned through `InFlightTurns`
+(`services::turn_lifecycle`), which the server context holds. Four things
+follow from that:
 
 **Shutdown drains.** On SIGTERM the server awaits in-flight turns for 5s. Most
 of a turn's wall clock is one LLM call, so a turn that started seconds earlier
@@ -558,19 +575,69 @@ session. Reaching it means the turn found something with no bound of its own,
 and an unbounded turn also holds its conversation's dispatch lock, so the
 athlete's next question queues behind it.
 
-**A turn that cannot finish says so.** On a channel with status streaming
-(Telegram, Slack, Discord) the athlete is looking at a "thinking…" placeholder,
-and that text is only ever *replaced*, at the end of a turn that reaches its
-end. A turn ended by the watchdog or the drain writes the localized
-`messaging.turn_interrupted` notice into the placeholder instead, so it stops
-reading like a slow answer that is still coming. Channels that cannot edit a
-sent message (WhatsApp, Messenger) receive it as a plain reply.
+**A drained turn is resumed, not apologised for.** The drain signal is a
+hand-off: the instant it fires for a turn, the turn writes one row to
+`messaging_resumable_turns` — the three resolved tenants, the session, the
+sanitized text, the locale, the thread, and the id of the status placeholder the
+athlete is looking at — and ends without touching the channel
+(`services::messaging_ingress::resume`). The next instance to boot sweeps the
+table at startup, and every live instance sweeps it once a minute, because on a
+zero-minimum service the next instance boots only when a request arrives and a
+surviving sibling may be the one that can answer. A sweep claims rows with an
+atomic lease (one `UPDATE … RETURNING`, so two sweepers never run one turn),
+rebuilds the dispatch, re-authenticates the sender, and runs the turn through
+the same path as a fresh one — the same per-conversation lock, guards and
+watchdog — attaching to the stored placeholder so the athlete's one "thinking…"
+bubble is the one that becomes the answer. The row is deleted the moment the
+resumed turn reaches any end, so a turn is never answered twice. A resumed turn
+drained again is handed off once more only while it has an attempt left (two
+runs in total); past that, the localized `messaging.turn_interrupted` notice
+goes into the placeholder and the row is finished.
+
+**The queue is told what to do next.** A delivery answers `200` when the task is
+done with — the turn was answered, apologised for, or its row was already gone —
+and `409` when Cloud Tasks should deliver it again: the row is leased to a run
+still going, an older turn of the same conversation is still answering, or this
+instance drained mid-turn and handed the row back. Never `429` or `503`: Cloud
+Tasks throttles the *whole queue* on those, every tenant included. A delivery
+that lands ahead of an older sibling waits for it inside the request
+(`PIERRE_TURN_CLAIM_WAIT_SECS`, default 240) before answering `409`, so ordinary
+out-of-order delivery costs a wait rather than a retry.
+
+On this runner the sweep does not run what it finds — it puts the row back on
+the queue under the next enqueue sequence, because a Cloud Tasks task name that
+has already executed is refused for about a day. Rows past the attempt cap whose
+lease has ended are dropped and logged at ERROR: each is an athlete nobody
+answered.
+
+**A hung turn says so.** A turn ended by the watchdog is never re-run —
+re-running a turn that hung is not a fix. It writes the same notice into the
+placeholder, so it stops reading like a slow answer that is still coming.
+Channels that cannot edit a sent message (WhatsApp, Messenger) receive the
+notice as a plain reply.
 
 Both causes are distinguishable in the logs — `messaging.error` carries
-`error_type=turn_watchdog` or `error_type=shutdown_drain` — because a hung turn
-is a bug and a drained one is a deploy. Shutdown logs a drain report; a turn
-abandoned past both windows is an ERROR, since it is an athlete who will never
-be told anything.
+`error_type=turn_watchdog`, `error_type=shutdown_drain_resumable` (handed off),
+or `error_type=shutdown_drain` (closed with the notice) — because a hung turn is
+a bug and a drained one is a deploy. Shutdown logs a drain report; a turn
+abandoned past both windows died before it could record its hand-off, and is an
+ERROR, since it is an athlete who will never be told anything.
+
+### Turn runner configuration
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PIERRE_TURN_RUNNER` | `in_process` | `cloud_tasks` enqueues each turn and runs it inside the delivery request; anything else is refused by name at boot |
+| `PIERRE_TURN_QUEUE` | — | `projects/{p}/locations/{l}/queues/{q}`; required on `cloud_tasks` |
+| `PIERRE_TURN_TARGET_URL` | — | This service's own base URL. It is both the task target and the OIDC token audience, so it must be the exact URL the instance is reached at |
+| `PIERRE_TURN_OIDC_SERVICE_ACCOUNT` | — | The service account the queue mints delivery tokens as. The route accepts tokens from this identity and no other |
+| `PIERRE_TURN_CLAIM_WAIT_SECS` | `240` | How long a delivery waits inside the request for an older turn of the same conversation before answering `409` |
+| `MESSAGING_TURN_WATCHDOG_SECS` | `960` | Caps one turn's wall clock. The task's dispatch deadline is this plus a minute, and Cloud Tasks refuses anything over 30 minutes, so a watchdog above 29 minutes is refused at boot |
+
+The three `cloud_tasks` settings are all-or-nothing: a half-configured runner
+would enqueue turns nowhere, so boot fails naming the missing one. Terraform
+sets all of them, along with the Cloud Run `request_timeout` the delivery needs
+(1020s = watchdog + 60s), in `infra/environments/dev`.
 
 ## Outbound Retry Queue
 
@@ -597,7 +664,7 @@ The background worker polls every 5 seconds, processing up to 20 entries per cyc
 | Messages received but no AI reply | LLM pipeline not configured | Set `PIERRE_LLM_PROVIDER` and credentials (see [LLM Providers](llm-providers.md)) |
 | Outbound messages stuck in `retrying:N` | Platform API rejecting requests | Check channel credentials; inspect `messaging_outbound_queue` table |
 | Messages going to `dlq` | 3 delivery attempts exhausted | Check platform API status; verify bot token/API key is valid |
-| Reply is the "interrupted" notice, not an answer | The turn hit `MESSAGING_TURN_WATCHDOG_SECS` or the instance drained mid-turn | Grep `messaging.error` for `error_type=turn_watchdog` (something below the pipeline is unbounded) vs `shutdown_drain` (a deploy or scaledown landed on a live turn) |
+| Reply is the "interrupted" notice, not an answer | The turn hit `MESSAGING_TURN_WATCHDOG_SECS`, or the instance drained mid-turn twice in a row | Grep `messaging.error` for `error_type=turn_watchdog` (something below the pipeline is unbounded) vs `shutdown_drain` (a second scaledown landed on the resumed turn; a single one is `shutdown_drain_resumable` and the athlete got their answer from the next instance) |
 | Cross-tenant link code rejected | Link code belongs to a different tenant | Link codes are tenant-scoped by design; generate a new one in the correct tenant |
 
 ## Test Automation Strategy

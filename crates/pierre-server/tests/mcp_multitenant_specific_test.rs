@@ -47,6 +47,7 @@ async fn test_unknown_method_handler() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -102,6 +103,7 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -141,6 +143,7 @@ async fn test_disconnect_provider_handler() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -181,6 +184,7 @@ async fn test_authentication_error_handling() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -229,6 +233,7 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -276,6 +281,7 @@ async fn test_provider_initialization_errors() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -316,6 +322,7 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -354,6 +361,7 @@ async fn test_session_state_edge_cases() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -392,6 +400,7 @@ async fn test_database_error_handling() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -430,6 +439,7 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,

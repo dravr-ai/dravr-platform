@@ -83,6 +83,7 @@ pub use evidence_registry::EvidenceRegistry;
 pub use manifest::Manifest;
 pub use messaging_strings::MessagingStringsRegistry;
 pub use registry::PromptRegistry;
+pub use store::gcs::GcsPromptStore;
 pub use store::PromptStore;
 pub use tool_descriptions::ToolDescriptionRegistry;
 pub use training_catalogue::TrainingCatalogueRegistry;

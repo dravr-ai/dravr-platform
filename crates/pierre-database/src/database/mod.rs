@@ -71,6 +71,8 @@ pub mod provider_connections;
 pub mod recipes;
 /// Repository trait definitions for focused database access
 pub mod repositories;
+/// Messaging turns the shutdown drain handed off, leased to one re-runner at a time
+pub mod resumable_turns;
 /// Coach-athlete roster assignments (`SQLite`) backing `RosterRepository`.
 pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (`SQLite`)

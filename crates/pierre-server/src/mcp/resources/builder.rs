@@ -143,6 +143,7 @@ impl ServerContextBuilder {
             chat_provider: self.chat_provider,
             extra_tools: Vec::new(),
             billing_provider: self.billing_provider,
+            turn_runner: None,
         };
 
         let resources = ServerContext::new(

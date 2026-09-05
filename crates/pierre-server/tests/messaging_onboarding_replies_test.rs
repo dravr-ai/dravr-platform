@@ -107,6 +107,7 @@ async fn context() -> anyhow::Result<Arc<ServerContext>> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,

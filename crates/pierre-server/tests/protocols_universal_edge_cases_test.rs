@@ -197,6 +197,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -253,6 +254,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,

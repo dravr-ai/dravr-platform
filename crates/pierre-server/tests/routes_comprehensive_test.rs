@@ -86,6 +86,7 @@ async fn create_test_auth_routes() -> Result<AuthService> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -346,6 +347,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -650,6 +652,7 @@ async fn test_user_login_success() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -955,6 +958,7 @@ async fn test_token_refresh_success() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -1205,6 +1209,7 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -1730,6 +1735,7 @@ async fn test_complete_auth_flow() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -2066,6 +2072,7 @@ async fn test_concurrent_logins() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,

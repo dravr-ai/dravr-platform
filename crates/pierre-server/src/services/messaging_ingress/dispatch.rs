@@ -4,42 +4,40 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
 use std::env;
-use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
-use pierre_core::models::{ColorScheme, ConversationTurnId, TenantId, TranscriptSpeaker};
-use pierre_core::narration::scrub_replayed_narration;
+use pierre_core::models::{ColorScheme, ConversationTurnId, TenantId};
 use pierre_database::backends::MessagingRepository;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 use super::scene_publisher::MessagingScenePublisher;
 use pierre_chat_pipeline::{
-    self, CommandPersistence, PipelineHooks, ServedTurn, TurnOrigin, TurnRequest,
+    self, CommandPersistence, PipelineHooks, ServedTurn, SurfaceProfile, TurnOrigin, TurnRequest,
 };
 use pierre_contremaitre::messaging_strings::{
-    format_template, MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER,
-    KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
-    KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED, KEY_TURN_INTERRUPTED,
+    format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED, KEY_TURN_INTERRUPTED,
 };
 use pierre_core::errors::AppError;
-use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
-use pierre_services::activity_sports::sport_label;
 use pierre_services::analytics::hash_id;
 
 use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
+use super::ambient_context::build_group_ambient_context;
 use super::block_render::{render_reply, RenderedReply};
+use super::coach_proposal::maybe_send_coach_proposal;
 use super::connect;
 use super::identity_leak_notify::{emit_identity_leak, LeakContext};
 use super::intake;
 use super::otp::apply_conversation_recipient;
 use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
+use super::resume::{
+    finish_turn_record, hand_off_drained_turn, keep_lease, note_placeholder, DrainHandOff,
+    MAX_TURN_ATTEMPTS,
+};
 use super::turn_guard::{
     acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_bounded, run_guarded,
     TurnInterruption, TurnOutcome,
@@ -48,16 +46,6 @@ use super::{build_messaging_profile, outbound_retry, PendingDispatch};
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
-/// Auto-send the one-time onboarding coach proposal for this user, if it hasn't
-/// been sent on this channel link yet.
-///
-/// Fires on the user's first provider-connected messaging turn: builds the
-/// inferred-profile proposal (shared with the REST route via
-/// [`build_coach_proposal`]), renders it to text, sends it through the channel
-/// adapter, and stamps the link so it never re-sends. Entirely best-effort —
-/// any failure is logged and the turn proceeds normally. When no coaches are
-/// eligible yet (cold start, activities not synced) it returns *without*
-/// stamping, so a later turn can propose once data lands.
 /// Send the tappable "Connect your account" card alongside a served turn, for
 /// as long as the athlete has no provider connected.
 ///
@@ -143,165 +131,6 @@ async fn maybe_send_intake_question(dispatch: &PendingDispatch, channel_config: 
     if let Err(e) = dispatch.adapter.send(&question, channel_config).await {
         warn!(error = %e, "intake: question failed to send; the ledger already charged the attempt");
     }
-}
-
-async fn maybe_send_coach_proposal(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
-    let Some((outgoing, offered_ids)) = build_coach_proposal_message(dispatch).await else {
-        return;
-    };
-
-    if let Err(e) = dispatch.adapter.send(&outgoing, channel_config).await {
-        warn!(error = %e, "coach proposal: send failed; will retry next turn");
-        return;
-    }
-
-    stamp_coach_proposal_sent(dispatch, &offered_ids).await;
-
-    info!(
-        hashed_user = %hash_id(&dispatch.session.user_id),
-        "coach proposal auto-sent"
-    );
-}
-
-/// Stamp the channel link so the proposal is never re-sent. Best-effort: a
-/// failure here only risks a duplicate proposal on a later turn, never the turn.
-async fn stamp_coach_proposal_sent(dispatch: &PendingDispatch, offered_ids: &[String]) {
-    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
-    if let Err(e) = db
-        .mark_coach_proposal_sent(
-            dispatch.channel_tenant_id,
-            &dispatch.channel,
-            &dispatch.sender_id,
-            offered_ids,
-        )
-        .await
-    {
-        warn!(error = %e, "coach proposal: sent but failed to stamp link; may re-send next turn");
-    }
-}
-
-/// Decide whether to auto-send and, if so, build the outbound proposal message.
-///
-/// Returns `None` when the proposal was already sent (or the idempotency read
-/// errored — fail closed), when the user already has an active coach (they are
-/// past onboarding), when the build fails, or when no coaches are eligible yet
-/// (cold start). In the cold-start case the link is intentionally left
-/// un-stamped so a later turn can propose once activities sync.
-async fn build_coach_proposal_message(
-    dispatch: &PendingDispatch,
-) -> Option<(OutgoingMessage, Vec<String>)> {
-    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
-
-    let already_sent = db
-        .coach_proposal_sent(
-            dispatch.channel_tenant_id,
-            &dispatch.channel,
-            &dispatch.sender_id,
-        )
-        .await
-        .unwrap_or(true); // fail closed: never risk double-sending on a read error
-    if already_sent {
-        return None;
-    }
-
-    // Never onboard a user who already has an active coach. The idempotency
-    // flag alone is insufficient: a user can acquire a coach on the web before
-    // ever receiving a messaging proposal, leaving the flag NULL — and the
-    // "Welcome!" lead-in is jarring for someone mid-plan. Re-checked each turn
-    // (cheap, indexed); left un-stamped so a transient read error can't
-    // permanently suppress a genuinely new user's proposal.
-    let has_active_coach = dispatch
-        .resources
-        .common
-        .repos
-        .coaches
-        .get_active_coach(dispatch.auth_result.user_id, dispatch.user_tenant_id)
-        .await
-        .map_or(true, |coach| coach.is_some()); // fail closed: never onboard a possibly-coached user
-    if has_active_coach {
-        return None;
-    }
-
-    let (profile, coaches) = build_coach_proposal(
-        &dispatch.resources,
-        dispatch.auth_result.user_id,
-        dispatch.user_tenant_id,
-        &dispatch.locale,
-    )
-    .await
-    .inspect_err(|e| warn!(error = %e, "coach proposal: build failed; skipping"))
-    .ok()?;
-
-    if coaches.is_empty() {
-        return None;
-    }
-
-    let body = render_coach_proposal_text(
-        &profile,
-        &coaches,
-        &dispatch.resources.mcp.messaging_strings_registry,
-        &dispatch.locale,
-    );
-    // Captured in the SAME order the user reads, because that ordering is what a
-    // numeric reply indexes into.
-    let offered_ids: Vec<String> = coaches.iter().map(|c| c.coach.id.clone()).collect();
-    Some((
-        OutgoingMessage {
-            channel_type: dispatch.channel_type,
-            recipient_id: dispatch.sender_id.clone(),
-            content: MessageContent::Text { body },
-            // A fresh turn id: the proposal is a proactive message, not a reply to
-            // the user's inbound turn.
-            turn_id: CanotTurnId::new(),
-            reply_to: None,
-            thread_id: dispatch.thread_id.clone(),
-        },
-        offered_ids,
-    ))
-}
-
-/// Render the onboarding coach proposal as a channel text message: a short
-/// profile-aware lead-in, then a numbered list of `title — reason` lines.
-///
-/// The lead-in and footer are resolved from the messaging-strings `registry`
-/// for `locale`; the numbered list is locale-neutral formatting and the
-/// per-coach reasons arrive already localized from [`build_coach_proposal`].
-fn render_coach_proposal_text(
-    profile: &SportProfileSummary,
-    coaches: &[ProposedCoach],
-    registry: &MessagingStringsRegistry,
-    locale: &str,
-) -> String {
-    let count = coaches.len().to_string();
-    let mut body = profile
-        .primary_sport
-        .as_deref()
-        .filter(|_| profile.has_profile)
-        .map_or_else(
-            || registry.render(KEY_COACH_PROPOSAL_WELCOME_GENERIC, locale, &[&count]),
-            |primary| {
-                // The wire sport names itself in the athlete's locale when the
-                // shared vocabulary knows it; an unknown spelling keeps its
-                // wire text rather than inventing one.
-                let sport = sport_label(registry, primary, locale);
-                registry.render(KEY_COACH_PROPOSAL_WELCOME, locale, &[&sport, &count])
-            },
-        );
-    for (index, proposed) in coaches.iter().enumerate() {
-        let reason = if proposed.reason.is_empty() {
-            String::new()
-        } else {
-            format!(" — {}", proposed.reason)
-        };
-        let _ = writeln!(
-            body,
-            "{number}. {title}{reason}",
-            number = index + 1,
-            title = proposed.coach.title,
-        );
-    }
-    body.push_str(&registry.get(KEY_COACH_PROPOSAL_FOOTER, locale));
-    body
 }
 
 /// Route the assistant reply back to the user.
@@ -441,7 +270,8 @@ const DEFAULT_TURN_WATCHDOG_SECS: u64 = 960;
 /// re-tuning it should not need a binary. Zero or unparseable falls back
 /// rather than disarming the watchdog — an unbounded turn is the defect this
 /// exists to end.
-fn turn_watchdog() -> Duration {
+#[must_use]
+pub fn turn_watchdog() -> Duration {
     let secs = env::var("MESSAGING_TURN_WATCHDOG_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -487,7 +317,7 @@ async fn report_dispatch_failure(
     send_plain_reply(dispatch, channel_config, &user_message).await;
 }
 
-/// Close a turn that was cut short before it produced anything.
+/// Close a turn that was cut short and will not be run again.
 ///
 /// The placeholder is the whole point. On a channel with status streaming the
 /// athlete is looking at "génération de la réponse…", and that text is only
@@ -501,6 +331,12 @@ async fn report_dispatch_failure(
 /// tells the athlete and retires the lie. Where there is no placeholder
 /// (`WhatsApp`, Messenger — neither can edit a sent message) it is a plain
 /// reply, which is the same thing those channels do for every other notice.
+///
+/// Reached by a watchdog interruption, and by a drain interruption only once
+/// the turn has no attempt left or could not be recorded — a drain with an
+/// attempt left is handed off to the next instance instead
+/// (`resume::hand_off_drained_turn`), and its placeholder is left standing
+/// for the resumed run to edit.
 async fn close_interrupted_turn(
     dispatch: &PendingDispatch,
     messaging_agui: Option<&MessagingAgUiWiring>,
@@ -549,6 +385,56 @@ async fn close_interrupted_turn(
     }
 }
 
+/// Decide what an interrupted turn owes: a hand-off or a closing notice.
+///
+/// A drain is handed off first — the turn is recorded for the next instance
+/// before anything else happens, one small write inside what remains of the
+/// termination grace, and its placeholder is left standing for the resumed
+/// run to edit. The progress consumer is silenced so a queued status event
+/// cannot rewrite that placeholder after the hand-off. Only a drained turn
+/// with no attempt left, or one that could not be recorded, is closed with
+/// the notice; a watchdog interruption always is, because re-running a turn
+/// that hung is not a fix.
+async fn settle_interruption(
+    dispatch: &PendingDispatch,
+    messaging_agui: Option<&MessagingAgUiWiring>,
+    channel_config: &ChannelConfig,
+    cause: TurnInterruption,
+    elapsed_ms: u64,
+) -> TurnClose {
+    if cause == TurnInterruption::Drain {
+        let placeholder = messaging_agui.and_then(MessagingAgUiWiring::placeholder_message_id);
+        if hand_off_drained_turn(dispatch, placeholder).await == DrainHandOff::Recorded {
+            if let Some(wiring) = messaging_agui {
+                wiring.stop_status_updates();
+            }
+            info!(
+                target: "notify",
+                event = "messaging.error",
+                tenant_id = %dispatch.channel_tenant_id,
+                channel = %dispatch.channel,
+                error_type = "shutdown_drain_resumable",
+                "messaging error"
+            );
+            return TurnClose::HandedOff;
+        }
+    }
+    close_interrupted_turn(dispatch, messaging_agui, channel_config, cause, elapsed_ms).await;
+    TurnClose::Finished
+}
+
+/// Whether a resumed turn has already used every attempt it was given.
+///
+/// The sweeper claims a row at the cap one last time so the placeholder the
+/// athlete is still looking at can carry the notice; such a dispatch is here
+/// to be closed, not run.
+fn attempts_exhausted(dispatch: &PendingDispatch) -> bool {
+    dispatch
+        .record
+        .as_ref()
+        .is_some_and(|record| record.attempts > MAX_TURN_ATTEMPTS)
+}
+
 /// Send the localized denial for a quota or rate-limit refusal.
 ///
 /// WARN, not ERROR, and no notify event: a budget refusing a turn is the
@@ -582,125 +468,6 @@ async fn send_quota_denial_reply(
         .messaging_strings_registry
         .get(key, &dispatch.locale);
     send_plain_reply(dispatch, channel_config, &body).await;
-}
-
-/// Maximum ambient-transcript lines injected into a group turn's prompt.
-const AMBIENT_TRANSCRIPT_MAX_LINES: usize = 25;
-
-/// Maximum characters kept per ambient-transcript line (grapheme-unaware
-/// char truncation is fine for prompt context).
-const AMBIENT_TRANSCRIPT_MAX_LINE_CHARS: usize = 240;
-
-/// Build the speaker-labeled ambient transcript for a group turn.
-///
-/// Reads the group's shared room transcript (`group_transcript_entries`) —
-/// the same surface-neutral read model web and mobile members read — through
-/// the consent-gated visibility query, with the requesting member as the
-/// viewer: an unconsented peer's content never enters this member's prompt.
-/// Member rows are labeled with the sender's display name, coach rows
-/// "Coach". The triggering message is not yet in the transcript (the turn
-/// pipeline fans it out at persistence), so nothing is excluded here.
-/// Returns `None` when the room has no other recent messages, so DM-shaped
-/// groups cost no prompt tokens.
-async fn build_group_ambient_context(dispatch: &PendingDispatch) -> Option<String> {
-    let conversation = dispatch
-        .resources
-        .common
-        .repos
-        .chat
-        .get_conversation(
-            &dispatch.session.conversation,
-            &dispatch.session.user_id,
-            dispatch.session_tenant_id,
-        )
-        .await
-        .ok()??;
-    let group_id = conversation.group_id?;
-
-    let limit = i64::try_from(AMBIENT_TRANSCRIPT_MAX_LINES).unwrap_or(25);
-    let entries = match dispatch
-        .resources
-        .common
-        .repos
-        .groups
-        .list_transcript_visible_to(&group_id, dispatch.auth_result.user_id, limit)
-        .await
-    {
-        Ok(entries) => entries,
-        Err(e) => {
-            warn!(error = %e, "ambient transcript load failed; dispatching without it");
-            return None;
-        }
-    };
-
-    // Newest-first from the query; restore chronological order, cap the
-    // per-line length.
-    let mut lines: Vec<String> = Vec::new();
-    let mut label_cache: HashMap<String, String> = HashMap::new();
-    for entry in &entries {
-        if entry.content.is_empty() {
-            continue;
-        }
-        // A coach line re-enters every member's prompt from here, and the
-        // `capability_claim_unverified` stamp lives on the author's row, not
-        // here — so the replay scrub runs on the way in (2026-08-30: a consent
-        // denial replayed to the peer it named, after he had consented).
-        let (label, content) = match entry.speaker {
-            TranscriptSpeaker::Coach => (
-                "Coach".to_owned(),
-                scrub_replayed_narration(&entry.content).cleaned,
-            ),
-            TranscriptSpeaker::Member => {
-                let author = entry.author_user_id.to_string();
-                let label = speaker_label(dispatch, &author, &mut label_cache).await;
-                (label, entry.content.clone())
-            }
-        };
-        if content.trim().is_empty() {
-            continue;
-        }
-        let truncated: String = content
-            .chars()
-            .take(AMBIENT_TRANSCRIPT_MAX_LINE_CHARS)
-            .collect();
-        lines.push(format!("{label}: {truncated}"));
-    }
-    if lines.is_empty() {
-        return None;
-    }
-    lines.reverse();
-
-    Some(format!(
-        "## Recent group chat\n\
-         This conversation happens inside a group chat. The lines below are \
-         the room's most recent messages, oldest first, for context only — \
-         answer the current message, which follows the conversation history. \
-         Never prefix your reply with a name label.\n\n{}",
-        lines.join("\n")
-    ))
-}
-
-/// Resolve a member's display label for the ambient transcript, caching per
-/// build. Falls back to the email local-part, then a neutral "Member".
-async fn speaker_label(
-    dispatch: &PendingDispatch,
-    user_id: &str,
-    cache: &mut HashMap<String, String>,
-) -> String {
-    if let Some(cached) = cache.get(user_id) {
-        return cached.clone();
-    }
-    let label = match Uuid::parse_str(user_id) {
-        Ok(uuid) => match dispatch.resources.common.repos.users.get_global(uuid).await {
-            Ok(Some(user)) => user
-                .display_name
-                .unwrap_or_else(|| user.email.split('@').next().unwrap_or("Member").to_owned()),
-            _ => "Member".to_owned(),
-        },
-        Err(_) => "Member".to_owned(),
-    };
-    cache.insert(user_id.to_owned(), label.clone());
-    label
 }
 
 /// Read the colour scheme the athlete pinned, for the charts this turn mints.
@@ -738,10 +505,10 @@ async fn athlete_color_scheme(dispatch: &PendingDispatch) -> ColorScheme {
 /// onto every downstream log line (chat pipeline stages, embacle HTTP call)
 /// so an operator can grep a single `turn_id=...` across the whole flow.
 ///
-/// LIMITATION(registre#109): `dispatch_and_respond` runs unbounded — `start` measures the turn
-/// but no deadline closes it. The AG-UI status placeholder is only ever edited into a finished
-/// reply, so a turn killed mid-generation leaves that placeholder open in the room forever,
-/// indistinguishable to the athlete from a slow answer.
+/// A run holds the lease on its recorded row (`dispatch.record`) and renews
+/// it while it works. Whatever end the turn reaches, the row is finished
+/// here, unless the turn was drained with an attempt left — then the row is
+/// handed back for the next run and stays.
 #[tracing::instrument(
     skip(dispatch),
     fields(
@@ -750,23 +517,40 @@ async fn athlete_color_scheme(dispatch: &PendingDispatch) -> ColorScheme {
         conversation_id = %dispatch.session.conversation,
     )
 )]
-pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
+pub async fn dispatch_and_respond(dispatch: PendingDispatch) -> TurnClose {
+    // The lease this run holds on its row is renewed for as long as the run
+    // lives, whichever way the turn ends, and stops before the row is
+    // settled — a renewal racing the delete would only find it gone.
+    let lease_heartbeat = keep_lease(&dispatch);
+    let close = run_turn(&dispatch).await;
+    drop(lease_heartbeat);
+    if close == TurnClose::Finished {
+        finish_turn_record(&dispatch).await;
+    }
+    close
+}
+
+/// How one dispatch left its recorded row, if it had one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnClose {
+    /// The turn reached an end — answered, refused, failed, or apologised for
+    /// — and owes the athlete nothing further.
+    Finished,
+    /// The drain took the turn with an attempt left; it is on file for the
+    /// next run and its row must survive this dispatch.
+    HandedOff,
+}
+
+/// Run one messaging turn end to end and say how it closed.
+///
+/// The body of [`dispatch_and_respond`]; separate so every early return
+/// passes through one place that settles the resumable row.
+async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
     let lock = acquire_dispatch_lock(&dispatch.session.conversation);
     let dispatch_guard = lock.lock().await;
 
     let start = Instant::now();
-    let hashed_user = hash_id(&dispatch.session.user_id);
-
-    // Log the inbound user message at debug. The full body is dumped at
-    // trace level so an operator can run `RUST_LOG=...=trace` to follow a
-    // typed message all the way to the LLM call without needing to enable
-    // payload events at the ingress layer in prod.
-    info!(
-        text_len = dispatch.text_content.len(),
-        hashed_user = %hashed_user,
-        "messaging dispatch starting"
-    );
-    tracing::trace!(text = %dispatch.text_content, "messaging dispatch user message");
+    log_dispatch_start(dispatch);
 
     let profile = build_messaging_profile(
         &dispatch.resources,
@@ -785,25 +569,17 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // `None` means the tenant has no configured channel — we cannot
     // reply at all, so log and bail without spending compute on the
     // LLM pipeline.
-    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
-    let Some(channel_config) =
-        load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await
-    else {
-        warn!(
-            channel = %dispatch.channel,
-            tenant_id = %dispatch.channel_tenant_id,
-            "channel config unavailable at dispatch time; dropping turn with no reply"
-        );
+    let Some(channel_config) = load_dispatch_channel_config(dispatch).await else {
         drop(dispatch_guard);
         evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
-        return;
+        return TurnClose::Finished;
     };
 
     // One-time onboarding coach proposal: on the user's first provider-connected
     // turn, lead with the inferred-profile coach suggestions before processing
     // their message. Best-effort — never blocks or fails the turn.
-    maybe_send_coach_proposal(&dispatch, &channel_config).await;
-    maybe_send_connect_card(&dispatch, &channel_config).await;
+    maybe_send_coach_proposal(dispatch, &channel_config).await;
+    maybe_send_connect_card(dispatch, &channel_config).await;
 
     // Register an AG-UI run for this messaging turn so the in-process
     // channel-side status adapter can subscribe via
@@ -817,17 +593,178 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // messages) and spawns a background consumer that mirrors each
     // AG-UI event as a `set_status` call so the user sees the pipeline
     // stage in real time.
-    let messaging_agui = setup_messaging_agui(&dispatch, &channel_config).await;
+    let messaging_agui = setup_messaging_agui(dispatch, &channel_config).await;
+
+    // A placeholder this run opened is recorded at once, so a run that dies
+    // without a word still leaves the next one the message to edit rather
+    // than a second bubble to post.
+    let placeholder_on_file = dispatch
+        .record
+        .as_ref()
+        .is_some_and(|record| record.placeholder_message_id.is_some());
+    if let (false, Some(opened)) = (
+        placeholder_on_file,
+        messaging_agui
+            .as_ref()
+            .and_then(MessagingAgUiWiring::placeholder_message_id),
+    ) {
+        note_placeholder(dispatch, opened).await;
+    }
+
+    // A resumed turn past its attempt cap is closed, not run: running the
+    // LLM again would be a third attempt the cap exists to refuse.
+    if attempts_exhausted(dispatch) {
+        close_interrupted_turn(
+            dispatch,
+            messaging_agui.as_ref(),
+            &channel_config,
+            TurnInterruption::Drain,
+            0,
+        )
+        .await;
+        return TurnClose::Finished;
+    }
+
+    let served = serve_turn(
+        dispatch,
+        &profile,
+        &channel_config,
+        messaging_agui.as_ref(),
+        start,
+    )
+    .await;
+
+    // Dropping the wiring here aborts the consumer task (if still
+    // live) and releases the RunScope so the registry entry is
+    // cleaned up. Held until after `deliver_reply` so any
+    // last events the pipeline emitted on the way out still render.
+    drop(messaging_agui);
+
+    if let Served::Ended(close) = served {
+        return close;
+    }
+
+    // After the answer, never before it. The intake rides *behind* a served
+    // turn — an athlete who asks "j'attaque la tourbière, c'est bon?" gets
+    // answered and is then handed the form, not the reverse. Running it up at
+    // the top put the question above a coaching reply that was delivered by
+    // editing a placeholder opened later, so the answer was pinned below the
+    // form in the thread and the opener's promise ("une minute maintenant, et
+    // le coaching qui suit est plus précis") was already broken by the time it
+    // was read (production Telegram, 2026-08-28).
+    //
+    // Inside the conversation lock, so the ledger write that records the probe
+    // still lands before the athlete can answer it. Below the early returns for
+    // quota denial, turn failure and an empty reply, so a turn that produced no
+    // coaching no longer trails a form behind nothing — the intake keeps its
+    // claim on the next served turn instead, because `try_build_first_question`
+    // only asks while nothing has been probed.
+    maybe_send_intake_question(dispatch, &channel_config).await;
+
+    // Held until here to serialize dispatches for the same conversation
+    drop(dispatch_guard);
+    evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+    TurnClose::Finished
+}
+
+/// The operator-facing record of a served turn: the `messaging.response_sent`
+/// notify event and the identity-leak signal.
+///
+/// The security signal matters because the athlete received the canned
+/// withheld string, not the leak, so nothing about the turn looks unusual
+/// from outside — the alert is the only thing that makes it visible.
+fn announce_served_turn(
+    dispatch: &PendingDispatch,
+    dispatch_result: &pierre_chat_pipeline::TurnEnvelope,
+    execution_time_ms: u64,
+) {
+    info!(
+        target: "notify",
+        event = "messaging.response_sent",
+        user_id = %dispatch.session.user_id,
+        tenant_id = %dispatch.channel_tenant_id,
+        channel = %dispatch.channel,
+        response_type = "llm",
+        execution_time_ms = execution_time_ms,
+        model = %dispatch_result.telemetry.model,
+        "messaging response sent"
+    );
+    emit_identity_leak(
+        dispatch_result,
+        &LeakContext {
+            conversation_tenant_id: dispatch.session_tenant_id,
+            conversation_id: &dispatch.session.conversation,
+            channel: &dispatch.channel,
+        },
+    );
+}
+
+/// Log the inbound user message at debug.
+///
+/// The full body is dumped at trace level so an operator can run
+/// `RUST_LOG=...=trace` to follow a typed message all the way to the LLM
+/// call without needing to enable payload events at the ingress layer in
+/// prod.
+fn log_dispatch_start(dispatch: &PendingDispatch) {
+    info!(
+        text_len = dispatch.text_content.len(),
+        hashed_user = %hash_id(&dispatch.session.user_id),
+        "messaging dispatch starting"
+    );
+    tracing::trace!(text = %dispatch.text_content, "messaging dispatch user message");
+}
+
+/// The channel config a turn replies through, loaded once per turn.
+///
+/// `None` means the tenant has no configured channel — the turn cannot
+/// reply at all, so the caller drops it without spending compute on the LLM
+/// pipeline.
+async fn load_dispatch_channel_config(dispatch: &PendingDispatch) -> Option<ChannelConfig> {
+    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
+    let config = load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await;
+    if config.is_none() {
+        warn!(
+            channel = %dispatch.channel,
+            tenant_id = %dispatch.channel_tenant_id,
+            "channel config unavailable at dispatch time; dropping turn with no reply"
+        );
+    }
+    config
+}
+
+/// How [`serve_turn`] left the athlete.
+enum Served {
+    /// A coaching reply was delivered; what follows the answer (the intake
+    /// question) is still owed.
+    Answered,
+    /// The turn ended some other way — refused, failed, interrupted, a
+    /// command answer, an empty reply — and nothing else is sent after it.
+    Ended(TurnClose),
+}
+
+/// Run the pipeline for one turn and deliver whatever it produced.
+///
+/// Everything between the AG-UI wiring being open and the reply being on the
+/// channel: the request, the bounded pipeline run, and the rendering of its
+/// outcome. Split from [`run_turn`] so the lock, config and placeholder
+/// bookkeeping around it stay readable on their own.
+async fn serve_turn(
+    dispatch: &PendingDispatch,
+    profile: &SurfaceProfile,
+    channel_config: &ChannelConfig,
+    messaging_agui: Option<&MessagingAgUiWiring>,
+    start: Instant,
+) -> Served {
     // Charts: this channel cannot draw a spec, so the pipeline asks the
     // publisher for a signed image URL per block once the assistant row is
     // durable, and the envelope carries them as `SceneImage` blocks.
     let scene_publisher = MessagingScenePublisher::new(
         Arc::clone(&dispatch.resources),
         profile.render,
-        athlete_color_scheme(&dispatch).await,
+        athlete_color_scheme(dispatch).await,
     );
     let hooks = PipelineHooks {
-        agui: messaging_agui.as_ref().map(|w| w.run()),
+        agui: messaging_agui.map(MessagingAgUiWiring::run),
         scene_publisher: Some(&scene_publisher),
         ..PipelineHooks::none()
     };
@@ -835,7 +772,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // Group turns get the room's recent cross-member transcript; DMs skip
     // the lookup entirely.
     let ambient_context = if dispatch.is_group_chat {
-        build_group_ambient_context(&dispatch).await
+        build_group_ambient_context(dispatch).await
     } else {
         None
     };
@@ -883,7 +820,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // a closed placeholder instead of an open one.
     let drain = dispatch.resources.common.turns.drain_token();
     let dispatch_result = match run_bounded(
-        run_guarded(pierre_chat_pipeline::execute(&ctx, request, &profile)),
+        run_guarded(pierre_chat_pipeline::execute(&ctx, request, profile)),
         turn_watchdog(),
         &drain,
     )
@@ -895,32 +832,34 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         // and log at WARN — paging on-call for a budget working as designed
         // is how real faults get tuned out.
         TurnOutcome::QuotaDenied(e) => {
-            send_quota_denial_reply(&dispatch, &channel_config, &e).await;
-            return;
+            send_quota_denial_reply(dispatch, channel_config, &e).await;
+            return Served::Ended(TurnClose::Finished);
         }
         // Includes a panic caught inside any pipeline stage: the athlete gets
         // an apology carrying a correlation id instead of silence.
         TurnOutcome::Failed(e) => {
-            report_dispatch_failure(&dispatch, &channel_config, &e).await;
-            return;
+            report_dispatch_failure(dispatch, channel_config, &e).await;
+            return Served::Ended(TurnClose::Finished);
         }
         // Cut short with nothing to deliver. Unlike every arm above it,
         // this one has a placeholder still open on the channel, so the
-        // wiring goes with it — the notice replaces the placeholder
-        // rather than arriving underneath it.
+        // wiring goes with it — a drain hands the turn off and leaves the
+        // placeholder for the resumed run, a watchdog replaces it with the
+        // notice rather than arriving underneath it.
         //
         // Safe cast: a turn's elapsed milliseconds cannot approach u64::MAX.
         #[allow(clippy::cast_possible_truncation)]
         TurnOutcome::Interrupted(cause) => {
-            close_interrupted_turn(
-                &dispatch,
-                messaging_agui.as_ref(),
-                &channel_config,
-                cause,
-                start.elapsed().as_millis() as u64,
-            )
-            .await;
-            return;
+            return Served::Ended(
+                settle_interruption(
+                    dispatch,
+                    messaging_agui,
+                    channel_config,
+                    cause,
+                    start.elapsed().as_millis() as u64,
+                )
+                .await,
+            );
         }
     };
 
@@ -931,39 +870,15 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let dispatch_result = match dispatch_result {
         ServedTurn::Pipeline(envelope) => *envelope,
         ServedTurn::Command { command, .. } => {
-            send_plain_reply(&dispatch, &channel_config, &command.text).await;
-            return;
+            send_plain_reply(dispatch, channel_config, &command.text).await;
+            return Served::Ended(TurnClose::Finished);
         }
     };
 
     // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
     #[allow(clippy::cast_possible_truncation)]
     let execution_time_ms = start.elapsed().as_millis() as u64;
-
-    info!(
-        target: "notify",
-        event = "messaging.response_sent",
-        user_id = %dispatch.session.user_id,
-        tenant_id = %dispatch.channel_tenant_id,
-        channel = %dispatch.channel,
-        response_type = "llm",
-        execution_time_ms = execution_time_ms,
-        model = %dispatch_result.telemetry.model,
-        "messaging response sent"
-    );
-
-    // Security signal: the reply identified as the underlying model/provider and
-    // was withheld at the response boundary. The athlete received the canned
-    // withheld string, not the leak, so nothing about this turn looks unusual
-    // from outside — the alert is the only thing that makes it visible.
-    emit_identity_leak(
-        &dispatch_result,
-        &LeakContext {
-            conversation_tenant_id: dispatch.session_tenant_id,
-            conversation_id: &dispatch.session.conversation,
-            channel: &dispatch.channel,
-        },
-    );
+    announce_served_turn(dispatch, &dispatch_result, execution_time_ms);
 
     // Per-LLM-call `llm_usage` rows are written inline by the chat pipeline's
     // `LlmCallRecorder`, and the daily/weekly counters the next turn's quota
@@ -1010,48 +925,22 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
             .mcp
             .messaging_strings_registry
             .get(KEY_EMPTY_REPLY, &dispatch_result.locale);
-        send_plain_reply(&dispatch, &channel_config, &empty_reply).await;
-        return;
+        send_plain_reply(dispatch, channel_config, &empty_reply).await;
+        return Served::Ended(TurnClose::Finished);
     }
 
     let RenderedReply { prose, attachments } = rendered;
     deliver_reply(
-        &dispatch,
-        messaging_agui.as_ref(),
-        &channel_config,
+        dispatch,
+        messaging_agui,
+        channel_config,
         prose,
         dispatch_result.turn_id,
         attachments,
         &dispatch_result.assistant.message.id,
     )
     .await;
-
-    // Dropping the wiring here aborts the consumer task (if still
-    // live) and releases the RunScope so the registry entry is
-    // cleaned up. Held until after `deliver_reply` so any
-    // last events the pipeline emitted on the way out still render.
-    drop(messaging_agui);
-
-    // After the answer, never before it. The intake rides *behind* a served
-    // turn — an athlete who asks "j'attaque la tourbière, c'est bon?" gets
-    // answered and is then handed the form, not the reverse. Running it up at
-    // the top put the question above a coaching reply that was delivered by
-    // editing a placeholder opened later, so the answer was pinned below the
-    // form in the thread and the opener's promise ("une minute maintenant, et
-    // le coaching qui suit est plus précis") was already broken by the time it
-    // was read (production Telegram, 2026-08-28).
-    //
-    // Inside the conversation lock, so the ledger write that records the probe
-    // still lands before the athlete can answer it. Below the early returns for
-    // quota denial, turn failure and an empty reply, so a turn that produced no
-    // coaching no longer trails a form behind nothing — the intake keeps its
-    // claim on the next served turn instead, because `try_build_first_question`
-    // only asks while nothing has been probed.
-    maybe_send_intake_question(&dispatch, &channel_config).await;
-
-    // Held until here to serialize dispatches for the same conversation
-    drop(dispatch_guard);
-    evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+    Served::Answered
 }
 
 /// Send one plain-text body back to the athlete, outside the envelope path.

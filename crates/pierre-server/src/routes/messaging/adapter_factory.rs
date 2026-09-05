@@ -50,6 +50,19 @@ pub trait ChannelAdapterFactory: Send + Sync {
     /// rather than as an error.
     fn build(&self, channel_type: ChannelType, config: &Value)
         -> Option<Arc<dyn MessagingChannel>>;
+
+    /// Base URL the in-channel status bridge posts its placeholder to.
+    ///
+    /// The status placeholder ("thinking…") does not travel through the
+    /// adapter [`Self::build`] returns — canot's status adapters own their own
+    /// HTTP client — so an offline factory that captures sends would still let
+    /// every placeholder open, edit and finalize reach the live platform API.
+    /// `None` is the production answer: the channel's real host. A test
+    /// supplies its mock server here so the same turn opens, edits and
+    /// finalizes its placeholder against something it can read back.
+    fn status_api_base(&self) -> Option<String> {
+        None
+    }
 }
 
 /// The production factory: the adapter is whatever the tenant's stored config

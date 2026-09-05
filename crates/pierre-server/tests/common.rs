@@ -35,6 +35,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_llm::ChatProvider;
+use pierre_mcp_server::services::turn_runner::TurnRunner;
 use pierre_mcp_server::{
     constants,
     mcp::resources::{ServerContext, ServerContextOptions},
@@ -529,10 +530,101 @@ async fn create_test_server_resources_inner_typed(
     config_override: Option<ServerConfig>,
     chat_provider: Option<Arc<ChatProvider>>,
 ) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    create_test_server_resources_over(
+        database,
+        llm_provider,
+        extra_tools,
+        config_override,
+        chat_provider,
+        None,
+    )
+    .await
+}
+
+/// A second server context over the database an existing one already runs on.
+///
+/// The shape of a Cloud Run rollout or scaledown: the instance that was
+/// running a turn is gone, and a fresh process — its own in-flight tracker,
+/// its own drain token, the same rows — is what picks the turn up. Tests of
+/// the resume path (registre#126) need that second process, because a drain
+/// token stays cancelled for the life of the process that drained, exactly
+/// as it does in production where that process exits.
+///
+/// `chat_provider` is passed rather than copied so a stateful stub (one that
+/// hangs on its first call and answers afterwards) keeps its count across the
+/// two instances.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub async fn create_sibling_server_resources_with_chat_provider(
+    sibling_of: &ServerContext,
+    chat_provider: Arc<dyn LlmProvider + 'static>,
+) -> Result<Arc<ServerContext>> {
+    create_sibling_server_resources_with_chat_provider_and_runner(sibling_of, chat_provider, None)
+        .await
+}
+
+/// [`create_sibling_server_resources_with_chat_provider`] with the messaging
+/// turn runner chosen: a sibling on Cloud Tasks mounts the turn-run route,
+/// which is how a test delivers a task to "the next instance".
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
+    sibling_of: &ServerContext,
+    chat_provider: Arc<dyn LlmProvider + 'static>,
+    turn_runner: Option<Arc<TurnRunner>>,
+) -> Result<Arc<ServerContext>> {
+    let database = (*sibling_of.coach.database).clone();
+    create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        Some(Arc::new(ChatProvider::Custom(chat_provider))),
+        turn_runner,
+    )
+    .await
+}
+
+/// [`create_test_server_resources_with_chat_provider`] with the messaging
+/// turn runner chosen (registre#126). Tests of the Cloud Tasks path build a
+/// runner over a local stand-in for the Cloud Tasks API and pass it here;
+/// everything else leaves the runner in-process.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub async fn create_test_server_resources_with_chat_provider_and_runner(
+    provider: Arc<dyn LlmProvider + 'static>,
+    turn_runner: Arc<TurnRunner>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        Some(Arc::new(ChatProvider::Custom(provider))),
+        Some(turn_runner),
+    )
+    .await
+}
+
+async fn create_test_server_resources_over(
+    database: Database,
+    llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
+    extra_tools: Vec<Arc<dyn RuntimeTool>>,
+    config_override: Option<ServerConfig>,
+    chat_provider: Option<Arc<ChatProvider>>,
+    turn_runner: Option<Arc<TurnRunner>>,
+) -> Result<Arc<ServerContext>> {
     init_test_logging();
     init_test_http_clients();
     init_server_config();
-    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
 
     let auth_manager = AuthManager::new(24);
 
@@ -574,6 +666,7 @@ async fn create_test_server_resources_inner_typed(
                 chat_provider,
                 extra_tools,
                 billing_provider: None,
+                turn_runner,
             },
         )
         .await,

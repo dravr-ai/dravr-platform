@@ -348,6 +348,7 @@ async fn test_oauth_flow_through_mcp() {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -682,6 +683,7 @@ async fn test_oauth_callback_error_handling() {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -967,6 +969,7 @@ async fn test_oauth_state_csrf_protection() {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
@@ -1154,6 +1157,7 @@ async fn test_connection_status_tracking() {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,

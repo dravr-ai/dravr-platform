@@ -37,6 +37,10 @@ pub enum ContremaitreError {
     Config(String),
     /// HTTP client error during GitHub communication
     HttpClient(String),
+    /// The GCP access-token mint for the GCS backend failed. Carries the
+    /// provider's typed error so its `ErrorCode` survives the hop back to
+    /// `AppError`.
+    TokenProvider(AppError),
 }
 
 impl fmt::Display for ContremaitreError {
@@ -57,6 +61,7 @@ impl fmt::Display for ContremaitreError {
             Self::SignatureVerification => write!(f, "webhook signature verification failed"),
             Self::Config(msg) => write!(f, "contremaitre config error: {msg}"),
             Self::HttpClient(msg) => write!(f, "HTTP client error: {msg}"),
+            Self::TokenProvider(err) => write!(f, "GCP access token unavailable: {err}"),
         }
     }
 }
@@ -88,6 +93,7 @@ impl From<ContremaitreError> for AppError {
             ContremaitreError::HttpClient(_) => {
                 Self::new(ErrorCode::ExternalServiceUnavailable, err.to_string())
             }
+            ContremaitreError::TokenProvider(inner) => inner.clone(),
         }
     }
 }

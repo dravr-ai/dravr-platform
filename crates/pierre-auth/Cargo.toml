@@ -19,7 +19,9 @@ gcp-kms = []
 
 [dependencies]
 # Workspace crates
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt"] }
+# `http-client` carries the shared `api_client` the Google certificate cache
+# fetches with and the GCP `TokenProvider` the Cloud KMS KEK provider uses.
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt", "http-client"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 

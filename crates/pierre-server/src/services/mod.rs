@@ -16,6 +16,8 @@
 
 /// Tracks the detached turns a webhook starts, so shutdown can drain them.
 pub mod turn_lifecycle;
+/// Where a messaging turn is started: in this process, or as a Cloud Tasks request.
+pub mod turn_runner;
 
 /// Chat verdict service: maps ClaimVerdict rows into chat-facing wire shapes
 pub mod chat_verdicts;

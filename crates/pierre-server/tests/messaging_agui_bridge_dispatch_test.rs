@@ -8,7 +8,9 @@
 #![allow(missing_docs)]
 
 use pierre_messaging::models::{ChannelConfig, ChannelType};
-use pierre_services::messaging_status_bridge::{open_status_adapter, OpenStatusParams};
+use pierre_services::messaging_status_bridge::{
+    attach_status_adapter, open_status_adapter, OpenStatusParams,
+};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -21,7 +23,7 @@ use tokio::task::JoinHandle;
 /// nothing else).
 async fn spawn_multi_channel_mock() -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<()>) {
     use axum::extract::{Path, State};
-    use axum::routing::post;
+    use axum::routing::{patch, post};
     use axum::{Json, Router};
 
     let calls: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -74,6 +76,51 @@ async fn spawn_multi_channel_mock() -> (String, Arc<Mutex<Vec<String>>>, JoinHan
                         .expect("mutex")
                         .push("discord:POST-messages".to_owned());
                     Json(json!({ "id": "msg-1", "channel_id": channel_id }))
+                },
+            ),
+        )
+        // The edits an adopted placeholder makes. Each records the id the
+        // adapter targeted, so a resumed turn can be shown editing the
+        // stored message rather than one it opened itself.
+        .route(
+            "/bot{token}/editMessageText",
+            post(
+                |Path(_token): Path<String>,
+                 State(state): State<Arc<Mutex<Vec<String>>>>,
+                 Json(body): Json<Value>| async move {
+                    let id = body["message_id"].as_i64().unwrap_or_default();
+                    state
+                        .lock()
+                        .expect("mutex")
+                        .push(format!("telegram:editMessageText:{id}"));
+                    Json(json!({ "ok": true, "result": { "message_id": id } }))
+                },
+            ),
+        )
+        .route(
+            "/chat.update",
+            post(
+                |State(state): State<Arc<Mutex<Vec<String>>>>, Json(body): Json<Value>| async move {
+                    let ts = body["ts"].as_str().unwrap_or_default().to_owned();
+                    state
+                        .lock()
+                        .expect("mutex")
+                        .push(format!("slack:chat.update:{ts}"));
+                    Json(json!({ "ok": true, "ts": ts, "channel": "C1" }))
+                },
+            ),
+        )
+        .route(
+            "/channels/{channel_id}/messages/{message_id}",
+            patch(
+                |Path((channel_id, message_id)): Path<(String, String)>,
+                 State(state): State<Arc<Mutex<Vec<String>>>>,
+                 Json(_body): Json<Value>| async move {
+                    state
+                        .lock()
+                        .expect("mutex")
+                        .push(format!("discord:PATCH-message:{message_id}"));
+                    Json(json!({ "id": message_id, "channel_id": channel_id }))
                 },
             ),
         )
@@ -250,5 +297,117 @@ async fn dispatch_discord_hits_channel_messages() {
         vec!["discord:POST-messages".to_owned()],
         "Discord dispatch must hit POST /channels/*/messages exactly once"
     );
+    handle.abort();
+}
+
+// ════════════════════════════════════════════════════════════════
+// Adopting a placeholder an earlier turn opened (registre#126)
+// ════════════════════════════════════════════════════════════════
+
+/// A resumed turn attaches to the placeholder its drained run left standing:
+/// nothing is sent on attach, and the first status update edits the stored
+/// message on every channel with in-place edits.
+///
+/// The ids are the assertion. If `attach_*` ever fell back to opening a
+/// fresh placeholder, the mock would record a send and the edit would land
+/// on a message the athlete never saw.
+#[tokio::test(flavor = "multi_thread")]
+async fn attaching_to_a_stored_placeholder_edits_it_without_sending_a_new_one() {
+    let (mock_base, calls, handle) = spawn_multi_channel_mock().await;
+
+    let cases: [(ChannelType, &str, &str); 3] = [
+        (ChannelType::Telegram, "777", "telegram:editMessageText:777"),
+        (
+            ChannelType::Slack,
+            "1700000000.000777",
+            "slack:chat.update:1700000000.000777",
+        ),
+        (
+            ChannelType::Discord,
+            "msg-777",
+            "discord:PATCH-message:msg-777",
+        ),
+    ];
+
+    for (channel_type, stored_id, expected_edit) in cases {
+        calls.lock().expect("mutex").clear();
+        let cfg = test_channel_config(channel_type);
+        let params = OpenStatusParams {
+            channel_type,
+            channel_config: &cfg,
+            conversation_id: "chat-123",
+            thread_id: None,
+            placeholder_text: "thinking…",
+            api_base_override: Some(&mock_base),
+        };
+
+        let attached = attach_status_adapter(&params, stored_id)
+            .unwrap_or_else(|| panic!("{channel_type:?} must attach to a stored placeholder"));
+        assert_eq!(
+            attached.channel_message_id, stored_id,
+            "{channel_type:?}: the adopted bridge carries the stored id"
+        );
+        assert!(
+            calls.lock().expect("mutex").is_empty(),
+            "{channel_type:?}: attaching sends nothing"
+        );
+
+        attached
+            .adapter
+            .set_status("génération de la réponse…")
+            .await
+            .unwrap_or_else(|e| panic!("{channel_type:?}: the edit must reach the mock: {e}"));
+
+        let captured = calls.lock().expect("mutex").clone();
+        assert_eq!(
+            captured,
+            vec![expected_edit.to_owned()],
+            "{channel_type:?}: the first update edits the stored placeholder and opens nothing"
+        );
+    }
+    handle.abort();
+}
+
+/// A stored Telegram id that is not numeric cannot address a message, so the
+/// resumed turn runs without a placeholder rather than editing nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_malformed_telegram_placeholder_id_attaches_nothing() {
+    let (mock_base, calls, handle) = spawn_multi_channel_mock().await;
+    let cfg = test_channel_config(ChannelType::Telegram);
+    let params = OpenStatusParams {
+        channel_type: ChannelType::Telegram,
+        channel_config: &cfg,
+        conversation_id: "chat-123",
+        thread_id: None,
+        placeholder_text: "thinking…",
+        api_base_override: Some(&mock_base),
+    };
+    assert!(
+        attach_status_adapter(&params, "not-a-message-id").is_none(),
+        "a Telegram message id must be numeric"
+    );
+    assert!(calls.lock().expect("mutex").is_empty());
+    handle.abort();
+}
+
+/// `WhatsApp` and Messenger cannot edit a sent message, so there is no
+/// placeholder to adopt either: the resume path gets `None` exactly as the
+/// open path does.
+#[tokio::test(flavor = "multi_thread")]
+async fn channels_without_edits_attach_nothing() {
+    let (mock_base, calls, handle) = spawn_multi_channel_mock().await;
+    for channel_type in [ChannelType::WhatsApp, ChannelType::Messenger] {
+        let cfg = test_channel_config(channel_type);
+        let params = OpenStatusParams {
+            channel_type,
+            channel_config: &cfg,
+            conversation_id: "chat-123",
+            thread_id: None,
+            placeholder_text: "thinking…",
+            api_base_override: Some(&mock_base),
+        };
+        assert!(attach_status_adapter(&params, "any").is_none());
+    }
+    assert!(calls.lock().expect("mutex").is_empty());
     handle.abort();
 }

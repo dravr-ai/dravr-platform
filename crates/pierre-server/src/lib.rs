@@ -120,6 +120,7 @@ pub mod test_utils;
 
 /// Domain service layer for protocol-agnostic business logic
 pub mod services;
+pub mod startup_banner;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
 pub use crate::services::coaching_workers::start_coaching_workers;

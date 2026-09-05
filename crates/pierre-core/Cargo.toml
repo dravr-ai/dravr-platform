@@ -43,10 +43,12 @@ sqlx-postgres = ["sqlx-types", "sqlx/postgres"]
 # Provider error types (ProviderError with reqwest::Error)
 provider-errors = ["dep:reqwest"]
 
-# Shared HTTP client singletons (api_client, llm_client). reqwest-middleware
-# wraps every shared client so the return type is stable whether or not
-# telemetry is compiled in; the tracing middleware is layered on by `telemetry`.
-http-client = ["dep:reqwest", "dep:reqwest-middleware"]
+# Shared HTTP client singletons (api_client, llm_client) and the GCP
+# access-token provider built on them (gcp_token, whose TokenProvider trait
+# is async and needs async-trait). reqwest-middleware wraps every shared
+# client so the return type is stable whether or not telemetry is compiled
+# in; the tracing middleware is layered on by `telemetry`.
+http-client = ["dep:reqwest", "dep:reqwest-middleware", "dep:async-trait"]
 
 # Outbound W3C trace-context propagation on the shared HTTP clients via the in-house
 # trace_propagation middleware (injects `traceparent`, emits client spans). In-house

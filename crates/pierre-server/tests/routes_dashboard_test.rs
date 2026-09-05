@@ -363,6 +363,7 @@ impl DashboardTestSetup {
                     chat_provider: None,
                     extra_tools: Vec::new(),
                     billing_provider: None,
+                    turn_runner: None,
                 },
             )
             .await,
@@ -837,6 +838,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,

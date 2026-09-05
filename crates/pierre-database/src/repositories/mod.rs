@@ -46,6 +46,8 @@ pub mod oauth;
 pub mod playbooks;
 /// Repository traits for recipe persistence.
 pub mod recipes;
+/// Repository trait for messaging turns the shutdown drain handed off to another instance.
+pub mod resumable_turns;
 /// Repository traits for coach-athlete roster persistence.
 pub mod roster;
 /// Repository traits for security/audit/key-version persistence.
@@ -92,6 +94,7 @@ pub use notifications::*;
 pub use oauth::*;
 pub use playbooks::*;
 pub use recipes::*;
+pub use resumable_turns::*;
 pub use roster::*;
 pub use security::*;
 pub use seeder::*;

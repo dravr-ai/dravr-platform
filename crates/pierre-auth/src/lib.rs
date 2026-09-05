@@ -40,6 +40,12 @@ pub mod dto;
 /// Firebase Authentication ID-token validation (social login providers via Firebase)
 pub mod firebase;
 
+/// Google public-certificate cache shared by every Google-signed ID-token verifier
+pub mod google_certs;
+
+/// Verification of the Google-signed OIDC token a Cloud Tasks delivery carries
+pub mod google_id_token;
+
 /// Two-tier key management system
 pub mod key_management;
 

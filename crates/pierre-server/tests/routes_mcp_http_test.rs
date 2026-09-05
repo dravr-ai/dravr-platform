@@ -99,6 +99,7 @@ impl McpTestSetup {
                     chat_provider: None,
                     extra_tools: Vec::new(),
                     billing_provider: None,
+                    turn_runner: None,
                 },
             )
             .await,
@@ -915,6 +916,7 @@ async fn setup_with_admin_flag(
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,

@@ -82,6 +82,7 @@ impl DashboardTestSetup {
                     chat_provider: None,
                     extra_tools: Vec::new(),
                     billing_provider: None,
+                    turn_runner: None,
                 },
             )
             .await,

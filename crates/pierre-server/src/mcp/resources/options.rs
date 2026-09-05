@@ -11,6 +11,8 @@ use pierre_llm::LlmProvider;
 use pierre_tool_runtime::RuntimeTool;
 use std::sync::Arc;
 
+use crate::services::turn_runner::TurnRunner;
+
 /// Optional initialization parameters for `ServerContext`
 ///
 /// Used to pass optional configuration during server initialization without
@@ -53,6 +55,13 @@ pub struct ServerContextOptions {
     /// the resources init falls back to the in-tree `DummyProvider` so the
     /// platform compiles, tests run, and local dev works without a vendor.
     pub billing_provider: Option<Arc<dyn BillingProvider>>,
+    /// Where messaging turns are started (registre#126).
+    ///
+    /// The production binary selects this from the environment — Cloud
+    /// Tasks on GCP, so a turn runs inside a request Cloud Run waits for —
+    /// and passes it here. Unset, turns run in-process through the in-flight
+    /// tracker, which is what local stacks and tests want.
+    pub turn_runner: Option<Arc<TurnRunner>>,
 }
 
 impl ServerContextOptions {
@@ -66,6 +75,7 @@ impl ServerContextOptions {
             chat_provider: None,
             extra_tools: Vec::new(),
             billing_provider: None,
+            turn_runner: None,
         }
     }
 
@@ -79,6 +89,7 @@ impl ServerContextOptions {
             chat_provider: None,
             extra_tools: Vec::new(),
             billing_provider: None,
+            turn_runner: None,
         }
     }
 
@@ -115,6 +126,13 @@ impl ServerContextOptions {
     #[must_use]
     pub fn with_billing_provider(mut self, provider: Arc<dyn BillingProvider>) -> Self {
         self.billing_provider = Some(provider);
+        self
+    }
+
+    /// Set where messaging turns are started.
+    #[must_use]
+    pub fn with_turn_runner(mut self, runner: Arc<TurnRunner>) -> Self {
+        self.turn_runner = Some(runner);
         self
     }
 }

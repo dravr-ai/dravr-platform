@@ -67,6 +67,8 @@ pub mod pre_approved_emails;
 pub mod prescribed_workouts;
 /// Recipe repository implementation (CRUD with nutrition caching)
 pub mod recipes;
+/// Messaging turns the shutdown drain handed off, leased to one re-runner at a time
+pub mod resumable_turns;
 /// Coach-athlete roster assignments (Postgres) backing `RosterRepository`.
 pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (Postgres)

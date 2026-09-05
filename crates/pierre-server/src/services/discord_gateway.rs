@@ -104,18 +104,17 @@ async fn dispatch_message(
         ChannelType::Discord,
         &adapter,
         &messages,
+        // Socket-mode turns open their placeholder against the channel's
+        // real API, as every production turn does.
+        None,
     )
     .await;
 
-    // Tracked, not bare `tokio::spawn`: Discord Gateway turns are detached from
-    // the event that started them exactly like webhook turns are, so they
-    // vanish the same way on a scaledown. `Box::pin` keeps a turn's state
-    // machine off the spawned task's stack — it is tens of kilobytes, and the
-    // task holds it for the whole turn.
-    let turns = Arc::clone(&resources.common.turns);
+    // Recorded and handed to the runner exactly like webhook turns: Discord Gateway
+    // turns are detached from the event that started them and vanish the
+    // same way on a scaledown, and the runner is what makes them survive it
+    // (registre#126).
     for dispatch in pending_dispatches {
-        turns.spawn(async move {
-            Box::pin(messaging_ingress::dispatch_and_respond(dispatch)).await;
-        });
+        messaging_ingress::start_turn(resources, dispatch).await;
     }
 }

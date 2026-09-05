@@ -1,5 +1,5 @@
 // ABOUTME: GCP Cloud KMS KekProvider — wraps/unwraps the DEK via the KMS symmetric encrypt/decrypt API
-// ABOUTME: Key material never leaves KMS; auth uses the Cloud Run metadata-server access token (ADR-017 Phase 5)
+// ABOUTME: Key material never leaves KMS; auth is the platform-wide GCP TokenProvider (ADR-017 Phase 5)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,6 +11,10 @@
 //! a Cloud KMS symmetric key (the KEK); the KEK itself never leaves KMS. Because
 //! KMS retains prior key versions, KEK rotation is a KMS-side configuration and
 //! existing wrapped DEKs keep decrypting (see ADR-017 Phase 6).
+//!
+//! Every KMS call carries the Cloud Run service account's access token from
+//! [`pierre_core::gcp_token::TokenProvider`]; the metadata-server provider
+//! caches it, so a wrap/unwrap burst costs one token mint per token lifetime.
 
 use std::env;
 
@@ -18,13 +22,11 @@ use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as _;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::gcp_token::{MetadataTokenProvider, TokenProvider};
 use serde::Deserialize;
 
 use crate::key_management::KekProvider;
 
-/// Cloud Run / GCE metadata server endpoint for the service-account access token.
-const METADATA_TOKEN_URL: &str =
-    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 /// Cloud KMS REST base URL.
 const KMS_BASE_URL: &str = "https://cloudkms.googleapis.com/v1";
 
@@ -34,11 +36,10 @@ pub struct GcpKmsKekProvider {
     /// `projects/{p}/locations/{l}/keyRings/{r}/cryptoKeys/{k}`.
     key_resource: String,
     http: reqwest::Client,
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: String,
+    /// Access-token source for the KMS REST calls. Boxed because the
+    /// provider is owned by this one struct; the trait object keeps the
+    /// metadata-server implementation out of the KMS code path.
+    token_provider: Box<dyn TokenProvider>,
 }
 
 #[derive(Deserialize)]
@@ -58,6 +59,7 @@ impl GcpKmsKekProvider {
         Self {
             key_resource: key_resource.into(),
             http: reqwest::Client::new(),
+            token_provider: Box::new(MetadataTokenProvider::default()),
         }
     }
 
@@ -75,34 +77,12 @@ impl GcpKmsKekProvider {
         })?;
         Ok(Self::new(key_resource))
     }
-
-    /// Fetch a short-lived access token from the instance metadata server.
-    async fn access_token(&self) -> AppResult<String> {
-        let response = self
-            .http
-            .get(METADATA_TOKEN_URL)
-            .header("Metadata-Flavor", "Google")
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("KMS metadata token request failed: {e}")))?;
-        if !response.status().is_success() {
-            return Err(AppError::internal(format!(
-                "KMS metadata token request returned status {}",
-                response.status()
-            )));
-        }
-        let token: TokenResponse = response
-            .json()
-            .await
-            .map_err(|e| AppError::internal(format!("Invalid metadata token response: {e}")))?;
-        Ok(token.access_token)
-    }
 }
 
 #[async_trait]
 impl KekProvider for GcpKmsKekProvider {
     async fn wrap(&self, plaintext: &[u8]) -> AppResult<Vec<u8>> {
-        let token = self.access_token().await?;
+        let token = self.token_provider.access_token().await?;
         let url = format!("{KMS_BASE_URL}/{}:encrypt", self.key_resource);
         let body = serde_json::json!({ "plaintext": Base64Standard.encode(plaintext) });
         let response = self
@@ -129,7 +109,7 @@ impl KekProvider for GcpKmsKekProvider {
     }
 
     async fn unwrap(&self, ciphertext: &[u8]) -> AppResult<Vec<u8>> {
-        let token = self.access_token().await?;
+        let token = self.token_provider.access_token().await?;
         let url = format!("{KMS_BASE_URL}/{}:decrypt", self.key_resource);
         let body = serde_json::json!({ "ciphertext": Base64Standard.encode(ciphertext) });
         let response = self

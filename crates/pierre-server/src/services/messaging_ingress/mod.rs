@@ -8,8 +8,12 @@
 pub mod addressing;
 /// AG-UI run wiring + per-channel status-bridge setup for messaging dispatch.
 mod agui;
+/// The consent-gated group transcript a room turn's prompt carries.
+mod ambient_context;
 /// In-chat provider-connect: in-process link-token mint + tappable connect Card.
 mod coach_choice;
+/// The one-time onboarding coach proposal sent ahead of a first coached reply.
+mod coach_proposal;
 mod connect;
 /// Platform-asked intake: profile type then the PAR-Q+, verbatim and strictly parsed.
 mod intake;
@@ -39,6 +43,11 @@ pub mod outbound_retry;
 pub mod outbound_send;
 /// Inbound emoji reactions mapped onto the shared per-message feedback write.
 pub mod reactions;
+/// The durable record every turn runs from, the runner hand-off and the sweeper.
+pub mod resume;
+pub use dispatch::turn_watchdog;
+pub(crate) use dispatch::{dispatch_and_respond, TurnClose};
+pub(crate) use resume::start_turn;
 /// What a shared room is left seeing once a slash command is answered privately.
 pub mod room_echo;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
@@ -53,7 +62,6 @@ mod transcript;
 
 pub use locale::resolve_messaging_locale;
 
-pub(crate) use dispatch::dispatch_and_respond;
 /// Lays an assistant turn's blocks out as ordered channel messages, splitting
 /// prose past the channel's per-message ceiling.
 pub mod block_render;
@@ -80,6 +88,7 @@ pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};
 #[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
 
+use crate::routes::messaging::adapter_factory::ConfigChannelAdapters;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage, MessageContent};
@@ -87,6 +96,7 @@ use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use pierre_messaging::channel::MessagingChannel;
+use pierre_services::messaging_outbound::start_outbound_worker;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -219,6 +229,35 @@ pub(crate) struct PendingDispatch {
     /// pipeline so every LLM call, tool invocation, and outbound reply
     /// shares one id end-to-end.
     pub(super) turn_id: ConversationTurnId,
+    /// Base URL for the in-channel status placeholder, from the adapter
+    /// factory the ingress was built with (see
+    /// [`crate::routes::messaging::adapter_factory::ChannelAdapterFactory::status_api_base`]).
+    /// `None` is the channel's real API host.
+    pub(super) status_api_base: Option<String>,
+    /// The durable record this run holds the lease on (registre#126): which
+    /// row to finish when the turn ends, which placeholder to edit so the
+    /// athlete's one "thinking…" message becomes the answer, and how many
+    /// runs the turn has had. `None` only when the ingress could not record
+    /// the turn and ran it detached anyway.
+    pub(super) record: Option<TurnRecord>,
+}
+
+/// The durable record a dispatch is running from.
+///
+/// Every turn is recorded in `messaging_resumable_turns` before it starts and
+/// re-run by whichever instance claims it. The dispatch needs three things
+/// back from that row: which row to finish when the turn ends, which
+/// placeholder to edit so the athlete's one "thinking…" message becomes the
+/// answer, and the attempt count that decides whether another drain hands
+/// the turn back again or apologises for it.
+#[derive(Debug, Clone)]
+pub(crate) struct TurnRecord {
+    /// `messaging_resumable_turns.id`, under the session tenant.
+    pub(super) row_id: String,
+    /// Channel-native id of the placeholder an earlier run left standing.
+    pub(super) placeholder_message_id: Option<String>,
+    /// Runs started so far, this one included.
+    pub(super) attempts: i64,
 }
 
 /// Persist inbound messages, handling linking, OTP, logout, slash commands, and session resolution
@@ -232,6 +271,7 @@ pub(crate) async fn persist_inbound(
     channel_type: ChannelType,
     adapter: &Arc<dyn MessagingChannel>,
     messages: &[IncomingMessage],
+    status_api_base: Option<&str>,
 ) -> (usize, Vec<PendingDispatch>) {
     let mut stored_count: usize = 0;
     let mut pending_dispatches = Vec::new();
@@ -244,6 +284,7 @@ pub(crate) async fn persist_inbound(
             channel_type,
             adapter,
             message,
+            status_api_base,
         )
         .await
         {
@@ -521,6 +562,7 @@ async fn persist_single_message(
     channel_type: ChannelType,
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
+    status_api_base: Option<&str>,
 ) -> Result<PersistOutcome, ()> {
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
@@ -764,6 +806,9 @@ async fn persist_single_message(
                     // canot-emitted log spans and the platform's
                     // /internal/conversation-turn row share one key.
                     turn_id: message.turn_id.into(),
+                    status_api_base: status_api_base.map(str::to_owned),
+                    // Recorded by `start_turn`, which hands the row on.
+                    record: None,
                 },
             )))
         },
@@ -1190,4 +1235,18 @@ pub(super) fn content_body_text(content: &MessageContent) -> Option<String> {
         MessageContent::Media { caption, .. } => caption.clone(),
         MessageContent::Location { .. } => None,
     }
+}
+
+/// Start the messaging background workers for the life of the process.
+///
+/// Two of them: the outbound retry queue, and the resume sweeper for the turns
+/// a drained instance left on file — one pass now, because this instance may
+/// exist only because the athlete's next message arrived, then one a minute
+/// for a sibling that outlived the drained instance (registre#126). A resumed
+/// turn's adapter comes from the same stored channel config the webhook
+/// ingress builds from.
+pub fn start_background_workers(resources: Arc<ServerContext>) {
+    start_outbound_worker(Arc::clone(&resources.common.repos.messaging));
+    info!("Messaging outbound retry worker started");
+    resume::start_turn_resume_sweeper(resources, Arc::new(ConfigChannelAdapters));
 }

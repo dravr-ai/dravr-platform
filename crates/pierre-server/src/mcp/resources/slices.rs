@@ -59,6 +59,7 @@ use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
+use crate::services::turn_runner::TurnRunner;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -140,6 +141,11 @@ pub struct CommonSlice {
     /// and what lets a turn learn the instance is going away in time to
     /// close its status placeholder (registre#109).
     pub turns: Arc<InFlightTurns>,
+    /// Where a messaging turn is started: in this process, or as a Cloud
+    /// Tasks request this service receives, so an instance mid-turn is one
+    /// Cloud Run waits for (registre#126). Chosen once at boot.
+    #[cfg(feature = "client-messaging")]
+    pub turn_runner: Arc<TurnRunner>,
     /// Client for the photograveur press service.
     ///
     /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the

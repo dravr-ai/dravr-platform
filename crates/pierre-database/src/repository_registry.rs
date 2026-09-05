@@ -19,13 +19,14 @@ use crate::repositories::{
     OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
     PasswordResetRepository, PlaybookRepository, PreApprovedEmailRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
-    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, TrainingPlanRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
-    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
-    UserToolOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    RecoveryRepository, ResumableTurnRepository, RosterRepository, RouteSummaryRepository,
+    SecurityRepository, SeederRepository, ShortLinkRepository, SleepRepository,
+    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
+    ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -124,6 +125,8 @@ pub struct RepositoryRegistry {
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
     /// MCP Tasks extension handles (io.modelcontextprotocol/tasks)
     pub mcp_tasks: Arc<dyn McpTaskRepository>,
+    /// Messaging turns the shutdown drain handed off for another instance to answer
+    pub resumable_turns: Arc<dyn ResumableTurnRepository>,
     /// Stripe-backed subscription rows (one per (tenant, `stripe_subscription`))
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
     /// dravr-meteo persistent weather cache (geographic + hourly buckets)
@@ -224,6 +227,7 @@ impl RepositoryRegistry {
             memory: db.clone(),
             claim_verdicts: db.clone(),
             mcp_tasks: db.clone(),
+            resumable_turns: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
             user_physiological_profile: db.clone(),
@@ -292,6 +296,7 @@ impl RepositoryRegistry {
             memory: db.clone(),
             claim_verdicts: db.clone(),
             mcp_tasks: db.clone(),
+            resumable_turns: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
             user_physiological_profile: db.clone(),

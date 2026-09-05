@@ -28,6 +28,7 @@ use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnr
 use pierre_mcp_server::cache::cache_from_env;
 #[cfg(unix)]
 use pierre_mcp_server::services::turn_lifecycle::spawn_sigterm_drain;
+use pierre_mcp_server::startup_banner::display_available_endpoints;
 use pierre_mcp_server::{
     constants::init_server_config,
     features::FeatureConfig,
@@ -43,7 +44,10 @@ use pierre_services::server_lifecycle;
 use pierre_tool_runtime::guardian;
 
 type Result<T> = AppResult<T>;
-use std::{env, sync::Arc};
+use std::{env, process, sync::Arc};
+
+#[cfg(feature = "client-messaging")]
+use pierre_mcp_server::services::turn_runner::TurnRunner;
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error, info};
 /// Command-line arguments for the Dravr MCP server
@@ -764,6 +768,10 @@ async fn create_server(
         build_chat_provider_singleton().await
     };
     let billing_provider = build_billing_provider();
+    #[cfg(feature = "client-messaging")]
+    let turn_runner = Some(select_turn_runner());
+    #[cfg(not(feature = "client-messaging"))]
+    let turn_runner = None;
 
     let resources_instance = ServerContext::new(
         database,
@@ -778,6 +786,7 @@ async fn create_server(
             chat_provider: chat_provider_singleton,
             extra_tools: Vec::new(),
             billing_provider,
+            turn_runner,
         },
     )
     .await;
@@ -793,6 +802,21 @@ async fn create_server(
     pierre_mcp_server::init_analytics();
 
     ProviderToolRouter::new(resources)
+}
+
+/// The messaging turn runner the environment selects (registre#126).
+///
+/// A Cloud Tasks configuration missing a piece is refused here, at boot,
+/// rather than booting into a mode that would enqueue turns nowhere.
+#[cfg(feature = "client-messaging")]
+fn select_turn_runner() -> Arc<TurnRunner> {
+    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    let runner = TurnRunner::from_env(turn_watchdog()).unwrap_or_else(|e| {
+        error!(error = %e, "messaging turn runner configuration refused");
+        process::exit(1)
+    });
+    info!(runner = runner.label(), "Messaging turn runner selected");
+    Arc::new(runner)
 }
 
 /// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
@@ -839,12 +863,12 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
-    // Start messaging outbound retry worker (polls queue every 5 seconds)
+    // Messaging background workers: the outbound retry queue, and the resume
+    // sweeper for turns a drained instance left on file (registre#126).
     #[cfg(feature = "client-messaging")]
     {
-        use pierre_mcp_server::start_outbound_worker;
-        start_outbound_worker(Arc::clone(&resources.common.repos.messaging));
-        info!("Messaging outbound retry worker started");
+        use pierre_mcp_server::services::messaging_ingress::start_background_workers;
+        start_background_workers(Arc::clone(&resources));
     }
 
     // Start coach followup scheduler (polls coach_followups every 60 seconds)
@@ -991,207 +1015,4 @@ async fn run_http_mode(server: ProviderToolRouter, config: &ServerConfig) -> Res
     })?;
 
     Ok(())
-}
-
-/// Display all available API endpoints with their ports
-fn display_available_endpoints(config: &ServerConfig) {
-    // Default to 127.0.0.1 for local development - production uses reverse proxy
-    let host = "127.0.0.1";
-
-    info!("=== Available API Endpoints ===");
-    display_mcp_endpoints(host, config.http_port);
-    display_auth_endpoints(host, config.http_port);
-    display_oauth2_endpoints(host, config.http_port);
-    display_oauth_callback_urls(host, config);
-    display_admin_endpoints(host, config.http_port);
-    display_api_key_endpoints(host, config.http_port);
-    display_tenant_endpoints(host, config.http_port);
-    display_dashboard_endpoints(host, config.http_port);
-    display_a2a_endpoints(host, config.http_port);
-    display_config_endpoints(host, config.http_port);
-    display_fitness_endpoints(host, config.http_port);
-    display_notification_endpoints(host, config.http_port);
-    info!("=== End of Endpoint List ===");
-}
-
-/// Endpoint category definition for structured display
-struct EndpointCategory {
-    name: &'static str,
-    endpoints: &'static [(&'static str, &'static str, &'static str)], // (description, method, path)
-}
-
-/// Display a category of endpoints with consistent formatting
-fn display_endpoint_category(category: &EndpointCategory, host: &str, port: u16) {
-    info!("{}", category.name);
-    for (description, method, path) in category.endpoints {
-        info!("   {description:18} {method} http://{host}:{port}{path}");
-    }
-}
-
-fn display_mcp_endpoints(host: &str, port: u16) {
-    let endpoints = [
-        "MCP Protocol:",
-        &format!("   HTTP Transport:    http://{host}:{port}/mcp"),
-    ];
-    for line in &endpoints {
-        info!("{}", line);
-    }
-}
-
-fn display_auth_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "Authentication & OAuth:",
-        endpoints: &[
-            ("User Registration:", "POST", "/auth/register"),
-            ("User Login:", "POST", "/auth/login"),
-            ("OAuth Authorize:", "GET", "/api/oauth/authorize/{provider}"),
-            ("OAuth Callback:", "GET", "/api/oauth/callback/{provider}"),
-            ("OAuth Status:", "GET", "/api/oauth/status"),
-            (
-                "OAuth Disconnect:",
-                "POST",
-                "/api/oauth/disconnect/{provider}",
-            ),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_oauth2_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "OAuth 2.0 Server:",
-        endpoints: &[
-            ("Authorization:", "GET", "/oauth2/authorize"),
-            ("Token Exchange:", "POST", "/oauth2/token"),
-            ("Client Registration:", "POST", "/oauth2/register"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_oauth_callback_urls(_host: &str, config: &ServerConfig) {
-    let endpoints = [
-        "OAuth Callback URLs (MCP Bridge):",
-        &format!(
-            "   Bridge Callback:   http://localhost:{}/oauth/callback",
-            config.oauth_callback_port
-        ),
-        &format!(
-            "   Focus Recovery:    http://localhost:{}/oauth/focus-recovery",
-            config.oauth_callback_port
-        ),
-        &format!(
-            "   Provider Callback: http://localhost:{}/oauth/provider-callback/{{provider}}",
-            config.oauth_callback_port
-        ),
-    ];
-    for line in &endpoints {
-        info!("{}", line);
-    }
-}
-
-fn display_admin_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "Admin Management:",
-        endpoints: &[
-            ("Admin Setup:", "POST", "/admin/setup"),
-            ("Create User:", "POST", "/admin/users"),
-            ("List Users:", "GET", "/admin/users"),
-            ("Generate Token:", "POST", "/admin/tokens"),
-            ("List Tokens:", "GET", "/admin/tokens"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_api_key_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "API Key Management:",
-        endpoints: &[
-            ("Create API Key:", "POST", "/api/keys"),
-            ("List API Keys:", "GET", "/api/keys"),
-            ("Delete API Key:", "DELETE", "/api/keys/{key_id}"),
-            ("API Key Usage:", "GET", "/api/keys/usage"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_tenant_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "Tenant Management:",
-        endpoints: &[
-            ("Create Tenant:", "POST", "/tenants"),
-            ("List Tenants:", "GET", "/tenants"),
-            ("Get Tenant:", "GET", "/tenants/{tenant_id}"),
-            ("Update Tenant:", "PUT", "/tenants/{tenant_id}"),
-            ("Delete Tenant:", "DELETE", "/tenants/{tenant_id}"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_dashboard_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "Dashboard & Monitoring:",
-        endpoints: &[
-            ("Health Check:", "GET", "/health"),
-            ("Plugin Status:", "GET", "/health/plugins"),
-            ("System Status:", "GET", "/dashboard/status"),
-            ("User Dashboard:", "GET", "/dashboard/user"),
-            ("Admin Dashboard:", "GET", "/dashboard/admin"),
-            ("Detailed Stats:", "GET", "/dashboard/detailed"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_a2a_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "A2A Protocol:",
-        endpoints: &[
-            ("A2A Status:", "GET", "/a2a/status"),
-            ("Agent Card:", "GET", "/.well-known/agent-card.json"),
-            ("Clients (list/create):", "GET/POST", "/a2a/clients"),
-            ("Client (get/delete):", "GET/DELETE", "/a2a/clients/{id}"),
-            ("Client Usage:", "GET", "/a2a/clients/{id}/usage"),
-            ("Client Rate Limit:", "GET", "/a2a/clients/{id}/rate-limit"),
-            ("Dashboard Overview:", "GET", "/a2a/dashboard/overview"),
-            ("Dashboard Analytics:", "GET", "/a2a/dashboard/analytics"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_config_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "Configuration:",
-        endpoints: &[
-            ("Get Config:", "GET", "/config"),
-            ("Update Config:", "PUT", "/config"),
-            ("User Config:", "GET", "/config/user"),
-            ("Update User Config:", "PUT", "/config/user"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_fitness_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "Fitness Configuration:",
-        endpoints: &[
-            ("Get Fitness Config:", "GET", "/fitness/config"),
-            ("Update Fitness Config:", "PUT", "/fitness/config"),
-            ("Delete Fitness Config:", "DELETE", "/fitness/config"),
-        ],
-    };
-    display_endpoint_category(&category, host, port);
-}
-
-fn display_notification_endpoints(host: &str, port: u16) {
-    let category = EndpointCategory {
-        name: "Real-time Notifications:",
-        endpoints: &[("SSE Stream:", "GET", "/notifications/sse?user_id={user_id}")],
-    };
-    display_endpoint_category(&category, host, port);
 }

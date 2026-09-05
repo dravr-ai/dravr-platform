@@ -8,9 +8,17 @@
 
 pub mod axum_test;
 pub mod chat_scenario;
+/// A local stand-in for the Cloud Tasks API that records every task it is handed.
+pub mod cloud_tasks_stub;
 pub mod coach_fixtures;
 #[cfg(feature = "client-messaging")]
 pub mod command_e2e;
+/// Providers that hang, a `WhatsApp` athlete and the outbound ledger, for the
+/// suites that interrupt a live turn (drain, watchdog).
+#[cfg(feature = "client-messaging")]
+pub mod drained_turn;
+/// A Google-shaped signing identity: openssl key + certificate, tokens minted with it.
+pub mod google_token;
 pub mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_webhooks;

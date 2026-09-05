@@ -22,6 +22,8 @@ pub(crate) mod linking;
 /// endpoints as parameters precisely so this is verifiable without real Slack
 /// and Discord apps.
 pub use linking::{exchange_code_for_identity, oauth_endpoints};
+/// The request Cloud Tasks delivers to run one recorded turn (registre#126).
+pub mod internal_turns;
 /// Slack interactive action handlers: ops approve/reject postbacks and
 /// messaging command callbacks. Exposed for the ops-channel authorization
 /// unit tests.
@@ -69,12 +71,23 @@ impl MessagingRoutes {
         resources: Arc<ServerContext>,
         adapters: Arc<dyn ChannelAdapterFactory>,
     ) -> Router {
-        Router::new()
+        let router = Router::new()
             // Webhook ingress (per-channel signature verification)
             .route(
                 "/api/messaging/webhook/{channel}",
                 get(webhooks::verify_webhook).post(webhooks::handle_webhook),
+            );
+        // The turn-run route exists only where Cloud Tasks delivers turns;
+        // everywhere else the runner is in-process and the path is absent.
+        let router = if resources.common.turn_runner.cloud_tasks().is_some() {
+            router.route(
+                "/internal/turns/{turn_id}/run",
+                post(internal_turns::run_turn),
             )
+        } else {
+            router
+        };
+        router
             // Channel configuration CRUD
             .route("/api/messaging/channels", get(config::list_channel_configs))
             // Secret-free connectable-channel list for the onboarding picker.

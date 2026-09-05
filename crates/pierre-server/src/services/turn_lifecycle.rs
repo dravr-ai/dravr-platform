@@ -28,8 +28,12 @@
 //! - `drain` spends the SIGTERM grace window awaiting them instead of
 //!   sleeping through it;
 //! - when the grace runs out, `drain_token` fires and each turn still
-//!   running gets the chance to close its placeholder honestly rather than
-//!   leave it open forever.
+//!   running gets the chance to hand itself to the next instance — one
+//!   small write recording everything a fresh dispatch needs, placeholder
+//!   id included, so the athlete's answer is delivered there through the
+//!   same placeholder (`messaging_ingress::resume`, registre#126). Only a
+//!   turn that has already been drained once, or whose record cannot be
+//!   written, closes its placeholder with a notice instead.
 //!
 //! The token is a deadline signal, not a kill switch: nothing here aborts a
 //! turn. A turn that ignores it simply dies with the process, exactly as it
@@ -66,7 +70,8 @@ pub struct DrainReport {
     /// signal was raised for.
     pub signalled: usize,
     /// Turns still running after the signal window too. These die with the
-    /// process; each one is an athlete holding an open placeholder.
+    /// process without recording their hand-off; each one is an athlete
+    /// holding an open placeholder.
     pub abandoned: usize,
     /// Wall clock the whole drain consumed.
     pub elapsed: Duration,
@@ -124,8 +129,10 @@ impl InFlightTurns {
     ///
     /// Cancelled once the grace window has elapsed with turns still running.
     /// A turn holding one of these is expected to stop what it is doing and
-    /// close its status placeholder — see
-    /// `messaging_ingress::turn_guard::run_bounded`.
+    /// record itself for the next instance, leaving its status placeholder
+    /// for the resumed run to edit — see
+    /// `messaging_ingress::turn_guard::run_bounded` and
+    /// `messaging_ingress::resume`.
     #[must_use]
     pub fn drain_token(&self) -> CancellationToken {
         self.drain.clone()
@@ -151,9 +158,10 @@ impl InFlightTurns {
     ///    is one LLM call, so a turn that started seconds ago usually
     ///    finishes here and the athlete never learns the instance changed.
     /// 2. `signal_window` — raise [`Self::drain_token`] for whatever is
-    ///    left. Those turns give up their answer, but they are still alive
-    ///    and can spend a second closing their placeholder with an honest
-    ///    message. This window only has to cover one channel API edit.
+    ///    left. Those turns give up their answer on this instance, but they
+    ///    are still alive and can spend the window writing the one row that
+    ///    lets another instance deliver it — or, once out of attempts, one
+    ///    channel API edit closing their placeholder.
     ///
     /// Both windows are bounded because the caller's own deadline is:
     /// Cloud Run sends SIGKILL when the termination grace period expires,
@@ -205,10 +213,10 @@ impl Default for InFlightTurns {
 
 /// Log one drain's outcome at the severity its worst case deserves.
 ///
-/// An abandoned turn is an athlete who asked a question and will never be
-/// told anything, so it is an ERROR even though the process is exiting
-/// normally — the alternative is a shutdown that reports success while
-/// dropping work.
+/// An abandoned turn died before recording its hand-off, so it is an athlete
+/// who asked a question and will never be told anything — an ERROR even
+/// though the process is exiting normally, because the alternative is a
+/// shutdown that reports success while dropping work.
 ///
 /// Unix-only for the same reason as its sole caller, [`spawn_sigterm_drain`]:
 /// on Windows there is no SIGTERM path to report on, and an item whose only
@@ -242,11 +250,12 @@ fn log_drain(report: &DrainReport) {
 #[cfg(unix)]
 const TURN_DRAIN_GRACE: Duration = Duration::from_secs(5);
 
-/// How long turns get, after the drain signal, to close their placeholders.
+/// How long turns get, after the drain signal, to hand themselves off.
 ///
-/// They have given up their answer by this point; all that is left is one
-/// channel API edit each, replacing the "thinking…" placeholder with the
-/// notice that the answer is not coming.
+/// They have given up their answer on this instance by this point; what is
+/// left is one database insert each recording the turn for the next
+/// instance — or, for a turn already resumed once, one channel API edit
+/// replacing the "thinking…" placeholder with the notice.
 #[cfg(unix)]
 const TURN_DRAIN_SIGNAL_WINDOW: Duration = Duration::from_secs(2);
 
@@ -271,7 +280,8 @@ const SHUTDOWN_NOTICE_FLUSH: Duration = Duration::from_secs(3);
 /// while it is working, and a rollout or scaledown may terminate it mid-turn —
 /// on 2026-08-26 one did, and that athlete's placeholder is still open
 /// (registre#109). This is where the grace window gets spent on the turns
-/// instead of on a sleep.
+/// instead of on a sleep, and where a turn that cannot finish records itself
+/// for the next instance to answer (registre#126).
 ///
 /// The whole budget (5s + 2s, floored at 3s for the notice) fits inside Cloud
 /// Run's ~10s default termination grace: a drain that overran it would be

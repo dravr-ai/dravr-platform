@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, error, field, info, warn, Instrument, Span};
+use tracing::{debug, error, field, info, warn, Span};
 
 use super::adapter_factory::ChannelAdapterFactory;
 use crate::mcp::resources::ServerContext;
@@ -210,6 +210,7 @@ pub async fn handle_webhook(
         verification.channel_type,
         &verification.adapter,
         &verification.messages,
+        adapters.status_api_base().as_deref(),
     )
     .await;
 
@@ -230,31 +231,15 @@ pub async fn handle_webhook(
         messaging_ingress::reactions::apply_reactions(&resources, &verification.reactions).await;
     }
 
-    // Spawn LLM dispatch as background tasks (non-blocking, webhook returns immediately).
-    // `in_current_span` carries the webhook handler's span into the detached
-    // task so every log line emitted during LLM dispatch (prompt assembly,
-    // tool loop, embacle HTTP call) inherits the same `turn_id`, `channel`,
-    // and `tenant_id` fields. Without this, the spawned future starts with
-    // an empty span and the message-flow trace fragments.
-    //
-    // Spawned through `common.turns`, not bare `tokio::spawn`. The 200 below
-    // lands before any of this runs, so Cloud Run reads the instance as idle
-    // from the athlete's first second and any rollout or scaledown is free to
-    // take a live turn with it. The tracker is what makes those turns
-    // countable: shutdown awaits them, and a turn that outlives the grace
-    // window is told, in time to close its status placeholder instead of
-    // leaving the athlete waiting on an answer that died with the instance.
-    let turns = Arc::clone(&resources.common.turns);
+    // Each turn is recorded and handed to the runner before the 200 below
+    // lands: in-process it is claimed and spawned through `common.turns`, on
+    // GCP it is enqueued on Cloud Tasks and runs inside the request Cloud
+    // Tasks delivers — a request Cloud Run waits for, which a detached task
+    // never was (registre#126). The webhook's own span rides along so every
+    // log line of the turn carries the same `turn_id`, `channel` and
+    // `tenant_id` fields.
     for dispatch in pending_dispatches {
-        turns.spawn(
-            async move {
-                // Boxed so the turn's state machine — tens of kilobytes of
-                // pipeline locals — lives on the heap rather than on the
-                // spawned task's stack for the turn's whole duration.
-                Box::pin(messaging_ingress::dispatch_and_respond(dispatch)).await;
-            }
-            .in_current_span(),
-        );
+        messaging_ingress::start_turn(&resources, dispatch).await;
     }
 
     Ok((

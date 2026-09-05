@@ -17,6 +17,7 @@ use crate::config::admin::AdminConfigService;
 use crate::services::backfill_notifier::{ChatReentry, ServerBackfillNotifier};
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
+use crate::services::turn_runner::TurnRunner;
 use chrono::Utc;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
@@ -471,6 +472,11 @@ impl ServerContext {
             repos,
             cache: cache_arc,
             turns: Arc::new(InFlightTurns::new()),
+            // The binary selects the runner from the environment and passes
+            // it in; a context built without one runs turns in-process.
+            turn_runner: options
+                .turn_runner
+                .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env(reqwest::Client::new())),
             config,

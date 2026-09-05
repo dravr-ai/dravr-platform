@@ -26,10 +26,13 @@
 //!    so nothing else ever ends it: not the HTTP layer, which answered 200
 //!    before the turn began, and not the process, which is free to exit while
 //!    the turn is mid-call. [`run_bounded`] gives it both missing endings — a
-//!    wall-clock ceiling, and the shutdown drain signal — so a turn that
-//!    cannot finish still gets to say so. Without it a dead turn leaves the
-//!    athlete's "thinking…" placeholder open permanently, which reads exactly
-//!    like a slow answer that is still coming (registre#109).
+//!    wall-clock ceiling, and the shutdown drain signal. Without it a dead
+//!    turn leaves the athlete's "thinking…" placeholder open permanently,
+//!    which reads exactly like a slow answer that is still coming
+//!    (registre#109). The two endings are answered differently: a turn past
+//!    its ceiling is closed with a notice, while a turn the drain took is
+//!    recorded and re-run on the next instance, editing the same placeholder
+//!    into the real reply (registre#126, `super::resume`).
 
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -99,15 +102,19 @@ pub enum TurnOutcome {
     /// The turn failed, including by panicking inside a pipeline stage.
     Failed(AppError),
     /// The turn was still running when something outside it ran out of
-    /// patience. It produced no answer and never will.
+    /// patience. It produced no answer; whether one is still coming depends
+    /// on the cause — see [`TurnInterruption`].
     Interrupted(TurnInterruption),
 }
 
 /// Why a turn was cut short before it produced anything.
 ///
-/// The athlete gets the same sentence either way — the answer is not coming,
-/// ask again — but an operator reading the log needs to tell a hung turn from
-/// a deploy that landed on a healthy one, because only the first is a bug.
+/// The two causes get two different endings. A hung turn is closed with a
+/// notice — re-running it is not a fix. A drained turn is a healthy turn on
+/// an instance that is going away, so it is handed to the next instance and
+/// answered there; the athlete only reads a notice once the hand-off has been
+/// drained too. An operator reading the log needs to tell them apart for the
+/// same reason: only the first is a bug.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnInterruption {
     /// The turn exceeded its wall-clock ceiling. Everything below it is
@@ -115,7 +122,8 @@ pub enum TurnInterruption {
     /// pipeline has no timeout of its own.
     Watchdog,
     /// The process is shutting down and spent its grace window without this
-    /// turn finishing. Not a fault of the turn.
+    /// turn finishing. Not a fault of the turn, which is why the dispatcher
+    /// resumes it elsewhere instead of closing it.
     Drain,
 }
 
@@ -179,8 +187,9 @@ where
 ///
 /// Whichever arrives first wins, and the turn future is dropped at that point
 /// — cancellation, not abortion, so every stage unwinds through its own
-/// `Drop`. The caller is expected to answer an [`TurnOutcome::Interrupted`]
-/// with a closing message rather than silence.
+/// `Drop`. The caller is expected to answer a [`TurnOutcome::Interrupted`]
+/// rather than fall silent: a watchdog with a closing message, a drain with
+/// the durable hand-off that lets another instance deliver the answer.
 ///
 /// The turn is pinned to the heap for the same reason [`run_guarded`] pins its
 /// own: a `select!` holds every branch inline, so an unboxed turn would put

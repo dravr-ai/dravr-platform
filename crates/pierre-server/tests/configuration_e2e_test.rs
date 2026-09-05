@@ -117,6 +117,7 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
                 chat_provider: None,
                 extra_tools: Vec::new(),
                 billing_provider: None,
+                turn_runner: None,
             },
         )
         .await,
