@@ -29,6 +29,10 @@
 # The chain bumps embacle and embacle-tool-host to their latest release in
 # the same commit, after checking that release is on the target tronc; if it
 # is not, the run says which crate to release first and rewrites nothing.
+# dravr-stripe is the other arm: private, taken by git tag, pinning tronc in
+# its root, so it moves to its latest tag the same way (carnet#338). It is
+# listed first so a dry run at a tronc its tag does not satisfy makes that
+# guard fire before anything else.
 #
 # The schedule is a safety net for a dispatch that never arrived; offset off
 # the top of the hour and staggered against the other consumers.
@@ -71,6 +75,6 @@ jobs:
       version: ${{ github.event.client_payload.version || inputs.version || '' }}
       ci_workflows: "ci-backend.yml ci-postgres.yml integration-tests.yml"
       gate_timeout_minutes: 45
-      lockstep_crates: "embacle embacle-tool-host"
+      lockstep_crates: "git:dravr-stripe embacle embacle-tool-host"
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
