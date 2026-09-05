@@ -30,6 +30,13 @@ use pierre_tool_runtime::implementations::memory::{
     RecallUserMemoryResult, RecallUserMemoryTool, RecalledFact, RememberFactResult,
     RememberFactTool,
 };
+use pierre_tool_runtime::implementations::mobility::{
+    GetStretchingExerciseTool, GetYogaPoseTool, ListStretchingExercisesResult,
+    ListStretchingExercisesTool, ListYogaPosesResult, ListYogaPosesTool, SequencePose,
+    StretchingExerciseDetail, StretchingExerciseSummary, SuggestStretchesForActivityTool,
+    SuggestStretchesResult, SuggestYogaSequenceResult, SuggestYogaSequenceTool, SuggestedStretch,
+    YogaPoseDetail, YogaPoseSummary,
+};
 use pierre_tool_runtime::implementations::nutrition::{
     AnalyzeMealNutritionResult, AnalyzeMealNutritionTool, CalculateDailyNutritionTool,
     DailyNutritionResult, FoodDetailsResult, FoodNutrientEntry, GetFoodDetailsTool,
@@ -562,5 +569,196 @@ fn analyze_meal_nutrition_declares_a_schema_that_accepts_its_payload() {
         serde_json::to_value(schemars::schema_for!(AnalyzeMealNutritionResult)).expect("derives"),
         &sample,
         "analyze_meal_nutrition",
+    );
+}
+
+/// A stretch summary with every optional absent — the shape a sparse row takes.
+fn stretch_summary() -> StretchingExerciseSummary {
+    StretchingExerciseSummary {
+        id: "st-1".to_owned(),
+        name: "Standing hamstring".to_owned(),
+        description: "Hinge at the hip with a long spine.".to_owned(),
+        category: "static".to_owned(),
+        difficulty: "beginner".to_owned(),
+        primary_muscles: vec!["hamstrings".to_owned()],
+        secondary_muscles: vec![],
+        duration_seconds: 30,
+        sets: 2,
+    }
+}
+
+#[test]
+fn list_stretching_exercises_declares_a_schema_that_accepts_its_payload() {
+    let sample = ListStretchingExercisesResult {
+        exercises: vec![stretch_summary()],
+        count: 1,
+        timestamp: "2026-09-05T10:00:00+00:00".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <ListStretchingExercisesTool as McpTool<dyn ToolRuntime>>::definition(
+            &ListStretchingExercisesTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(ListStretchingExercisesResult))
+            .expect("derives"),
+        &sample,
+        "list_stretching_exercises",
+    );
+}
+
+#[test]
+fn get_stretching_exercise_accepts_a_held_stretch_with_no_repetitions() {
+    // repetitions is None for a stretch that is held rather than repeated,
+    // which is most of them.
+    let sample = StretchingExerciseDetail {
+        id: "st-1".to_owned(),
+        name: "Standing hamstring".to_owned(),
+        description: "Hinge at the hip with a long spine.".to_owned(),
+        category: "static".to_owned(),
+        difficulty: "beginner".to_owned(),
+        primary_muscles: vec!["hamstrings".to_owned()],
+        secondary_muscles: vec!["calves".to_owned()],
+        duration_seconds: 30,
+        repetitions: None,
+        sets: 2,
+        recommended_for_activities: vec!["run".to_owned()],
+        contraindications: vec!["acute hamstring strain".to_owned()],
+        instructions: vec!["Stand tall".to_owned(), "Hinge forward".to_owned()],
+        cues: vec!["Keep the spine long".to_owned()],
+        image_url: None,
+        video_url: None,
+    };
+    assert_declares_and_accepts(
+        <GetStretchingExerciseTool as McpTool<dyn ToolRuntime>>::definition(
+            &GetStretchingExerciseTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(StretchingExerciseDetail)).expect("derives"),
+        &sample,
+        "get_stretching_exercise",
+    );
+}
+
+#[test]
+fn suggest_stretches_for_activity_declares_a_schema_that_accepts_its_payload() {
+    let sample = SuggestStretchesResult {
+        activity_type: "run".to_owned(),
+        exercises: vec![SuggestedStretch {
+            id: "st-1".to_owned(),
+            name: "Standing hamstring".to_owned(),
+            category: "static".to_owned(),
+            difficulty: "beginner".to_owned(),
+            duration_seconds: 30,
+            sets: 2,
+            primary_muscles: vec!["hamstrings".to_owned()],
+            instructions: vec!["Hinge forward".to_owned()],
+        }],
+        count: 1,
+        total_duration_seconds: 60,
+        suggested_at: "2026-09-05T10:00:00+00:00".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <SuggestStretchesForActivityTool as McpTool<dyn ToolRuntime>>::definition(
+            &SuggestStretchesForActivityTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(SuggestStretchesResult)).expect("derives"),
+        &sample,
+        "suggest_stretches_for_activity",
+    );
+}
+
+#[test]
+fn list_yoga_poses_accepts_a_pose_with_no_sanskrit_name() {
+    let sample = ListYogaPosesResult {
+        poses: vec![YogaPoseSummary {
+            id: "yp-1".to_owned(),
+            english_name: "Legs up the wall".to_owned(),
+            sanskrit_name: None,
+            description: "Restorative inversion.".to_owned(),
+            category: "restorative".to_owned(),
+            difficulty: "beginner".to_owned(),
+            pose_type: "inversion".to_owned(),
+            primary_muscles: vec!["hamstrings".to_owned()],
+            hold_duration_seconds: 300,
+        }],
+        count: 1,
+        timestamp: "2026-09-05T10:00:00+00:00".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <ListYogaPosesTool as McpTool<dyn ToolRuntime>>::definition(&ListYogaPosesTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(ListYogaPosesResult)).expect("derives"),
+        &sample,
+        "list_yoga_poses",
+    );
+}
+
+#[test]
+fn get_yoga_pose_declares_a_schema_that_accepts_its_payload() {
+    let sample = YogaPoseDetail {
+        id: "yp-1".to_owned(),
+        english_name: "Legs up the wall".to_owned(),
+        sanskrit_name: Some("Viparita Karani".to_owned()),
+        description: "Restorative inversion.".to_owned(),
+        benefits: vec!["Calms the nervous system".to_owned()],
+        category: "restorative".to_owned(),
+        difficulty: "beginner".to_owned(),
+        pose_type: "inversion".to_owned(),
+        primary_muscles: vec!["hamstrings".to_owned()],
+        secondary_muscles: vec![],
+        chakras: vec![],
+        hold_duration_seconds: 300,
+        breath_guidance: Some("Slow nasal breathing".to_owned()),
+        recommended_for_activities: vec!["run".to_owned()],
+        recommended_for_recovery: vec!["post_race".to_owned()],
+        contraindications: vec!["glaucoma".to_owned()],
+        instructions: vec!["Sit side-on to the wall".to_owned()],
+        modifications: vec!["Bolster under the hips".to_owned()],
+        progressions: vec![],
+        cues: vec!["Let the legs be heavy".to_owned()],
+        warmup_poses: vec![],
+        followup_poses: vec!["yp-2".to_owned()],
+        image_url: None,
+        video_url: None,
+    };
+    assert_declares_and_accepts(
+        <GetYogaPoseTool as McpTool<dyn ToolRuntime>>::definition(&GetYogaPoseTool).output_schema,
+        serde_json::to_value(schemars::schema_for!(YogaPoseDetail)).expect("derives"),
+        &sample,
+        "get_yoga_pose",
+    );
+}
+
+#[test]
+fn suggest_yoga_sequence_declares_a_schema_that_accepts_its_payload() {
+    // total_duration_seconds lands at or UNDER the target: poses are added
+    // while they fit, so an empty sequence is reachable when nothing does.
+    let sample = SuggestYogaSequenceResult {
+        purpose: "post_cardio".to_owned(),
+        sequence: vec![SequencePose {
+            order: 1,
+            id: "yp-1".to_owned(),
+            english_name: "Legs up the wall".to_owned(),
+            sanskrit_name: None,
+            category: "restorative".to_owned(),
+            difficulty: "beginner".to_owned(),
+            hold_duration_seconds: 300,
+            breath_guidance: None,
+            primary_muscles: vec!["hamstrings".to_owned()],
+            instructions: vec!["Sit side-on to the wall".to_owned()],
+        }],
+        pose_count: 1,
+        total_duration_seconds: 300,
+        target_duration_minutes: 15,
+        guidance: "Take your time with each pose.".to_owned(),
+        suggested_at: "2026-09-05T10:00:00+00:00".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <SuggestYogaSequenceTool as McpTool<dyn ToolRuntime>>::definition(&SuggestYogaSequenceTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(SuggestYogaSequenceResult)).expect("derives"),
+        &sample,
+        "suggest_yoga_sequence",
     );
 }

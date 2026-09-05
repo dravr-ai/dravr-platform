@@ -25,12 +25,15 @@ use pierre_database::database::mobility::{
     DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
     YogaPoseType,
 };
+use schemars::JsonSchema;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -39,6 +42,248 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
+
+/// One stretch as the list tool reports it.
+///
+/// A summary, not the row: the list is for choosing, so it carries what you
+/// choose on and leaves instructions and cues to `get_stretching_exercise`.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StretchingExerciseSummary {
+    /// Identifier `get_stretching_exercise` takes.
+    pub id: String,
+    /// Exercise name.
+    pub name: String,
+    /// What it does.
+    pub description: String,
+    /// Which family of stretch it belongs to.
+    pub category: String,
+    /// How demanding it is.
+    pub difficulty: String,
+    /// Muscles it targets.
+    pub primary_muscles: Vec<String>,
+    /// Muscles it also works.
+    pub secondary_muscles: Vec<String>,
+    /// How long to hold, seconds.
+    pub duration_seconds: u32,
+    /// How many sets.
+    pub sets: u32,
+}
+
+/// What `list_stretching_exercises` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ListStretchingExercisesResult {
+    /// The matching stretches.
+    pub exercises: Vec<StretchingExerciseSummary>,
+    /// How many were returned.
+    pub count: usize,
+    /// RFC 3339 timestamp of the read.
+    pub timestamp: String,
+}
+
+/// One stretch in full, as `get_stretching_exercise` reports it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StretchingExerciseDetail {
+    /// Identifier.
+    pub id: String,
+    /// Exercise name.
+    pub name: String,
+    /// What it does.
+    pub description: String,
+    /// Which family of stretch it belongs to.
+    pub category: String,
+    /// How demanding it is.
+    pub difficulty: String,
+    /// Muscles it targets.
+    pub primary_muscles: Vec<String>,
+    /// Muscles it also works.
+    pub secondary_muscles: Vec<String>,
+    /// How long to hold, seconds.
+    pub duration_seconds: u32,
+    /// Repetitions, where the stretch is repeated rather than held.
+    pub repetitions: Option<u32>,
+    /// How many sets.
+    pub sets: u32,
+    /// Activities it suits.
+    pub recommended_for_activities: Vec<String>,
+    /// When not to do it.
+    pub contraindications: Vec<String>,
+    /// How to do it, in order.
+    pub instructions: Vec<String>,
+    /// What to feel for while doing it.
+    pub cues: Vec<String>,
+    /// Illustration, where one exists.
+    pub image_url: Option<String>,
+    /// Demonstration, where one exists.
+    pub video_url: Option<String>,
+}
+
+/// One stretch in a suggestion, carrying just enough to follow it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SuggestedStretch {
+    /// Identifier.
+    pub id: String,
+    /// Exercise name.
+    pub name: String,
+    /// Which family of stretch it belongs to.
+    pub category: String,
+    /// How demanding it is.
+    pub difficulty: String,
+    /// How long to hold, seconds.
+    pub duration_seconds: u32,
+    /// How many sets.
+    pub sets: u32,
+    /// Muscles it targets.
+    pub primary_muscles: Vec<String>,
+    /// How to do it, in order.
+    pub instructions: Vec<String>,
+}
+
+/// What `suggest_stretches_for_activity` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SuggestStretchesResult {
+    /// The activity the stretches were chosen for.
+    pub activity_type: String,
+    /// The stretches, in the order to do them.
+    pub exercises: Vec<SuggestedStretch>,
+    /// How many were suggested.
+    pub count: usize,
+    /// How long the whole set takes, seconds.
+    pub total_duration_seconds: u32,
+    /// RFC 3339 timestamp of the suggestion.
+    pub suggested_at: String,
+}
+
+/// One pose as the list tool reports it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct YogaPoseSummary {
+    /// Identifier `get_yoga_pose` takes.
+    pub id: String,
+    /// Its English name.
+    pub english_name: String,
+    /// Its Sanskrit name, where the pose has one.
+    pub sanskrit_name: Option<String>,
+    /// What it does.
+    pub description: String,
+    /// Which family of pose it belongs to.
+    pub category: String,
+    /// How demanding it is.
+    pub difficulty: String,
+    /// What kind of pose it is.
+    pub pose_type: String,
+    /// Muscles it targets.
+    pub primary_muscles: Vec<String>,
+    /// How long to hold, seconds.
+    pub hold_duration_seconds: u32,
+}
+
+/// What `list_yoga_poses` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ListYogaPosesResult {
+    /// The matching poses.
+    pub poses: Vec<YogaPoseSummary>,
+    /// How many were returned.
+    pub count: usize,
+    /// RFC 3339 timestamp of the read.
+    pub timestamp: String,
+}
+
+/// One pose in full, as `get_yoga_pose` reports it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct YogaPoseDetail {
+    /// Identifier.
+    pub id: String,
+    /// Its English name.
+    pub english_name: String,
+    /// Its Sanskrit name, where the pose has one.
+    pub sanskrit_name: Option<String>,
+    /// What it does.
+    pub description: String,
+    /// What it is good for.
+    pub benefits: Vec<String>,
+    /// Which family of pose it belongs to.
+    pub category: String,
+    /// How demanding it is.
+    pub difficulty: String,
+    /// What kind of pose it is.
+    pub pose_type: String,
+    /// Muscles it targets.
+    pub primary_muscles: Vec<String>,
+    /// Muscles it also works.
+    pub secondary_muscles: Vec<String>,
+    /// Chakras the tradition associates with it.
+    pub chakras: Vec<String>,
+    /// How long to hold, seconds.
+    pub hold_duration_seconds: u32,
+    /// How to breathe in it.
+    pub breath_guidance: Option<String>,
+    /// Activities it suits.
+    pub recommended_for_activities: Vec<String>,
+    /// Recovery states it suits.
+    pub recommended_for_recovery: Vec<String>,
+    /// When not to do it.
+    pub contraindications: Vec<String>,
+    /// How to enter and hold it.
+    pub instructions: Vec<String>,
+    /// Easier versions.
+    pub modifications: Vec<String>,
+    /// Harder versions.
+    pub progressions: Vec<String>,
+    /// What to feel for while holding it.
+    pub cues: Vec<String>,
+    /// Poses to do first.
+    pub warmup_poses: Vec<String>,
+    /// Poses that follow well.
+    pub followup_poses: Vec<String>,
+    /// Illustration, where one exists.
+    pub image_url: Option<String>,
+    /// Demonstration, where one exists.
+    pub video_url: Option<String>,
+}
+
+/// One pose in a sequence, in the order it is done.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SequencePose {
+    /// Position in the sequence, 1-based.
+    pub order: usize,
+    /// Identifier.
+    pub id: String,
+    /// Its English name.
+    pub english_name: String,
+    /// Its Sanskrit name, where the pose has one.
+    pub sanskrit_name: Option<String>,
+    /// Which family of pose it belongs to.
+    pub category: String,
+    /// How demanding it is.
+    pub difficulty: String,
+    /// How long to hold, seconds.
+    pub hold_duration_seconds: u32,
+    /// How to breathe in it.
+    pub breath_guidance: Option<String>,
+    /// Muscles it targets.
+    pub primary_muscles: Vec<String>,
+    /// How to enter and hold it.
+    pub instructions: Vec<String>,
+}
+
+/// What `suggest_yoga_sequence` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SuggestYogaSequenceResult {
+    /// What the sequence is for.
+    pub purpose: String,
+    /// The poses, in order.
+    pub sequence: Vec<SequencePose>,
+    /// How many poses it holds.
+    pub pose_count: usize,
+    /// How long it actually runs, seconds — poses are added while they fit,
+    /// so this lands at or under the target rather than on it.
+    pub total_duration_seconds: u32,
+    /// The length that was asked for, minutes.
+    pub target_duration_minutes: u32,
+    /// How to approach the sequence.
+    pub guidance: String,
+    /// RFC 3339 timestamp of the suggestion.
+    pub suggested_at: String,
+}
 
 // ============================================================================
 // ListStretchingExercisesTool
@@ -101,12 +346,12 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
         );
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        answers_with::<ListStretchingExercisesResult>(tool_definition(
             "list_stretching_exercises",
             "List stretching exercises with optional filtering by category, difficulty, muscle group, or activity type",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -157,28 +402,29 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
 
-            let exercises_json: Vec<Value> = exercises
+            let summaries: Vec<StretchingExerciseSummary> = exercises
                 .iter()
-                .map(|e| {
-                    json!({
-                        "id": e.id,
-                        "name": e.name,
-                        "description": e.description,
-                        "category": e.category.as_str(),
-                        "difficulty": e.difficulty.as_str(),
-                        "primary_muscles": e.primary_muscles,
-                        "secondary_muscles": e.secondary_muscles,
-                        "duration_seconds": e.duration_seconds,
-                        "sets": e.sets,
-                    })
+                .map(|e| StretchingExerciseSummary {
+                    id: e.id.clone(),
+                    name: e.name.clone(),
+                    description: e.description.clone(),
+                    category: e.category.as_str().to_owned(),
+                    difficulty: e.difficulty.as_str().to_owned(),
+                    primary_muscles: e.primary_muscles.clone(),
+                    secondary_muscles: e.secondary_muscles.clone(),
+                    duration_seconds: e.duration_seconds,
+                    sets: e.sets,
                 })
                 .collect();
 
-            Ok(ToolResult::ok(json!({
-                "exercises": exercises_json,
-                "count": exercises_json.len(),
-                "timestamp": Utc::now().to_rfc3339(),
-            })))
+            ok_typed(
+                "list_stretching_exercises",
+                ListStretchingExercisesResult {
+                    count: summaries.len(),
+                    exercises: summaries,
+                    timestamp: Utc::now().to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -206,12 +452,12 @@ impl McpTool<dyn ToolRuntime> for GetStretchingExerciseTool {
         );
         let schema = object_schema(properties, Some(vec!["exercise_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<StretchingExerciseDetail>(tool_definition(
             "get_stretching_exercise",
             "Get detailed information about a specific stretching exercise",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -243,24 +489,27 @@ impl McpTool<dyn ToolRuntime> for GetStretchingExerciseTool {
                 })));
             };
 
-            Ok(ToolResult::ok(json!({
-                "id": exercise.id,
-                "name": exercise.name,
-                "description": exercise.description,
-                "category": exercise.category.as_str(),
-                "difficulty": exercise.difficulty.as_str(),
-                "primary_muscles": exercise.primary_muscles,
-                "secondary_muscles": exercise.secondary_muscles,
-                "duration_seconds": exercise.duration_seconds,
-                "repetitions": exercise.repetitions,
-                "sets": exercise.sets,
-                "recommended_for_activities": exercise.recommended_for_activities,
-                "contraindications": exercise.contraindications,
-                "instructions": exercise.instructions,
-                "cues": exercise.cues,
-                "image_url": exercise.image_url,
-                "video_url": exercise.video_url,
-            })))
+            ok_typed(
+                "get_stretching_exercise",
+                StretchingExerciseDetail {
+                    id: exercise.id,
+                    name: exercise.name,
+                    description: exercise.description,
+                    category: exercise.category.as_str().to_owned(),
+                    difficulty: exercise.difficulty.as_str().to_owned(),
+                    primary_muscles: exercise.primary_muscles,
+                    secondary_muscles: exercise.secondary_muscles,
+                    duration_seconds: exercise.duration_seconds,
+                    repetitions: exercise.repetitions,
+                    sets: exercise.sets,
+                    recommended_for_activities: exercise.recommended_for_activities,
+                    contraindications: exercise.contraindications,
+                    instructions: exercise.instructions,
+                    cues: exercise.cues,
+                    image_url: exercise.image_url,
+                    video_url: exercise.video_url,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -310,12 +559,12 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
         );
         let schema = object_schema(properties, Some(vec!["activity_type".to_owned()]));
 
-        tool_definition(
+        answers_with::<SuggestStretchesResult>(tool_definition(
             "suggest_stretches_for_activity",
             "Get personalized stretching recommendations based on your recent activity type",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -362,20 +611,18 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
             };
 
             let max_exercises = duration_minutes.map_or(6, |d| (d / 5).clamp(3, 12) as usize);
-            let suggestions: Vec<Value> = exercises
+            let suggestions: Vec<SuggestedStretch> = exercises
                 .iter()
                 .take(max_exercises)
-                .map(|e| {
-                    json!({
-                        "id": e.id,
-                        "name": e.name,
-                        "category": e.category.as_str(),
-                        "difficulty": e.difficulty.as_str(),
-                        "duration_seconds": e.duration_seconds,
-                        "sets": e.sets,
-                        "primary_muscles": e.primary_muscles,
-                        "instructions": e.instructions,
-                    })
+                .map(|e| SuggestedStretch {
+                    id: e.id.clone(),
+                    name: e.name.clone(),
+                    category: e.category.as_str().to_owned(),
+                    difficulty: e.difficulty.as_str().to_owned(),
+                    duration_seconds: e.duration_seconds,
+                    sets: e.sets,
+                    primary_muscles: e.primary_muscles.clone(),
+                    instructions: e.instructions.clone(),
                 })
                 .collect();
 
@@ -385,13 +632,16 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
                 .map(|e| e.duration_seconds * e.sets)
                 .sum();
 
-            Ok(ToolResult::ok(json!({
-                "activity_type": activity_type,
-                "exercises": suggestions,
-                "count": suggestions.len(),
-                "total_duration_seconds": total_duration_seconds,
-                "suggested_at": Utc::now().to_rfc3339(),
-            })))
+            ok_typed(
+                "suggest_stretches_for_activity",
+                SuggestStretchesResult {
+                    activity_type: activity_type.to_owned(),
+                    count: suggestions.len(),
+                    exercises: suggestions,
+                    total_duration_seconds,
+                    suggested_at: Utc::now().to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -472,12 +722,12 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
         );
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        answers_with::<ListYogaPosesResult>(tool_definition(
             "list_yoga_poses",
             "List yoga poses with optional filtering by category, difficulty, pose type, or recovery context",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -535,28 +785,29 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
 
-            let poses_json: Vec<Value> = poses
+            let summaries: Vec<YogaPoseSummary> = poses
                 .iter()
-                .map(|p| {
-                    json!({
-                        "id": p.id,
-                        "english_name": p.english_name,
-                        "sanskrit_name": p.sanskrit_name,
-                        "description": p.description,
-                        "category": p.category.as_str(),
-                        "difficulty": p.difficulty.as_str(),
-                        "pose_type": p.pose_type.as_str(),
-                        "primary_muscles": p.primary_muscles,
-                        "hold_duration_seconds": p.hold_duration_seconds,
-                    })
+                .map(|p| YogaPoseSummary {
+                    id: p.id.clone(),
+                    english_name: p.english_name.clone(),
+                    sanskrit_name: p.sanskrit_name.clone(),
+                    description: p.description.clone(),
+                    category: p.category.as_str().to_owned(),
+                    difficulty: p.difficulty.as_str().to_owned(),
+                    pose_type: p.pose_type.as_str().to_owned(),
+                    primary_muscles: p.primary_muscles.clone(),
+                    hold_duration_seconds: p.hold_duration_seconds,
                 })
                 .collect();
 
-            Ok(ToolResult::ok(json!({
-                "poses": poses_json,
-                "count": poses_json.len(),
-                "timestamp": Utc::now().to_rfc3339(),
-            })))
+            ok_typed(
+                "list_yoga_poses",
+                ListYogaPosesResult {
+                    count: summaries.len(),
+                    poses: summaries,
+                    timestamp: Utc::now().to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -584,12 +835,12 @@ impl McpTool<dyn ToolRuntime> for GetYogaPoseTool {
         );
         let schema = object_schema(properties, Some(vec!["pose_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<YogaPoseDetail>(tool_definition(
             "get_yoga_pose",
             "Get detailed information about a specific yoga pose",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -621,32 +872,35 @@ impl McpTool<dyn ToolRuntime> for GetYogaPoseTool {
                 })));
             };
 
-            Ok(ToolResult::ok(json!({
-                "id": pose.id,
-                "english_name": pose.english_name,
-                "sanskrit_name": pose.sanskrit_name,
-                "description": pose.description,
-                "benefits": pose.benefits,
-                "category": pose.category.as_str(),
-                "difficulty": pose.difficulty.as_str(),
-                "pose_type": pose.pose_type.as_str(),
-                "primary_muscles": pose.primary_muscles,
-                "secondary_muscles": pose.secondary_muscles,
-                "chakras": pose.chakras,
-                "hold_duration_seconds": pose.hold_duration_seconds,
-                "breath_guidance": pose.breath_guidance,
-                "recommended_for_activities": pose.recommended_for_activities,
-                "recommended_for_recovery": pose.recommended_for_recovery,
-                "contraindications": pose.contraindications,
-                "instructions": pose.instructions,
-                "modifications": pose.modifications,
-                "progressions": pose.progressions,
-                "cues": pose.cues,
-                "warmup_poses": pose.warmup_poses,
-                "followup_poses": pose.followup_poses,
-                "image_url": pose.image_url,
-                "video_url": pose.video_url,
-            })))
+            ok_typed(
+                "get_yoga_pose",
+                YogaPoseDetail {
+                    id: pose.id,
+                    english_name: pose.english_name,
+                    sanskrit_name: pose.sanskrit_name,
+                    description: pose.description,
+                    benefits: pose.benefits,
+                    category: pose.category.as_str().to_owned(),
+                    difficulty: pose.difficulty.as_str().to_owned(),
+                    pose_type: pose.pose_type.as_str().to_owned(),
+                    primary_muscles: pose.primary_muscles,
+                    secondary_muscles: pose.secondary_muscles,
+                    chakras: pose.chakras,
+                    hold_duration_seconds: pose.hold_duration_seconds,
+                    breath_guidance: pose.breath_guidance,
+                    recommended_for_activities: pose.recommended_for_activities,
+                    recommended_for_recovery: pose.recommended_for_recovery,
+                    contraindications: pose.contraindications,
+                    instructions: pose.instructions,
+                    modifications: pose.modifications,
+                    progressions: pose.progressions,
+                    cues: pose.cues,
+                    warmup_poses: pose.warmup_poses,
+                    followup_poses: pose.followup_poses,
+                    image_url: pose.image_url,
+                    video_url: pose.video_url,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -707,12 +961,12 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
         );
         let schema = object_schema(properties, Some(vec!["purpose".to_owned()]));
 
-        tool_definition(
+        answers_with::<SuggestYogaSequenceResult>(tool_definition(
             "suggest_yoga_sequence",
             "Create a personalized yoga sequence for recovery based on your recent activities or goals",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -759,41 +1013,44 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
         };
 
         let target_seconds = duration_minutes * 60;
-        let mut sequence: Vec<Value> = Vec::new();
+        let mut sequence: Vec<SequencePose> = Vec::new();
         let mut total_seconds: u32 = 0;
 
         for pose in &poses {
             if total_seconds + pose.hold_duration_seconds > target_seconds {
                 break;
             }
-            sequence.push(json!({
-                "order": sequence.len() + 1,
-                "id": pose.id,
-                "english_name": pose.english_name,
-                "sanskrit_name": pose.sanskrit_name,
-                "category": pose.category.as_str(),
-                "difficulty": pose.difficulty.as_str(),
-                "hold_duration_seconds": pose.hold_duration_seconds,
-                "breath_guidance": pose.breath_guidance,
-                "primary_muscles": pose.primary_muscles,
-                "instructions": pose.instructions,
-            }));
+            sequence.push(SequencePose {
+                order: sequence.len() + 1,
+                id: pose.id.clone(),
+                english_name: pose.english_name.clone(),
+                sanskrit_name: pose.sanskrit_name.clone(),
+                category: pose.category.as_str().to_owned(),
+                difficulty: pose.difficulty.as_str().to_owned(),
+                hold_duration_seconds: pose.hold_duration_seconds,
+                breath_guidance: pose.breath_guidance.clone(),
+                primary_muscles: pose.primary_muscles.clone(),
+                instructions: pose.instructions.clone(),
+            });
             total_seconds += pose.hold_duration_seconds;
         }
 
-        Ok(ToolResult::ok(json!({
-            "purpose": purpose,
-            "sequence": sequence,
-            "pose_count": sequence.len(),
-            "total_duration_seconds": total_seconds,
-            "target_duration_minutes": duration_minutes,
-            "guidance": format!(
-                "This {} yoga sequence is designed for {}. Take your time with each pose and listen to your body.",
-                duration_minutes,
-                purpose.replace('_', " ")
-            ),
-            "suggested_at": Utc::now().to_rfc3339(),
-        })))
+        ok_typed(
+            "suggest_yoga_sequence",
+            SuggestYogaSequenceResult {
+                purpose: purpose.to_owned(),
+                pose_count: sequence.len(),
+                sequence,
+                total_duration_seconds: total_seconds,
+                target_duration_minutes: duration_minutes,
+                guidance: format!(
+                    "This {} yoga sequence is designed for {}. Take your time with each pose and listen to your body.",
+                    duration_minutes,
+                    purpose.replace('_', " ")
+                ),
+                suggested_at: Utc::now().to_rfc3339(),
+            },
+        )
         }
         .await;
         tool_result_to_response(result)
