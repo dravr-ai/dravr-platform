@@ -1,11 +1,13 @@
 # ABOUTME: Scheduled Slack alert pipeline canary — emits a synthetic ERROR every 6h
-# ABOUTME: Operator monitors #dev-dravr-errors; a missing-credential run reds rather than skipping
+# ABOUTME: Then reads its own post back from #dev-dravr-errors and reds when it never lands
 
 name: "Monitor: Tronc Slack Canary"
 
 on:
   schedule:
-    # Every 6 hours at :17 (avoid the :00 fleet spike)
+    # Every 6 hours at :17 (avoid the :00 fleet spike). GitHub's scheduler
+    # queue lands these 2.5–4.5 h late in practice; the runner itself takes
+    # well under a minute.
     - cron: '17 */6 * * *'
   workflow_dispatch:
 
@@ -19,14 +21,14 @@ permissions:
 
 jobs:
   canary:
-    name: Emit tronc canary
+    name: Emit and read back the tronc canary
     runs-on: ubuntu-latest
 
     steps:
       # A canary that cannot reach the server must SAY SO, loudly.
       #
       # Until 2026-09-01 a missing secret set `configured=false`, skipped the
-      # emit step, and the run reported SUCCESS. Neither CANARY_ secret has ever
+      # emit step, and the run reported SUCCESS. Neither CANARY_ secret had ever
       # existed on this repository, so this lane had emitted nothing on every
       # run since at least 2026-08-23 while reading green (carnet#170). A canary
       # whose whole job is to prove the alert pipeline works BEFORE an outage
@@ -46,23 +48,38 @@ jobs:
           # the api service is INGRESS_TRAFFIC_INTERNAL_ONLY and unreachable from
           # a runner, and nginx proxies /admin/ through.
           CANARY_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+          # The same bot token Pierre posts with (Secret Manager
+          # `dravr-mcp-server-slack-bot-token`), so the read-back sees exactly
+          # the channel the digest went to. Needs `channels:history`.
+          SLACK_TOKEN: ${{ secrets.CANARY_SLACK_BOT_TOKEN }}
+          # A channel ID, not a name: `conversations.history` takes only IDs,
+          # and an ID survives a rename. Resolved once from `conversations.list`.
+          SLACK_CHANNEL: ${{ vars.CANARY_SLACK_CHANNEL_ID }}
         run: |
           set -euo pipefail
           MISSING=""
           [ -n "${CANARY_TOKEN}" ] || MISSING="${MISSING} CANARY_ADMIN_TOKEN"
           [ -n "${CANARY_URL}" ] || MISSING="${MISSING} vars.DEV_PUBLIC_BASE_URL"
+          [ -n "${SLACK_TOKEN}" ] || MISSING="${MISSING} CANARY_SLACK_BOT_TOKEN"
+          [ -n "${SLACK_CHANNEL}" ] || MISSING="${MISSING} vars.CANARY_SLACK_CHANNEL_ID"
           if [ -n "${MISSING}" ]; then
-            echo "::error::Missing:${MISSING} — this canary cannot emit and must not report green. CANARY_ADMIN_TOKEN must be minted BY dev, not locally: 'pierre-cli token generate' signs with the local database's RSA keypair AND registers the token row in that same local database, so dev rejects it twice over. Use: cargo run --bin pierre-cli -- auth login --server ${CANARY_URL} ; approve in the browser as a super-admin (the sign-in IS the authorization, no prior token needed), then copy access_token from ~/.pierre/credentials.json. Super-admin is required — a default admin lacks ViewConfiguration and 403s here. See carnet#170."
+            echo "::error::Missing:${MISSING} — this canary cannot emit and read back, and must not report green. CANARY_ADMIN_TOKEN must be minted BY dev, not locally: 'pierre-cli token generate' signs with the local database's RSA keypair AND registers the token row in that same local database, so dev rejects it twice over. Use: cargo run --bin pierre-cli -- auth login --server ${CANARY_URL} ; approve in the browser as a super-admin (the sign-in IS the authorization, no prior token needed), then copy access_token from ~/.pierre/credentials.json. Super-admin is required — a default admin lacks ViewConfiguration and 403s here. CANARY_SLACK_BOT_TOKEN is the Dravr Fitness bot token from Secret Manager (dravr-mcp-server-slack-bot-token) with channels:history added; CANARY_SLACK_CHANNEL_ID is the #dev-dravr-errors channel ID from conversations.list. See carnet#170 and carnet#342."
             exit 1
           fi
           echo "Credentials present."
 
       - name: Emit canary event
+        id: emit
         env:
           CANARY_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
           CANARY_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
+          # Stamped BEFORE the POST, minus a margin for runner/Slack clock skew.
+          # It only bounds the history page the read-back fetches; the match
+          # itself is the exact correlation id, so a wide window cannot produce
+          # a false positive.
+          echo "oldest=$(( $(date +%s) - 300 ))" >> "${GITHUB_OUTPUT}"
           echo "POST ${CANARY_URL}/admin/diagnostics/tronc-canary"
           RESPONSE=$(curl -sS -X POST \
               -H "Authorization: Bearer ${CANARY_TOKEN}" \
@@ -74,4 +91,50 @@ jobs:
               echo "::error::Canary emission failed"
               exit 1
           fi
-          echo "Canary emitted — verify #dev-dravr-errors for the synthetic ERROR event"
+          CORRELATION_ID=$(echo "${RESPONSE}" | sed '$d' | jq -r '.correlation_id')
+          if ! echo "${CORRELATION_ID}" | grep -Eq '^[0-9a-f-]{36}$'; then
+              echo "::error::Canary response carried no correlation_id — cannot read it back"
+              exit 1
+          fi
+          echo "correlation_id=${CORRELATION_ID}" >> "${GITHUB_OUTPUT}"
+          echo "Canary ${CORRELATION_ID} emitted"
+
+      # The round trip is the whole point, and until carnet#342 nothing checked
+      # it: the lane printed "verify #dev-dravr-errors" and a human eyeballing
+      # Slack was the only proof. If the Slack leg broke, the run stayed green —
+      # the carnet#170 failure one hop later. So the lane reads the channel back
+      # for the correlation id IT was handed and reds when the message never
+      # lands. The tronc layer batches 5 s before posting and dedups 30 s on
+      # target + message prefix, so a 6-hourly identical message is never
+      # suppressed; a red here means the digest did not reach Slack.
+      - name: Read the canary back from Slack
+        env:
+          SLACK_TOKEN: ${{ secrets.CANARY_SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.CANARY_SLACK_CHANNEL_ID }}
+          CORRELATION_ID: ${{ steps.emit.outputs.correlation_id }}
+          OLDEST: ${{ steps.emit.outputs.oldest }}
+        run: |
+          set -euo pipefail
+          # 24 polls × 5 s = 2 minutes: the 5 s batch window, a Slack API
+          # hiccup and a cold revision all fit; a real outage does not.
+          for attempt in $(seq 1 24); do
+            PAGE=$(curl -sS -H "Authorization: Bearer ${SLACK_TOKEN}" \
+                --data-urlencode "channel=${SLACK_CHANNEL}" \
+                --data-urlencode "oldest=${OLDEST}" \
+                --data-urlencode "limit=50" \
+                https://slack.com/api/conversations.history)
+            if [ "$(echo "${PAGE}" | jq -r '.ok')" != "true" ]; then
+              echo "::error::Slack refused conversations.history: $(echo "${PAGE}" | jq -r '.error') — the read-back cannot run, so the round trip is unverified"
+              exit 1
+            fi
+            # The id sits in the digest's section block as `correlation_id`: <uuid>;
+            # grepping the whole message JSON keeps this independent of which
+            # block or field tronc renders it into.
+            if echo "${PAGE}" | jq -c '.messages[]' | grep -q "${CORRELATION_ID}"; then
+              echo "Canary ${CORRELATION_ID} landed in Slack on poll ${attempt}"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Canary ${CORRELATION_ID} never landed in #dev-dravr-errors within 2 minutes — the alert pipeline is broken, not this lane"
+          exit 1

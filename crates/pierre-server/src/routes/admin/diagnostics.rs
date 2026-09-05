@@ -107,13 +107,14 @@ pub async fn handle_tool_schema_size(
 /// Emits a synthetic ERROR-level tracing event tagged with a fresh correlation
 /// ID. The dravr-tronc error notification layer listens for `Level::ERROR`
 /// events and forwards them to Slack (`SLACK_ERROR_CHANNEL`) and email
-/// (`NOTIFY_EMAIL_TO`). A scheduled workflow hits this endpoint every few
-/// hours and an operator confirms the canary message lands in the channel.
-/// If the canary stops arriving, the alerting pipeline is broken BEFORE the
-/// next real production outage surfaces the gap.
+/// (`NOTIFY_EMAIL_TO`). The `tronc-canary.yml` workflow hits this endpoint
+/// every six hours, then reads `SLACK_ERROR_CHANNEL` back through the Slack
+/// API for the correlation ID it was returned and fails when the message
+/// never lands. If the canary stops arriving, the alerting pipeline is broken
+/// BEFORE the next real production outage surfaces the gap.
 ///
-/// Returns the correlation ID so the caller can grep Cloud Logging or Slack
-/// to confirm the event round-tripped.
+/// Returns the correlation ID so the caller can read Slack back, or grep
+/// Cloud Logging, to confirm the event round-tripped.
 ///
 /// # Errors
 ///
