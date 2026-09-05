@@ -140,3 +140,12 @@ output "cloud_run_config" {
   }
   sensitive = true
 }
+
+# -----------------------------------------------------------------------------
+# Messaging turn queue
+# -----------------------------------------------------------------------------
+
+output "turn_queue_id" {
+  description = "Cloud Tasks queue that delivers messaging turns to the backend (PIERRE_TURN_QUEUE)"
+  value       = google_cloud_tasks_queue.turns.id
+}

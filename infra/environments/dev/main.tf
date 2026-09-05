@@ -205,10 +205,15 @@ module "backend" {
   container_port = 8081
   cpu            = var.backend_cpu
   memory         = var.backend_memory
-  # Chat turns run a multi-step tool loop with detail-page provider enrichment
-  # that exceeds the 300s default; kept in sync with the frontend nginx
-  # proxy_read_timeout (docker/images/frontend/nginx.conf).
-  request_timeout = "600s"
+  # Two request shapes have to fit. Athlete-facing chat turns run a multi-step
+  # tool loop with detail-page provider enrichment that exceeds the 300s
+  # default; those come through the frontend, whose nginx proxy_read_timeout
+  # (docker/images/frontend/nginx.conf) is 600s and bounds them. A messaging
+  # turn delivered by Cloud Tasks (turn_queue.tf) is a request too, never
+  # proxied, and runs up to the turn watchdog — MESSAGING_TURN_WATCHDOG_SECS,
+  # 960 by default — so the service timeout is that plus a minute; below it,
+  # Cloud Run cuts the request and the turn dies without its hand-off.
+  request_timeout = "1020s"
   # Keep CPU always-allocated at 2 vCPU: this service can't be trimmed cheaply.
   # cpu_idle=true throttles CPU between requests and kills long-lived subprocesses
   # — the Copilot ACP LLM runner (chat/insights/coach UI hung, rev 00464) and the
@@ -258,6 +263,16 @@ module "backend" {
       # Public URL for OAuth callbacks (frontend URL, since nginx proxies to backend)
       FRONTEND_URL = var.frontend_base_url
       BASE_URL     = var.frontend_base_url
+
+      # Messaging turns run as Cloud Tasks requests (carnet#126, turn_queue.tf):
+      # the runner enqueues each turn and Cloud Tasks delivers it to the
+      # backend's own run.app URL, carrying an OIDC token minted as the app
+      # service account, which the run endpoint verifies. Without these four
+      # the binary runs turns in-process, as it does locally and in tests.
+      PIERRE_TURN_RUNNER               = "cloud_tasks"
+      PIERRE_TURN_QUEUE                = google_cloud_tasks_queue.turns.id
+      PIERRE_TURN_TARGET_URL           = local.backend_run_url
+      PIERRE_TURN_OIDC_SERVICE_ACCOUNT = module.service_accounts.app_service_account_email
 
       # Firebase project for Google Sign-In token validation
       FIREBASE_PROJECT_ID = var.firebase_project_id

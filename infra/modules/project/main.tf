@@ -22,6 +22,7 @@ resource "google_project_service" "apis" {
     "logging.googleapis.com",        # log-based metric reads from Cloud Logging
     "cloudscheduler.googleapis.com", # google_cloud_scheduler_job (daily drift trigger)
     "cloudkms.googleapis.com",       # KEK for envelope encryption of the database DEK (ADR-017)
+    "cloudtasks.googleapis.com",     # queue that delivers messaging turns to the backend as requests (carnet#126)
     "billingbudgets.googleapis.com", # google_billing_budget cost guardrail (billing.tf)
   ])
 
