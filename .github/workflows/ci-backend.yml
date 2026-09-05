@@ -384,19 +384,34 @@ jobs:
     steps:
       - name: Install git
         # The lockbud image's Debian mirrors fail intermittently: apt exits 100
-        # before checkout, so the job reds main with no analysis run and no log
-        # line naming the mirror (three runs on 2026-09-04/05, green runs in
-        # between). Retry with backoff and keep apt's output, so a real failure
-        # says which mirror refused instead of hiding behind /dev/null.
+        # before checkout, so the job reds main with no analysis run. Two
+        # shapes so far. A slow or refused mirror (2026-09-04/05): retry with
+        # backoff. A cached 404 on deb.debian.org's CDN edges (2026-09-05,
+        # c2964a0fd and its rerun): the perl deb11u5 files 404'd from every
+        # Fastly edge the runners hit, http and https alike, while
+        # security.debian.org — the same archive under another hostname, so
+        # another cache key — served them from those same edges. Retrying the
+        # same host cannot clear an edge's negative cache, so the later
+        # attempts move the security source to security.debian.org. apt's
+        # output is kept, so a real failure names the mirror and the file.
         run: |
-          for attempt in 1 2 3 4; do
-            if apt-get update -qq && apt-get install -y -qq --no-install-recommends git; then
-              exit 0
-            fi
-            echo "apt attempt ${attempt} failed; retrying in $((attempt * 15))s"
+          install_git() {
+            apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+          }
+          for attempt in 1 2; do
+            install_git && exit 0
+            echo "apt attempt ${attempt} on deb.debian.org failed; retrying in $((attempt * 15))s"
             sleep $((attempt * 15))
           done
-          echo "::error::git could not be installed in the lockbud container after 4 attempts"
+          echo "deb.debian.org failed twice; moving the security source to security.debian.org"
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
+            [ -f "$f" ] && sed -i 's|http://deb.debian.org/debian-security|http://security.debian.org/debian-security|g' "$f"
+          done
+          install_git && exit 0
+          echo "apt attempt 3 on security.debian.org failed; retrying in 30s"
+          sleep 30
+          install_git && exit 0
+          echo "::error::git could not be installed in the lockbud container: deb.debian.org (2 attempts) and security.debian.org (2 attempts) both failed"
           exit 1
 
       - name: Checkout code
