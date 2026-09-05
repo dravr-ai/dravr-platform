@@ -11,7 +11,7 @@
 //! - `GetConnectionStatusTool` - Check provider connection status
 //! - `DisconnectProviderTool` - Disconnect and revoke OAuth tokens
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::sync::Arc;
 
@@ -21,13 +21,16 @@ use pierre_auth::oauth2_client::OAuthClientState;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionStatus, TenantId};
-use serde_json::{json, Map, Value};
+use schemars::JsonSchema;
+use serde::Serialize;
+use serde_json::{json, Value};
 use tracing::{error, info};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -89,22 +92,25 @@ fn build_oauth_state(user_uuid: uuid::Uuid, redirect_url: Option<&str>) -> Strin
 }
 
 /// Build successful OAuth connection payload
-fn build_oauth_success_payload(provider: &str, authorization_url: &str, state: &str) -> Value {
-    json!({
-        "provider": provider,
-        "authorization_url": authorization_url,
-        "state": state,
-        "instructions": format!(
-            "To connect your {} account:\n\
+fn build_oauth_success_payload(
+    provider: &str,
+    authorization_url: &str,
+    state: &str,
+) -> ConnectProviderResult {
+    ConnectProviderResult {
+        provider: provider.to_owned(),
+        authorization_url: authorization_url.to_owned(),
+        state: state.to_owned(),
+        instructions: format!(
+            "To connect your {provider} account:\n\
              1. Visit the authorization URL\n\
-             2. Log in to {} and approve the connection\n\
+             2. Log in to {provider} and approve the connection\n\
              3. You will be redirected back to complete the connection\n\
-             4. Once connected, you can access your {} data through Dravr",
-            provider, provider, provider
+             4. Once connected, you can access your {provider} data through Dravr"
         ),
-        "expires_in_minutes": AUTHORIZATION_EXPIRES_MINUTES,
-        "status": "pending_authorization"
-    })
+        expires_in_minutes: AUTHORIZATION_EXPIRES_MINUTES,
+        status: "pending_authorization".to_owned(),
+    }
 }
 
 /// Build OAuth error payload merged into a `ToolResult` error.
@@ -220,6 +226,93 @@ fn destructive_annotations() -> ToolAnnotations {
 // ConnectProviderTool - Initiate OAuth connection flow
 // ============================================================================
 
+/// What `connect_provider` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ConnectProviderResult {
+    /// The provider being connected.
+    pub provider: String,
+    /// Where the athlete authorizes, single use.
+    pub authorization_url: String,
+    /// CSRF state tying the callback to this request.
+    pub state: String,
+    /// The steps, written for the athlete rather than the client.
+    pub instructions: String,
+    /// How long the URL stays valid, minutes.
+    pub expires_in_minutes: u32,
+    /// Always `pending_authorization`: the URL is issued, nothing is connected
+    /// until the athlete comes back through the callback.
+    pub status: String,
+}
+
+/// One provider's connection state, as reported inside the all-providers map.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ProviderConnectionStatus {
+    /// Whether a usable token is on file.
+    pub connected: bool,
+    /// The state in words.
+    pub status: String,
+    /// Whether the athlete must authorize again.
+    pub needs_reauth: bool,
+    /// Which backend serves this provider.
+    pub backend: String,
+}
+
+/// What `get_connection_status` answers with.
+///
+/// Genuinely polymorphic: the tool answers a different shape depending on what
+/// was asked. Modelled as an untagged enum so the derived schema is a `oneOf`
+/// over the three real shapes, rather than one struct with everything optional
+/// — which would describe none of them and would let a client believe a
+/// `providers` map might arrive alongside a `provider` field.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ConnectionStatusResult {
+    /// A named, known provider was asked about.
+    Single {
+        /// The provider asked about.
+        provider: String,
+        /// The state in words.
+        status: String,
+        /// Whether a usable token is on file.
+        connected: bool,
+        /// Whether the athlete must authorize again.
+        needs_reauth: bool,
+        /// Which backend serves it.
+        backend: String,
+    },
+    /// A name that is not a provider was asked about. Carries `note` instead of
+    /// `needs_reauth`, because there is nothing to re-authorize.
+    Unknown {
+        /// The name that was asked about.
+        provider: String,
+        /// Always `disconnected`.
+        status: String,
+        /// Always false.
+        connected: bool,
+        /// Always `none`.
+        backend: String,
+        /// What to ask for instead.
+        note: String,
+    },
+    /// No provider named, so every provider's state, keyed by name.
+    All {
+        /// Each provider's state.
+        providers: BTreeMap<String, ProviderConnectionStatus>,
+    },
+}
+
+/// What `disconnect_provider` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct DisconnectProviderResult {
+    /// The provider that was disconnected, under its athlete-facing name — the
+    /// mirror backend behind it is internal and stays that way.
+    pub provider: String,
+    /// Always `disconnected`.
+    pub status: String,
+    /// Confirmation for the athlete.
+    pub message: String,
+}
+
 /// Tool for initiating OAuth connection flow with a fitness provider.
 ///
 /// Generates an authorization URL that the user can visit to authenticate
@@ -253,12 +346,12 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
 
         let schema = object_schema(properties, Some(vec!["provider".to_owned()]));
 
-        tool_definition(
+        answers_with::<ConnectProviderResult>(tool_definition(
             "connect_provider",
             "Initiate OAuth connection flow to connect a fitness data provider like Strava, Fitbit, or Garmin",
             schema,
             Some(open_world_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -414,9 +507,10 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                     "Generated OAuth URL for user {} provider {}{}",
                     user_uuid, provider, flow_type
                 );
-                Ok(ToolResult::ok(build_oauth_success_payload(
-                    provider, &url, &state,
-                )))
+                ok_typed(
+                    "connect_provider",
+                    build_oauth_success_payload(provider, &url, &state),
+                )
             }
             Err(e) => {
                 error!("OAuth URL generation failed for {}: {}", provider, e);
@@ -455,12 +549,12 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
 
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        answers_with::<ConnectionStatusResult>(tool_definition(
             "get_connection_status",
             "Check the connection status of fitness data providers. If no provider is specified, returns status for all supported providers.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -499,13 +593,16 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
             if let Some(specific_provider) = args.get("provider").and_then(Value::as_str) {
                 // Mirror backends are internal-only.
                 if backend_resolver::is_mirror_backend(specific_provider) {
-                    return Ok(ToolResult::ok(json!({
-                        "provider": specific_provider,
-                        "status": "disconnected",
-                        "connected": false,
-                        "backend": "none",
-                        "note": "Unknown provider. Use 'strava' or 'garmin' instead."
-                    })));
+                    return ok_typed(
+                        "get_connection_status",
+                        ConnectionStatusResult::Unknown {
+                            provider: specific_provider.to_owned(),
+                            status: "disconnected".to_owned(),
+                            connected: false,
+                            backend: "none".to_owned(),
+                            note: "Unknown provider. Use 'strava' or 'garmin' instead.".to_owned(),
+                        },
+                    );
                 }
 
                 let auth_repos = ctx.resources.repos().auth_repos();
@@ -538,15 +635,19 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                     "disconnected"
                 };
 
-                Ok(ToolResult::ok(json!({
-                    "provider": specific_provider,
-                    "status": status,
-                    "connected": is_connected,
-                    "needs_reauth": needs_reauth,
-                    "backend": backend_kind.as_str()
-                })))
+                ok_typed(
+                    "get_connection_status",
+                    ConnectionStatusResult::Single {
+                        provider: specific_provider.to_owned(),
+                        status: status.to_owned(),
+                        connected: is_connected,
+                        needs_reauth,
+                        backend: backend_kind.as_str().to_owned(),
+                    },
+                )
             } else {
-                let mut providers_status = Map::new();
+                let mut providers_status: BTreeMap<String, ProviderConnectionStatus> =
+                    BTreeMap::new();
 
                 let auth_repos = ctx.resources.repos().auth_repos();
                 for user_facing in user_facing_providers(ctx.resources.provider_registry()) {
@@ -572,18 +673,21 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
 
                     providers_status.insert(
                         user_facing.to_owned(),
-                        json!({
-                            "connected": status.connected,
-                            "status": status_str,
-                            "needs_reauth": needs_reauth,
-                            "backend": status.backend_kind.as_str()
-                        }),
+                        ProviderConnectionStatus {
+                            connected: status.connected,
+                            status: status_str.to_owned(),
+                            needs_reauth,
+                            backend: status.backend_kind.as_str().to_owned(),
+                        },
                     );
                 }
 
-                Ok(ToolResult::ok(json!({
-                    "providers": providers_status
-                })))
+                ok_typed(
+                    "get_connection_status",
+                    ConnectionStatusResult::All {
+                        providers: providers_status,
+                    },
+                )
             }
         }
         .await;
@@ -615,12 +719,12 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
 
         let schema = object_schema(properties, Some(vec!["provider".to_owned()]));
 
-        tool_definition(
+        answers_with::<DisconnectProviderResult>(tool_definition(
             "disconnect_provider",
             "Disconnect from a fitness data provider by removing stored OAuth tokens",
             schema,
             Some(destructive_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -668,11 +772,14 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
                 .await
             {
                 // Report the user-facing name — the mirror backend is internal.
-                Ok(()) => Ok(ToolResult::ok(json!({
-                    "provider": provider,
-                    "status": "disconnected",
-                    "message": format!("Successfully disconnected from {provider}")
-                }))),
+                Ok(()) => ok_typed(
+                    "disconnect_provider",
+                    DisconnectProviderResult {
+                        provider: provider.to_owned(),
+                        status: "disconnected".to_owned(),
+                        message: format!("Successfully disconnected from {provider}"),
+                    },
+                ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to disconnect from {provider}: {e}")
                 }))),

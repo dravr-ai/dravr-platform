@@ -18,6 +18,10 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_tool_runtime::implementations::connection::{
+    ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
+    DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
+};
 use pierre_tool_runtime::implementations::goals::{
     AnalyzeGoalFeasibilityTool, SetGoalTool, SuggestGoalsTool, TrackProgressTool,
 };
@@ -50,6 +54,7 @@ use pierre_tool_runtime::implementations::playbooks::{
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 /// The schema a conforming client would validate `verify_claim` against.
 fn declared_schema() -> serde_json::Value {
@@ -760,5 +765,112 @@ fn suggest_yoga_sequence_declares_a_schema_that_accepts_its_payload() {
         serde_json::to_value(schemars::schema_for!(SuggestYogaSequenceResult)).expect("derives"),
         &sample,
         "suggest_yoga_sequence",
+    );
+}
+
+#[test]
+fn connect_provider_declares_a_schema_that_accepts_its_payload() {
+    let sample = ConnectProviderResult {
+        provider: "strava".to_owned(),
+        authorization_url: "https://www.strava.com/oauth/authorize?...".to_owned(),
+        state: "3f9c1a".to_owned(),
+        instructions: "To connect your strava account: ...".to_owned(),
+        expires_in_minutes: 10,
+        status: "pending_authorization".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <ConnectProviderTool as McpTool<dyn ToolRuntime>>::definition(&ConnectProviderTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(ConnectProviderResult)).expect("derives"),
+        &sample,
+        "connect_provider",
+    );
+}
+
+#[test]
+fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
+    // The tool answers a different shape depending on what was asked, so the
+    // schema is a oneOf and every arm has to validate against it.
+    let derived =
+        serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives");
+    let declared =
+        <GetConnectionStatusTool as McpTool<dyn ToolRuntime>>::definition(&GetConnectionStatusTool)
+            .output_schema
+            .expect("get_connection_status must declare an outputSchema");
+    assert_eq!(declared, derived, "declared schema must be the derived one");
+
+    let validator = jsonschema::validator_for(&declared).expect("compiles");
+    for (label, shape) in [
+        (
+            "single",
+            ConnectionStatusResult::Single {
+                provider: "strava".to_owned(),
+                status: "connected".to_owned(),
+                connected: true,
+                needs_reauth: false,
+                backend: "native".to_owned(),
+            },
+        ),
+        (
+            "unknown",
+            ConnectionStatusResult::Unknown {
+                provider: "peloton".to_owned(),
+                status: "disconnected".to_owned(),
+                connected: false,
+                backend: "none".to_owned(),
+                note: "Unknown provider. Use 'strava' or 'garmin' instead.".to_owned(),
+            },
+        ),
+        (
+            "all",
+            ConnectionStatusResult::All {
+                providers: BTreeMap::from([(
+                    "strava".to_owned(),
+                    ProviderConnectionStatus {
+                        connected: true,
+                        status: "connected".to_owned(),
+                        needs_reauth: false,
+                        backend: "native".to_owned(),
+                    },
+                )]),
+            },
+        ),
+    ] {
+        let payload = serde_json::to_value(&shape).expect("serializes");
+        assert!(
+            validator.is_valid(&payload),
+            "the {label} arm must satisfy the declared schema:\n{payload:#}"
+        );
+    }
+}
+
+#[test]
+fn the_connection_status_schema_still_rejects_a_shape_the_tool_never_sends() {
+    // Without this the oneOf could be vacuous — three arms that between them
+    // accept anything would pass the test above and describe nothing.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives"),
+    )
+    .expect("compiles");
+
+    assert!(
+        !validator.is_valid(&json!({"provider": "strava"})),
+        "a bare provider name is not one of the three shapes this tool sends"
+    );
+}
+
+#[test]
+fn disconnect_provider_declares_a_schema_that_accepts_its_payload() {
+    let sample = DisconnectProviderResult {
+        provider: "strava".to_owned(),
+        status: "disconnected".to_owned(),
+        message: "Successfully disconnected from strava".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <DisconnectProviderTool as McpTool<dyn ToolRuntime>>::definition(&DisconnectProviderTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(DisconnectProviderResult)).expect("derives"),
+        &sample,
+        "disconnect_provider",
     );
 }
