@@ -15,6 +15,7 @@ pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
 
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+schemars = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.50", features = ["sync"] }

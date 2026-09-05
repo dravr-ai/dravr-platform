@@ -19,12 +19,15 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use schemars::JsonSchema;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use crate::runtime::ToolRuntime;
@@ -32,7 +35,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_external::UsdaClient;
+use pierre_external::{FoodSearchResult, UsdaClient};
 use pierre_intelligence::{
     calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
     DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
@@ -171,6 +174,158 @@ fn build_usda_client(context: &ToolExecutionContext) -> Result<Arc<UsdaClient>, 
     Ok(shared_usda_client(api_key))
 }
 
+/// What `calculate_daily_nutrition` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct DailyNutritionResult {
+    /// Basal metabolic rate, kcal/day.
+    pub bmr: f64,
+    /// Total daily energy expenditure, kcal/day.
+    pub tdee: f64,
+    /// Daily protein target, grams.
+    pub protein_g: f64,
+    /// Daily carbohydrate target, grams.
+    pub carbs_g: f64,
+    /// Daily fat target, grams.
+    pub fat_g: f64,
+    /// Protein share of energy, percent.
+    pub protein_percent: f64,
+    /// Carbohydrate share of energy, percent.
+    pub carbs_percent: f64,
+    /// Fat share of energy, percent.
+    pub fat_percent: f64,
+    /// The training goal the split was computed for.
+    pub goal: String,
+}
+
+/// The pre-workout half of a nutrient-timing plan.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PreWorkoutTiming {
+    /// How long before the session to eat, hours.
+    pub timing_hours_before: f64,
+    /// Carbohydrate to take, grams.
+    pub carbs_g: f64,
+    /// What to eat, in the athlete's terms.
+    pub recommendations: Vec<String>,
+}
+
+/// The post-workout half of a nutrient-timing plan.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PostWorkoutTiming {
+    /// How long after the session to eat, hours.
+    pub timing_hours_after: f64,
+    /// Protein to take, grams.
+    pub protein_g: f64,
+    /// Carbohydrate to take, grams.
+    pub carbs_g: f64,
+    /// What to eat, in the athlete's terms.
+    pub recommendations: Vec<String>,
+}
+
+/// How the day's protein is spread across meals.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ProteinDistribution {
+    /// Meals the target is split across.
+    pub meals_per_day: u8,
+    /// Protein per meal, grams.
+    pub protein_per_meal_g: f64,
+    /// The strategy behind the split.
+    pub strategy: String,
+}
+
+/// What `get_nutrient_timing` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct NutrientTimingResult {
+    /// What to take before the session.
+    pub pre_workout: PreWorkoutTiming,
+    /// What to take after it.
+    pub post_workout: PostWorkoutTiming,
+    /// How to spread protein across the day.
+    pub daily_protein_distribution: ProteinDistribution,
+    /// Where the workout intensity came from — stated so the athlete can tell
+    /// a figure they gave from one the server inferred.
+    pub intensity_source: String,
+}
+
+/// What `search_food` answers with.
+///
+/// `foods` carries USDA's own `FoodSearchResult` rather than a projection, so
+/// the declared schema is the vendor's shape. That is a deliberate call: it
+/// keeps one source of truth, at the cost that a change at USDA's end changes
+/// this published contract without anyone here agreeing to it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SearchFoodResult {
+    /// The matches on this page.
+    pub foods: Vec<FoodSearchResult>,
+    /// How many came back on this page.
+    pub returned_count: usize,
+    /// How many matched in total.
+    pub total_hits: u32,
+    /// Which page this is, 1-based.
+    pub page_number: u32,
+    /// How many per page were asked for.
+    pub page_size: u32,
+    /// How many pages the match set spans.
+    pub total_pages: u32,
+    /// Whether another page follows.
+    pub has_more: bool,
+}
+
+/// One nutrient on a food, as `get_food_details` reports it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct FoodNutrientEntry {
+    /// USDA nutrient identifier.
+    pub nutrient_id: u32,
+    /// Nutrient name.
+    pub name: String,
+    /// How much of it, in `unit`.
+    pub amount: f64,
+    /// The unit `amount` is measured in.
+    pub unit: String,
+}
+
+/// What `get_food_details` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct FoodDetailsResult {
+    /// USDA food identifier.
+    pub fdc_id: u64,
+    /// Food description.
+    pub description: String,
+    /// Which USDA dataset it came from.
+    pub data_type: String,
+    /// Its nutrients.
+    pub nutrients: Vec<FoodNutrientEntry>,
+    /// Serving size, when USDA states one.
+    pub serving_size: Option<f64>,
+    /// The unit the serving size is in.
+    pub serving_size_unit: Option<String>,
+}
+
+/// One food in an analysed meal.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MealFoodEntry {
+    /// USDA food identifier.
+    pub fdc_id: u64,
+    /// Food description.
+    pub description: String,
+    /// How much of it, grams.
+    pub grams: f64,
+}
+
+/// What `analyze_meal_nutrition` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct AnalyzeMealNutritionResult {
+    /// Meal energy, kcal, rounded.
+    pub total_calories: f64,
+    /// Meal protein, grams, rounded.
+    pub total_protein_g: f64,
+    /// Meal carbohydrate, grams, rounded.
+    pub total_carbs_g: f64,
+    /// Meal fat, grams, rounded.
+    pub total_fat_g: f64,
+    /// The foods it was computed from.
+    pub foods: Vec<MealFoodEntry>,
+}
+
 // ============================================================================
 // CalculateDailyNutritionTool
 // ============================================================================
@@ -247,12 +402,12 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                 "training_goal".to_owned(),
             ]),
         );
-        tool_definition(
+        answers_with::<DailyNutritionResult>(tool_definition(
             "calculate_daily_nutrition",
             "Calculate daily calorie and macronutrient needs based on biometrics and goals",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -278,17 +433,20 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                 &nutrition_config.activity_factors,
                 &nutrition_config.macronutrients,
             ) {
-                Ok(nutrition) => Ok(ToolResult::ok(json!({
-                    "bmr": nutrition.bmr,
-                    "tdee": nutrition.tdee,
-                    "protein_g": nutrition.protein_g,
-                    "carbs_g": nutrition.carbs_g,
-                    "fat_g": nutrition.fat_g,
-                    "protein_percent": nutrition.macro_percentages.protein_percent,
-                    "carbs_percent": nutrition.macro_percentages.carbs_percent,
-                    "fat_percent": nutrition.macro_percentages.fat_percent,
-                    "goal": format!("{:?}", params.training_goal),
-                }))),
+                Ok(nutrition) => ok_typed(
+                    "calculate_daily_nutrition",
+                    DailyNutritionResult {
+                        bmr: nutrition.bmr,
+                        tdee: nutrition.tdee,
+                        protein_g: nutrition.protein_g,
+                        carbs_g: nutrition.carbs_g,
+                        fat_g: nutrition.fat_g,
+                        protein_percent: nutrition.macro_percentages.protein_percent,
+                        carbs_percent: nutrition.macro_percentages.carbs_percent,
+                        fat_percent: nutrition.macro_percentages.fat_percent,
+                        goal: format!("{:?}", params.training_goal),
+                    },
+                ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Calculation error: {e}")
                 }))),
@@ -342,12 +500,12 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                 "daily_protein_g".to_owned(),
             ]),
         );
-        tool_definition(
+        answers_with::<NutrientTimingResult>(tool_definition(
             "get_nutrient_timing",
             "Get optimal nutrient timing recommendations around workouts",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -404,25 +562,30 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                 workout_intensity,
                 &config.nutrient_timing,
             ) {
-                Ok(timing) => Ok(ToolResult::ok(json!({
-                    "pre_workout": {
-                        "timing_hours_before": timing.pre_workout.timing_hours_before,
-                        "carbs_g": timing.pre_workout.carbs_g,
-                        "recommendations": timing.pre_workout.recommendations,
+                Ok(timing) => ok_typed(
+                    "get_nutrient_timing",
+                    NutrientTimingResult {
+                        pre_workout: PreWorkoutTiming {
+                            timing_hours_before: timing.pre_workout.timing_hours_before,
+                            carbs_g: timing.pre_workout.carbs_g,
+                            recommendations: timing.pre_workout.recommendations,
+                        },
+                        post_workout: PostWorkoutTiming {
+                            timing_hours_after: timing.post_workout.timing_hours_after,
+                            protein_g: timing.post_workout.protein_g,
+                            carbs_g: timing.post_workout.carbs_g,
+                            recommendations: timing.post_workout.recommendations,
+                        },
+                        daily_protein_distribution: ProteinDistribution {
+                            meals_per_day: timing.daily_protein_distribution.meals_per_day,
+                            protein_per_meal_g: timing
+                                .daily_protein_distribution
+                                .protein_per_meal_g,
+                            strategy: timing.daily_protein_distribution.strategy,
+                        },
+                        intensity_source: intensity_source.to_owned(),
                     },
-                    "post_workout": {
-                        "timing_hours_after": timing.post_workout.timing_hours_after,
-                        "protein_g": timing.post_workout.protein_g,
-                        "carbs_g": timing.post_workout.carbs_g,
-                        "recommendations": timing.post_workout.recommendations,
-                    },
-                    "daily_protein_distribution": {
-                        "meals_per_day": timing.daily_protein_distribution.meals_per_day,
-                        "protein_per_meal_g": timing.daily_protein_distribution.protein_per_meal_g,
-                        "strategy": timing.daily_protein_distribution.strategy,
-                    },
-                    "intensity_source": intensity_source,
-                }))),
+                ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Calculation error: {e}")
                 }))),
@@ -472,12 +635,12 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["query".to_owned()]));
-        tool_definition(
+        answers_with::<SearchFoodResult>(tool_definition(
             "search_food",
             "Search USDA FoodData Central database for foods. Returns up to 10 results by default. Check the `has_more` field before requesting additional pages.",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -527,15 +690,18 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
                 Ok(paginated) => {
                     let count = paginated.foods.len();
                     let has_more = paginated.current_page < paginated.total_pages;
-                    Ok(ToolResult::ok(json!({
-                        "foods": paginated.foods,
-                        "returned_count": count,
-                        "total_hits": paginated.total_hits,
-                        "page_number": paginated.current_page,
-                        "page_size": page_size,
-                        "total_pages": paginated.total_pages,
-                        "has_more": has_more,
-                    })))
+                    ok_typed(
+                        "search_food",
+                        SearchFoodResult {
+                            foods: paginated.foods,
+                            returned_count: count,
+                            total_hits: paginated.total_hits,
+                            page_number: paginated.current_page,
+                            page_size,
+                            total_pages: paginated.total_pages,
+                            has_more,
+                        },
+                    )
                 }
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Search error: {e}")
@@ -567,12 +733,12 @@ impl McpTool<dyn ToolRuntime> for GetFoodDetailsTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["fdc_id".to_owned()]));
-        tool_definition(
+        answers_with::<FoodDetailsResult>(tool_definition(
             "get_food_details",
             "Get detailed nutritional information for a specific food item",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -597,19 +763,26 @@ impl McpTool<dyn ToolRuntime> for GetFoodDetailsTool {
             })?;
 
             match client.get_food_details(fdc_id).await {
-                Ok(food) => Ok(ToolResult::ok(json!({
-                    "fdc_id": food.fdc_id,
-                    "description": food.description,
-                    "data_type": food.data_type,
-                    "nutrients": food.food_nutrients.iter().map(|n| json!({
-                        "nutrient_id": n.nutrient_id,
-                        "name": n.nutrient_name,
-                        "amount": n.amount,
-                        "unit": n.unit_name,
-                    })).collect::<Vec<_>>(),
-                    "serving_size": food.serving_size,
-                    "serving_size_unit": food.serving_size_unit,
-                }))),
+                Ok(food) => ok_typed(
+                    "get_food_details",
+                    FoodDetailsResult {
+                        fdc_id: food.fdc_id,
+                        description: food.description,
+                        data_type: food.data_type,
+                        nutrients: food
+                            .food_nutrients
+                            .iter()
+                            .map(|n| FoodNutrientEntry {
+                                nutrient_id: n.nutrient_id,
+                                name: n.nutrient_name.clone(),
+                                amount: n.amount,
+                                unit: n.unit_name.clone(),
+                            })
+                            .collect(),
+                        serving_size: food.serving_size,
+                        serving_size_unit: food.serving_size_unit,
+                    },
+                ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Food not found: {e}")
                 }))),
@@ -665,12 +838,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["ingredients".to_owned()]));
-        tool_definition(
+        answers_with::<AnalyzeMealNutritionResult>(tool_definition(
             "analyze_meal_nutrition",
             "Analyze nutritional content of a meal from its ingredients",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -752,20 +925,23 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
                     }
                 }
 
-                food_details_list.push(json!({
-                    "fdc_id": fdc_id,
-                    "description": food.description,
-                    "grams": grams,
-                }));
+                food_details_list.push(MealFoodEntry {
+                    fdc_id,
+                    description: food.description,
+                    grams,
+                });
             }
 
-            Ok(ToolResult::ok(json!({
-                "total_calories": total_calories.round(),
-                "total_protein_g": total_protein.round(),
-                "total_carbs_g": total_carbs.round(),
-                "total_fat_g": total_fat.round(),
-                "foods": food_details_list,
-            })))
+            ok_typed(
+                "analyze_meal_nutrition",
+                AnalyzeMealNutritionResult {
+                    total_calories: total_calories.round(),
+                    total_protein_g: total_protein.round(),
+                    total_carbs_g: total_carbs.round(),
+                    total_fat_g: total_fat.round(),
+                    foods: food_details_list,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

@@ -30,6 +30,12 @@ use pierre_tool_runtime::implementations::memory::{
     RecallUserMemoryResult, RecallUserMemoryTool, RecalledFact, RememberFactResult,
     RememberFactTool,
 };
+use pierre_tool_runtime::implementations::nutrition::{
+    AnalyzeMealNutritionResult, AnalyzeMealNutritionTool, CalculateDailyNutritionTool,
+    DailyNutritionResult, FoodDetailsResult, FoodNutrientEntry, GetFoodDetailsTool,
+    GetNutrientTimingTool, MealFoodEntry, NutrientTimingResult, PostWorkoutTiming,
+    PreWorkoutTiming, ProteinDistribution, SearchFoodResult, SearchFoodTool,
+};
 use pierre_tool_runtime::implementations::playbooks::{
     ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
     ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
@@ -431,5 +437,130 @@ fn recall_user_memory_declares_a_schema_that_accepts_its_payload() {
         serde_json::to_value(schemars::schema_for!(RecallUserMemoryResult)).expect("derives"),
         &sample,
         "recall_user_memory",
+    );
+}
+
+#[test]
+fn calculate_daily_nutrition_declares_a_schema_that_accepts_its_payload() {
+    let sample = DailyNutritionResult {
+        bmr: 1680.0,
+        tdee: 2740.0,
+        protein_g: 150.0,
+        carbs_g: 340.0,
+        fat_g: 85.0,
+        protein_percent: 22.0,
+        carbs_percent: 50.0,
+        fat_percent: 28.0,
+        goal: "Endurance".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <CalculateDailyNutritionTool as McpTool<dyn ToolRuntime>>::definition(
+            &CalculateDailyNutritionTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(DailyNutritionResult)).expect("derives"),
+        &sample,
+        "calculate_daily_nutrition",
+    );
+}
+
+#[test]
+fn get_nutrient_timing_declares_a_schema_that_accepts_its_payload() {
+    let sample = NutrientTimingResult {
+        pre_workout: PreWorkoutTiming {
+            timing_hours_before: 2.0,
+            carbs_g: 60.0,
+            recommendations: vec!["Porridge and a banana".to_owned()],
+        },
+        post_workout: PostWorkoutTiming {
+            timing_hours_after: 0.5,
+            protein_g: 30.0,
+            carbs_g: 70.0,
+            recommendations: vec!["Recovery shake".to_owned()],
+        },
+        daily_protein_distribution: ProteinDistribution {
+            meals_per_day: 4,
+            protein_per_meal_g: 37.5,
+            strategy: "even".to_owned(),
+        },
+        intensity_source: "explicit".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <GetNutrientTimingTool as McpTool<dyn ToolRuntime>>::definition(&GetNutrientTimingTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(NutrientTimingResult)).expect("derives"),
+        &sample,
+        "get_nutrient_timing",
+    );
+}
+
+#[test]
+fn search_food_declares_a_schema_that_accepts_the_vendor_shape() {
+    // `foods` is USDA's own type, forwarded rather than projected, so this is
+    // the test that notices if their shape stops matching what we publish.
+    let sample = SearchFoodResult {
+        foods: vec![],
+        returned_count: 0,
+        total_hits: 0,
+        page_number: 1,
+        page_size: 25,
+        total_pages: 0,
+        has_more: false,
+    };
+    assert_declares_and_accepts(
+        <SearchFoodTool as McpTool<dyn ToolRuntime>>::definition(&SearchFoodTool).output_schema,
+        serde_json::to_value(schemars::schema_for!(SearchFoodResult)).expect("derives"),
+        &sample,
+        "search_food (no matches)",
+    );
+}
+
+#[test]
+fn get_food_details_accepts_a_food_with_no_stated_serving() {
+    // USDA states no serving size for plenty of foods; a schema that required
+    // one would reject them.
+    let sample = FoodDetailsResult {
+        fdc_id: 173_944,
+        description: "Oats, raw".to_owned(),
+        data_type: "SR Legacy".to_owned(),
+        nutrients: vec![FoodNutrientEntry {
+            nutrient_id: 1003,
+            name: "Protein".to_owned(),
+            amount: 16.9,
+            unit: "G".to_owned(),
+        }],
+        serving_size: None,
+        serving_size_unit: None,
+    };
+    assert_declares_and_accepts(
+        <GetFoodDetailsTool as McpTool<dyn ToolRuntime>>::definition(&GetFoodDetailsTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(FoodDetailsResult)).expect("derives"),
+        &sample,
+        "get_food_details",
+    );
+}
+
+#[test]
+fn analyze_meal_nutrition_declares_a_schema_that_accepts_its_payload() {
+    let sample = AnalyzeMealNutritionResult {
+        total_calories: 620.0,
+        total_protein_g: 34.0,
+        total_carbs_g: 78.0,
+        total_fat_g: 18.0,
+        foods: vec![MealFoodEntry {
+            fdc_id: 173_944,
+            description: "Oats, raw".to_owned(),
+            grams: 80.0,
+        }],
+    };
+    assert_declares_and_accepts(
+        <AnalyzeMealNutritionTool as McpTool<dyn ToolRuntime>>::definition(
+            &AnalyzeMealNutritionTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(AnalyzeMealNutritionResult)).expect("derives"),
+        &sample,
+        "analyze_meal_nutrition",
     );
 }
