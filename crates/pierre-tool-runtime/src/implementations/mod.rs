@@ -131,6 +131,11 @@ pub mod fitness_support;
 #[cfg(feature = "tools-goals")]
 pub mod goals;
 
+/// Answer shapes for the goal tools, split out because `goals` is at its size
+/// ceiling (`tools-goals` feature).
+#[cfg(feature = "tools-goals")]
+pub mod goals_output;
+
 /// Group tools: consent-gated peer activity fetch (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
 pub mod groups;

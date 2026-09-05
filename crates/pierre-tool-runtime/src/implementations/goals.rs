@@ -21,6 +21,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
+use schemars::JsonSchema;
+use serde::Serialize;
 use serde_json::{from_value, json, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -28,7 +30,13 @@ use uuid::Uuid;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, task_capable, tool_definition,
+    tool_result_to_response,
+};
+use crate::implementations::goals_output::{
+    build_feasibility_payload, build_goal_creation_payload, build_progress_payload,
+    format_goal_suggestions, ok_typed, FeasibilityResponseParams, GoalFeasibilityResult,
+    ProgressResponseParams, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
 };
 use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
@@ -83,7 +91,7 @@ fn safe_i64_to_f64(val: i64) -> f64 {
 
 /// Safe conversion from f64 to u32 with clamping.
 #[inline]
-fn safe_f64_to_u32(val: f64) -> u32 {
+pub(crate) fn safe_f64_to_u32(val: f64) -> u32 {
     if val >= f64::from(u32::MAX) {
         u32::MAX
     } else if val <= 0.0 {
@@ -189,57 +197,6 @@ fn generate_feasibility_recommendations(
     recommendations
 }
 
-/// Parameters for building feasibility response.
-struct FeasibilityResponseParams<'a> {
-    feasibility_score: f64,
-    feasible: bool,
-    confidence_level: f64,
-    risk_factors: Vec<String>,
-    recommendations: Vec<String>,
-    target_value: f64,
-    current_level: f64,
-    safe_improvement_capacity: f64,
-    effective_timeframe: u32,
-    improvement_required: f64,
-    activities_len: usize,
-    goal_type: &'a str,
-}
-
-/// Build feasibility analysis response payload.
-fn build_feasibility_payload(params: &FeasibilityResponseParams) -> Value {
-    let months = f64::from(params.effective_timeframe) / DAYS_PER_MONTH_APPROX;
-    json!({
-        "feasible": params.feasible,
-        "feasibility_score": params.feasibility_score.min(100.0),
-        "confidence_level": params.confidence_level,
-        "risk_factors": params.risk_factors,
-        "success_probability": (params.feasibility_score / 100.0).min(1.0),
-        "recommendations": params.recommendations,
-        "adjusted_target": if params.feasible { params.target_value } else { params.current_level * (1.0 + (params.safe_improvement_capacity / 100.0)) },
-        "adjusted_timeframe": if params.feasible {
-            params.effective_timeframe
-        } else {
-            let safe_days_f64 = (params.improvement_required / SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT).mul_add(
-                f64::from(DAYS_PER_MONTH),
-                0.0
-            ).ceil();
-            safe_f64_to_u32(safe_days_f64)
-        },
-        "analysis": {
-            "current_level": params.current_level,
-            "target_value": params.target_value,
-            "improvement_required_percent": params.improvement_required,
-            "safe_improvement_capacity_percent": params.safe_improvement_capacity,
-            "timeframe_months": months
-        },
-        "historical_context": {
-            "activities_analyzed": params.activities_len,
-            "goal_type": params.goal_type,
-            "data_quality": if params.activities_len >= EXCELLENT_DATA_QUALITY_THRESHOLD { "excellent" } else if params.activities_len >= GOOD_DATA_QUALITY_THRESHOLD { "good" } else { "limited" }
-        }
-    })
-}
-
 /// Extract goal parameters from args.
 fn extract_goal_params(args: &Value) -> AppResult<SetGoalParams> {
     from_value(args.clone())
@@ -248,24 +205,6 @@ fn extract_goal_params(args: &Value) -> AppResult<SetGoalParams> {
 }
 
 /// Build goal creation response payload.
-fn build_goal_creation_payload(
-    goal_id: &str,
-    goal_type: &str,
-    target_value: f64,
-    timeframe: &str,
-    title: &str,
-    created_at: chrono::DateTime<Utc>,
-) -> Value {
-    json!({
-        "goal_id": goal_id,
-        "goal_type": goal_type,
-        "target_value": target_value,
-        "timeframe": timeframe,
-        "title": title,
-        "created_at": created_at.to_rfc3339(),
-        "status": "created"
-    })
-}
 
 /// Load user fitness profile from database.
 async fn load_user_profile(
@@ -285,23 +224,6 @@ async fn load_user_profile(
         }),
         Ok(None) | Err(_) => create_fallback_profile(user_id.to_owned(), activities),
     }
-}
-
-/// Format goal suggestions for response.
-fn format_goal_suggestions(suggestions: Vec<GoalSuggestion>) -> Vec<Value> {
-    suggestions
-        .into_iter()
-        .map(|g| {
-            json!({
-                "goal_type": format!("{:?}", g.goal_type),
-                "target_value": g.suggested_target,
-                "difficulty": format!("{:?}", g.difficulty),
-                "rationale": g.rationale,
-                "estimated_timeline_days": g.estimated_timeline_days,
-                "success_probability": g.success_probability
-            })
-        })
-        .collect()
 }
 
 /// Fetch activities for goal suggestions; returns empty vec if auth/fetch fails.
@@ -648,11 +570,11 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
 }
 
 /// Goal details extracted from database.
-struct GoalDetails {
-    goal_type: String,
-    goal_target: f64,
-    timeframe: String,
-    created_at: Option<DateTime<FixedOffset>>,
+pub(crate) struct GoalDetails {
+    pub(crate) goal_type: String,
+    pub(crate) goal_target: f64,
+    pub(crate) timeframe: String,
+    pub(crate) created_at: Option<DateTime<FixedOffset>>,
 }
 
 /// Extract goal details from JSON map.
@@ -764,51 +686,6 @@ fn calculate_projected_completion(
     } else {
         None
     }
-}
-
-/// Parameters for building progress tracking response.
-struct ProgressResponseParams<'a> {
-    goal_id: &'a str,
-    details: &'a GoalDetails,
-    current_value: f64,
-    unit: &'a str,
-    progress_percentage: f64,
-    on_track: bool,
-    days_remaining: u32,
-    projected_completion: Option<f64>,
-    relevant_activities: &'a [&'a Activity],
-    total_duration: u64,
-}
-
-/// Build progress tracking response payload.
-fn build_progress_payload(params: &ProgressResponseParams) -> Value {
-    json!({
-        "goal_id": params.goal_id,
-        "goal_type": params.details.goal_type,
-        "current_value": params.current_value,
-        "target_value": params.details.goal_target,
-        "unit": params.unit,
-        "progress_percentage": params.progress_percentage.min(100.0),
-        "on_track": params.on_track,
-        "days_remaining": params.days_remaining,
-        "projected_completion_days": params.projected_completion,
-        "timeframe": params.details.timeframe,
-        "summary": {
-            "total_activities": params.relevant_activities.len(),
-            "total_distance_km": params.relevant_activities.iter().filter_map(|a| a.distance_meters()).sum::<f64>() / METERS_PER_KILOMETER,
-            "total_duration_hours": match u32::try_from(params.total_duration.min(u64::from(u32::MAX))) {
-                Ok(duration_u32) => f64::from(duration_u32) / SECONDS_PER_HOUR_F64,
-                Err(e) => {
-                    warn!(
-                        total_duration = params.total_duration,
-                        error = %e,
-                        "Duration conversion failed in response summary, using u32::MAX"
-                    );
-                    f64::from(u32::MAX) / SECONDS_PER_HOUR_F64
-                }
-            }
-        }
-    })
 }
 
 /// Result of looking up a goal: `Ok(Some(...))` on hit, `Ok(None)` when the
@@ -938,12 +815,12 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             properties,
             Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
         );
-        tool_definition(
+        answers_with::<SetGoalResult>(tool_definition(
             "set_goal",
             "Create a new fitness goal with specified type, target value, and timeframe",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -978,14 +855,17 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
 
-            Ok(ToolResult::ok(build_goal_creation_payload(
-                &goal_id,
-                &params.goal_type,
-                params.target_value,
-                &params.timeframe,
-                &params.title,
-                created_at,
-            )))
+            ok_typed(
+                "set_goal",
+                build_goal_creation_payload(
+                    &goal_id,
+                    &params.goal_type,
+                    params.target_value,
+                    &params.timeframe,
+                    &params.title,
+                    created_at,
+                ),
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -1014,12 +894,12 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<SuggestGoalsResult>(task_capable(tool_definition(
             "suggest_goals",
             "Get AI-suggested fitness goals based on your activity history and fitness level",
             schema,
             None,
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1053,10 +933,13 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             .await;
 
             match goal_engine.suggest_goals(&user_profile, &activities).await {
-                Ok(suggestions) => Ok(ToolResult::ok(json!({
-                    "suggested_goals": format_goal_suggestions(suggestions),
-                    "activities_analyzed": activities.len()
-                }))),
+                Ok(suggestions) => ok_typed(
+                    "suggest_goals",
+                    SuggestGoalsResult {
+                        suggested_goals: format_goal_suggestions(suggestions),
+                        activities_analyzed: activities.len(),
+                    },
+                ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to suggest goals: {e}")
                 }))),
@@ -1097,12 +980,12 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["goal_id".to_owned()]));
-        task_capable(tool_definition(
+        answers_with::<TrackProgressResult>(task_capable(tool_definition(
             "track_progress",
             "Track progress toward a specific fitness goal with milestone achievements and projections",
             schema,
             None,
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1162,8 +1045,9 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
                 details.created_at,
             );
 
-            Ok(ToolResult::ok(build_progress_payload(
-                &ProgressResponseParams {
+            ok_typed(
+                "track_progress",
+                build_progress_payload(&ProgressResponseParams {
                     goal_id: &goal_id,
                     details: &details,
                     current_value,
@@ -1174,8 +1058,8 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
                     projected_completion,
                     relevant_activities: &relevant_activities,
                     total_duration,
-                },
-            )))
+                }),
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -1233,12 +1117,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             properties,
             Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<GoalFeasibilityResult>(task_capable(tool_definition(
             "analyze_goal_feasibility",
             "Analyze whether a fitness goal is achievable based on your current fitness level and training history",
             schema,
             None,
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1280,8 +1164,9 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
                 activities.len(),
             );
 
-            Ok(ToolResult::ok(build_feasibility_payload(
-                &FeasibilityResponseParams {
+            ok_typed(
+                "analyze_goal_feasibility",
+                build_feasibility_payload(&FeasibilityResponseParams {
                     feasibility_score,
                     feasible,
                     confidence_level,
@@ -1294,8 +1179,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
                     improvement_required,
                     activities_len: activities.len(),
                     goal_type: &goal_type,
-                },
-            )))
+                }),
+            )
         }
         .await;
         tool_result_to_response(result)

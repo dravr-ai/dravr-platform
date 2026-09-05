@@ -18,6 +18,13 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_tool_runtime::implementations::goals::{
+    AnalyzeGoalFeasibilityTool, SetGoalTool, SuggestGoalsTool, TrackProgressTool,
+};
+use pierre_tool_runtime::implementations::goals_output::{
+    FeasibilityAnalysis, FeasibilityHistoricalContext, GoalFeasibilityResult, GoalSuggestionEntry,
+    ProgressSummary, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
+};
 use pierre_tool_runtime::implementations::playbooks::{
     ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
     ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
@@ -224,5 +231,113 @@ fn forget_playbook_schema_rejects_a_boolean_deleted() {
     assert!(
         !validator.is_valid(&json!({"deleted": true, "playbook_id": "pb-1"})),
         "deleted is a count; a schema that accepts `true` is not describing it"
+    );
+}
+
+#[test]
+fn set_goal_declares_a_schema_that_accepts_its_payload() {
+    let sample = SetGoalResult {
+        goal_id: "goal-1".to_owned(),
+        goal_type: "distance".to_owned(),
+        target_value: 42.2,
+        timeframe: "12 weeks".to_owned(),
+        title: "First marathon".to_owned(),
+        created_at: "2026-09-05T09:00:00+00:00".to_owned(),
+        status: "created".to_owned(),
+    };
+    assert_declares_and_accepts(
+        <SetGoalTool as McpTool<dyn ToolRuntime>>::definition(&SetGoalTool).output_schema,
+        serde_json::to_value(schemars::schema_for!(SetGoalResult)).expect("derives"),
+        &sample,
+        "set_goal",
+    );
+}
+
+#[test]
+fn suggest_goals_declares_a_schema_that_accepts_its_payload() {
+    let sample = SuggestGoalsResult {
+        suggested_goals: vec![GoalSuggestionEntry {
+            goal_type: "Distance".to_owned(),
+            target_value: 21.1,
+            difficulty: "Moderate".to_owned(),
+            rationale: "Your last four weeks support a half.".to_owned(),
+            estimated_timeline_days: 84,
+            success_probability: 0.68,
+        }],
+        activities_analyzed: 37,
+    };
+    assert_declares_and_accepts(
+        <SuggestGoalsTool as McpTool<dyn ToolRuntime>>::definition(&SuggestGoalsTool).output_schema,
+        serde_json::to_value(schemars::schema_for!(SuggestGoalsResult)).expect("derives"),
+        &sample,
+        "suggest_goals",
+    );
+}
+
+#[test]
+fn track_progress_declares_a_schema_that_accepts_its_payload() {
+    // projected_completion_days is None when the current rate supports no
+    // projection, which is the common early-goal case.
+    let sample = TrackProgressResult {
+        goal_id: "goal-1".to_owned(),
+        goal_type: "distance".to_owned(),
+        current_value: 12.0,
+        target_value: 42.2,
+        unit: "km".to_owned(),
+        progress_percentage: 28.4,
+        on_track: true,
+        days_remaining: 61,
+        projected_completion_days: None,
+        timeframe: "12 weeks".to_owned(),
+        summary: ProgressSummary {
+            total_activities: 9,
+            total_distance_km: 78.5,
+            total_duration_hours: 7.25,
+        },
+    };
+    assert_declares_and_accepts(
+        <TrackProgressTool as McpTool<dyn ToolRuntime>>::definition(&TrackProgressTool)
+            .output_schema,
+        serde_json::to_value(schemars::schema_for!(TrackProgressResult)).expect("derives"),
+        &sample,
+        "track_progress",
+    );
+}
+
+#[test]
+fn analyze_goal_feasibility_declares_a_schema_that_accepts_its_payload() {
+    // The infeasible branch, because that is where the payload's adjusted_*
+    // fields take their other values — a schema derived from the feasible case
+    // alone would still cover it, and this proves it does.
+    let sample = GoalFeasibilityResult {
+        feasible: false,
+        feasibility_score: 41.0,
+        confidence_level: 0.6,
+        risk_factors: vec!["Target requires 30% gain in 8 weeks".to_owned()],
+        success_probability: 0.41,
+        recommendations: vec!["Extend the timeframe to 16 weeks".to_owned()],
+        adjusted_target: 34.0,
+        adjusted_timeframe: 112,
+        analysis: FeasibilityAnalysis {
+            current_level: 28.0,
+            target_value: 42.2,
+            improvement_required_percent: 50.7,
+            safe_improvement_capacity_percent: 21.4,
+            timeframe_months: 2.6,
+        },
+        historical_context: FeasibilityHistoricalContext {
+            activities_analyzed: 12,
+            goal_type: "distance".to_owned(),
+            data_quality: "limited".to_owned(),
+        },
+    };
+    assert_declares_and_accepts(
+        <AnalyzeGoalFeasibilityTool as McpTool<dyn ToolRuntime>>::definition(
+            &AnalyzeGoalFeasibilityTool,
+        )
+        .output_schema,
+        serde_json::to_value(schemars::schema_for!(GoalFeasibilityResult)).expect("derives"),
+        &sample,
+        "analyze_goal_feasibility",
     );
 }
