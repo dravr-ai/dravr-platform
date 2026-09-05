@@ -47,7 +47,14 @@ BASELINE_WEB_LEGACY_PIERRE=0
 # photography and `boreal-hero-gradient` to nothing at all any more. Both are
 # ratcheted from the count the refresh left, so they can only fall.
 BASELINE_WEB_BACKDROP_BLUR=16
-BASELINE_WEB_HERO_GRADIENT=7
+BASELINE_WEB_HERO_GRADIENT=5
+# Boreal v2.1 (DESIGN.md §5, §9): a group is a Section, not a Card; the
+# legacy card-dark/card-admin wrappers are flat sections by CSS until their
+# consumers move; display sizes above 18px belong to auth and hero numbers.
+# All three are ratcheted from the count the density pass left.
+BASELINE_WEB_CARD_SITES=127
+BASELINE_WEB_LEGACY_CARD_CLASSES=16
+BASELINE_WEB_LARGE_TEXT=67
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,
 # outline, and the pillar tokens) never match: the colour name must follow the
@@ -332,6 +339,48 @@ WEB_HERO_GRADIENT=$(grep -rEoh 'boreal-hero-gradient|bg-boreal-hero' "$PROJECT_R
     | wc -l | tr -d ' ')
 check_ratchet "web hero-gradient decoration" "$WEB_HERO_GRADIENT" "$BASELINE_WEB_HERO_GRADIENT" \
     "A filled surface is bg-primary; a tint is bg-primary-container; nothing is a gradient (DESIGN.md §2)."
+echo ""
+
+# ----------------------------------------------------------------------------
+# Boreal v2.1 "Less" (DESIGN.md §5, §8, §9): the density pass took the athlete
+# surfaces out of their boxes and down one type step. What is left is counted
+# so it can only fall; what was retired is a hard zero.
+#
+#   <Card> sites — a group is a Section (title, line, rows); a Card is for what
+#   floats and for a data object inside a message. 128 sites remain, in
+#   drawers, modals and the operator config tabs.
+#   card-dark / card-admin — legacy wrappers, flat by CSS; each consumer that
+#   moves to Section takes one off the count.
+#   text-2xl / text-3xl — 22px and 26px belong to auth headlines and hero
+#   numbers; a page or section title is text-xl or text-sm.
+#   min-h-[44px] — targets follow the pointer through the touch-target rule;
+#   a hard-coded 44 re-inflates the desktop scale.
+#   .chat-bubble-ai — the agent speaks as prose; the class is gone.
+# ----------------------------------------------------------------------------
+echo "-- Boreal v2.1 density (DESIGN.md §5, §8, §9) --"
+WEB_CARD_SITES=$(grep -rEoh '<Card\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | grep -v '__tests__' | wc -l | tr -d ' ')
+check_ratchet "web Card sites" "$WEB_CARD_SITES" "$BASELINE_WEB_CARD_SITES" \
+    "Group content with ui/Section (title, line, rows); keep Card for what floats (DESIGN.md §5)."
+
+WEB_LEGACY_CARD_CLASSES=$(grep -rEoh 'className="(card-dark|card-admin)' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | wc -l | tr -d ' ')
+check_ratchet "web legacy card-dark/card-admin wrappers" "$WEB_LEGACY_CARD_CLASSES" "$BASELINE_WEB_LEGACY_CARD_CLASSES" \
+    "Move the group to ui/Section; the class is a flat shim, not a design (DESIGN.md §5)."
+
+WEB_LARGE_TEXT=$(grep -rEoh '\btext-(2xl|3xl)\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | grep -v '__tests__' | wc -l | tr -d ' ')
+check_ratchet "web text above 18px" "$WEB_LARGE_TEXT" "$BASELINE_WEB_LARGE_TEXT" \
+    "Titles are text-xl (18px), section titles text-sm 600; text-2xl/3xl are for auth headlines and hero numbers (DESIGN.md §3)."
+
+WEB_HARD_44=$(grep -rEoh 'min-[hw]-\[44px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | grep -v '__tests__' | wc -l | tr -d ' ')
+check_ratchet "web hard-coded 44px targets" "$WEB_HARD_44" 0 \
+    "Use the touch-target class: 44px on a coarse pointer and under lg, the 32px scale on a fine pointer (DESIGN.md §8)."
+
+WEB_AI_BUBBLE=$(grep -rEo 'chat-bubble-ai' "$PROJECT_ROOT/frontend/src" 2>/dev/null | wc -l | tr -d ' ')
+check_ratchet "web agent bubble class" "$WEB_AI_BUBBLE" 0 \
+    "The agent's turn is prose on the canvas; only .chat-bubble-user remains (DESIGN.md §5)."
 echo ""
 
 # ----------------------------------------------------------------------------

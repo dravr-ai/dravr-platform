@@ -142,7 +142,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 />
               </div>
 
-              <Button
+              <Button size="lg"
                 type="submit"
                 variant="gradient"
                 loading={isLoading}

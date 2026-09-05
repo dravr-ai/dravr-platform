@@ -119,7 +119,7 @@ function ChoiceCard({
       type="button"
       onClick={onSelect}
       disabled={disabled}
-      className="flex flex-col items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-low px-5 py-5 text-left transition-colors hover:border-primary hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-60"
+      className="flex flex-col items-start gap-2 rounded-xl border ghost-border-strong bg-surface-container-lowest px-5 py-5 text-left transition-colors hover:border-primary hover:bg-primary-container/40 disabled:cursor-not-allowed disabled:opacity-60"
     >
       <span className="font-display font-semibold text-base text-on-surface">{title}</span>
       <span className="text-sm text-on-surface-variant">{description}</span>

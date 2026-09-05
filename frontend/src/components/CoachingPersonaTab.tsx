@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { personasApi, userApi } from '../services/api';
-import { Card } from './ui';
+import { Section } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 
@@ -79,9 +79,7 @@ export default function CoachingPersonaTab() {
   };
 
   return (
-    <Card variant="dark">
-      <h2 className="text-lg font-semibold text-on-surface mb-2">{t('app.coachingStyleLower')}</h2>
-      <p className="text-sm text-on-surface-variant mb-6">{t('app.coachingStyleIntro')}</p>
+    <Section title={t('app.coachingStyleLower')} description={t('app.coachingStyleIntro')}>
 
       {isLoading && (
         <p className="text-sm text-on-surface-variant" data-testid="persona-loading">
@@ -170,6 +168,6 @@ export default function CoachingPersonaTab() {
           {message.text}
         </div>
       )}
-    </Card>
+    </Section>
   );
 }

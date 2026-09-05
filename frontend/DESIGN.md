@@ -211,15 +211,24 @@ unloaded screens still render correctly.
 
 ### Scale
 
-| Token | Size | Line height | Use |
-|---|---|---|---|
-| `text-xs` | 12px | 1.4 | Badges, timestamps |
-| `text-sm` | 14px | 1.45 | Body small, labels |
-| `text-base` | 16px | 1.5 | Body |
-| `text-lg` | 18px | 1.45 | Lead paragraphs |
-| `text-xl` | 20px | 1.3 | Subtitles |
-| `text-2xl` | 24px | 1.25 | Page headers |
-| `text-3xl` | 30px | 1.2 | Hero |
+| Token | Size / line | Use |
+|---|---|---|
+| `text-xs` | 12 / 16 | Captions, timestamps, section labels, counts — **the floor** |
+| `text-sm` | 13 / 18 | **Interface text**: nav, tabs, rows, tables, buttons, labels, helper lines. The body default. |
+| `text-base` | 15 / 23 | **Reading text**: messages, descriptions, anything read as a paragraph |
+| `text-lg` | 16 / 22 | Lead lines |
+| `text-xl` | 18 / 24 | Page and column titles (Schibsted 600) |
+| `text-2xl` | 22 / 28 | Hero numbers |
+| `text-3xl` | 26 / 30 | Auth and onboarding headlines |
+| `text-4xl` | 32 / 36 | The login aside line |
+
+**Boreal v2.1 (2026-09).** Interface text stepped from 14 to 13, titles from
+22 to 18, headlines from 30 to 26; reading text stayed at 15 (Phil, 2026-09-05
+— the measured chat products run 16 for prose and get their density from the
+chrome, not the body). Legibility at 13px comes from weight, not size:
+anything navigable is `font-medium`. Every step carries its own line-height,
+so a bare `text-sm` needs no `leading-*`. Numbers that get compared use
+`font-mono`, which sets `tabular-nums`.
 
 Mobile-first responsive variants: `text-h1-mobile`, `text-h2-mobile`,
 `text-h3-mobile`, `text-body-mobile`. Step up at `md:` for desktop.
@@ -280,6 +289,13 @@ a third channel — there is no glow in this system.
 | Danger | `.btn-danger` | Destructive — paired with confirmation pattern. |
 | Outline | `.btn-outline` | Inverse of primary for primary-tinted backgrounds. |
 | Size | `.btn-sm`, `.btn-lg` | Override default size. |
+
+Buttons are **32px** tall (`h-8`, 13px label), `.btn-sm` 28px, `.btn-lg` 44px
+— the auth call to action only. Icon buttons (`ui/IconButton`) are 32px
+square. On a coarse pointer, or any viewport under `lg`, the `touch-target`
+rule in `index.css` lifts every button back to 44px (§8). Filled `primary` is
+rare: auth, the one page action, the composer's send when there is text;
+the list's `+` and every row action are ink.
 
 Buttons are `rounded-lg` (8px). Pills (`rounded-full`) are reserved for inline
 action shortcuts within cards — see the Coach card "Chat" button.
@@ -352,10 +368,11 @@ raw-`<input>` rule is a ratchet rather than a hard zero.
 
 ### Page header
 
-Every athlete destination opens the same way (`ui/TabHeader`): the page's
-name in Schibsted Grotesk (`text-xl`, 600), one line under it in
-`on-surface-variant`, the page's own controls on the right (a search, a
-primary action, a filter), a hairline below. No icon square, no gradient.
+Every athlete destination opens the same way (`ui/TabHeader`): one **52px**
+row with the page's name in Schibsted Grotesk (`text-xl`, 18px, 600), an
+optional caption-size line beside it (a count, never a sentence that restates
+the title), the page's own controls on the right (a search, a primary action,
+a filter), a hairline below. No icon square, no gradient, no second line.
 Filters under it are **text tabs**: sentence-case words in a row with a 2px
 `primary` underline on the active one, a mono count beside a word when there
 is one, and a 44px minimum target. Pill chips are retired from athlete
@@ -382,11 +399,11 @@ then the thread with a back button in its header.
 |---|---|---|---|
 | Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px, one icon per destination (Chat, Discover, Notifications), gear + avatar at the bottom; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
 | Chat-tab header — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title, then the appearance toggle, the bell and the `+`. The other tabs keep their own titles. |
-| List column (360/400px) | `surface` | `surface` | Title + `+`, a quiet search field (`SearchField`), text tabs (All / Unread / Groups / Coaches) under a primary underline, then rows. A hairline on the right separates it from the thread. |
-| List row | hover `surface-container-low` at 60 %, selected `surface-container-low` | same tokens | 44px initials avatar, title + time on line 1, preview + unread pill on line 2, inset ghost-border divider. Unread pill = `bg-primary text-on-primary`. |
-| Thread header | `surface` | `surface` | Avatar, title (the way into the info drawer), one subtitle line, `+`; a hairline below. |
-| Thread canvas | `surface` | `surface` | Bubbles on it — the coach's on `surface-container-lowest` (light) / `surface-container-high` (dark) with a hairline, the athlete's on `primary-container` — and a day pill on `surface-container-low` between days. |
-| Composer bar | `surface` with field `surface-container-low` | same tokens | A hairline above the bar; the field is the one filled shape on the canvas, so it carries no border, and the send button sits inside it. |
+| List column (320/340px) | `surface` | `surface` | A 52px title row with the `+` as an ink icon button, a quiet 32px search field (`SearchField`), text tabs (All / Unread / Groups / Agents) under a primary underline, then rows. A hairline on the right separates it from the thread. |
+| List row (60px) | hover `surface-container-low` at 60 %, selected `surface-container-low` | same tokens | 36px initials avatar, title (13px, 600 when unread) + time on line 1, preview + unread pill on line 2, inset `ghost-border-faint` divider. Unread pill = `bg-primary text-on-primary`, 18px. |
+| Thread header (52px) | `surface` | `surface` | 28px avatar, title (the way into the info drawer) with the subtitle beside it on one line, `+`; a hairline below. |
+| Thread canvas | `surface` | `surface` | One 720px reading column. The agent's turn is **prose on the canvas** — a 24px avatar, the name and the time on one line, the words under them to 620px, no fill, no border; the athlete's is the one bubble, on `primary-container`, on the right. Day labels are plain 12px text between days. |
+| Composer | `surface` with a field on `surface-container-lowest` | same tokens | No bar and no hairline above it: the field is the one white shape on the paper — 40px, radius 12, a `ghost-border` hairline, the slash inside on the left and the send inside on the right, 720px wide like the column. No helper line under it; the placeholder says what `/` does. |
 
 **Mark only on web, mark plus name on the phone — because they are different
 shells.** The rail is a persistent 72px column that never leaves the screen, so
@@ -402,12 +419,13 @@ plate of its own.
 
 | Element | Class | Notes |
 |---|---|---|
-| Coach bubble | `.chat-bubble-ai` | Left side. Light: `surface-container-lowest` + ghost-border on the paper (the documented 1.08 near-pair, lifted by the hairline); dark: `surface-container-high` — a step **above** the dark canvas, where "lowest" would sink below it. `rounded-2xl` with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]`. |
-| Athlete bubble | `.chat-bubble-user` | Right side. `primary-container` / `on-primary-container` in both schemes — a filled `primary` reads as a CTA, not as a message. |
-| Time stamp | inside the bubble, `text-xs` | 24-hour clock in every locale, the same clock the list row shows. |
-| Author line | `text-xs font-semibold text-primary` | Coach's name, on the first bubble of a run only; the athlete's side carries no label (alignment says it). |
-| Actions row | under the bubble | Copy / share / rate / regenerate and model·latency show on hover, focus, or a coarse pointer — never as a permanent line under every reply. |
-| Typing dots | `.ai-typing-dot` | Three-step opacity breath, 1.4s loop, inside a coach bubble. |
+| Agent turn | `MessageBubble` (`side="assistant"`), no class | Left side, prose on the canvas: no fill, no border, no radius. A 24px initials avatar in the gutter on the first row of a run, the words to `max-w-[620px]`, reading text at 15px. One container per exchange — the athlete's — is what keeps the thread calm. |
+| Athlete bubble | `.chat-bubble-user` | Right side. `primary-container` / `on-primary-container` in both schemes — a filled `primary` reads as a CTA, not as a message. Radius 14 with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]`. |
+| Time stamp | `text-xs` | On the agent's author line for the first row of a run and in the hover row for later rows; inside the bubble for the athlete. 24-hour clock in every locale, the same clock the list row shows. |
+| Author line | `text-sm font-semibold text-on-surface` + `text-xs text-outline` time | Agent's name and the time, on the first row of a run only; the athlete's side carries no label (alignment says it). |
+| Actions row | under the content | Copy / share / rate / regenerate and model·latency show on hover, focus, or a coarse pointer — never as a permanent line under every reply. |
+| Typing dots | `.ai-typing-dot` | Three-step opacity breath, 1.4s loop, where the agent's words will be. |
+| Plan card | `WorkoutPlanCard` | The one hairline card in the thread: a data object inside the agent's turn, white on the paper, radius 10, mono dates, 13px. |
 | Verdict chip | `data-testid="verdict-chip"` | Always a button; the label is the localized count and the worst status word, and it opens every verdict of that reply. |
 
 Command replies (`finish_reason === "command"`) are coach bubbles too, with
@@ -445,7 +463,7 @@ pseudo-class so it never renders unless focused.
 Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
 (chips only). Cards are `xl` (12px). Buttons are `lg` (8px). Tags are `full`.
 
-Content max-width: 1280px main, 720px reading. Athlete shell: icon rail 72px + list column 360px (`lg`) / 400px (`xl`); operator shell: sidebar 260px, rail 72px when collapsed.
+Content max-width: 1280px main, 720px reading (the thread and its composer). Athlete shell: icon rail 72px + list column 320px (`lg`) / 340px (`xl`); operator shell: sidebar 260px, rail 72px when collapsed. Row heights: chat list 60, settings menu 48, notifications 48, tables 44; headers 52.
 
 The operator sidebar sits on `surface` behind a hairline, like the athlete
 rail: the lockup at 28px, 12px sentence-case section labels in `outline`,
@@ -478,7 +496,7 @@ All motion respects `prefers-reduced-motion: reduce`.
 | Body text contrast | ≥ 4.5:1 against bearing surface (WCAG AA) |
 | Large text / icons | ≥ 3:1 |
 | Focus visibility | Two-layer ring (see §5), never `outline: 0` without replacement |
-| Tap targets | ≥ 44×44px (mobile and product chrome) |
+| Targets | ≥ 44×44px on a coarse pointer and under the `lg` breakpoint (the `touch-target` rule); 32–36px with a fine pointer at desktop widths — WCAG 2.5.8's minimum is 24 |
 | Color encoding | Never the sole channel — pair with icon, label, or position |
 
 Pillar and feedback hues appear as an 8px dot beside a word or as an avatar
@@ -496,6 +514,30 @@ string, so it is identical in all five locales by construction.
 ---
 
 ## 9. History
+
+**Boreal v2.1 "Less" (2026-09).** Phil's read of v2 the day it landed: still
+cluttered — the large hairline boxes ate the free space and the type ran a
+size too big. The pass kept every v2 decision and took one step down in the
+chrome and one step out of the boxes; the measured references (arena.ai,
+Linear, Geist, Notion, ChatGPT, the fitness tools) and the six decisions are
+in the vault under `Design/Boreal v2.1 — Less`.
+
+| | Boreal v2 | Boreal v2.1 (this doc) |
+|---|---|---|
+| Interface text | 14 | **13**, weight 500 on anything navigable |
+| Reading text | 15 | 15 (Phil, 2026-09-05: the chrome shrinks, not the words) |
+| Titles / headlines | 22 / 30 | **18 / 26** |
+| Controls | 40 (44 auth) | **32** (44 auth); 44 everywhere on a coarse pointer or under `lg` |
+| Page header | 72px, title + subtitle | **52px**, one row |
+| Grouping | white hairline card | **`Section`**: title, line, rows, space |
+| Empty state | boxed icon + headline | **one sentence, one ink link** |
+| Chat list / rows | 400px, 68px rows, 44px avatars | **340px, 60px rows, 36px avatars** |
+| Agent turn | white hairline bubble | **prose on the canvas**, 24px avatar |
+| Composer | grey tint, helper line | **white field with a hairline**, no helper line |
+| Discover | 3-column card grid | **hairline list** |
+| Admin sidebar | 260px, 44px items | **232px, 32px items** |
+| Stat tiles | bordered, coloured numerals | **label over a mono number**, no box |
+| Dividers | one hairline | **two**: `ghost-border` at pane edges, `ghost-border-faint` inside lists |
 
 **Boreal v2 (2026-09).** The Product Tier had grown four visible greys, a
 primary that read as black, three header idioms, a gradient-decorated operator

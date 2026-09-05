@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: What the thread pane shows with no thread open — the brand mark, one invitation, the "+" and three quick ways in
+// ABOUTME: What the thread pane shows with no thread open — the mark, one invitation, and three ink links: the "+", commands, an agent, your data
 // ABOUTME: The discoverable path to the command palette, so "/" is never the only way to find it
 
 import type { ReactNode } from 'react';
@@ -22,13 +22,13 @@ interface ChatEmptyStateProps {
   onOpenCommands: () => void;
   /** Disables the quick actions while a conversation is being created. */
   disabled?: boolean;
-  /** Jump to another tab — the coach catalogue, the data providers. */
+  /** Jump to another tab — the agent catalogue, the data providers. */
   onNavigate?: (route: string) => void;
-  /** What the coach can see right now: the connected providers, or that there are none. */
+  /** What the agent can see right now: the connected providers, or that there are none. */
   providerStatus?: string | null;
 }
 
-/** One of the round quick actions under the invitation. */
+/** One of the ink links under the invitation. */
 function QuickAction({
   icon,
   label,
@@ -48,12 +48,10 @@ function QuickAction({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className="flex w-24 flex-col items-center gap-2 rounded-xl px-2 py-2 text-on-surface transition-colors hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
+      className="inline-flex items-center gap-1.5 rounded text-sm font-medium text-primary transition-colors hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-50 focus-ring touch-target"
     >
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-container-high text-primary">
-        {icon}
-      </span>
-      <span className="text-center text-xs leading-tight">{label}</span>
+      <span className="text-primary [&_svg]:h-4 [&_svg]:w-4">{icon}</span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -61,11 +59,13 @@ function QuickAction({
 /**
  * The empty thread pane.
  *
- * A centred card on the canvas: the mark, one line naming what to do, the
- * `+` that starts a conversation as the single call to action, and three
- * quick ways in below it — the command palette, the coach catalogue and the
- * data providers. The footer names what the coach can see, so an athlete with
- * nothing connected learns it here rather than after the first question.
+ * Boreal v2 put a white card here — the mark, a headline, a filled "+" —
+ * with three grey circles and two helper lines under it: more chrome than
+ * any thread. v2.1 leaves the canvas bare. A 420px column, left-aligned and
+ * vertically centred: the mark, one 18px line, one line of body, then the
+ * ways in as ink links in a row, and the provider line in the caption size
+ * with its action inline. The measured floor for this screen is a headline
+ * and a composer; nothing here is boxed or filled.
  */
 export default function ChatEmptyState({
   compose,
@@ -80,47 +80,46 @@ export default function ChatEmptyState({
       className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10"
       data-testid="chat-empty-state"
     >
-      <div className="flex w-full max-w-md flex-col items-center rounded-xl border ghost-border bg-surface-container-lowest px-8 py-10 text-center">
-        <DravrLogo size={64} />
-        <h2 className="mt-6 font-display text-xl font-semibold text-on-surface">
-          {t('chat.emptyStatePrompt')}
-        </h2>
-        <p className="mt-2 text-sm text-on-surface-variant">{t('chat.emptyStateBody')}</p>
-        <div className="mt-6 flex items-center justify-center">{compose}</div>
+      <div className="flex w-full max-w-[520px] flex-col items-start">
+        <DravrLogo size={44} />
+        <h2 className="mt-5 font-display text-xl font-semibold text-on-surface">{t('chat.emptyStatePrompt')}</h2>
+        <p className="mt-1 text-sm text-on-surface-variant">{t('chat.emptyStateBody')}</p>
+        <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex items-center">{compose}</div>
+          <QuickAction
+            icon={<Slash aria-hidden="true" />}
+            label={t('chat.commandsButton')}
+            onClick={onOpenCommands}
+            disabled={disabled}
+            testId="chat-empty-commands"
+          />
+          {onNavigate && (
+            <>
+              <QuickAction
+                icon={<Compass aria-hidden="true" />}
+                label={t('chat.quickDiscover')}
+                onClick={() => onNavigate('discover')}
+                testId="chat-empty-discover"
+              />
+              <QuickAction
+                icon={<Link2 aria-hidden="true" />}
+                label={t('chat.quickConnectProvider')}
+                onClick={() => onNavigate(CONNECTIONS_ROUTE)}
+                testId="chat-empty-connect"
+              />
+            </>
+          )}
+        </div>
+        {/* The two caption lines: what the agent can see, and the one grammar
+            lesson — `/` and `@` — that has no other home before the first
+            message. Both in the caption size, neither boxed. */}
+        {providerStatus ? (
+          <p className="mt-7 text-xs text-outline" data-testid="chat-empty-provider-status">
+            {providerStatus}
+          </p>
+        ) : null}
+        <p className={clsx('text-xs text-outline', providerStatus ? 'mt-1' : 'mt-7')}>{t(SLASH_HINT_KEY)}</p>
       </div>
-      <div className="mt-8 flex flex-wrap items-start justify-center gap-2">
-        <QuickAction
-          icon={<Slash className="h-5 w-5" aria-hidden="true" />}
-          label={t('chat.commandsButton')}
-          onClick={onOpenCommands}
-          disabled={disabled}
-          testId="chat-empty-commands"
-        />
-        {onNavigate && (
-          <>
-            <QuickAction
-              icon={<Compass className="h-5 w-5" aria-hidden="true" />}
-              label={t('chat.quickDiscover')}
-              onClick={() => onNavigate('discover')}
-              testId="chat-empty-discover"
-            />
-            <QuickAction
-              icon={<Link2 className="h-5 w-5" aria-hidden="true" />}
-              label={t('chat.quickConnectProvider')}
-              onClick={() => onNavigate(CONNECTIONS_ROUTE)}
-              testId="chat-empty-connect"
-            />
-          </>
-        )}
-      </div>
-      {providerStatus ? (
-        <p className="mt-6 text-xs text-on-surface-variant" data-testid="chat-empty-provider-status">
-          {providerStatus}
-        </p>
-      ) : null}
-      <p className={clsx('max-w-sm text-xs text-outline', providerStatus ? 'mt-1' : 'mt-6')}>
-        {t(SLASH_HINT_KEY)}
-      </p>
     </div>
   );
 }

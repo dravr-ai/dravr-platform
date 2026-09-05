@@ -197,7 +197,8 @@ export default function MessageList({
   }
 
   return (
-    <div className="flex flex-col">
+    // The thread's one reading column: 720px like the composer under it.
+    <div className="mx-auto flex w-full max-w-[720px] flex-col">
       {rows}
 
       {/* OAuth connection notification */}
@@ -223,7 +224,7 @@ export default function MessageList({
       {/* Streaming response */}
       {isStreaming && streamingContent && (
         <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
-          <div className="text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
+          <div className="text-on-surface text-base leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
             <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
               {linkifyUrls(streamingContent)}
             </Markdown>

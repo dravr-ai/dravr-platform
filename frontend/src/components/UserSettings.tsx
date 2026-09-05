@@ -20,7 +20,7 @@ import {
   LEGAL_URL,
   settingsPaneSections,
 } from '@pierre/shared-constants';
-import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast } from './ui';
+import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState } from './ui';
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
@@ -63,7 +63,7 @@ interface McpToken {
 // and have no developer-app registration step the user controls.
 const PROVIDERS = [
   // WHOOP's brand black — a third-party colour, not a token (DESIGN.md §2).
-  { id: 'whoop', name: 'WHOOP', color: 'bg-[#1A1A1A]' },
+  { id: 'whoop', name: 'WHOOP', color: 'text-on-surface' },
 ];
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -544,7 +544,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const PROVIDER_DISPLAY: Record<string, { color: string; description: string }> = {
     strava: { color: '#FC4C02', description: t('providerBlurb.strava') },
     garmin: { color: '#007CC3', description: t('providerBlurb.garmin') },
-    whoop: { color: '#000000', description: t('providerBlurb.whoop') },
+    whoop: { color: 'currentColor', description: t('providerBlurb.whoop') },
     synthetic: { color: '#9C27B0', description: t('providerBlurb.synthTest') },
     synthetic_sleep: { color: '#673AB7', description: t('providerBlurb.synthSleep') },
     sciotte: { color: '#F97316', description: t('providerBlurb.strava') },
@@ -587,7 +587,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={clsx(
-                'snap-start flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 min-h-[44px]',
+                'snap-start flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 touch-target',
                 activeTab === tab.id
                   ? 'border-primary text-on-surface'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface hover:ghost-border'
@@ -608,31 +608,33 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       )}
 
       {/* Settings Content */}
-      <div className="space-y-6">
+      <div className="space-y-10">
         {/* Profile Tab */}
         {activeTab === 'profile' && (
           <>
-            <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('profile.title')}</h2>
+            <Section title={t('profile.title')}>
               <div className="space-y-4">
-                {/* Gradient ring avatar — stacks on mobile so the email
-                    field (frequently long) doesn't get squeezed. */}
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4 pb-4 border-b ghost-border">
-                  <div className="relative flex-shrink-0 self-start sm:self-auto">
-                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full p-[3px] bg-gradient-to-br boreal-hero-gradient">
-                      <div className="w-full h-full bg-surface-container-low rounded-full flex items-center justify-center">
-                        <span className="text-3xl font-bold text-on-surface">
-                          {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                {/* The identity row: a 40px initials avatar on the tint, the
+                    name, the email, and the account status as a dot and a word. */}
+                <div className="flex items-center gap-3 pb-4 border-b ghost-border-faint">
+                  <span
+                    aria-hidden="true"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-container font-display text-sm font-semibold text-on-primary-container"
+                  >
+                    {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
+                  </span>
                   <div className="min-w-0">
-                    <p className="text-xl font-semibold text-on-surface break-words">{user?.display_name || t('app.noNameSet')}</p>
-                    <p className="text-sm text-on-surface-variant break-all">{user?.email}</p>
-                    <Badge variant={user?.user_status === 'active' ? 'success' : 'warning'} className="mt-1">
-                      {user?.user_status?.charAt(0).toUpperCase()}{user?.user_status?.slice(1)}
-                    </Badge>
+                    <p className="text-sm font-semibold text-on-surface break-words">{user?.display_name || t('app.noNameSet')}</p>
+                    <p className="flex flex-wrap items-center gap-x-2 text-xs text-on-surface-variant">
+                      <span className="break-all">{user?.email}</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          aria-hidden="true"
+                          className={clsx('h-1.5 w-1.5 rounded-full', user?.user_status === 'active' ? 'bg-success' : 'bg-warning')}
+                        />
+                        {user?.user_status?.charAt(0).toUpperCase()}{user?.user_status?.slice(1)}
+                      </span>
+                    </p>
                   </div>
                 </div>
 
@@ -673,12 +675,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   {t('settings.saveChanges')}
                 </Button>
               </div>
-            </Card>
+            </Section>
 
             {/* Appearance — the theme control's only reachable home once a
                 user is signed in; the Login screen's toggle is gone by then. */}
-            <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('settings.appearance')}</h2>
+            <Section title={t('settings.appearance')}>
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="font-medium text-on-surface">{t('settings.theme')}</p>
@@ -690,7 +691,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   type="button"
                   onClick={handleThemeToggle}
                   aria-label={scheme === 'dark' ? t('settings.themeSwitchToLight') : t('settings.themeSwitchToDark')}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-on-surface bg-surface-container-low border ghost-border hover:bg-surface-container transition-colors min-h-[44px]"
+                  className="btn-base btn-outline gap-2"
                 >
                   {scheme === 'dark' ? (
                     <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden="true">
@@ -711,32 +712,25 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               {/* Language — the switcher's only reachable home. It sets the
                   chrome language AND `users.locale`, so the coach answers in
                   the language the athlete reads the app in. */}
-              <div className="mt-6 pt-6 border-t ghost-border flex items-start justify-between gap-4">
+              <div className="mt-5 pt-5 border-t ghost-border-faint flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="font-medium text-on-surface">{t('settings.language')}</p>
                   <p className="text-sm text-on-surface-variant">{t('settings.languageDescription')}</p>
                 </div>
                 <LanguageSwitcher serverLocale={user?.locale} />
               </div>
-            </Card>
+            </Section>
 
-            {/* Quick Stats with gradient accent */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="stat-card-dark rounded-xl border ghost-border p-6">
-                <div className="text-center">
-                  <div className="text-3xl font-bold bg-gradient-to-r boreal-hero-gradient bg-clip-text text-transparent">
-                    {statsLoading ? '...' : (stats?.connected_providers ?? 0)}
-                  </div>
-                  <div className="text-sm text-on-surface-variant mt-1">{t('providers.connectedTitle')}</div>
-                </div>
+            {/* Two numbers, label over value, set apart by space — not two
+                boxes with gradient text. */}
+            <div className="flex gap-10">
+              <div>
+                <p className="text-xs text-outline">{t('providers.connectedTitle')}</p>
+                <p className="mt-0.5 font-mono text-lg text-on-surface">{statsLoading ? '...' : (stats?.connected_providers ?? 0)}</p>
               </div>
-              <div className="stat-card-dark rounded-xl border ghost-border p-6">
-                <div className="text-center">
-                  <div className="text-3xl font-bold bg-gradient-to-r from-nutrition to-activity bg-clip-text text-transparent">
-                    {statsLoading ? '...' : (stats?.days_active ?? 0)}
-                  </div>
-                  <div className="text-sm text-on-surface-variant mt-1">{t('profile.daysActive')}</div>
-                </div>
+              <div>
+                <p className="text-xs text-outline">{t('profile.daysActive')}</p>
+                <p className="mt-0.5 font-mono text-lg text-on-surface">{statsLoading ? '...' : (stats?.days_active ?? 0)}</p>
               </div>
             </div>
           </>
@@ -746,11 +740,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
         {activeTab === 'connections' && (
           <>
             {/* Fitness Providers - Connection Status */}
-            <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-1">{t('providers.fitnessTitle')}</h2>
-              <p className="text-sm text-on-surface-variant mb-4">
-                {t('providers.fitnessHint')}
-              </p>
+            <Section title={t('providers.fitnessTitle')} description={t('providers.fitnessHint')}>
 
               {providerMessage && (
                 <div
@@ -770,11 +760,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <div className="pierre-spinner w-6 h-6"></div>
                 </div>
               ) : fitnessProviders.length === 0 ? (
-                <div className="text-center py-8 text-on-surface-variant">
-                  <p>{t('providers.none')}</p>
-                </div>
+                <EmptyState>{t('providers.none')}</EmptyState>
               ) : (
-                <div className="divide-y divide-outline-variant/40">
+                <div>
                   {fitnessProviders.map((provider) => {
                     const display = PROVIDER_DISPLAY[provider.provider] || {
                       color: '#607D8B',
@@ -785,17 +773,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     return (
                       <div
                         key={provider.provider}
-                        className="py-4 first:pt-0 last:pb-0"
+                        className="border-t ghost-border-faint py-3 first:border-t-0 first:pt-0 last:pb-0"
                       >
                         <div className="flex items-center gap-3">
-                          <div
-                            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ backgroundColor: display.color }}
+                          {/* The provider's colour lives in its letter, not in a tile. */}
+                          <span
+                            aria-hidden="true"
+                            className="flex h-6 w-6 flex-shrink-0 items-center justify-center font-display text-sm font-bold"
+                            style={{ color: display.color }}
                           >
-                            <span className="text-on-surface font-bold text-sm">
-                              {provider.display_name.charAt(0)}
-                            </span>
-                          </div>
+                            {provider.display_name.charAt(0)}
+                          </span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-on-surface">{provider.display_name}</p>
@@ -813,7 +801,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 )
                               )}
                             </div>
-                            <p className="text-sm text-on-surface-variant truncate">{display.description}</p>
+                            <p className="text-xs text-on-surface-variant truncate">{display.description}</p>
                             {provider.capabilities.length > 0 && (
                               <p className="text-xs text-outline mt-0.5">
                                 {provider.capabilities
@@ -901,28 +889,21 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               )}
 
               {/* Privacy note */}
-              <div className="mt-4 p-3 bg-surface-container-low border ghost-border rounded-lg">
-                <p className="text-xs text-on-surface-variant">
-                  {t('providers.privacyNote')}
-                </p>
-              </div>
-            </Card>
+              <p className="mt-4 text-xs text-outline">{t('providers.privacyNote')}</p>
+            </Section>
 
             {/* OAuth App Credentials (Advanced) */}
-            <Card variant="dark">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-on-surface">{t('credentials.title')}</h2>
-                <p className="text-sm text-on-surface-variant mt-1">
-                  {t('credentials.useOwnHint')}
-                </p>
-              </div>
-              {availableProviders.length > 0 && (
-                <Button variant="secondary" size="sm" onClick={() => setShowAddCredentials(true)}>
-                  {t('providers.add')}
-                </Button>
-              )}
-            </div>
+            <Section
+              title={t('credentials.title')}
+              description={t('credentials.useOwnHint')}
+              actions={
+                availableProviders.length > 0 ? (
+                  <Button variant="tertiary" size="sm" onClick={() => setShowAddCredentials(true)}>
+                    {t('providers.add')}
+                  </Button>
+                ) : null
+              }
+            >
 
             {credentialMessage && (
               <div
@@ -941,35 +922,19 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 <div className="pierre-spinner w-6 h-6"></div>
               </div>
             ) : oauthApps.length === 0 ? (
-              <div className="text-center py-8 bg-surface-container-low rounded-xl border ghost-border">
-                <svg
-                  className="w-12 h-12 text-on-surface-variant mx-auto mb-3"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
-                  />
-                </svg>
-                <p className="text-on-surface font-medium">{t('credentials.empty')}</p>
-                <p className="text-sm text-outline mt-1">
-                  {t('credentials.addHint')}
-                </p>
-              </div>
+              <EmptyState>
+                <span>{t('credentials.empty')}</span> <span>{t('credentials.addHint')}</span>
+              </EmptyState>
             ) : (
-              <div className="space-y-3">
+              <div>
                 {oauthApps.map((app) => {
                   const provider = getProviderInfo(app.provider);
                   return (
-                    <div key={app.provider} className="flex items-center justify-between p-4 bg-surface-container-low rounded-xl border ghost-border">
+                    <div key={app.provider} className="flex items-center justify-between border-t ghost-border-faint py-3 first:border-t-0">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 ${provider.color} rounded-lg flex items-center justify-center`}>
-                          <span className="text-on-surface font-bold text-sm">{provider.name.charAt(0)}</span>
-                        </div>
+                        <span aria-hidden="true" className={`flex h-6 w-6 items-center justify-center font-display text-sm font-bold ${provider.color}`}>
+                          {provider.name.charAt(0)}
+                        </span>
                         <div>
                           <p className="font-medium text-on-surface">{provider.name}</p>
                           <p className="text-xs text-outline">{t('frag.clientIdLabel')} {app.client_id.substring(0, 8)}...</p>
@@ -1075,7 +1040,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 )}
               </div>
             </Modal>
-          </Card>
+          </Section>
           </>
         )}
 
@@ -1113,15 +1078,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               </div>
             )}
 
-            <Card variant="dark">
-              <div className="flex justify-between items-center mb-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-on-surface">{t('tokens.title')}</h2>
-                  <p className="text-sm text-on-surface-variant mt-1">
-                    {t('tokens.activeCount', { count: activeTokens.length })}
-                  </p>
-                </div>
-              </div>
+            <Section title={t('tokens.title')} description={t('tokens.activeCount', { count: activeTokens.length })}>
 
               {/* Create Token Section */}
               <div className="mb-6">
@@ -1175,21 +1132,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <div className="pierre-spinner w-8 h-8"></div>
                 </div>
               ) : tokens.length === 0 ? (
-                <div className="text-center py-8 text-on-surface-variant">
-                  <svg className="w-12 h-12 text-on-surface-variant mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                  </svg>
-                  <p className="text-lg mb-2 text-on-surface">{t('tokens.empty')}</p>
-                  <p>{t('tokens.createHint')}</p>
-                </div>
+                <EmptyState>
+                  <span>{t('tokens.empty')}</span> <span>{t('tokens.createHint')}</span>
+                </EmptyState>
               ) : (
-                <div className="space-y-4">
+                <div>
                   {tokens.map((token) => (
-                    <div key={token.id} className="p-4 bg-surface-container-low border ghost-border rounded-lg">
+                    <div key={token.id} className="border-t ghost-border-faint py-4 first:border-t-0">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-lg font-medium text-on-surface">{token.name}</h3>
+                            <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">{token.name}</h3>
                             <Badge variant={token.is_revoked ? 'info' : 'success'}>
                               {token.is_revoked ? t('settingsUi.revoked') : t('tokens.statusActive')}
                             </Badge>
@@ -1299,18 +1252,10 @@ Authorization: Bearer <your-token-here>`}
                   </div>
                 )}
               </div>
-            </Card>
+            </Section>
 
             {/* Connected Apps Section */}
-            <Card variant="dark">
-              <div className="flex justify-between items-center mb-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-on-surface">{t('tokens.connectedApps')}</h2>
-                  <p className="text-sm text-on-surface-variant mt-1">
-                    {t('providers.thirdPartyHint')}
-                  </p>
-                </div>
-              </div>
+            <Section title={t('tokens.connectedApps')} description={t('providers.thirdPartyHint')}>
               {showCreateA2AClient ? (
                 <CreateA2AClient
                   onSuccess={() => setShowCreateA2AClient(false)}
@@ -1319,7 +1264,7 @@ Authorization: Bearer <your-token-here>`}
               ) : (
                 <A2AClientList onCreateClient={() => setShowCreateA2AClient(true)} />
               )}
-            </Card>
+            </Section>
           </>
         )}
 
@@ -1336,9 +1281,8 @@ Authorization: Bearer <your-token-here>`}
         {/* About Tab — rows in the order the shared pane declaration holds
             them, so the phone's About screen lists the same four things. */}
         {activeTab === 'about' && (
-          <Card variant="dark">
-            <h2 className="text-lg font-semibold text-on-surface mb-6">{t('about.title')}</h2>
-            <div className="space-y-3">
+          <Section title={t('about.title')}>
+            <div>
               {settingsPaneSections('about').map((section) => {
                 switch (section) {
                   case 'version':
@@ -1346,16 +1290,11 @@ Authorization: Bearer <your-token-here>`}
                       <div
                         key={section}
                         data-testid="about-section-version"
-                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border"
+                        className="flex items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                       >
-                        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
-                          <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
                         <div className="flex-1">
-                          <p className="text-sm text-on-surface-variant">{t('settingsUi.version')}</p>
-                          <p className="text-on-surface font-medium">{APP_VERSION}</p>
+                          <p className="text-xs text-on-surface-variant">{t('settingsUi.version')}</p>
+                          <p className="text-sm text-on-surface font-medium">{APP_VERSION}</p>
                         </div>
                       </div>
                     );
@@ -1364,15 +1303,10 @@ Authorization: Bearer <your-token-here>`}
                       <div
                         key={section}
                         data-testid="about-section-coach-model"
-                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border"
+                        className="flex items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                       >
-                        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
-                          <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                          </svg>
-                        </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-on-surface-variant">{t('about.coachModel')}</p>
+                          <p className="text-xs text-on-surface-variant">{t('about.coachModel')}</p>
                           <p className="text-on-surface font-medium break-words" data-testid="about-coach-model-value">
                             {coachModelLabel ?? t('about.coachModelUnknown')}
                           </p>
@@ -1387,16 +1321,11 @@ Authorization: Bearer <your-token-here>`}
                         href={HELP_URL}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
+                        className="group flex items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0 transition-colors hover:text-primary"
                       >
-                        <div className="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center flex-shrink-0">
-                          <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-                          </svg>
-                        </div>
                         <div className="flex-1">
                           <p className="text-on-surface font-medium">{t('about.helpCenter')}</p>
-                          <p className="text-sm text-on-surface-variant">{t('about.helpHint')}</p>
+                          <p className="text-xs text-on-surface-variant">{t('about.helpHint')}</p>
                         </div>
                         <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1411,16 +1340,11 @@ Authorization: Bearer <your-token-here>`}
                         href={LEGAL_URL}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
+                        className="group flex items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0 transition-colors hover:text-primary"
                       >
-                        <div className="w-10 h-10 rounded-xl bg-activity/15 flex items-center justify-center flex-shrink-0">
-                          <svg className="w-5 h-5 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                        </div>
                         <div className="flex-1">
                           <p className="text-on-surface font-medium">{t('about.legalDocuments')}</p>
-                          <p className="text-sm text-on-surface-variant">{t('about.legalHint')}</p>
+                          <p className="text-xs text-on-surface-variant">{t('about.legalHint')}</p>
                         </div>
                         <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1432,7 +1356,7 @@ Authorization: Bearer <your-token-here>`}
                 }
               })}
             </div>
-          </Card>
+          </Section>
         )}
 
         {/* Account Tab — the cards in the order the shared pane declaration
@@ -1445,18 +1369,15 @@ Authorization: Bearer <your-token-here>`}
                 case 'account-status':
                   return (
                       <div key={section} data-testid="account-section-account-status">
-                        <Card variant="dark">
-                        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('profile.accountStatus')}</h2>
+                        <Section title={t('profile.accountStatus')}>
                         <div className="space-y-3">
                           <div className="flex justify-between items-center py-2 border-b ghost-border">
                             <span className="text-on-surface-variant">{t('settingsUi.status')}</span>
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                user?.user_status === 'active'
-                                  ? 'bg-success/20 text-on-success-container'
-                                  : 'bg-warning/20 text-on-warning-container'
-                              }`}
-                            >
+                            <span className="inline-flex items-center gap-1.5 text-sm text-on-surface">
+                              <span
+                                aria-hidden="true"
+                                className={`h-1.5 w-1.5 rounded-full ${user?.user_status === 'active' ? 'bg-success' : 'bg-warning'}`}
+                              />
                               {user?.user_status?.charAt(0).toUpperCase()}
                               {user?.user_status?.slice(1)}
                             </span>
@@ -1474,25 +1395,14 @@ Authorization: Bearer <your-token-here>`}
                             </span>
                           </div>
                         </div>
-                        </Card>
+                        </Section>
                       </div>
                   );
                 case 'usage':
                   // Usage quotas are user-facing; an operator has none of their own.
                   return isAdminUser ? null : (
                       <div key={section} data-testid="account-section-usage">
-                        <Card variant="dark">
-                        <div className="flex items-start gap-4 mb-5">
-                          <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
-                            <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                            </svg>
-                          </div>
-                          <div>
-                            <h2 className="text-lg font-semibold text-on-surface">{t('settingsUi.usage')}</h2>
-                            <p className="text-sm text-on-surface-variant">{t('account.quotaHint')}</p>
-                          </div>
-                        </div>
+                        <Section title={t('settingsUi.usage')} description={t('account.quotaHint')}>
 
                         {usageLoading ? (
                           <div className="flex justify-center py-6">
@@ -1544,13 +1454,13 @@ Authorization: Bearer <your-token-here>`}
                             {!isAdminUser && (
                             <div className="border-t ghost-border pt-4">
                               <div className="grid grid-cols-2 gap-4">
-                                <div className="p-3 bg-surface-container-low rounded-lg">
+                                <div>
                                   <p className="text-xs text-outline mb-1">{t('settingsUi.coaches')}</p>
                                   <p className="text-sm font-medium text-on-surface">
                                     {usageData.resources.coaches} / {usageData.resources.max_coaches}
                                   </p>
                                 </div>
-                                <div className="p-3 bg-surface-container-low rounded-lg">
+                                <div>
                                   <p className="text-xs text-outline mb-1">{t('settingsUi.conversations')}</p>
                                   <p className="text-sm font-medium text-on-surface">
                                     {usageData.resources.conversations} / {usageData.resources.max_conversations}
@@ -1561,16 +1471,15 @@ Authorization: Bearer <your-token-here>`}
                             )}
                           </div>
                         )}
-                        </Card>
+                        </Section>
                       </div>
                   );
                 case 'security':
                   return (
                       <div key={section} data-testid="account-section-security">
-                        <Card variant="dark">
-                        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('settingsUi.security')}</h2>
+                        <Section title={t('settingsUi.security')}>
                         <div className="space-y-4">
-                          <div className="p-4 bg-surface-container-low border ghost-border rounded-lg">
+                          <div>
                             <h3 className="font-medium text-on-surface mb-2">{t('settingsUi.password')}</h3>
                             <p className="text-sm text-on-surface-variant mb-3">{t('password.changeHint')}</p>
                             <Button variant="outline" size="sm" onClick={() => setShowChangePassword(true)}>
@@ -1578,7 +1487,7 @@ Authorization: Bearer <your-token-here>`}
                             </Button>
                           </div>
                         </div>
-                        </Card>
+                        </Section>
                       </div>
                   );
                 case 'connected-mcp-apps':
@@ -1587,13 +1496,7 @@ Authorization: Bearer <your-token-here>`}
                   // the API Tokens pane, which lists self-registered agent clients.
                   return (
                       <div key={section} data-testid="account-section-connected-mcp-apps">
-                        <Card variant="dark">
-                        <div className="mb-4">
-                          <h2 className="text-lg font-semibold text-on-surface">{t('tokens.connectedMcpApps')}</h2>
-                          <p className="text-sm text-on-surface-variant mt-1">
-                            {t('tokens.connectedAppsHint')}
-                          </p>
-                        </div>
+                        <Section title={t('tokens.connectedMcpApps')} description={t('tokens.connectedAppsHint')}>
 
                         {isLoadingConnectedApps ? (
                           <div className="flex justify-center py-8">
@@ -1606,11 +1509,11 @@ Authorization: Bearer <your-token-here>`}
                               : t('settingsErr.loadAppsFailed')}
                           </div>
                         ) : connectedApps && connectedApps.length > 0 ? (
-                          <div className="space-y-3">
+                          <div>
                             {connectedApps.map((app) => (
                               <div
                                 key={app.id}
-                                className="flex items-start justify-between gap-3 p-4 bg-surface-container-low border ghost-border rounded-lg"
+                                className="flex items-start justify-between gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                               >
                                 <div className="min-w-0">
                                   <p className="font-medium text-on-surface break-all">{app.client_id}</p>
@@ -1632,20 +1535,17 @@ Authorization: Bearer <your-token-here>`}
                             ))}
                           </div>
                         ) : (
-                          <div className="text-center py-8 text-on-surface-variant">
-                            <p>{t('tokens.connectedAppsEmpty')}</p>
-                          </div>
+                          <EmptyState>{t('tokens.connectedAppsEmpty')}</EmptyState>
                         )}
-                        </Card>
+                        </Section>
                       </div>
                   );
                 case 'sign-out':
                   return (
                       <div key={section} data-testid="account-section-sign-out">
-                        <Card variant="dark" className="border-error/30">
-                        <h2 className="text-lg font-semibold text-error mb-4">{t('account.dangerZone')}</h2>
+                        <Section title={t('account.dangerZone')}>
                         <div className="space-y-4">
-                          <div className="p-4 bg-error/10 border border-error/20 rounded-lg">
+                          <div>
                             <h3 className="font-medium text-on-surface mb-2">{t('account.signOut')}</h3>
                             <p className="text-sm text-on-surface-variant mb-3">{t('account.signOutHint')}</p>
                             <Button variant="secondary" size="sm" onClick={logout}>
@@ -1653,7 +1553,7 @@ Authorization: Bearer <your-token-here>`}
                             </Button>
                           </div>
                         </div>
-                        </Card>
+                        </Section>
                       </div>
                   );
                 default:

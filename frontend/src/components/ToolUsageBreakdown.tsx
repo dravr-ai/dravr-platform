@@ -254,26 +254,26 @@ export default function ToolUsageBreakdownComponent({
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {toolUsage.length}
           </div>
           <div className="text-sm text-on-surface-variant">Tools Used</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {toolUsage.reduce((sum, tool) => sum + tool.request_count, 0).toLocaleString()}
           </div>
           <div className="text-sm text-on-surface-variant">Total Requests</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-activity">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {(toolUsage.reduce((sum, tool) => sum + tool.success_rate * tool.request_count, 0) /
              toolUsage.reduce((sum, tool) => sum + tool.request_count, 0)).toFixed(1)}%
           </div>
           <div className="text-sm text-on-surface-variant">Overall Success Rate</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-on-surface">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {(toolUsage.reduce((sum, tool) => sum + tool.average_response_time * tool.request_count, 0) /
              toolUsage.reduce((sum, tool) => sum + tool.request_count, 0)).toFixed(0)}ms
           </div>

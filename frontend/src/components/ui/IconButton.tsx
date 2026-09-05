@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: 44x44 minimum hit-area button for icon-only controls.
-// ABOUTME: Visual glyph is rendered inside; the tap target stays accessible.
+// ABOUTME: Icon-only button — 32px square on a fine pointer, 44px on phones and coarse pointers (touch-target).
+// ABOUTME: Visual glyph is rendered inside; the tap target follows the pointer, per DESIGN.md §8.
 
 import React from 'react';
 import { clsx } from 'clsx';
@@ -18,9 +18,9 @@ interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
 }
 
 const SIZE_CLASSES: Record<IconButtonSize, string> = {
-  sm: 'min-w-[44px] min-h-[44px] p-2',
-  md: 'min-w-[44px] min-h-[44px] p-2.5',
-  lg: 'min-w-[48px] min-h-[48px] p-3',
+  sm: 'h-7 w-7 touch-target',
+  md: 'h-8 w-8 touch-target',
+  lg: 'h-10 w-10 touch-target',
 };
 
 const VARIANT_CLASSES: Record<IconButtonVariant, string> = {

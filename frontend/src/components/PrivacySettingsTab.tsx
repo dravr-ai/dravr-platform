@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { userApi } from '../services/api';
-import { Card } from './ui';
+import { Section } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 
@@ -43,19 +43,13 @@ export default function PrivacySettingsTab() {
   };
 
   return (
-    <Card variant="dark">
-      <h2 className="text-lg font-semibold text-on-surface mb-6">{t('app.privacyAndData')}</h2>
+    <Section title={t('app.privacyAndData')}>
 
       <div className="space-y-6">
         {/* Analytics Consent Toggle */}
-        <div className="flex items-start justify-between gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
+        <div className="flex items-start justify-between gap-4 border-b ghost-border-faint pb-5">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
               <h3 className="text-sm font-medium text-on-surface">{t('app.usageAnalytics')}</h3>
             </div>
             <p className="text-sm text-on-surface-variant leading-relaxed">
@@ -83,7 +77,7 @@ export default function PrivacySettingsTab() {
         </div>
 
         {/* What We Track */}
-        <div className="p-4 bg-surface-container-low rounded-xl border ghost-border">
+        <div className="">
           <h3 className="text-sm font-medium text-on-surface mb-3">{t('app.whatWeCollect')}</h3>
           <ul className="space-y-2 text-sm text-on-surface-variant">
             <li className="flex items-start gap-2">
@@ -142,6 +136,6 @@ export default function PrivacySettingsTab() {
           </div>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }

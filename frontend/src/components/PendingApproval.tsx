@@ -92,7 +92,7 @@ export default function PendingApproval() {
 
             {needsEmailConfirmation && (
               <div className="mt-6 flex flex-col items-center gap-2">
-                <Button
+                <Button size="lg"
                   variant="primary"
                   onClick={() => void handleResend()}
                   disabled={resendState === 'sending'}
@@ -188,7 +188,7 @@ export default function PendingApproval() {
 
             {/* Sign out button */}
             <div className="mt-8">
-              <Button
+              <Button size="lg"
                 variant="secondary"
                 onClick={logout}
                 className="w-full"

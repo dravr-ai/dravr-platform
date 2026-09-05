@@ -108,9 +108,14 @@
 
   /* Ghost border — visible enough to anchor cards on the light canvas
      without becoming a hard rule. 0.40 is the product-tier baseline; the
-     0.15 marketing-tier value left cards floating without anchor. */
+     0.15 marketing-tier value left cards floating without anchor.
+     Two strengths, so a visible line is a decision: `--ghost-border` for
+     pane edges, fields and the composer; `--ghost-border-faint` for the
+     dividers INSIDE a list or table, where a 0.40 rule between every row
+     reads as a stack of boxes (DESIGN.md §4). */
   --ghost-border: rgba(155, 165, 159, 0.40);
   --ghost-border-strong: rgba(155, 165, 159, 0.55);
+  --ghost-border-faint: rgba(155, 165, 159, 0.26);
 
   /* The only shadow in the system. A resting card is lifted by its hairline;
      shadow is reserved for what floats over the page — menus, popovers,
@@ -172,6 +177,7 @@ html.dark {
      needs more opacity to read at all against it. */
   --ghost-border: rgba(192, 200, 195, 0.22);
   --ghost-border-strong: rgba(192, 200, 195, 0.34);
+  --ghost-border-faint: rgba(192, 200, 195, 0.14);
   --shadow-floating: 0 12px 24px -6px rgba(0, 0, 0, 0.55), 0 6px 12px -3px rgba(0, 0, 0, 0.45);
 }
 
@@ -189,8 +195,11 @@ html.dark {
     color-scheme: dark;
   }
 
+  /* Interface text is 13px (DESIGN.md §3): anything without a size of its
+     own — a table cell, a nav label, a helper line — inherits it. Reading
+     text opts up to `text-base` (15px) where it is set. */
   body {
-    @apply bg-surface text-on-surface;
+    @apply bg-surface text-on-surface text-sm;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -222,8 +231,12 @@ html.dark {
      Tertiary: text only, sentence case. Danger: error surface.
      ========================================================================== */
 
+  /* 32px is the control height (DESIGN.md §5): height, not padding, sets it,
+     so a button never grows with its line-height. `.btn-lg` is the 44px
+     auth call to action; phones and coarse pointers lift every button back
+     to 44 through the touch-target rule at the end of this file. */
   .btn-base {
-    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium text-sm transition-all duration-base cursor-pointer border-0;
+    @apply inline-flex items-center justify-center h-8 px-3 rounded-lg font-medium text-sm transition-all duration-base cursor-pointer border-0;
   }
 
   /* The `!` on text-on-primary is load-bearing — it stops any
@@ -293,11 +306,11 @@ html.dark {
   }
 
   .btn-sm {
-    @apply px-4 py-2.5 text-xs;
+    @apply h-7 px-2.5 text-xs;
   }
 
   .btn-lg {
-    @apply px-8 py-4 text-base;
+    @apply h-11 px-5 text-base;
   }
 
   /* ==========================================================================
@@ -315,17 +328,35 @@ html.dark {
     border-bottom: 1px solid var(--ghost-border);
   }
 
+  /* A stat is a number over its label, set apart from the next by space —
+     not a bordered tile (DESIGN.md §5, Boreal v2.1). The class survives for
+     its consumers; it no longer draws a box. */
   .stat-card {
-    @apply bg-surface-container-lowest rounded-xl p-4 md:p-6 text-center;
-    border: 1px solid var(--ghost-border);
+    @apply text-left;
   }
 
-  /* Legacy `card-dark` — the Pierre dark glassmorphism panel has been
-     retired. In Boreal we treat it as a standard editorial card so
-     existing consumers (variant="dark" on UserManagement, Dashboard, etc.)
-     render as expected light surfaces with tonal layering. */
-  .card-dark {
-    @apply card;
+  /* Legacy `card-dark` — the Pierre dark glassmorphism panel, then a Boreal
+     card. In v2.1 it is a section: a group's heading and its content on the
+     page, with the forty pixels of paper the parent's spacing provides, no
+     box. Its heading takes the section title's face and size so the operator
+     shell reads the same as the athlete's settings without editing every
+     consumer; the ratchet in the validation script counts the consumers down. */
+  .card-dark,
+  .card-admin {
+    @apply min-w-0;
+  }
+
+  .card-dark > h2,
+  .card-dark > h3,
+  .card-admin > h2,
+  .card-admin > h3,
+  .card-admin > div:first-child > h2,
+  .card-admin > div:first-child > h3 {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    font-weight: 600;
+    letter-spacing: normal;
   }
 
   /* Featured callout — the same card; nothing in this system glows. */
@@ -604,29 +635,17 @@ html.dark {
   }
 
   /* ==========================================================================
-     Chat bubbles — DESIGN.md §5. The one bubble source for the messenger
-     thread: a coach speaks from the left on a card that lifts off the canvas,
-     the athlete from the right in the brand tone. The tail corner is the
-     4px one (mobile's convention); the width bound keeps a long reply from
-     spanning the pane like a document.
+     The athlete's bubble — DESIGN.md §5. The one bubble in the thread: the
+     athlete speaks from the right on the sage tint; the agent speaks as prose
+     on the canvas (MessageBubble draws that side with utilities, no class).
+     The tail corner is the 4px one (mobile's convention); the width bound
+     keeps a long message from spanning the pane like a document.
      ========================================================================== */
-
-  .chat-bubble-ai {
-    @apply rounded-2xl rounded-bl-md px-4 py-2.5 max-w-[85%] lg:max-w-[65%] text-on-surface;
-    background: rgb(var(--color-surface-container-lowest));
-    border: 1px solid var(--ghost-border);
-  }
-
-  /* The dark canvas is surface-container-low; the coach's card sits a step
-     above it, where a "lowest" tone would sink below the page instead. */
-  html.dark .chat-bubble-ai {
-    background: rgb(var(--color-surface-container-high));
-  }
 
   /* The athlete's words sit on the sage tint in both schemes: a filled
      `primary` reads as a call to action, not as a message. */
   .chat-bubble-user {
-    @apply rounded-2xl rounded-br-md px-4 py-2.5 max-w-[85%] lg:max-w-[65%] ml-auto;
+    @apply rounded-[14px] rounded-br-[4px] px-3 py-2 max-w-[85%] lg:max-w-[65%] ml-auto;
     background: rgb(var(--color-primary-container));
     color: rgb(var(--color-on-primary-container));
   }
@@ -736,10 +755,6 @@ html.dark {
      light. Form fields are NOT here: they come from the ui/ primitives, which
      own the editorial underline of DESIGN.md §5.
      ========================================================================== */
-
-  .card-admin {
-    @apply card;
-  }
 
   .stat-card-dark {
     @apply stat-card;
@@ -890,6 +905,29 @@ html.dark {
 
   .ghost-border-strong {
     border-color: var(--ghost-border-strong);
+  }
+
+  /* The divider inside a list or table. Pane edges keep `.ghost-border`. */
+  .ghost-border-faint {
+    border-color: var(--ghost-border-faint);
+  }
+
+  /* Numbers that get compared — TSS, CTL, dates in a column — line up only
+     when every digit is the same width (DESIGN.md §3). */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Targets follow the pointer (DESIGN.md §8). A fine pointer gets the
+     32–36px controls the scale defines; a coarse pointer, and any viewport
+     under the `lg` breakpoint where the single-column phone shell shows,
+     lifts every button and `.touch-target` back to 44px. */
+  @media (pointer: coarse), (max-width: 1023px) {
+    .touch-target,
+    .btn-base {
+      min-height: 44px;
+      min-width: 44px;
+    }
   }
 
   /* DRAVR wordmark tracking */

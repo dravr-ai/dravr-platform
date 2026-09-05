@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { a2aApi } from '../services/api';
 import type { A2AClient, A2AUsageStats, A2ARateLimitStatus } from '../types/api';
-import { Button, Card, CardHeader, Badge, StatusIndicator, StatusFilter, ConfirmDialog } from './ui';
+import { Button, Section, Badge, StatusIndicator, StatusFilter, ConfirmDialog } from './ui';
 import type { StatusFilterValue } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
@@ -144,46 +144,36 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
   if (isLoading) {
     return (
-      <Card variant="dark">
-        <div className="animate-pulse">
-          <div className="h-4 bg-surface-container-high rounded w-1/4 mb-4"></div>
-          <div className="space-y-3">
-            <div className="h-16 bg-surface-container-high rounded"></div>
-            <div className="h-16 bg-surface-container-high rounded"></div>
-            <div className="h-16 bg-surface-container-high rounded"></div>
-          </div>
+      <div className="animate-pulse">
+        <div className="mb-3 h-3 w-1/4 rounded bg-surface-container-high"></div>
+        <div className="space-y-2">
+          <div className="h-10 rounded bg-surface-container-high"></div>
+          <div className="h-10 rounded bg-surface-container-high"></div>
+          <div className="h-10 rounded bg-surface-container-high"></div>
         </div>
-      </Card>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Card variant="dark">
-        <div className="text-center py-8">
-          <h3 className="text-lg font-medium text-on-surface mb-2">{t('a2a.loadFailedTitle')}</h3>
-          <p className="text-on-surface-variant mb-4">{t('a2a.loadFailedBody')}</p>
-          <Button onClick={() => window.location.reload()}>
-            {t('common.tryAgain')}
-          </Button>
-        </div>
-      </Card>
+      <div className="py-3">
+        <h3 className="font-sans text-sm font-medium tracking-normal text-error">{t('a2a.loadFailedTitle')}</h3>
+        <p className="mt-0.5 text-xs text-on-surface-variant">{t('a2a.loadFailedBody')}</p>
+        <Button onClick={() => window.location.reload()} variant="tertiary" size="sm" className="mt-1 px-0">
+          {t('common.tryAgain')}
+        </Button>
+      </div>
     );
   }
 
   if (allClients.length === 0) {
     return (
-      <div className="text-center py-16 bg-surface-container-low rounded-lg border-2 border-dashed ghost-border">
-        <h3 className="text-lg font-semibold text-on-surface mb-2">{t('a2a.emptyTitle')}</h3>
-        <p className="text-on-surface-variant mb-6 max-w-md mx-auto">
-          {t('a2a.emptyBody')}
-        </p>
-        <Button
-          onClick={onCreateClient}
-          className="inline-flex items-center space-x-2"
-        >
-          <span>+</span>
-          <span>{t('a2a.emptyCta')}</span>
+      <div className="py-3">
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface-variant">{t('a2a.emptyTitle')}</h3>
+        <p className="mt-0.5 max-w-md text-xs text-outline">{t('a2a.emptyBody')}</p>
+        <Button onClick={onCreateClient} variant="tertiary" size="sm" className="mt-1 px-0">
+          {t('a2a.emptyCta')}
         </Button>
       </div>
     );
@@ -192,14 +182,9 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
   return (
     <div className="space-y-6">
       {/* A2A Client List */}
-      <Card variant="dark">
-        <CardHeader
-          title={t('a2a.yourConnectedApps')}
-          subtitle={t('a2a.totalAppsCount', { count: allClients.length })}
-        />
-
+      <Section title={t('a2a.yourConnectedApps')} description={t('a2a.totalAppsCount', { count: allClients.length })}>
         {/* Status Filter */}
-        <div className="px-6 pb-4">
+        <div className="pb-3">
           <StatusFilter
             value={statusFilter}
             onChange={setStatusFilter}
@@ -209,21 +194,19 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
           />
         </div>
 
-        <div className="space-y-4 px-6 pb-6">
+        <div>
           {filteredClients.map((client) => (
             <div
               key={client.id}
-              className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                selectedClient === client.id
-                  ? 'border-primary bg-primary/10'
-                  : 'ghost-border hover:ghost-border'
+              className={`cursor-pointer border-t ghost-border-faint py-4 transition-colors first:border-t-0 ${
+                selectedClient === client.id ? 'bg-surface-container-low' : 'hover:bg-surface-container-low/60'
               }`}
               onClick={() => setSelectedClient(selectedClient === client.id ? null : client.id)}
             >
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <h3 className="text-lg font-medium text-on-surface">{client.name}</h3>
+                    <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">{client.name}</h3>
                     <StatusIndicator
                       status={client.is_active ? 'online' : 'offline'}
                       size="sm"
@@ -302,14 +285,11 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
             </div>
           ))}
         </div>
-      </Card>
+      </Section>
 
       {/* Client Details */}
       {selectedClient && clientUsage && clientRateLimit && (
-        <Card variant="dark">
-          <h3 className="text-lg font-semibold text-on-surface mb-4">
-            {t('a2a.usageAndLimits')}
-          </h3>
+        <Section title={t('a2a.usageAndLimits')}>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Usage Stats */}
@@ -394,7 +374,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
               </div>
             </div>
           </div>
-        </Card>
+        </Section>
       )}
 
       {/* Deactivate Confirmation */}

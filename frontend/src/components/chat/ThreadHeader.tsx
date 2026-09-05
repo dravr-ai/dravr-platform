@@ -35,7 +35,7 @@ export default function ThreadHeader({
   return (
     <div
       data-testid="thread-header"
-      className="flex items-center gap-2 border-b ghost-border bg-surface px-3 py-2 md:px-5"
+      className="flex h-[52px] items-center gap-2 border-b ghost-border bg-surface px-3 md:px-5"
     >
       {onBack && (
         <button
@@ -43,9 +43,9 @@ export default function ThreadHeader({
           onClick={onBack}
           aria-label={t('chat.backToList')}
           title={t('chat.backToList')}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface focus-ring"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface focus-ring touch-target"
         >
-          <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         </button>
       )}
       <button
@@ -54,32 +54,34 @@ export default function ThreadHeader({
         aria-haspopup="dialog"
         data-testid="conversation-header-title"
         title={title}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-left transition-colors hover:bg-surface-container-low focus-ring"
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-1 text-left transition-colors hover:bg-surface-container-low focus-ring"
       >
         <span
           aria-hidden="true"
           className={clsx(
-            'flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full text-sm font-semibold',
+            'flex h-7 w-7 shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold',
             avatarSlotClass(avatarSlot),
           )}
         >
           {initials}
         </span>
-        <span className="flex min-w-0 flex-col">
-          <span className="flex items-center gap-1 text-base font-semibold leading-tight text-on-surface">
+        {/* Title and subtitle share one line at 52px; the subtitle is the
+            thread's one detail and drops first when the width runs out. */}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="flex min-w-0 items-center gap-1 text-sm font-semibold leading-tight text-on-surface">
             <span className="truncate" data-testid="thread-title">
               {title}
             </span>
             <ChevronDown className="h-4 w-4 shrink-0 text-on-surface-variant" aria-hidden="true" />
           </span>
           {subtitle ? (
-            <span className="truncate text-xs text-on-surface-variant" data-testid="thread-subtitle">
+            <span className="hidden min-w-0 truncate text-xs text-on-surface-variant md:inline" data-testid="thread-subtitle">
               {subtitle}
             </span>
           ) : null}
         </span>
       </button>
-      {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
     </div>
   );
 }

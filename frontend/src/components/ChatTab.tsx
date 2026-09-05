@@ -823,9 +823,10 @@ export default function ChatTab({
 
   // The banner exists to send the athlete to the connections pane, so it is
   // shown only where there is a router to send them with — never as a button
-  // that does nothing.
+  // that does nothing — and only over an open thread: the empty pane already
+  // carries the provider line and the link, so the banner there said it twice.
   const banner =
-    showConnectBanner && onNavigate ? (
+    showConnectBanner && onNavigate && selectedConversation ? (
       <div className="px-4 pt-3 md:px-6">
         <ConnectProviderBanner onNavigate={onNavigate} />
       </div>
@@ -871,7 +872,7 @@ export default function ChatTab({
       <UsageWarningBanner level={usageStatus.level} text={usageStatus.text} />
       {banner}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="px-4 py-4 md:px-8">
+        <div className="px-4 py-4 md:px-6">
           <MessageList
             messages={messagesData?.messages || []}
             messageMetadata={messageMetadata}

@@ -45,7 +45,7 @@ export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellPr
   return (
     <div className="flex h-full min-h-0 bg-surface" data-testid="settings-shell">
       {showMenu && (
-        <div className="flex min-h-0 w-full shrink-0 flex-col border-r ghost-border lg:w-[360px] xl:w-[400px]">
+        <div className="flex min-h-0 w-full shrink-0 flex-col border-r ghost-border lg:w-[320px] xl:w-[340px]">
           <SettingsMenu
             tabs={tabs}
             activeTab={openTab}

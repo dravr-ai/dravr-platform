@@ -21,7 +21,7 @@ export default function CoachAvatar({ label }: CoachAvatarProps) {
     <span
       role="img"
       aria-label={label}
-      className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-primary-container text-xs font-semibold text-on-primary-container"
+      className="flex h-6 w-6 shrink-0 select-none items-center justify-center rounded-full bg-primary-container text-xs font-semibold leading-none text-on-primary-container"
     >
       {initialsFor(label)}
     </span>

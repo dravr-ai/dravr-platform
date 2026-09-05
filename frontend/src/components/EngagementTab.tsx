@@ -120,17 +120,17 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
       {/* User Engagement Tiers */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-activity">{dailyActive}</div>
+          <div className="font-mono text-2xl font-medium text-on-surface">{dailyActive}</div>
           <div className="text-sm text-on-surface-variant">Daily Active</div>
           <div className="text-xs text-on-surface-variant">Last 24h</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary">{weeklyActive}</div>
+          <div className="font-mono text-2xl font-medium text-on-surface">{weeklyActive}</div>
           <div className="text-sm text-on-surface-variant">Weekly Active</div>
           <div className="text-xs text-on-surface-variant">Last 7d</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary">{monthlyActive}</div>
+          <div className="font-mono text-2xl font-medium text-on-surface">{monthlyActive}</div>
           <div className="text-sm text-on-surface-variant">Monthly Active</div>
           <div className="text-xs text-on-surface-variant">Last 30d</div>
         </div>

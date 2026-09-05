@@ -7,7 +7,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Card } from './ui';
 import { clsx } from 'clsx';
 import CoachReviewDrawer from './CoachReviewDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -91,15 +90,10 @@ export default function CoachReviewQueue() {
 
   if (error) {
     return (
-      <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/20 flex items-center justify-center">
-          <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        </div>
-        <h3 className="text-lg font-medium text-on-surface mb-2">Failed to Load Review Queue</h3>
-        <p className="text-on-surface-variant">Unable to fetch pending coach submissions. Please try again.</p>
-      </Card>
+      <div className="py-3">
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Review Queue</h3>
+        <p className="mt-0.5 text-xs text-outline">Unable to fetch pending coach submissions. Please try again.</p>
+      </div>
     );
   }
 
@@ -107,15 +101,10 @@ export default function CoachReviewQueue() {
 
   if (coaches.length === 0) {
     return (
-      <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-activity/20 flex items-center justify-center">
-          <svg className="w-8 h-8 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <h3 className="text-lg font-medium text-on-surface mb-2">All Caught Up!</h3>
-        <p className="text-on-surface-variant">There are no coaches pending review at this time.</p>
-      </Card>
+      <div className="py-3">
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">All Caught Up!</h3>
+        <p className="mt-0.5 text-xs text-outline">There are no coaches pending review at this time.</p>
+      </div>
     );
   }
 

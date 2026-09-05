@@ -100,7 +100,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 variant="dark"
               />
 
-              <Button
+              <Button size="lg"
                 type="submit"
                 variant="gradient"
                 loading={isLoading}

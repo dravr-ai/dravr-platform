@@ -122,21 +122,26 @@ module.exports = {
         serif: ['Newsreader', 'Georgia', 'serif'],
         mono: ['JetBrains Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'monospace'],
       },
+      // Boreal v2.1 scale (DESIGN.md §3): interface text is 13px, reading text
+      // 15px, page titles 18px. Every step carries its own line-height — a
+      // single-line label sits tighter (≈1.4) than running text (≈1.55) — so a
+      // bare `text-sm` is complete without a `leading-*` beside it. 12px is the
+      // floor: `text-xs` does not move and nothing goes under it.
       fontSize: {
-        'xs': '0.75rem',
-        'sm': '0.875rem',
-        'base': '1rem',
-        'lg': '1.125rem',
-        'xl': '1.25rem',
-        '2xl': '1.5rem',
-        '3xl': '1.875rem',
-        '4xl': '2.25rem',
+        'xs': ['0.75rem', { lineHeight: '1rem' }],          // 12 / 16 — captions, timestamps, section labels
+        'sm': ['0.8125rem', { lineHeight: '1.125rem' }],    // 13 / 18 — interface text: nav, tabs, rows, tables, buttons
+        'base': ['0.9375rem', { lineHeight: '1.4375rem' }], // 15 / 23 — reading text: messages, descriptions
+        'lg': ['1rem', { lineHeight: '1.375rem' }],         // 16 / 22 — lead lines
+        'xl': ['1.125rem', { lineHeight: '1.5rem' }],       // 18 / 24 — page and column titles
+        '2xl': ['1.375rem', { lineHeight: '1.75rem' }],     // 22 / 28 — hero numbers
+        '3xl': ['1.625rem', { lineHeight: '1.875rem' }],    // 26 / 30 — auth and onboarding headlines
+        '4xl': ['2rem', { lineHeight: '2.25rem' }],         // 32 / 36 — the login aside line
         // Mobile-first responsive scale — use with `text-h1-mobile md:text-3xl`
         // to step up at the md breakpoint. See ADR / plan
         // "Web Frontend Mobile-Friendly Redesign".
-        'h1-mobile': ['1.5rem', { lineHeight: '1.2', fontWeight: '600' }],
-        'h2-mobile': ['1.25rem', { lineHeight: '1.3', fontWeight: '600' }],
-        'h3-mobile': ['1.125rem', { lineHeight: '1.35', fontWeight: '600' }],
+        'h1-mobile': ['1.375rem', { lineHeight: '1.2', fontWeight: '600' }],
+        'h2-mobile': ['1.125rem', { lineHeight: '1.3', fontWeight: '600' }],
+        'h3-mobile': ['1rem', { lineHeight: '1.35', fontWeight: '600' }],
         'body-mobile': ['0.9375rem', { lineHeight: '1.5' }],
       },
       letterSpacing: {

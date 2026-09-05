@@ -228,7 +228,7 @@ const MessageItem = memo(function MessageItem({
         // markdown, and a stray asterisk should stay an asterisk.
         if (isUser) {
           return (
-            <p key={key} className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+            <p key={key} className="whitespace-pre-wrap break-words text-base leading-relaxed">
               {block.text}
             </p>
           );
@@ -237,7 +237,7 @@ const MessageItem = memo(function MessageItem({
         return (
           <div
             key={key}
-            className={`text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}
+            className={`text-on-surface text-base leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}
           >
             {segments.map((segment, i) =>
               segment.kind === 'prose' ? (

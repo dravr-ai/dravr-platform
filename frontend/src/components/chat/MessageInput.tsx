@@ -88,8 +88,8 @@ export default function MessageInput({
   };
 
   return (
-    <div className="border-t ghost-border bg-surface px-4 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] md:px-8">
-      <div className="max-w-3xl mx-auto">
+    <div className="bg-surface px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
+      <div className="mx-auto max-w-[720px]">
         <CommandPalette
           matches={palette.matches}
           highlightedIndex={palette.highlightedIndex}
@@ -100,13 +100,21 @@ export default function MessageInput({
           highlightedIndex={mentions.highlightedIndex}
           onSelect={mentions.select}
         />
-        <div className="flex items-end gap-2">
+        {/* The composer is a chat surface, not a form field — DESIGN.md §5
+            lists the two separately. It is the one white shape on the paper:
+            a 40px field with a hairline, radius 12, the slash on its left and
+            the send on its right, both inside it. The measured chat products
+            all draw the composer lighter than the page, never darker, and
+            none of them puts a helper line under it — the placeholder says
+            what `/` does. */}
+        <div className="relative min-w-0">
           {/* The visible affordance that `/` exists at all — Telegram's bot
               "Menu" button, in the one place a new athlete is already
               looking. It types the character the palette watches for rather
               than opening a second, parallel list. */}
           <IconButton
             variant="ghost"
+            size="sm"
             aria-label={t('chat.commandsLabel')}
             title={t('chat.commandsLabel')}
             data-testid="slash-command-button"
@@ -115,15 +123,10 @@ export default function MessageInput({
               onChange('/');
               inputRef.current?.focus();
             }}
+            className="absolute left-1.5 top-1/2 z-10 -translate-y-1/2"
           >
-            <Slash className="w-4 h-4" aria-hidden="true" />
+            <Slash className="h-4 w-4" aria-hidden="true" />
           </IconButton>
-          <div className="relative flex-1 min-w-0">
-          {/* The composer is a chat surface, not a form field — DESIGN.md §5
-              lists the two separately. It keeps its enclosing rounded field so
-              the embedded 44x44 send button has something to sit inside; the
-              editorial underline has no box to host it. The field is the one
-              filled shape on the canvas, so it carries no hairline of its own. */}
           {/* eslint-disable-next-line no-restricted-syntax */}
           <textarea
             ref={inputRef}
@@ -137,7 +140,7 @@ export default function MessageInput({
             onClick={syncCaret}
             onSelect={syncCaret}
             placeholder={t('chat.messageDravrPlaceholder')}
-            className="w-full resize-none rounded-xl border-0 bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm transition-colors overflow-hidden"
+            className="w-full resize-none overflow-hidden rounded-xl border ghost-border bg-surface-container-lowest py-2 pl-11 pr-12 text-base text-on-surface transition-colors placeholder:text-outline focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary/40 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3"
             rows={1}
             disabled={isStreaming || disabled}
           />
@@ -146,22 +149,16 @@ export default function MessageInput({
             disabled={!value.trim() || isStreaming || disabled}
             aria-label={t('chat.sendMessageAria')}
             className={clsx(
-              'absolute right-2 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors',
+              'absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full transition-colors touch-target',
               value.trim() && !isStreaming && !disabled
                 ? 'bg-primary text-on-primary hover:bg-primary-hover'
                 : 'text-on-surface-variant cursor-not-allowed'
             )}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
           </button>
-          </div>
-        </div>
-        <div className="flex items-center justify-center gap-2 mt-2">
-          <p className="text-xs text-outline hidden sm:block">
-            {t('chat.inputKeyHint')}
-          </p>
         </div>
       </div>
     </div>

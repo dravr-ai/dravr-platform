@@ -468,8 +468,9 @@ test.describe('Dashboard Responsive Behavior', () => {
 
     // Margin is applied via inline style={{ marginLeft: ... }} on <main>
     // to support continuous resize, not via a fixed Tailwind class. Verify
-    // the computed margin-left rather than asserting on a class name.
-    await expect(main).toHaveCSS('margin-left', '260px');
+    // the computed margin-left rather than asserting on a class name. 232px
+    // is the Boreal v2.1 default (DESIGN.md §6).
+    await expect(main).toHaveCSS('margin-left', '232px');
 
     // Collapse sidebar
     const collapseButton = page.locator('button[title="Collapse sidebar"]');

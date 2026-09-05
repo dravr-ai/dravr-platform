@@ -83,7 +83,7 @@ export default function OnboardingParq({
         {questions.map((q) => (
           <div
             key={q.id}
-            className="flex items-start justify-between gap-4 rounded-lg border border-outline-variant bg-surface-container-low px-4 py-3"
+            className="flex items-start justify-between gap-4 border-t ghost-border-faint py-3 first:border-t-0"
           >
             <span className="text-sm text-on-surface">{q.text}</span>
             <div className="flex shrink-0 gap-1" role="group" aria-label={q.text}>

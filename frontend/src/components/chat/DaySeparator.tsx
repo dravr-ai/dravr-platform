@@ -7,7 +7,7 @@
 export default function DaySeparator({ label }: { label: string }) {
   return (
     <div role="separator" aria-label={label} data-testid="day-separator" className="my-3 flex justify-center">
-      <span className="rounded-full bg-surface-container-low px-3 py-1 text-xs font-medium text-on-surface-variant">
+      <span className="text-xs font-medium text-outline">
         {label}
       </span>
     </div>

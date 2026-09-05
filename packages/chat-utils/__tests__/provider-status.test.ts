@@ -44,6 +44,24 @@ describe('providerStatusLine', () => {
   });
 
   /**
+   * The Strava data path has two backends — the `sciotte` mirror and the
+   * `strava` OAuth row — and both display as "Strava". The header said
+   * "Strava, Strava connected" to an athlete with one account.
+   */
+  it('names a provider once when two rows share its display name', () => {
+    expect(
+      providerStatusLine(
+        t,
+        [
+          { connected: true, display_name: 'Strava' },
+          { connected: true, display_name: 'Strava' },
+        ],
+        true,
+      ),
+    ).toBe('chat.providersConnectedOne:Strava');
+  });
+
+  /**
    * Both clients start with an empty list. Deriving the line from that alone
    * tells a connected athlete "no provider connected" for as long as the status
    * call is in flight, which is a wrong sentence, not a slow one.

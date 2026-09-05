@@ -48,7 +48,7 @@ export default function InstallAppBanner() {
       <button
         type="button"
         onClick={() => void promptInstall()}
-        className="min-h-[44px] rounded-lg bg-primary px-4 text-sm font-medium text-on-primary transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        className="touch-target rounded-lg bg-primary px-4 text-sm font-medium text-on-primary transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       >
         {t('shell.installAction')}
       </button>

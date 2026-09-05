@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { messagingApi } from '../services/api';
 import type { ChannelConfigSummary } from '../services/api/messaging';
-import { Card, Button, Input, Badge, ConfirmDialog } from './ui';
+import { Section, Button, Input, Badge, ConfirmDialog } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
@@ -171,21 +171,17 @@ export default function MessagingSettingsTab() {
 
   if (isLoading) {
     return (
-      <Card variant="dark">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-surface-container-high rounded w-1/3"></div>
-          <div className="h-20 bg-surface-container-low rounded"></div>
-          <div className="h-20 bg-surface-container-low rounded"></div>
-        </div>
-      </Card>
+      <div className="animate-pulse space-y-4">
+        <div className="h-4 bg-surface-container-high rounded w-1/3"></div>
+        <div className="h-12 bg-surface-container-low rounded"></div>
+        <div className="h-12 bg-surface-container-low rounded"></div>
+      </div>
     );
   }
 
   return (
     <>
-      <Card variant="dark">
-        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('msgChan.title')}</h2>
-        <p className="text-sm text-on-surface/60 mb-6">{t('msgChan.intro')}</p>
+      <Section title={t('msgChan.title')} description={t('msgChan.intro')}>
 
         <div className="space-y-4">
           {CHANNEL_ORDER.map((channelId) => {
@@ -247,21 +243,20 @@ export default function MessagingSettingsTab() {
             );
           })}
         </div>
-      </Card>
+      </Section>
 
       {/* Configuration Form */}
       {selectedChannel && CHANNEL_INFO[selectedChannel] && (
-        <Card variant="dark">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-on-surface">
-              {t('msgChan.configureChannel', { channel: CHANNEL_INFO[selectedChannel].name })}
-            </h2>
+        <Section
+          title={t('msgChan.configureChannel', { channel: CHANNEL_INFO[selectedChannel].name })}
+          actions={
             <button onClick={resetForm} className="text-on-surface/40 hover:text-on-surface/70">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-          </div>
+          }
+        >
 
           <div className="space-y-4">
             {CHANNEL_INFO[selectedChannel].fields.map((field) => (
@@ -291,23 +286,21 @@ export default function MessagingSettingsTab() {
               </Button>
             </div>
           </div>
-        </Card>
+        </Section>
       )}
 
       {/* Status Message */}
       {message && (
-        <Card variant="dark">
-          <div
-            className={clsx(
-              'p-3 rounded-lg text-sm',
-              message.type === 'success'
-                ? 'bg-activity/30 text-on-activity-container'
-                : 'bg-error text-error'
-            )}
-          >
-            {message.text}
-          </div>
-        </Card>
+        <div
+          className={clsx(
+            'p-3 rounded-lg text-sm',
+            message.type === 'success'
+              ? 'bg-activity/30 text-on-activity-container'
+              : 'bg-error/20 text-error'
+          )}
+        >
+          {message.text}
+        </div>
       )}
 
       {/* Delete Confirmation */}

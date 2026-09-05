@@ -102,7 +102,7 @@ export default function VerifyEmail({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
-                <Button
+                <Button size="lg"
                   variant="primary"
                   onClick={() => void handleResend()}
                   disabled={resendState === 'sending' || !email.includes('@')}
@@ -124,7 +124,7 @@ export default function VerifyEmail({
             )}
 
             <div className="mt-8">
-              <Button variant={showResend ? 'secondary' : 'primary'} onClick={onContinue} className="w-full">
+              <Button size="lg" variant={showResend ? 'secondary' : 'primary'} onClick={onContinue} className="w-full">
                 {t('auth.continueToSignIn')}
               </Button>
             </div>

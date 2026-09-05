@@ -272,19 +272,19 @@ export default function LlmConsumptionPanel() {
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {formatTokens(summary.total_tokens)}
           </div>
           <div className="text-sm text-on-surface-variant">Total Tokens</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-primary">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {summary.total_calls.toLocaleString()}
           </div>
           <div className="text-sm text-on-surface-variant">Total Calls</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-activity">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {formatCost(summary.estimated_cost_usd)}
           </div>
           <div className="text-sm text-on-surface-variant">Estimated Cost (USD)</div>

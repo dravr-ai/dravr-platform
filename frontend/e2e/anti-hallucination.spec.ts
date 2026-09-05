@@ -269,7 +269,7 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
     // empty pane that proves chat is up here.
     const chatPane = (page: Page) => page.getByTestId('chat-empty-state');
 
-    test('shows the connect-provider banner in chat when nothing is connected', async ({
+    test('tells the athlete on the empty pane that nothing is connected', async ({
       page,
     }) => {
       const releaseProviders = await routeProviders(page, []);
@@ -279,9 +279,14 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
 
       releaseProviders();
 
-      // Auto-retrying, so it holds until the query has answered and the banner
+      // Boreal v2.1: the empty pane carries the provider line itself, so the
+      // banner no longer repeats it there — it shows over an open thread only.
+      // Auto-retrying, so it holds until the query has answered and the line
       // renders — with no assumption about which request carried the answer.
-      await expect(page.getByTestId('connect-provider-banner')).toBeVisible();
+      const status = page.getByTestId('chat-empty-provider-status');
+      await expect(status).toBeVisible();
+      await expect(status).not.toBeEmpty();
+      await expect(page.getByTestId('connect-provider-banner')).toHaveCount(0);
     });
 
     test('does NOT show the banner to a connected athlete', async ({ page }) => {

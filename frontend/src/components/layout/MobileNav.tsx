@@ -240,7 +240,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
             type="button"
             onClick={onClose}
             aria-label={t('shell.mobileNavClose')}
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-on-surface-variant hover:text-on-surface"
+            className="touch-target flex items-center justify-center text-on-surface-variant hover:text-on-surface"
           >
             <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

@@ -108,7 +108,7 @@ export default function CoachStoreManagement() {
               </span>
             )}
           </div>
-          <div className="text-2xl font-bold text-on-surface">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {statsLoading ? (
               <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : (
@@ -135,7 +135,7 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
           </div>
-          <div className="text-2xl font-bold text-on-surface">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {statsLoading ? (
               <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : totalCoaches !== undefined && totalCoaches !== stats?.published_count ? (
@@ -163,7 +163,7 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
           </div>
-          <div className="text-2xl font-bold text-on-surface">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {statsLoading ? (
               <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : (
@@ -190,7 +190,7 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
           </div>
-          <div className="text-2xl font-bold text-on-surface">
+          <div className="font-mono text-2xl font-medium text-on-surface">
             {statsLoading ? (
               <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : (

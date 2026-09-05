@@ -101,20 +101,18 @@ export default function ConversationList({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="conversation-list">
-      <div className="flex-shrink-0 px-5 pt-5">
-        <div className="flex items-center justify-between gap-2">
+      <div className="flex-shrink-0 px-4">
+        <div className="flex h-[52px] items-center justify-between gap-2">
           <h2 className="font-display text-xl font-semibold text-on-surface">{t('chat.listTitle')}</h2>
           {compose ? <div className="flex items-center">{compose}</div> : null}
         </div>
-        <div className="mt-3">
-          <SearchField
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('convPanel.searchChats')}
-            aria-label={t('convPanel.search')}
-          />
-        </div>
-        <div className="mt-3 flex gap-5 border-b ghost-border" role="radiogroup" aria-label={t('chat.listTitle')}>
+        <SearchField
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={t('convPanel.searchChats')}
+          aria-label={t('convPanel.search')}
+        />
+        <div className="mt-2.5 flex gap-[18px] border-b ghost-border" role="radiogroup" aria-label={t('chat.listTitle')}>
           {FILTERS.map((entry) => {
             const active = filter === entry.key;
             return (
@@ -126,7 +124,7 @@ export default function ConversationList({
                 data-testid={`conversation-filter-${entry.key}`}
                 onClick={() => setFilter(entry.key)}
                 className={clsx(
-                  '-mb-px flex min-w-[44px] justify-center border-b-2 pb-2.5 text-sm font-medium transition-colors focus-ring',
+                  '-mb-px flex touch-target justify-center border-b-2 pb-2.5 text-sm font-medium transition-colors focus-ring',
                   active
                     ? 'border-primary text-on-surface'
                     : 'border-transparent text-on-surface-variant hover:text-on-surface',

@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User } from '../types/api';
-import { Button, Card, Badge, Input } from './ui';
+import { Button, Input } from './ui';
 import PendingUsersList from './PendingUsersList';
 import PreApprovedEmails from './PreApprovedEmails';
 import UserApprovalModal from './UserApprovalModal';
@@ -160,6 +160,13 @@ export default function UserManagement() {
       default: return 'secondary';
     }
   };
+  // Status is a dot and a word (DESIGN.md §8), never a tinted chip.
+  const STATUS_DOT: Record<ReturnType<typeof getStatusBadgeVariant>, string> = {
+    warning: 'bg-warning',
+    success: 'bg-success',
+    destructive: 'bg-error',
+    secondary: 'bg-outline-variant',
+  };
 
   // One tab bar, shared by every view below: this markup used to exist twice,
   // which is how a tab added to one view could go missing from the other.
@@ -179,12 +186,9 @@ export default function UserManagement() {
             {tab.icon}
             <span>{tab.name}</span>
             {tab.count > 0 && (
-              <Badge
-                variant={tab.id === 'pending' ? 'warning' : 'secondary'}
-                className="text-xs"
-              >
+              <span className={`font-mono text-xs ${tab.id === 'pending' ? 'text-on-warning-container' : 'text-outline'}`}>
                 {tab.count}
-              </Badge>
+              </span>
             )}
           </button>
         ))}
@@ -243,60 +247,51 @@ export default function UserManagement() {
 
       {/* User List - Dark Theme */}
       {isLoading ? (
-        <div className="space-y-4">
+        <div>
           {[...Array(5)].map((_, i) => (
-            <Card key={i} variant="dark" className="p-4 animate-pulse">
-              <div className="flex justify-between items-start">
-                <div className="space-y-2">
-                  <div className="h-4 bg-surface-container-high rounded w-48"></div>
-                  <div className="h-3 bg-surface-container-high rounded w-32"></div>
-                  <div className="h-3 bg-surface-container-high rounded w-24"></div>
-                </div>
-                <div className="space-y-2">
-                  <div className="h-6 bg-surface-container-high rounded w-16"></div>
-                  <div className="h-8 bg-surface-container-high rounded w-20"></div>
-                </div>
+            <div key={i} className="flex animate-pulse items-center justify-between border-t ghost-border-faint py-3 first:border-t-0">
+              <div className="space-y-2">
+                <div className="h-3 w-48 rounded bg-surface-container-high"></div>
+                <div className="h-3 w-32 rounded bg-surface-container-high"></div>
               </div>
-            </Card>
+              <div className="h-7 w-20 rounded bg-surface-container-high"></div>
+            </div>
           ))}
         </div>
       ) : filteredUsers.length === 0 ? (
-        <Card variant="dark" className="p-6 text-center">
-          <div className="text-outline mb-4">
-            <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-            <p className="text-lg font-medium text-on-surface">
-              {searchQuery ? 'No users found' : `No ${activeTab} users`}
-            </p>
-            <p className="text-on-surface-variant">
-              {searchQuery ? 'Try adjusting your search terms' : `No users with ${activeTab} status`}
-            </p>
-          </div>
-        </Card>
+        // One sentence where the rows would be, and the reason in the caption size.
+        <div className="py-3">
+          <p className="text-sm text-on-surface-variant">
+            {searchQuery ? 'No users found' : `No ${activeTab} users`}
+          </p>
+          <p className="mt-0.5 text-xs text-outline">
+            {searchQuery ? 'Try adjusting your search terms' : `No users with ${activeTab} status`}
+          </p>
+        </div>
       ) : (
-        <div className="space-y-4">
+        <div>
           {filteredUsers.map((user) => (
-            <Card
+            <div
               key={user.id}
-              variant="dark"
-              className="p-4 hover:ghost-border transition-all cursor-pointer"
+              className="flex cursor-pointer items-start justify-between border-t ghost-border-faint py-3 transition-colors first:border-t-0 hover:bg-surface-container-low/60"
               onClick={() => handleOpenDrawer(user)}
             >
-              <div className="flex justify-between items-start">
+              <div className="flex justify-between items-start w-full">
                 <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <h4 className="font-medium text-on-surface">
+                  <div className="flex items-center space-x-2 mb-0.5">
+                    <h4 className="font-sans text-sm font-medium tracking-normal text-on-surface">
                       {user.display_name || 'Unnamed User'}
                     </h4>
-                    <Badge variant={getStatusBadgeVariant(user.user_status || user.status || 'pending')} className="text-xs">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
+                      <span
+                        aria-hidden="true"
+                        className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[getStatusBadgeVariant(user.user_status || user.status || 'pending')]}`}
+                      />
                       {user.user_status || user.status || 'pending'}
-                    </Badge>
-                    <span className="text-xs text-on-surface-variant capitalize bg-surface-container-high px-2 py-1 rounded">
-                      {user.tier}
                     </span>
+                    <span className="text-xs capitalize text-outline">{user.tier}</span>
                   </div>
-                  <p className="text-sm text-on-surface-variant mb-2">{user.email}</p>
+                  <p className="text-sm text-on-surface-variant mb-1">{user.email}</p>
                   <div className="flex items-center space-x-4 text-xs text-outline">
                     <span>Registered: {formatDate(user.created_at)}</span>
                     <span>Last active: {user.last_active ? formatDate(user.last_active) : 'Never'}</span>
@@ -337,7 +332,7 @@ export default function UserManagement() {
                   )}
                 </div>
               </div>
-            </Card>
+            </div>
           ))}
         </div>
       )}

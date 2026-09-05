@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The settings column of the athlete shell — the avatar and name, then one row per section with its hint, sign out last
+// ABOUTME: The settings column of the athlete shell — a title row, the identity row, then one 48px row per section with its hint inline, sign out last
 // ABOUTME: A navigation landmark whose rows carry aria-current and are named by their label alone; the hint is their description
 
 import { clsx } from 'clsx';
@@ -18,6 +18,13 @@ interface SettingsMenuProps {
   onSignOut: () => void;
 }
 
+/**
+ * Boreal v2 opened this column with an 80px avatar centred over the name, then
+ * 64px rows stacking a title over a hint. v2.1 gives the column the same
+ * 52px title row every other column has, a 64px identity row (36px avatar,
+ * name and email beside it), and 48px rows with the hint on the title's line,
+ * so the whole menu fits above the fold and reads as one list.
+ */
 export default function SettingsMenu({
   tabs,
   activeTab,
@@ -34,17 +41,22 @@ export default function SettingsMenu({
       data-testid="settings-menu"
       className="flex h-full min-h-0 flex-col bg-surface"
     >
-      <div className="flex flex-col items-center px-6 pb-6 pt-8 text-center">
+      <div className="flex h-[52px] shrink-0 items-center px-4">
+        <h2 className="font-display text-xl font-semibold text-on-surface">{t('shell.navSettings')}</h2>
+      </div>
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b ghost-border px-4">
         <span
           aria-hidden="true"
-          className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-container font-display text-2xl font-semibold text-on-primary-container"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-container font-display text-xs font-semibold text-on-primary-container"
         >
           {initial}
         </span>
-        <h2 className="mt-4 font-display text-xl font-semibold text-on-surface">{displayName || email}</h2>
-        {displayName ? <p className="mt-0.5 text-sm text-on-surface-variant">{email}</p> : null}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-on-surface">{displayName || email}</p>
+          {displayName ? <p className="truncate text-xs text-on-surface-variant">{email}</p> : null}
+        </div>
       </div>
-      <ul className="min-h-0 flex-1 overflow-y-auto">
+      <ul className="min-h-0 flex-1 overflow-y-auto pt-1">
         {tabs.map((tab) => {
           const active = activeTab === tab.id;
           return (
@@ -56,17 +68,24 @@ export default function SettingsMenu({
                 aria-describedby={`settings-menu-${tab.id}-hint`}
                 data-testid={`settings-menu-${tab.id}`}
                 className={clsx(
-                  'flex w-full items-center gap-4 px-6 py-3 text-left transition-colors min-h-[64px] focus-ring',
+                  'flex min-h-[48px] w-full items-center gap-3 px-4 text-left transition-colors focus-ring',
                   active ? 'bg-surface-container-low' : 'hover:bg-surface-container-low/60',
                 )}
               >
-                <span className={clsx('shrink-0', active ? 'text-primary' : 'text-on-surface-variant')}>{tab.icon}</span>
-                <span className="flex min-w-0 flex-1 flex-col border-b ghost-border py-2">
-                  <span className="text-base text-on-surface">{t(tab.nameKey)}</span>
+                <span
+                  className={clsx(
+                    'shrink-0 [&_svg]:h-4 [&_svg]:w-4',
+                    active ? 'text-primary' : 'text-on-surface-variant',
+                  )}
+                >
+                  {tab.icon}
+                </span>
+                <span className="flex min-h-[48px] min-w-0 flex-1 items-baseline gap-2 border-b ghost-border-faint py-[15px]">
+                  <span className="text-sm text-on-surface">{t(tab.nameKey)}</span>
                   <span
                     id={`settings-menu-${tab.id}-hint`}
                     aria-hidden="true"
-                    className="truncate text-sm text-on-surface-variant"
+                    className="min-w-0 flex-1 truncate text-xs text-on-surface-variant"
                   >
                     {t(tab.hintKey)}
                   </span>
@@ -80,10 +99,10 @@ export default function SettingsMenu({
       <button
         type="button"
         onClick={onSignOut}
-        className="flex items-center gap-4 border-t ghost-border px-6 py-4 text-left text-error transition-colors hover:bg-surface-container-low min-h-[56px] focus-ring"
+        className="flex min-h-[48px] items-center gap-3 border-t ghost-border px-4 text-left text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-ring"
       >
-        <LogOut className="h-5 w-5 shrink-0" aria-hidden="true" />
-        <span className="text-base">{t('shell.navSignOut')}</span>
+        <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{t('shell.navSignOut')}</span>
       </button>
     </nav>
   );

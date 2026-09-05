@@ -17,7 +17,7 @@ export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElem
 
 /**
  * A search sits ON the page, so it is the one filled shape in its row:
- * `surface-container-low`, radius 8, 36px, no hairline. The editorial
+ * `surface-container-low`, radius 8, 32px, no hairline. The editorial
  * underline belongs to form fields, and a boxed field beside an underlined
  * one is the drift the primitives exist to prevent — this is neither, it is
  * a filter.
@@ -28,7 +28,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
     return (
       <div
         className={clsx(
-          'flex h-9 items-center gap-2 rounded-lg bg-surface-container-low px-3 transition-colors',
+          'flex h-8 items-center gap-2 rounded-lg bg-surface-container-low px-2.5 transition-colors',
           'focus-within:ring-2 focus-within:ring-primary/40',
           className,
         )}

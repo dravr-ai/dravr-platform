@@ -44,7 +44,7 @@ export const Tabs: React.FC<TabsProps> = ({
   // underline is exactly as wide as the word. The boxed variants keep theirs.
   const sizeClasses =
     variant === 'underline'
-      ? { sm: 'text-sm pb-2 pt-1', md: 'text-sm pb-2.5 pt-1', lg: 'text-base pb-3 pt-1' }
+      ? { sm: 'text-sm pb-2 pt-1.5', md: 'text-sm pb-2.5 pt-2', lg: 'text-base pb-3 pt-2' }
       : { sm: 'text-sm px-3 py-2', md: 'text-sm px-4 py-3', lg: 'text-base px-5 py-4' };
 
   const getTabClasses = (tab: Tab) => {
@@ -73,7 +73,7 @@ export const Tabs: React.FC<TabsProps> = ({
 
       case 'underline':
       default:
-        return `${baseClasses} -mb-px min-w-[44px] justify-center border-b-2 ${
+        return `${baseClasses} -mb-px touch-target justify-center border-b-2 ${
           isActive
             ? 'border-primary text-on-surface'
             : 'border-transparent text-on-surface-variant hover:text-on-surface'

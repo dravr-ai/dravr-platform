@@ -29,23 +29,18 @@ export function ConnectProviderBanner({ onNavigate }: { onNavigate: (route: stri
     return null;
   }
   return (
+    // One line in the caption size — the title, the action, the dismiss — on
+    // the open thread only. The second line and the icon went with Boreal
+    // v2.1: the empty state and Settings already explain what connecting does.
     <div
       data-testid="connect-provider-banner"
-      className="mb-2 flex items-center gap-3 border-b ghost-border py-2"
+      className="mx-auto flex max-w-[720px] items-center gap-3 border-b ghost-border-faint py-1.5"
     >
-      <svg className="w-5 h-5 flex-shrink-0 text-primary" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-      </svg>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-on-surface">{t('shell.connectBannerTitle')}</p>
-        <p className="text-xs text-on-surface-variant">
-          {t('shell.connectBannerBody')}
-        </p>
-      </div>
+      <p className="min-w-0 flex-1 truncate text-xs text-on-surface-variant">{t('shell.connectBannerTitle')}</p>
       <button
         type="button"
         onClick={() => onNavigate(CONNECTIONS_ROUTE)}
-        className="btn-base btn-tertiary flex-shrink-0 min-h-[44px] px-2 text-sm"
+        className="btn-base btn-tertiary btn-sm flex-shrink-0 px-1.5"
       >
         {t('shell.connectBannerAction')}
       </button>
@@ -53,9 +48,9 @@ export function ConnectProviderBanner({ onNavigate }: { onNavigate: (route: stri
         type="button"
         onClick={() => setDismissed(true)}
         aria-label={t('chat.dismiss')}
-        className="flex-shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg text-on-surface-variant hover:text-on-surface"
+        className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface touch-target"
       >
-        <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="h-3.5 w-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>

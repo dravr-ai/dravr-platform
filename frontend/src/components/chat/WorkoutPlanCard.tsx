@@ -116,23 +116,24 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
   const hasZones = zones.some((z) => typeof z === 'number');
 
   return (
-    <div className="my-2 overflow-hidden rounded-xl border ghost-border bg-surface">
-      {/* Header */}
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b ghost-border px-4 py-3">
+    <div className="my-2 overflow-hidden rounded-[10px] border ghost-border bg-surface-container-lowest">
+      {/* Header — the plan is a data object inside the agent's turn, the one
+          place a hairline card survives in the thread (DESIGN.md §5). */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b ghost-border-faint px-3 py-2.5">
         <div className="text-sm font-semibold text-on-surface">
           {t('chat.trainingPlanTitle')}
-          <span className="ml-2 font-normal text-on-surface-variant">
+          <span className="ml-2 font-mono text-xs font-normal text-on-surface-variant">
             {plan.plan_window.start} → {plan.plan_window.end}
           </span>
         </div>
         {plan.lactate_fallback_mode && (
-          <span className="rounded-full bg-primary-container px-2 py-0.5 text-xs font-medium text-on-primary-container">
+          <span className="text-xs text-on-surface-variant">
             {plan.lactate_fallback_mode.replace('_', '/')} targets
           </span>
         )}
       </div>
 
-      <div className="px-4 py-3">
+      <div className="px-3 py-2.5">
         {/* Rationale */}
         {plan.rationale && (
           <p className="mb-3 text-sm leading-relaxed text-on-surface-variant">{plan.rationale}</p>

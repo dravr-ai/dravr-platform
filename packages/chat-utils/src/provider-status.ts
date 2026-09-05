@@ -27,7 +27,9 @@ export function providerStatusLine(
   loaded: boolean,
 ): string | null {
   if (!loaded) return null;
-  const names = (providers ?? []).filter((p) => p.connected).map((p) => p.display_name);
+  // Two rows can carry one name — the `sciotte` mirror and the `strava` OAuth
+  // row are both "Strava" — and the line names the provider, not the backend.
+  const names = [...new Set((providers ?? []).filter((p) => p.connected).map((p) => p.display_name))];
   if (names.length === 0) return t('chat.noProviderStatus');
   return t(names.length === 1 ? 'chat.providersConnectedOne' : 'chat.providersConnectedN', {
     providers: names.join(', '),

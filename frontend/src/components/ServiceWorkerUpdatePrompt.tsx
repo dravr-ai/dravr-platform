@@ -48,14 +48,14 @@ export default function ServiceWorkerUpdatePrompt() {
         <button
           type="button"
           onClick={() => setNeedRefresh(false)}
-          className="min-h-[44px] rounded-lg px-3 text-sm text-on-surface-variant transition-colors hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="touch-target rounded-lg px-3 text-sm text-on-surface-variant transition-colors hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {t('shell.updateLater')}
         </button>
         <button
           type="button"
           onClick={() => void updateServiceWorker(true)}
-          className="min-h-[44px] rounded-lg bg-primary px-4 text-sm font-medium text-on-primary transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          className="touch-target rounded-lg bg-primary px-4 text-sm font-medium text-on-primary transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         >
           {t('shell.updateReload')}
         </button>

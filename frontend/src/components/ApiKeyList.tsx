@@ -4,7 +4,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Button, Card, CardHeader, Badge, StatusFilter, ConfirmDialog } from './ui';
+import { Button, Section, Badge, StatusFilter, ConfirmDialog } from './ui';
 import type { StatusFilterValue } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { adminApi } from '../services/api';
@@ -135,15 +135,9 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
 
   return (
     <div className="space-y-6">
-      {/* Main Card */}
-      <Card variant="dark">
-        <CardHeader
-          title="Your API Tokens"
-          subtitle={`${allTokens.length} total tokens`}
-        />
-
+      <Section title="Your API Tokens" description={`${allTokens.length} total tokens`}>
         {/* Status Filter */}
-        <div className="px-6 pb-4">
+        <div className="pb-3">
           <div className="flex items-center justify-between">
             <StatusFilter
               value={statusFilter}
@@ -174,14 +168,14 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
 
         {/* Token List */}
         {tokens.length === 0 ? (
-          <div className="text-center py-8 text-outline px-6 pb-6">
-            <p className="text-lg mb-2 text-on-surface">No API tokens yet</p>
-            <p>Create your first API token to enable programmatic access</p>
+          <div className="py-3">
+            <p className="text-sm text-on-surface-variant">No API tokens yet</p>
+            <p className="mt-0.5 text-xs text-outline">Create your first API token to enable programmatic access</p>
           </div>
         ) : (
-          <div className="space-y-4 px-6 pb-6">
+          <div>
             {/* Select All Header */}
-            <div className="flex items-center gap-3 p-4 bg-surface-container-low rounded-lg border ghost-border">
+            <div className="flex items-center gap-3 border-b ghost-border-faint py-2">
               <input
                 type="checkbox"
                 checked={selectedTokens.size === tokens.length && tokens.length > 0}
@@ -195,7 +189,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
 
             {/* Token Cards */}
             {tokens.map((token: AdminToken) => (
-            <Card key={token.id} variant="dark" className="hover:ghost-border transition-all p-4">
+            <div key={token.id} className="border-t ghost-border-faint py-4 first:border-t-0">
               <div className="flex items-start gap-4">
                   <input
                     type="checkbox"
@@ -207,7 +201,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                   <div className="flex-1">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h3 className="text-lg font-medium text-on-surface">
+                        <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">
                           {token.service_name}
                         </h3>
                         {/* GitHub-style token prefix display */}
@@ -293,11 +287,11 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                     )}
                   </div>
                 </div>
-            </Card>
+            </div>
           ))}
         </div>
       )}
-      </Card>
+      </Section>
 
       {/* Single API Token Revoke Confirmation */}
       <ConfirmDialog

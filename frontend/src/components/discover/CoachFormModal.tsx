@@ -284,7 +284,7 @@ export default function CoachFormModal({
                   type="button"
                   onClick={onDelete}
                   disabled={isSubmitting}
-                  className="text-xs font-medium text-error hover:underline disabled:opacity-50 min-h-[44px]"
+                  className="text-xs font-medium text-error hover:underline disabled:opacity-50 touch-target"
                 >
                   {t('discover.deleteThisCoach')}
                 </button>

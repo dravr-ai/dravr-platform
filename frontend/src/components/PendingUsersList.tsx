@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User } from '../types/api';
-import { Button, Card, Badge } from './ui';
+import { Button } from './ui';
 import UserApprovalModal from './UserApprovalModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -58,21 +58,15 @@ export default function PendingUsersList() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
+      <div>
         {[...Array(3)].map((_, i) => (
-          <Card key={i} variant="dark" className="p-4 animate-pulse">
-            <div className="flex justify-between items-start">
-              <div className="space-y-2">
-                <div className="h-4 bg-surface-container-high rounded w-48"></div>
-                <div className="h-3 bg-surface-container-high rounded w-32"></div>
-                <div className="h-3 bg-surface-container-high rounded w-24"></div>
-              </div>
-              <div className="space-y-2">
-                <div className="h-6 bg-surface-container-high rounded w-16"></div>
-                <div className="h-8 bg-surface-container-high rounded w-20"></div>
-              </div>
+          <div key={i} className="flex animate-pulse items-center justify-between border-t ghost-border-faint py-3 first:border-t-0">
+            <div className="space-y-2">
+              <div className="h-3 w-48 rounded bg-surface-container-high"></div>
+              <div className="h-3 w-32 rounded bg-surface-container-high"></div>
             </div>
-          </Card>
+            <div className="h-7 w-20 rounded bg-surface-container-high"></div>
+          </div>
         ))}
       </div>
     );
@@ -80,42 +74,29 @@ export default function PendingUsersList() {
 
   if (error) {
     return (
-      <Card variant="dark" className="p-6 text-center">
-        <div className="text-error mb-4">
-          <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 18.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-          <p className="text-lg font-medium text-on-surface">Failed to load pending users</p>
-        </div>
-        <Button onClick={() => refetch()} variant="outline">
-          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+      <div className="py-3">
+        <p className="text-sm font-medium text-error">Failed to load pending users</p>
+        <Button onClick={() => refetch()} variant="tertiary" size="sm" className="mt-1 px-0">
           Retry
         </Button>
-      </Card>
+      </div>
     );
   }
 
   if (pendingUsers.length === 0) {
     return (
-      <Card variant="dark" className="p-6 text-center">
-        <div className="text-on-surface-variant mb-4">
-          <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-          </svg>
-          <p className="text-lg font-medium text-on-surface">No pending users</p>
-          <p className="text-on-surface-variant">All users have been processed</p>
-        </div>
-      </Card>
+      <div className="py-3">
+        <p className="text-sm text-on-surface-variant">No pending users</p>
+        <p className="mt-0.5 text-xs text-outline">All users have been processed</p>
+      </div>
     );
   }
 
   return (
     <>
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-medium text-on-surface">
+      <div>
+        <div className="flex items-center justify-between pb-2">
+          <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">
             Pending Users ({pendingUsers.length})
           </h3>
           <Button
@@ -132,16 +113,17 @@ export default function PendingUsersList() {
         </div>
 
         {pendingUsers.map((user) => (
-          <Card key={user.id} variant="dark" className="p-4 hover:ghost-border transition-colors">
-            <div className="flex justify-between items-start">
+          <div key={user.id} className="flex items-start justify-between border-t ghost-border-faint py-3 transition-colors hover:bg-surface-container-low/60">
+            <div className="flex justify-between items-start w-full">
               <div className="flex-1">
-                <div className="flex items-center space-x-2 mb-1">
-                  <h4 className="font-medium text-on-surface">
+                <div className="flex items-center space-x-2 mb-0.5">
+                  <h4 className="font-sans text-sm font-medium tracking-normal text-on-surface">
                     {user.display_name || 'Unnamed User'}
                   </h4>
-                  <Badge variant="warning" className="text-xs">
-                    {user.user_status}
-                  </Badge>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
+                    <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
+                    {user.user_status || 'pending'}
+                  </span>
                 </div>
                 <p className="text-sm text-on-surface-variant mb-1">{user.email}</p>
                 <div className="flex items-center space-x-4 text-xs text-outline">
@@ -174,7 +156,7 @@ export default function PendingUsersList() {
                 </Button>
               </div>
             </div>
-          </Card>
+          </div>
         ))}
       </div>
 

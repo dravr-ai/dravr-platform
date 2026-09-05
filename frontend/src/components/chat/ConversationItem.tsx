@@ -74,7 +74,7 @@ function RowMenu({
   };
 
   const itemClass =
-    'w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm text-on-surface hover:bg-surface-container-low rounded-lg transition-colors min-h-[44px]';
+    'w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm text-on-surface hover:bg-surface-container-low rounded-lg transition-colors touch-target';
 
   return (
     <div
@@ -184,7 +184,7 @@ const ConversationItem = memo(function ConversationItem({
   const avatar = (
     <div
       className={clsx(
-        'flex h-11 w-11 flex-shrink-0 select-none items-center justify-center rounded-full text-base font-semibold',
+        'flex h-9 w-9 flex-shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold',
         avatarSlotClass(row.avatarSlot),
       )}
       data-testid="conversation-avatar"
@@ -197,7 +197,7 @@ const ConversationItem = memo(function ConversationItem({
   if (isEditing) {
     return (
       <li
-        className="flex items-center gap-3 bg-surface-container-low px-5 py-2"
+        className="flex min-h-[60px] items-center gap-3 bg-surface-container-low px-4 py-1.5"
         data-testid="conversation-row"
         data-conversation-id={row.id}
       >
@@ -242,18 +242,18 @@ const ConversationItem = memo(function ConversationItem({
         onClick={onSelect}
         aria-current={isSelected ? 'true' : undefined}
         className={clsx(
-          'flex w-full items-center gap-3 px-5 py-2 text-left transition-colors min-h-[72px] focus-ring',
+          'flex min-h-[60px] w-full items-center gap-3 px-4 text-left transition-colors focus-ring',
           isSelected ? 'bg-surface-container-low' : 'hover:bg-surface-container-low/60',
         )}
       >
         {avatar}
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 border-b ghost-border py-2 pr-8 group-last:border-b-0">
+        <div className="flex min-h-[60px] min-w-0 flex-1 flex-col justify-center gap-0.5 border-b ghost-border-faint pr-8 group-last:border-b-0">
           <div className="flex items-center gap-2 min-w-0">
             <KindGlyph row={row} />
             <p
               className={clsx(
-                'min-w-0 flex-1 truncate text-base text-on-surface',
-                unread ? 'font-semibold' : 'font-normal',
+                'min-w-0 flex-1 truncate text-sm text-on-surface',
+                unread ? 'font-semibold' : 'font-medium',
               )}
               data-testid="conversation-title"
             >
@@ -280,7 +280,7 @@ const ConversationItem = memo(function ConversationItem({
               <span
                 data-testid="conversation-unread-count"
                 aria-label={t('chat.unreadCountAria', { count: row.unreadCount })}
-                className="flex h-5 min-w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-on-primary"
+                className="flex h-[18px] min-w-[18px] flex-shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold leading-none text-on-primary"
               >
                 {row.unreadCount > 99 ? '99+' : row.unreadCount}
               </span>

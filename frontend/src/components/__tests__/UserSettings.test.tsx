@@ -321,14 +321,16 @@ describe('UserSettings Component', () => {
   });
 
   describe('Profile Tab', () => {
-    it('should display user avatar with gradient ring', async () => {
+    it('should display the initials avatar on the tint, with no gradient ring', async () => {
       await act(async () => {
         renderUserSettings();
       });
 
-      // The avatar should be present with gradient border
-      const avatarContainer = document.querySelector('.bg-gradient-to-br');
-      expect(avatarContainer).toBeInTheDocument();
+      // Boreal v2.1: a 40px initials avatar on primary-container; the v2
+      // gradient ring is gone with the rest of the hero-gradient decoration.
+      const avatar = document.querySelector('.rounded-full.bg-primary-container');
+      expect(avatar).toBeInTheDocument();
+      expect(document.querySelector('.bg-gradient-to-br')).not.toBeInTheDocument();
     });
 
     it('should display user stats', async () => {

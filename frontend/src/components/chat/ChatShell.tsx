@@ -32,7 +32,7 @@ export default function ChatShell({ list, thread, hasSelection }: ChatShellProps
       {showList && (
         <div
           data-testid="conversation-pane"
-          className="flex min-h-0 w-full shrink-0 flex-col border-r ghost-border bg-surface lg:w-[360px] xl:w-[400px]"
+          className="flex min-h-0 w-full shrink-0 flex-col border-r ghost-border bg-surface lg:w-[320px] xl:w-[340px]"
         >
           {list}
         </div>

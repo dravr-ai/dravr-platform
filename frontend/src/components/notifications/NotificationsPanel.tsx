@@ -99,7 +99,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
             <button
               onClick={() => markAllAsRead()}
               disabled={isMarkingAllRead}
-              className="btn-base btn-tertiary min-h-[44px] gap-1.5 text-sm disabled:opacity-50"
+              className="btn-base btn-tertiary touch-target gap-1.5 text-sm disabled:opacity-50"
             >
               <CheckCheck className="w-4 h-4" aria-hidden="true" />
               {t('shell.notificationMarkAllRead')}
@@ -117,7 +117,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
               key={key}
               onClick={() => setSelectedCategory(key)}
               className={clsx(
-                '-mb-px flex min-h-[44px] min-w-[44px] items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
+                '-mb-px flex touch-target items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
                 isActive
                   ? 'border-primary text-on-surface'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface',
@@ -136,16 +136,17 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
             <div className="pierre-spinner" />
           </div>
         ) : notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-outline">
-            <p className="text-base font-medium text-on-surface-variant">{t('shell.notificationsEmpty')}</p>
-            <p className="text-sm mt-1">
+          // One sentence where the rows would be, and the second in the caption size.
+          <div className="px-4 py-3 sm:px-6">
+            <p className="text-sm text-on-surface-variant">{t('shell.notificationsEmpty')}</p>
+            <p className="mt-0.5 text-xs text-outline">
               {selectedCategory === 'all'
                 ? t('frag.allCaughtUp')
                 : t('shell.notificationsEmptyCategory', { category: selectedCategory })}
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-outline-variant/40">
+          <div>
             {notifications.map((item) => {
               const isUnread = !item.read_at;
               const meta = NOTIFICATION_CATEGORY_META[item.category];
@@ -154,7 +155,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
               return (
                 <div
                   key={item.id}
-                  className="flex items-start gap-3 sm:gap-4 px-4 sm:px-6 py-4 cursor-pointer hover:bg-surface-container-low/60 transition-colors group"
+                  className="group flex min-h-[48px] cursor-pointer items-start gap-3 border-t ghost-border-faint px-4 py-2.5 transition-colors first:border-t-0 hover:bg-surface-container-low/60 sm:gap-4 sm:px-6"
                   onClick={() => handleNotificationClick(item)}
                 >
                   {/* Unread indicator — the primary dot, the same mark the chat list uses */}
@@ -184,9 +185,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                         {item.title}
                       </p>
                       {collapsedLabel && (
-                        <span className="text-xs text-outline bg-surface-container-low px-1.5 py-0.5 rounded whitespace-nowrap">
-                          {collapsedLabel}
-                        </span>
+                        <span className="whitespace-nowrap font-mono text-xs text-outline">{collapsedLabel}</span>
                       )}
                     </div>
                     <p className="text-xs text-outline mt-0.5 line-clamp-2">{item.body}</p>
@@ -221,7 +220,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                         e.stopPropagation();
                         deleteNotification(item.id);
                       }}
-                      className="text-on-surface-variant hover:text-error opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded hover:bg-surface-container-low min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0"
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded text-on-surface-variant opacity-100 transition-opacity hover:bg-surface-container-low hover:text-error sm:opacity-0 sm:group-hover:opacity-100 touch-target"
                       aria-label={t('shell.notificationDelete')}
                       title={t('common.delete')}
                     >

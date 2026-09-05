@@ -17,15 +17,16 @@ describe('IconButton', () => {
     expect(screen.getByTestId('x-icon')).toBeInTheDocument();
   });
 
-  it('enforces 44x44 minimum hit area at sm size', () => {
+  it('is 28px square at sm size and carries touch-target, which lifts it to 44x44 on a coarse pointer', () => {
     render(
       <IconButton aria-label="Help" size="sm">
         <span />
       </IconButton>,
     );
     const btn = screen.getByRole('button', { name: 'Help' });
-    expect(btn.className).toMatch(/min-w-\[44px\]/);
-    expect(btn.className).toMatch(/min-h-\[44px\]/);
+    expect(btn.className).toMatch(/\bh-7\b/);
+    expect(btn.className).toMatch(/\bw-7\b/);
+    expect(btn.className).toMatch(/\btouch-target\b/);
   });
 
   it('fires onClick', async () => {

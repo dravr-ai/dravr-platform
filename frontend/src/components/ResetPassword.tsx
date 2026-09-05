@@ -165,7 +165,7 @@ export default function ResetPassword({
                 />
               </div>
 
-              <Button
+              <Button size="lg"
                 type="submit"
                 variant="gradient"
                 loading={isLoading}

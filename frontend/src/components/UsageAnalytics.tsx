@@ -185,13 +185,13 @@ export default function UsageAnalytics() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="stat-card-dark">
-            <div className="text-2xl font-bold text-primary">
+            <div className="font-mono text-2xl font-medium text-on-surface">
               {analytics?.time_series?.reduce((sum: number, point: TimeSeriesPoint) => sum + point.request_count, 0) || 0}
             </div>
             <div className="text-sm text-on-surface-variant">Total Requests</div>
           </div>
           <div className="stat-card-dark">
-            <div className="text-2xl font-bold text-activity">
+            <div className="font-mono text-2xl font-medium text-on-surface">
               {analytics?.average_response_time?.toFixed(0) || 0}ms
             </div>
             <div className="text-sm text-on-surface-variant">Avg Response Time</div>

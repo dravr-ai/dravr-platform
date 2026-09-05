@@ -308,7 +308,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               </div>
             )}
 
-            <Button
+            <Button size="lg"
               type="submit"
               variant="primary"
               loading={loginAction.isLoading}

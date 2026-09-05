@@ -15,7 +15,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
 import { useTranslation } from '@pierre/i18n';
-import { defaultConversationTitle } from '@pierre/chat-utils';
+import { defaultConversationTitle, initialsFor } from '@pierre/chat-utils';
 import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
 
 // Category filter options
@@ -407,7 +407,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
               key={filter.key}
               onClick={() => setSelectedCategory(filter.key)}
               className={clsx(
-                '-mb-px flex min-h-[44px] min-w-[44px] items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
+                '-mb-px flex touch-target items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
                 selectedCategory === filter.key
                   ? 'border-primary text-on-surface'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface'
@@ -424,7 +424,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
               key={option.key}
               onClick={() => setSelectedSort(option.key)}
               className={clsx(
-                'flex min-h-[44px] min-w-[44px] items-center justify-center whitespace-nowrap text-sm transition-colors',
+                'flex touch-target items-center justify-center whitespace-nowrap text-sm transition-colors',
                 selectedSort === option.key
                   ? 'font-medium text-on-surface'
                   : 'text-on-surface-variant hover:text-on-surface'
@@ -436,8 +436,8 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
         </div>
       </div>
 
-      {/* Store grid */}
-      <div className="p-6 sidebar-scroll">
+      {/* The catalogue: a hairline list, not a grid of cards */}
+      <div className="px-6 py-2 sidebar-scroll">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -446,37 +446,26 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
             </div>
           </div>
         ) : isListError ? (
-          <div className="text-center py-12">
-            <svg
-              className="w-12 h-12 text-error mx-auto mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-            <h3 className="text-lg font-medium text-on-surface">
+          <div className="py-3">
+            <h3 className="font-sans text-sm font-medium tracking-normal text-error">
               {searchQuery ? t('frag.couldntSearchCoaches') : t('frag.couldntLoadStore')}
             </h3>
-            <p className="text-sm text-on-surface-variant mt-1">
+            <p className="mt-0.5 text-xs text-on-surface-variant">
               {listError instanceof Error && listError.message
                 ? listError.message
                 : t('discover.storeListMissing')}
             </p>
-            <button
-              onClick={handleRetryList}
-              className="btn-base btn-secondary mt-4 min-h-[44px]"
-            >
+            <button onClick={handleRetryList} className="btn-base btn-tertiary btn-sm mt-2 px-0">
               {t('discover.tryAgain')}
             </button>
           </div>
         ) : coaches.length === 0 ? (
-          <div className="text-center py-16">
-            <h3 className="text-lg font-medium text-on-surface">
+          // One sentence where the rows would be, the second in the caption size.
+          <div className="py-3">
+            <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface-variant">
               {searchQuery ? t('discover.noCoachesFound') : t('discover.storeEmpty')}
             </h3>
-            <p className="text-sm text-on-surface-variant mt-1">
+            <p className="mt-0.5 text-xs text-outline">
               {searchQuery
                 ? t('app.noCoachesMatch', { query: searchQuery })
                 : t('discover.noPublishedCoaches')}
@@ -484,7 +473,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="store-coach-grid">
+            <div className="max-w-[1040px]" data-testid="store-coach-grid">
               {coaches.map((coach) => (
                 <CoachCard key={coach.id} coach={coach} onClick={() => handleSelectCoach(coach.id)} />
               ))}
@@ -519,6 +508,13 @@ interface CoachCardProps {
   onClick: () => void;
 }
 
+/**
+ * One row of the catalogue (Boreal v2.1): a 36px initials avatar, the name
+ * with its category as a dot and a word under it, one line of description,
+ * and the install count in mono on the right. The v2 grid of bordered cards
+ * showed the same four facts in three columns of boxes; the tags wait for
+ * the detail view, where there is room to read them.
+ */
 const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
   const { t } = useTranslation();
   const categoryDot = COACH_CATEGORY_DOT[coach.category] ?? 'bg-outline-variant';
@@ -526,52 +522,48 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
   return (
     <button
       onClick={onClick}
-      className="text-left p-5 bg-surface-container-lowest border ghost-border rounded-xl hover:border-primary/40 transition-colors duration-200 group"
+      data-testid="coach-card"
+      className="group flex min-h-[64px] w-full items-center gap-3.5 border-t ghost-border-faint py-3 text-left transition-colors first:border-t-0 hover:bg-surface-container-low/60 focus-ring"
     >
-      {/* Header with category and install count. The category reads the same
-          vocabulary as the tabs above it, so one screen never shows the
-          category in two languages. */}
-      <div className="flex items-center justify-between mb-2">
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-full bg-primary-container font-display text-xs font-semibold text-on-primary-container"
+      >
+        {initialsFor(coach.title)}
+      </span>
+      <span className="flex w-48 shrink-0 flex-col md:w-56">
+        <h3 className="truncate font-sans text-sm font-semibold tracking-normal text-on-surface transition-colors group-hover:text-primary">
+          {coach.title}
+        </h3>
+        {/* The category reads the same vocabulary as the tabs above it, so one
+            screen never shows the category in two languages. */}
         <span
           data-testid="coach-category-badge"
           className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
         >
-          <span aria-hidden="true" className={clsx('h-2 w-2 rounded-full', categoryDot)} />
+          <span aria-hidden="true" className={clsx('h-1.5 w-1.5 rounded-full', categoryDot)} />
           {t(coachCategoryLabelKey(coach.category))}
         </span>
-        <span data-testid="coach-install-count" className="text-xs text-on-surface-variant">
-          {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
-            count: coach.install_count,
-          })}
-        </span>
-      </div>
-
-      {/* Title */}
-      <h3 className="font-semibold text-on-surface mb-1 line-clamp-1 group-hover:text-primary transition-colors">
-        {coach.title}
-      </h3>
-
-      {/* Description */}
-      {coach.description && (
-        <p className="text-sm text-on-surface-variant line-clamp-2 mb-3">{coach.description}</p>
-      )}
-
-      {/* Tags */}
+      </span>
+      <span className="hidden min-w-0 flex-1 truncate text-sm text-on-surface-variant md:inline">
+        {coach.description ?? ''}
+      </span>
+      {/* Tags are words in the caption size, not chips; the first three, on a wide screen. */}
       {coach.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <span className="hidden shrink-0 gap-1.5 text-xs text-outline lg:inline-flex">
           {coach.tags.slice(0, 3).map((tag, index) => (
-            <span
-              key={index}
-              className="px-2 py-0.5 text-xs bg-surface-container-low text-on-surface-variant rounded"
-            >
-              {tag}
+            <span key={tag}>
+              {index > 0 ? <span aria-hidden="true">· </span> : null}
+              <span>{tag}</span>
             </span>
           ))}
-          {coach.tags.length > 3 && (
-            <span className="text-xs text-on-surface-variant">+{coach.tags.length - 3}</span>
-          )}
-        </div>
+        </span>
       )}
+      <span data-testid="coach-install-count" className="ml-auto shrink-0 font-mono text-xs text-outline">
+        {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
+          count: coach.install_count,
+        })}
+      </span>
     </button>
   );
 });
@@ -648,32 +640,32 @@ function CoachDetailView({
 
   return (
     <div className="h-full flex flex-col bg-surface">
-      {/* Header with back button */}
-      <div className="p-4 border-b ghost-border flex items-center gap-3">
+      {/* Header with back button — the same 52px row as every page */}
+      <div className="flex h-[52px] items-center gap-2 border-b ghost-border px-4">
         <button
           onClick={onBack}
           title={t('discover.backToStore')}
           aria-label={t('discover.backToStore')}
-          className="p-2 text-outline hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-outline transition-colors hover:bg-surface-container-low hover:text-on-surface touch-target"
         >
-          <ArrowLeft className="w-5 h-5" aria-hidden="true" />
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         </button>
-        <h2 className="text-lg font-semibold text-on-surface truncate flex-1">{coach.title}</h2>
+        <h2 className="min-w-0 flex-1 truncate font-display text-xl font-semibold text-on-surface">{coach.title}</h2>
       </div>
 
-      {/* Scrollable content */}
+      {/* Scrollable content — one reading column, sections set apart by space, no boxes */}
       <div className="flex-1 overflow-y-auto sidebar-scroll">
-        <div className="p-6 space-y-6">
+        <div className="max-w-[720px] space-y-8 px-6 py-5">
           {/* Category & Stats */}
           <div className="flex items-center justify-between">
             <span
               data-testid="coach-category-badge"
               className="inline-flex items-center gap-2 text-sm text-on-surface-variant"
             >
-              <span aria-hidden="true" className={clsx('h-2 w-2 rounded-full', categoryDot)} />
+              <span aria-hidden="true" className={clsx('h-1.5 w-1.5 rounded-full', categoryDot)} />
               {t(coachCategoryLabelKey(coach.category))}
             </span>
-            <span data-testid="coach-install-count" className="text-sm text-on-surface-variant">
+            <span data-testid="coach-install-count" className="font-mono text-xs text-outline">
               {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
                 count: coach.install_count,
               })}
@@ -682,75 +674,68 @@ function CoachDetailView({
 
           {/* Description */}
           {coach.description && (
-            <p className="text-base text-on-surface-variant leading-relaxed">{coach.description}</p>
+            <p className="text-base leading-relaxed text-on-surface">{coach.description}</p>
           )}
 
-          {/* Tags */}
+          {/* Tags — words separated by dots, not chips */}
           {coach.tags.length > 0 && (
             <div>
-              <h3 className="text-xs font-medium text-outline mb-2">{t('discover.tagsSection')}</h3>
-              <div className="flex flex-wrap gap-2">
+              <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">{t('discover.tagsSection')}</h3>
+              <p className="mt-1.5 text-sm text-on-surface-variant">
                 {coach.tags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="px-3 py-1 text-sm bg-surface-container-low text-on-surface-variant rounded-full"
-                  >
-                    {tag}
+                  <span key={index}>
+                    {index > 0 ? <span aria-hidden="true" className="text-outline"> · </span> : null}
+                    <span>{tag}</span>
                   </span>
                 ))}
-              </div>
+              </p>
             </div>
           )}
 
-          {/* Sample Prompts */}
+          {/* Sample Prompts — a hairline list */}
           {coach.sample_prompts.length > 0 && (
             <div>
-              <h3 className="text-xs font-medium text-outline mb-2">{t('discover.samplePrompts')}</h3>
-              <div className="space-y-2">
+              <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">{t('discover.samplePrompts')}</h3>
+              <ul className="mt-1.5">
                 {coach.sample_prompts.map((prompt, index) => (
-                  <div
-                    key={index}
-                    className="p-3 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface-variant"
-                  >
+                  <li key={index} className="border-t ghost-border-faint py-2.5 text-sm text-on-surface-variant first:border-t-0">
                     {prompt}
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
 
-          {/* System Prompt Preview */}
+          {/* System Prompt Preview — the one framed object on the page: it is code */}
           <div>
-            <h3 className="text-xs font-medium text-outline mb-2">{t('chat.systemPromptLabel')}</h3>
-            <div className="p-3 bg-surface-container-low border ghost-border rounded-lg">
-              <p className="text-sm text-on-surface-variant font-mono whitespace-pre-wrap line-clamp-6">
+            <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">{t('chat.systemPromptLabel')}</h3>
+            <div className="mt-1.5 rounded-lg border ghost-border-faint bg-surface-container-lowest p-3">
+              <p className="font-mono text-xs leading-relaxed text-on-surface-variant whitespace-pre-wrap line-clamp-6">
                 {coach.system_prompt}
               </p>
               {coach.system_prompt.length > 500 && (
-                <p className="text-xs text-on-surface-variant italic mt-2">
+                <p className="mt-2 text-xs italic text-outline">
                   ...and more ({coach.token_count.toLocaleString()} tokens)
                 </p>
               )}
             </div>
           </div>
 
-          {/* Details */}
+          {/* Details — label and value on one line, a faint rule between */}
           <div>
-            <h3 className="text-xs font-medium text-outline mb-2">{t('discover.detailsSection')}</h3>
-            <div className="bg-surface-container-low border ghost-border rounded-lg overflow-hidden">
-              <div className="flex justify-between items-center px-4 py-3 border-b ghost-border">
-                <span className="text-sm text-on-surface-variant">{t('discover.tokenCount')}</span>
-                <span className="text-sm text-on-surface font-medium">{coach.token_count.toLocaleString()}</span>
+            <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">{t('discover.detailsSection')}</h3>
+            <dl className="mt-1.5">
+              <div className="flex items-center justify-between py-2">
+                <dt className="text-sm text-on-surface-variant">{t('discover.tokenCount')}</dt>
+                <dd className="font-mono text-sm text-on-surface">{coach.token_count.toLocaleString()}</dd>
               </div>
               {coach.published_at && (
-                <div className="flex justify-between items-center px-4 py-3">
-                  <span className="text-sm text-on-surface-variant">{t('discover.publishedBadge')}</span>
-                  <span className="text-sm text-on-surface font-medium">
-                    {new Date(coach.published_at).toLocaleDateString()}
-                  </span>
+                <div className="flex items-center justify-between border-t ghost-border-faint py-2">
+                  <dt className="text-sm text-on-surface-variant">{t('discover.publishedBadge')}</dt>
+                  <dd className="font-mono text-sm text-on-surface">{new Date(coach.published_at).toLocaleDateString()}</dd>
                 </div>
               )}
-            </div>
+            </dl>
           </div>
 
           {/* Install/remove failure */}
@@ -785,21 +770,21 @@ function CoachDetailView({
 
       {/* Fixed action bar at bottom. An installed listing is the athlete's own
           copy, so it can be edited from here — the one coach editor outside chat. */}
-      <div className="p-4 border-t ghost-border bg-surface flex gap-3">
+      <div className="flex items-center justify-end gap-2 border-t ghost-border bg-surface px-6 py-3">
         {isInstalled ? (
           <>
             <button
               onClick={onEdit}
               disabled={isInstalling || isOpeningChat}
-              className="flex-1 py-3 px-4 bg-primary/10 text-primary font-medium rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="btn-base btn-tertiary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Pencil className="w-4 h-4" />
+              <Pencil className="h-4 w-4" />
               {t('chat.editCoach')}
             </button>
             <button
               onClick={onRemove}
               disabled={isInstalling}
-              className="flex-1 py-3 px-4 bg-surface-container-high border ghost-border rounded-lg text-on-surface font-medium hover:bg-surface-container-highest transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="btn-base btn-secondary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isInstalling ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -815,7 +800,7 @@ function CoachDetailView({
           <button
             onClick={onInstall}
             disabled={isInstalling}
-            className="w-full py-3 px-4 bg-primary text-on-primary font-medium rounded-lg hover:bg-primary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="btn-base btn-primary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isInstalling ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

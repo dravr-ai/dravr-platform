@@ -86,7 +86,7 @@ export default function ChatComposeMenu({
   };
 
   const itemClass =
-    'w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-on-surface hover:bg-surface-container-low rounded-lg transition-colors min-h-[44px]';
+    'w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-on-surface hover:bg-surface-container-low rounded-lg transition-colors touch-target';
 
   return (
     <div ref={rootRef} className="relative flex-shrink-0">
@@ -98,9 +98,9 @@ export default function ChatComposeMenu({
         aria-expanded={open}
         aria-label={t('chat.newMenuButton')}
         title={t('chat.newMenuButton')}
-        className="rounded-lg text-on-primary bg-primary hover:bg-primary-hover transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-primary transition-colors hover:bg-surface-container-low disabled:opacity-50 touch-target"
       >
-        <Plus className="w-4 h-4" aria-hidden="true" />
+        <Plus className="h-[18px] w-[18px]" aria-hidden="true" />
       </button>
 
       {open && (

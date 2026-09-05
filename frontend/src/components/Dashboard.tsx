@@ -82,8 +82,6 @@ const ToolUsagePanel = lazy(() => import('./ToolUsagePanel'));
 const BillingTab = lazy(() => import('./BillingTab'));
 const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
-import { Card } from './ui';
-import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { BILLING_ENABLED } from '../constants/features';
 import { PAGE_GUTTER_CLASS, layoutForRoute } from '../constants/surfaceLayout';
 import { useTranslation } from '@pierre/i18n';
@@ -171,7 +169,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // truncating again, wider than 480 swallows half the chat pane.
   const SIDEBAR_MIN_WIDTH = 220;
   const SIDEBAR_MAX_WIDTH = 480;
-  const SIDEBAR_DEFAULT_WIDTH = 260;
+  // 232px, where the measured product sidebars sit (Linear 232, PostHog 250);
+  // Boreal v2 shipped 260. A stored wider preference is honoured as is.
+  const SIDEBAR_DEFAULT_WIDTH = 232;
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const stored = localStorage.getItem('pierre.sidebar_width');
     const parsed = stored ? Number.parseInt(stored, 10) : Number.NaN;
@@ -554,7 +554,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         localStorage.setItem('pierre.sidebar_collapsed', String(next));
         setUserSidebarCollapsed(next);
       }}
-      className="hidden lg:flex text-outline hover:text-primary transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] items-center justify-center"
+      className="hidden lg:flex text-outline hover:text-primary transition-colors flex-shrink-0 touch-target items-center justify-center"
       title={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
       aria-label={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
     >
@@ -602,13 +602,13 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       >
         {/* Logo Section */}
         <div className={clsx(
-          'flex items-center border-b ghost-border transition-all duration-300',
-          sidebarCollapsed ? 'px-3 py-4 justify-center' : 'pl-5 pr-2 py-3 gap-3 justify-between'
+          'flex h-[52px] items-center border-b ghost-border transition-all duration-300',
+          sidebarCollapsed ? 'px-3 justify-center' : 'pl-4 pr-2 gap-2.5 justify-between'
         )}>
-          <div className="flex items-center gap-3">
-            <DravrLogo size={sidebarCollapsed ? 32 : 28} />
+          <div className="flex items-center gap-2.5">
+            <DravrLogo size={sidebarCollapsed ? 32 : 24} />
             {!sidebarCollapsed && (
-              <span className="font-display text-lg font-semibold tracking-brand text-primary">
+              <span className="font-display text-base font-semibold tracking-brand text-primary">
                 {PRODUCT_WORDMARK}
               </span>
             )}
@@ -620,8 +620,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             and the conversation pane below takes the rest of the column —
             the list is the sidebar's main content there, not a footnote
             under the tabs. */}
-        <nav className="flex-1 overflow-x-hidden overflow-y-auto py-4">
-          <ul className="space-y-1 px-3">
+        <nav className="flex-1 overflow-x-hidden overflow-y-auto py-2">
+          <ul className="space-y-px px-2.5">
             {tabs.map((tab, index) => {
               // Render section header when the section changes
               const prevTab = index > 0 ? tabs[index - 1] : null;
@@ -631,7 +631,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               return (
                 <li key={tab.id}>
                   {showSection && (
-                    <div className={clsx('px-3 pt-5 pb-1.5 text-xs font-medium text-outline', index === 0 && '!pt-0')}>
+                    <div className={clsx('px-2.5 pt-4 pb-1 text-xs font-medium text-outline', index === 0 && '!pt-2')}>
                       {tab.section}
                     </div>
                   )}
@@ -647,7 +647,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                       }
                     }}
                     className={clsx(
-                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative min-h-[44px]',
+                      'group relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium transition-all duration-200 touch-target [&_svg]:h-4 [&_svg]:w-4',
                       {
                         'bg-primary-container text-on-primary-container': activeTab === tab.id,
                         'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface': activeTab !== tab.id,
@@ -702,7 +702,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             >
               {/* User Avatar with online indicator */}
               <div className="relative flex-shrink-0">
-                <div className="w-8 h-8 bg-primary-container rounded-full flex items-center justify-center">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-container">
                   <span className="text-xs font-semibold text-on-primary-container">
                     {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
                   </span>
@@ -730,7 +730,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               onClick={() => setActiveTab('settings')}
               className={clsx(
                 'text-outline hover:text-primary transition-colors flex-shrink-0 flex items-center justify-center',
-                sidebarCollapsed ? 'min-w-[44px] min-h-[44px]' : 'min-w-[44px] min-h-[44px]',
+                'touch-target',
                 activeTab === 'settings' && 'text-primary'
               )}
               title={t('shell.navSettings')}
@@ -745,7 +745,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             {/* Sign out button */}
             <button
               onClick={logout}
-              className="text-outline hover:text-primary transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
+              className="text-outline hover:text-primary transition-colors flex-shrink-0 touch-target flex items-center justify-center"
               title={t('shell.navSignOut')}
               aria-label={t('shell.navSignOut')}
             >
@@ -790,7 +790,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {/* Top Header Bar - only for admin tabs; user tabs have their own TabHeader */}
         {isAdminUser && (
           <header className="bg-surface border-b ghost-border sticky top-0 z-30 flex-shrink-0">
-            <div className="px-4 md:px-6 py-3 md:py-4 flex items-center justify-between">
+            <div className="flex h-[52px] items-center justify-between px-4 md:px-6">
               <div className="min-w-0">
                 <h1 className="font-display text-xl font-semibold text-on-surface truncate">
                   {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? t('shell.navSettings') : '')}
@@ -823,11 +823,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         >
 
           {/* Content */}
-          {activeTab === 'discover' && (
-            <div className="px-4 pt-4 md:px-6 md:pt-6 empty:hidden">
-              <ConnectProviderBanner onNavigate={applyRoute} />
-            </div>
-          )}
         {/* Overview tab removed — admin lands directly on Users */}
 
         {activeTab === 'connections' && (
@@ -1002,12 +997,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               </Suspense>
             ) : (
               <>
-                <Card variant="dark">
-                  <h2 className="text-xl font-semibold mb-4 text-on-surface">{t('shell.navApiKeyManagement')}</h2>
-                  <p className="text-on-surface-variant mb-4">
-                    {t('shell.apiKeysDescription')}
-                  </p>
-                </Card>
+                {/* The page's one line of explanation, not a card above the list. */}
+                <p className="max-w-[720px] text-sm text-on-surface-variant">{t('shell.apiKeysDescription')}</p>
                 <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
                   <ApiKeyList onViewDetails={setSelectedAdminToken} />
                 </Suspense>

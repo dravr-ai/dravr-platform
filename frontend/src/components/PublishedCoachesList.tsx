@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Card, Button, Select } from './ui';
+import { Button, Select } from './ui';
 import { clsx } from 'clsx';
 import { ConfirmDialog } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -87,15 +87,10 @@ export default function PublishedCoachesList() {
 
   if (error) {
     return (
-      <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/20 flex items-center justify-center">
-          <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        </div>
-        <h3 className="text-lg font-medium text-on-surface mb-2">Failed to Load Published Coaches</h3>
-        <p className="text-on-surface-variant">Unable to fetch published coaches. Please try again.</p>
-      </Card>
+      <div className="py-3">
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Published Coaches</h3>
+        <p className="mt-0.5 text-xs text-outline">Unable to fetch published coaches. Please try again.</p>
+      </div>
     );
   }
 
@@ -103,15 +98,10 @@ export default function PublishedCoachesList() {
 
   if (coaches.length === 0) {
     return (
-      <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-container-high flex items-center justify-center">
-          <svg className="w-8 h-8 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-        </div>
-        <h3 className="text-lg font-medium text-on-surface mb-2">No Published Coaches</h3>
-        <p className="text-on-surface-variant">Coaches will appear here once they are approved and published.</p>
-      </Card>
+      <div className="py-3">
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Published Coaches</h3>
+        <p className="mt-0.5 text-xs text-outline">Coaches will appear here once they are approved and published.</p>
+      </div>
     );
   }
 

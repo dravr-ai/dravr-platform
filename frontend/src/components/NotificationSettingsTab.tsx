@@ -12,7 +12,7 @@ import {
   notificationPreferenceUpdate,
 } from '@pierre/shared-constants';
 import type { NotificationCategory } from '@pierre/shared-types';
-import { Card, Select } from './ui';
+import { Section, Select } from './ui';
 import { useNotificationPreferences } from '../hooks/useNotifications';
 import { useTranslation } from '@pierre/i18n';
 
@@ -97,39 +97,30 @@ export default function NotificationSettingsTab() {
 
   if (isLoading) {
     return (
-      <Card variant="dark">
-        <p className="text-sm text-on-surface-variant" data-testid="notification-prefs-loading">
-          {t('notifPrefs.loading')}
-        </p>
-      </Card>
+      <p className="text-sm text-on-surface-variant" data-testid="notification-prefs-loading">
+        {t('notifPrefs.loading')}
+      </p>
     );
   }
 
   if (isError) {
     return (
-      <Card variant="dark">
-        <p className="text-sm text-error" data-testid="notification-prefs-error">
-          {t('notifPrefs.loadFailed')}
-        </p>
-      </Card>
+      <p className="text-sm text-error" data-testid="notification-prefs-error">
+        {t('notifPrefs.loadFailed')}
+      </p>
     );
   }
 
   return (
-    <Card variant="dark">
-      <h2 className="text-lg font-semibold text-on-surface mb-2">{t('notifPrefs.title')}</h2>
-      <p className="text-sm text-on-surface-variant mb-6">
-        {t('notifPrefs.intro')}
-      </p>
-
-      <div className="space-y-3" data-testid="notification-prefs-list">
+    <Section title={t('notifPrefs.title')} description={t('notifPrefs.intro')}>
+      <div data-testid="notification-prefs-list">
         {rows.map((pref) => {
           const meta = NOTIFICATION_CATEGORY_META[pref.category];
           const isOpen = expanded === pref.category;
           return (
             <div
               key={pref.category}
-              className="p-4 bg-surface-container-low rounded-xl border ghost-border"
+              className="border-t ghost-border-faint py-3 first:border-t-0"
               data-testid={`notification-pref-${pref.category}`}
             >
               <div className="flex items-start justify-between gap-4">
@@ -240,6 +231,6 @@ export default function NotificationSettingsTab() {
           );
         })}
       </div>
-    </Card>
+    </Section>
   );
 }

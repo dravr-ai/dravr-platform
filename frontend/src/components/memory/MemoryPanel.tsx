@@ -11,7 +11,7 @@ import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
 import { userApi } from '../../services/api';
-import { Card, Button, Badge, ConfirmDialog } from '../ui';
+import { Section, Button, Badge, ConfirmDialog } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
@@ -83,35 +83,26 @@ export default function MemoryPanel() {
   }, [facts]);
 
   return (
-    <div className="space-y-4">
-      <Card className="p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-on-surface">
-              {t('shell.memoryTitle')}
-            </h2>
-            <p className="mt-1 text-sm text-on-surface-variant">
-              {t('app.memoryPanelBlurb')}
-            </p>
-          </div>
-          <Button variant="secondary" onClick={() => refetch()}>
+    <div className="space-y-8">
+      <Section
+        title={t('shell.memoryTitle')}
+        description={t('app.memoryPanelBlurb')}
+        actions={
+          <Button variant="tertiary" size="sm" onClick={() => refetch()}>
             {t('shell.memoryRefresh')}
           </Button>
-        </div>
+        }
+      >
 
-        {/* Chips, the control the phone already uses for this filter. A native
-            select sitting between design-system cards paints its own focus
-            ring and its own type, and the two clients then answer the same
-            question with two different widgets. */}
-        <div className="mt-4">
-          <p className="text-xs font-medium text-outline">
-            {t('shell.memoryFilterByKind')}
-          </p>
+        {/* Text tabs, the filter language of every athlete surface (DESIGN.md
+            §5): sentence-case words under a primary underline, the count in
+            mono beside them. The phone keeps its chips for now. */}
+        <div>
           <div
             role="group"
             aria-label={t('shell.memoryFilterByKind')}
             data-testid="memory-kind-filter"
-            className="mt-2 flex flex-wrap items-center gap-2"
+            className="flex items-center gap-[18px] overflow-x-auto border-b ghost-border"
           >
             {kindOptions(t).map((opt) => {
               const active = kindFilter === opt.value;
@@ -122,77 +113,70 @@ export default function MemoryPanel() {
                   aria-pressed={active}
                   data-testid={`memory-kind-chip-${opt.value === '' ? 'all' : opt.value}`}
                   onClick={() => setKindFilter(opt.value)}
-                  className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                  className={`-mb-px flex touch-target items-center justify-center whitespace-nowrap border-b-2 pb-2.5 pt-2 text-sm font-medium transition-colors ${
                     active
-                      ? 'border-primary bg-primary/15 text-on-surface'
-                      : 'ghost-border bg-surface-container-low text-on-surface-variant hover:text-on-surface'
+                      ? 'border-primary text-on-surface'
+                      : 'border-transparent text-on-surface-variant hover:text-on-surface'
                   }`}
                 >
                   {opt.label}
                 </button>
               );
             })}
-            <span data-testid="memory-fact-count" className="ml-1 text-xs text-outline">
+            <span data-testid="memory-fact-count" className="ml-auto whitespace-nowrap font-mono text-xs text-outline">
               {factCount(t, facts.length)}
             </span>
           </div>
         </div>
-      </Card>
+      </Section>
 
       {isLoading ? (
-        <Card className="p-12">
-          <div className="flex justify-center">
-            <div className="pierre-spinner" />
-          </div>
-        </Card>
+        <div className="flex justify-center py-8">
+          <div className="pierre-spinner" />
+        </div>
       ) : isError ? (
-        <Card className="p-6">
-          <p className="text-sm text-error">
-            {t('frag.failedLoadMemory')}{' '}
-            {error instanceof Error ? error.message : String(error)}
-          </p>
-        </Card>
+        <p className="text-sm text-error">
+          {t('frag.failedLoadMemory')}{' '}
+          {error instanceof Error ? error.message : String(error)}
+        </p>
       ) : facts.length === 0 ? (
         // Two different absences. `facts` is the FILTERED list, so a type with
         // no matches told an athlete who has memory that they have none and
         // invited them to go earn some. The filtered case says what it means
         // and hands back the way out.
-        <Card className="p-12 text-center">
-          <div data-testid={kindFilter === '' ? 'memory-empty' : 'memory-empty-filtered'}>
-            <p className="text-on-surface-variant">
-              {kindFilter === '' ? t('shell.memoryEmpty') : t('shell.memoryEmptyFiltered')}
-            </p>
-            <p className="mt-2 text-xs text-outline">
-              {kindFilter === '' ? t('shell.memoryEmptyHint') : t('shell.memoryEmptyFilteredHint')}
-            </p>
-            {kindFilter === '' ? null : (
-              <div className="mt-4">
-                <Button
-                  variant="secondary"
-                  onClick={() => setKindFilter('')}
-                  data-testid="memory-show-all-kinds"
-                >
-                  {t('shell.memoryShowAllKinds')}
-                </Button>
-              </div>
-            )}
-          </div>
-        </Card>
+        <div data-testid={kindFilter === '' ? 'memory-empty' : 'memory-empty-filtered'} className="py-3">
+          <p className="text-sm text-on-surface-variant">
+            {kindFilter === '' ? t('shell.memoryEmpty') : t('shell.memoryEmptyFiltered')}
+          </p>
+          <p className="mt-1 text-xs text-outline">
+            {kindFilter === '' ? t('shell.memoryEmptyHint') : t('shell.memoryEmptyFilteredHint')}
+          </p>
+          {kindFilter === '' ? null : (
+            <div className="mt-3">
+              <Button
+                variant="tertiary"
+                size="sm"
+                onClick={() => setKindFilter('')}
+                data-testid="memory-show-all-kinds"
+              >
+                {t('shell.memoryShowAllKinds')}
+              </Button>
+            </div>
+          )}
+        </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-8">
           {Array.from(groupedByKind.entries()).map(([kind, items]) => (
-            <Card key={kind} className="overflow-hidden">
-              <div className="border-b border-outline-variant bg-surface-container px-4 py-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant={KIND_VARIANT[kind]}>{t(MEMORY_KIND_LABEL_KEY[kind])}</Badge>
-                  <span data-testid="memory-fact-count" className="text-xs text-on-surface-variant">
-                    {factCount(t, items.length)}
-                  </span>
-                </div>
+            <section key={kind}>
+              <div className="flex items-center gap-2 border-b ghost-border-faint pb-2">
+                <Badge variant={KIND_VARIANT[kind]}>{t(MEMORY_KIND_LABEL_KEY[kind])}</Badge>
+                <span data-testid="memory-fact-count" className="text-xs text-on-surface-variant">
+                  {factCount(t, items.length)}
+                </span>
               </div>
-              <ul className="divide-y divide-outline-variant">
+              <ul>
                 {items.map((fact) => (
-                  <li key={fact.id} className="flex items-start justify-between gap-4 px-4 py-3">
+                  <li key={fact.id} className="flex items-start justify-between gap-4 border-t ghost-border-faint py-3 first:border-t-0">
                     <div className="min-w-0 flex-1">
                       {/* The server renders the sentence in the athlete's locale;
                           the panel shows it verbatim so no client grammar exists. */}
@@ -207,7 +191,8 @@ export default function MemoryPanel() {
                       </p>
                     </div>
                     <Button
-                      variant="secondary"
+                      variant="tertiary"
+                      size="sm"
                       onClick={() => setPendingForget(fact)}
                       disabled={forgetMutation.isPending}
                     >
@@ -216,7 +201,7 @@ export default function MemoryPanel() {
                   </li>
                 ))}
               </ul>
-            </Card>
+            </section>
           ))}
         </div>
       )}

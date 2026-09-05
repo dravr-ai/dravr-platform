@@ -8,6 +8,10 @@
 export { Button } from './Button';
 export { IconButton } from './IconButton';
 export { Card, CardHeader } from './Card';
+export { Section } from './Section';
+export type { SectionProps } from './Section';
+export { EmptyState } from './EmptyState';
+export type { EmptyStateProps, EmptyStateAction } from './EmptyState';
 export { Badge } from './Badge';
 export { StatusIndicator } from './StatusIndicator';
 export { StatusFilter } from './StatusFilter';

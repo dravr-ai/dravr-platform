@@ -337,19 +337,19 @@ function SummaryStats({ summary }: { summary: RecentActivityResponse['summary'] 
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-primary">
+        <div className="font-mono text-2xl font-medium text-on-surface">
           {summary?.active_conversations ?? 0}
         </div>
         <div className="text-sm text-on-surface-variant">Active Conversations (15m)</div>
       </div>
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-primary">
+        <div className="font-mono text-2xl font-medium text-on-surface">
           {summary?.llm_calls_today ?? 0}
         </div>
         <div className="text-sm text-on-surface-variant">LLM Calls Today</div>
       </div>
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-activity">
+        <div className="font-mono text-2xl font-medium text-on-surface">
           {formatTokens(summary?.total_tokens_today ?? 0)}
         </div>
         <div className="text-sm text-on-surface-variant">Tokens Today</div>

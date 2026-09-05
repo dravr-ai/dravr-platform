@@ -336,23 +336,23 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
       {summaryData?.data && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-on-surface">{summaryData.data.total_tools}</div>
+            <div className="font-mono text-2xl font-medium text-on-surface">{summaryData.data.total_tools}</div>
             <div className="text-sm text-on-surface-variant">Total Tools</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-success">{summaryData.data.enabled_tools}</div>
+            <div className="font-mono text-2xl font-medium text-on-surface">{summaryData.data.enabled_tools}</div>
             <div className="text-sm text-on-surface-variant">Enabled</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-error">{summaryData.data.total_tools - summaryData.data.enabled_tools}</div>
+            <div className="font-mono text-2xl font-medium text-on-surface">{summaryData.data.total_tools - summaryData.data.enabled_tools}</div>
             <div className="text-sm text-on-surface-variant">Disabled</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-primary">{summaryData.data.overridden_tools}</div>
+            <div className="font-mono text-2xl font-medium text-on-surface">{summaryData.data.overridden_tools}</div>
             <div className="text-sm text-on-surface-variant">Overrides</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-warning">{summaryData.data.globally_disabled_count}</div>
+            <div className="font-mono text-2xl font-medium text-on-surface">{summaryData.data.globally_disabled_count}</div>
             <div className="text-sm text-on-surface-variant">Global Blocks</div>
           </Card>
         </div>

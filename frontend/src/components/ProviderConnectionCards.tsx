@@ -1,4 +1,4 @@
-// ABOUTME: Provider connection cards for the chat interface empty state
+// ABOUTME: Provider connection rows for onboarding — one hairline row per provider: its glyph in its colour, name, one line, status, action
 // ABOUTME: Displays fitness providers from server with connection status and OAuth initiation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,40 +9,32 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { track } from '../services/analytics';
-import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import SciotteLoginModal from './SciotteLoginModal';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import { useTranslation } from '@pierre/i18n';
 
-// Brand colors and hover colors for known providers. After the 2026-Q2 provider
-// cleanup the API surfaces only three: `sciotte` (Strava-branded), `sciotte_garmin`
-// (Garmin-branded), and `whoop`. Unknown ids fall back to DEFAULT_STYLE below.
-const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }> = {
-  sciotte: {
-    brandColor: 'bg-[#FC4C02]',
-    hoverColor: 'hover:border-[#FC4C02]',
-  },
-  sciotte_garmin: {
-    brandColor: 'bg-[#007CC3]',
-    hoverColor: 'hover:border-[#007CC3]',
-  },
-  whoop: {
-    brandColor: 'bg-[#1A1A1A]',
-    hoverColor: 'hover:border-[#1A1A1A]',
-  },
-  intervals_icu: {
-    brandColor: 'bg-[#1273DE]',
-    hoverColor: 'hover:border-[#1273DE]',
-  },
+// Brand colours for known providers, carried by the glyph rather than by a
+// tile (DESIGN.md §5: brand marks are glyphs). Third-party colours are the one
+// allowed hex carve-out; WHOOP's is black, which is invisible on the dark
+// canvas, so its glyph takes the body ink. After the 2026-Q2 provider cleanup
+// the API surfaces `sciotte` (Strava-branded), `sciotte_garmin` (Garmin-branded),
+// `whoop` and `intervals_icu`; unknown ids fall back to DEFAULT_STYLE below.
+const PROVIDER_STYLES: Record<string, { glyphColor: string }> = {
+  sciotte: { glyphColor: 'text-[#FC4C02]' },
+  sciotte_garmin: { glyphColor: 'text-[#007CC3]' },
+  whoop: { glyphColor: 'text-on-surface' },
+  intervals_icu: { glyphColor: 'text-[#1273DE]' },
 };
 
 // Default style for unknown providers
-const DEFAULT_STYLE = {
-  brandColor: 'bg-surface-container-low',
-  hoverColor: 'hover:border-on-surface-variant',
-};
+const DEFAULT_STYLE = { glyphColor: 'text-on-surface-variant' };
+
+// One row, whichever provider: a 24px glyph, the name with its one line
+// beside it, the status or action on the right, a faint hairline above.
+const ROW_CLASS =
+  'group flex w-full items-center gap-3 rounded-lg border-t ghost-border-faint py-3 text-left first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
 
 // The corpus key of the one-line blurb a provider's capability set earns;
 // the card resolves it with t() so the line reads in the athlete's language.
@@ -284,18 +276,13 @@ export default function ProviderConnectionCards({
 
   if (isLoading) {
     return (
-      <div className="w-full space-y-2">
+      <div className="w-full">
         {[1, 2, 3, 4, 5].map((i) => (
-          <Card key={i} variant="dark" className="px-5 py-4 animate-pulse">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-surface-container-high flex-shrink-0" />
-              <div className="flex-1">
-                <div className="h-4 w-32 bg-surface-container-high rounded mb-2" />
-                <div className="h-3 w-48 bg-surface-container-low rounded" />
-              </div>
-              <div className="h-4 w-16 bg-surface-container-low rounded flex-shrink-0" />
-            </div>
-          </Card>
+          <div key={i} className="flex animate-pulse items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0">
+            <div className="h-6 w-6 flex-shrink-0 rounded bg-surface-container-high" />
+            <div className="h-3 w-40 rounded bg-surface-container-high" />
+            <div className="ml-auto h-3 w-16 flex-shrink-0 rounded bg-surface-container-low" />
+          </div>
         ))}
       </div>
     );
@@ -315,7 +302,7 @@ export default function ProviderConnectionCards({
     .filter((p) => p.provider !== 'strava' && p.provider !== 'garmin');
 
   return (
-    <div className="w-full space-y-2">
+    <div className="w-full">
       {providers.map((provider) => {
         const style = PROVIDER_STYLES[provider.provider] ?? DEFAULT_STYLE;
         const isConnecting = connectingProvider === provider.provider;
@@ -328,7 +315,7 @@ export default function ProviderConnectionCards({
             type="button"
             onClick={() => handleConnect(provider)}
             disabled={provider.connected || isConnecting || !!connectingProvider}
-            className="w-full text-left focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl disabled:cursor-default group"
+            className={`${ROW_CLASS} disabled:cursor-default`}
             aria-label={
               provider.connected
                 ? t('providers.isConnectedAria', { provider: provider.display_name })
@@ -337,63 +324,34 @@ export default function ProviderConnectionCards({
                   : t('providers.connectToAria', { provider: provider.display_name })
             }
           >
-            <Card
-              variant="dark"
-              className={`px-5 py-4 transition-all duration-200 border ${
-                provider.connected
-                  ? 'border-success/40'
-                  : isConnecting
-                    ? 'border-primary'
-                    : isNonOAuth
-                      ? 'border-outline-variant/20 opacity-60'
-                      : `border-outline-variant/30 ${style.hoverColor}`
-              }`}
+            <span
+              aria-hidden="true"
+              className={`flex h-6 w-6 flex-shrink-0 items-center justify-center ${isNonOAuth ? 'opacity-60' : ''} ${style.glyphColor}`}
             >
-              <div className="flex items-center gap-4">
-                <div
-                  className={`flex-shrink-0 w-12 h-12 rounded-xl ${style.brandColor} flex items-center justify-center text-on-surface`}
-                >
-                  {isConnecting ? (
-                    <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
-                  ) : (
-                    <ProviderIcon providerId={provider.provider} className="w-6 h-6" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-on-surface text-base leading-tight">{provider.display_name}</span>
-                    {provider.connected && <Badge variant="success">{t('providers.connected')}</Badge>}
-                    {isNonOAuth && !provider.connected && <Badge variant="secondary">{t('providers.demoBadge')}</Badge>}
-                  </div>
-                  <p className="text-sm text-on-surface-variant mt-0.5 leading-snug">
-                    {t(providerDescriptionKey(provider))}
-                  </p>
-                </div>
-                {isActionable && (
-                  <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-on-surface-variant group-hover:text-on-surface transition-colors">
-                    {t('providers.connect')}
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </span>
-                )}
-                {isActionable && (
-                  <svg
-                    className="flex-shrink-0 sm:hidden w-4 h-4 text-outline group-hover:text-on-surface transition-colors"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                )}
-              </div>
-            </Card>
+              {isConnecting ? (
+                <div className="pierre-spinner h-5 w-5"></div>
+              ) : (
+                <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
+              )}
+            </span>
+            <span className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 ${isNonOAuth ? 'opacity-60' : ''}`}>
+              <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
+              <span className="min-w-0 truncate text-xs text-on-surface-variant">{t(providerDescriptionKey(provider))}</span>
+            </span>
+            {provider.connected && (
+              <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-xs text-on-surface-variant">
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
+                {t('providers.connected')}
+              </span>
+            )}
+            {isNonOAuth && !provider.connected && (
+              <span className="flex-shrink-0 text-xs text-outline">{t('providers.demoBadge')}</span>
+            )}
+            {isActionable && (
+              <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
+                {t('providers.connect')}
+              </span>
+            )}
           </button>
         );
       })}
@@ -404,47 +362,27 @@ export default function ProviderConnectionCards({
           type="button"
           onClick={onSkip}
           disabled={isSkipPending}
-          className="w-full text-left focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl group"
+          className={ROW_CLASS}
           aria-label={t('providers.skipAndChat')}
         >
-          <Card
-            variant="dark"
-            className="px-5 py-4 transition-all duration-200 border border-outline-variant/30 hover:border-primary"
-          >
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container">
-                {isSkipPending ? (
-                  <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
-                ) : (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="font-semibold text-on-surface text-base leading-tight">
-                  {isSkipPending ? t('providers.starting') : t('providers.startChatting')}
-                </span>
-                <p className="text-sm text-on-surface-variant mt-0.5 leading-snug">
-                  {t('providers.connectLater')}
-                </p>
-              </div>
-              <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-on-surface-variant group-hover:text-on-surface transition-colors">
-                {t('common.skip')}
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </span>
-              <svg
-                className="flex-shrink-0 sm:hidden w-4 h-4 text-outline group-hover:text-primary transition-colors"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          <span aria-hidden="true" className="flex h-6 w-6 flex-shrink-0 items-center justify-center text-primary">
+            {isSkipPending ? (
+              <div className="pierre-spinner h-5 w-5"></div>
+            ) : (
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
-            </div>
-          </Card>
+            )}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+            <span className="text-sm font-medium text-on-surface">
+              {isSkipPending ? t('providers.starting') : t('providers.startChatting')}
+            </span>
+            <span className="min-w-0 truncate text-xs text-on-surface-variant">{t('providers.connectLater')}</span>
+          </span>
+          <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
+            {t('common.skip')}
+          </span>
         </button>
       )}
 

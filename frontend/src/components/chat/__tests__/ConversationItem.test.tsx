@@ -78,10 +78,12 @@ describe('ConversationItem anatomy', () => {
     expect(screen.getByTestId('conversation-row')).toHaveAttribute('data-unread', 'true');
   });
 
-  it('keeps the title at normal weight and shows no count once everything is read', () => {
+  it('drops the title to medium weight and shows no count once everything is read', () => {
     renderRow(conversation({ unread_count: 0 }));
 
-    expect(screen.getByTestId('conversation-title')).toHaveClass('font-normal');
+    // Boreal v2.1: navigable text is weight 500 at 13px; unread lifts it to 600.
+    expect(screen.getByTestId('conversation-title')).toHaveClass('font-medium');
+    expect(screen.getByTestId('conversation-title')).not.toHaveClass('font-semibold');
     expect(screen.queryByTestId('conversation-unread-count')).toBeNull();
   });
 
