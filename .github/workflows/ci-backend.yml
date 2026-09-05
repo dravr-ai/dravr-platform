@@ -382,7 +382,21 @@ jobs:
 
     steps:
       - name: Install git
-        run: apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1
+        # The lockbud image's Debian mirrors fail intermittently: apt exits 100
+        # before checkout, so the job reds main with no analysis run and no log
+        # line naming the mirror (three runs on 2026-09-04/05, green runs in
+        # between). Retry with backoff and keep apt's output, so a real failure
+        # says which mirror refused instead of hiding behind /dev/null.
+        run: |
+          for attempt in 1 2 3 4; do
+            if apt-get update -qq && apt-get install -y -qq --no-install-recommends git; then
+              exit 0
+            fi
+            echo "apt attempt ${attempt} failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::git could not be installed in the lockbud container after 4 attempts"
+          exit 1
 
       - name: Checkout code
         uses: actions/checkout@v6
