@@ -7,12 +7,36 @@
 name: "CI: Mobile E2E (Android)"
 
 on:
+  push:
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
+    paths:
+      - 'frontend-mobile/**'
+      # Only the shared packages frontend-mobile depends on. `packages/**` would put
+      # a macOS runner (billed at 10x) on every push to mcp-types, scene-types or the
+      # eslint/tsconfig configs, which the app does not consume.
+      - 'packages/api-client/**'
+      - 'packages/chat-utils/**'
+      - 'packages/domain-utils/**'
+      - 'packages/i18n/**'
+      - 'packages/shared-constants/**'
+      - 'packages/shared-types/**'
+      - 'packages/ui-logic/**'
+      - '.github/workflows/mobile-e2e-android.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # On main the sha is part of the group, so every commit gets its own group
+  # and nothing can cancel another commit's verdict. Branches share a group per
+  # ref and keep cancelling, where fast feedback beats a stale result. Without the
+  # sha this lane would lose verdicts the moment it gained a push trigger: a burst
+  # of mobile pushes would cancel each other's e2e run (carnet#169 on ci-postgres).
+  # `github.event_name` is in the group for the mirror-image reason: a scheduled or
+  # dispatched run on main carries the TIP's sha, so without it the 06:00 cron joins
+  # the tip's push-run group and kills that verdict mid-flight (ci-backend.yml records
+  # the same collision on 2026-08-31).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 permissions:
@@ -265,31 +289,34 @@ jobs:
           echo "Smoke test PASSED."
 
           MAESTRO_EXIT=0
-          SUITE_MODE="$MAESTRO_SUITE_MODE"
-          echo "Suite mode: $SUITE_MODE"
 
-          if [ "$SUITE_MODE" = "critical" ]; then
-            echo "Running critical-path subset with per-test retry..."
-            # Flows measured passing on an Android emulator against the tree as checked in
-            # (Pixel 6 / API 33 and Pixel 7 / API 35, 2026-09-05), one per area. Two rules
-            # decided the list, and both matter more than the count:
-            #   - a flow asserting English copy is excluded: the chrome defaults to fr, so
-            #     it fails on every platform until it asserts by test id;
-            #   - a flow whose assertions sit inside `runFlow: when: visible:` guards is
-            #     excluded, because it goes green by skipping its own body. discover/01 is
-            #     out for that reason: its edit-sheet assertions need an installed coach.
-            # settings/06 earns its place only weakly — it is notVisible-only, so it would
-            # also pass on a blank screen; it stays as the settings smoke until a positive
-            # settings assertion exists that does not depend on English copy.
-            CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/04-send-message-response.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml visual/01-authentication.yaml"
-          else
-            echo "Push to main: smoke test already validated the environment."
-            if [ -f maestro-smoke-android.xml ]; then
-              cp maestro-smoke-android.xml maestro-results-android.xml
-            else
-              echo '<?xml version="1.0" encoding="UTF-8"?><testsuites></testsuites>' > maestro-results-android.xml
-            fi
-            CRITICAL_TESTS=""
+          # Every trigger runs the critical subset (decided 2026-09-05). The mode this
+          # replaces ran one flow on a scheduled main run — a rendered login screen was
+          # the whole nightly verdict — so the smoke branch is gone with it. The
+          # connectivity smoke above still runs first and still aborts the job.
+          #
+          # Flows measured passing on an Android emulator against the tree as checked in
+          # (Pixel 6 / API 33 and Pixel 7 / API 35, 2026-09-05), one per area. Two rules
+          # decided the list, and both matter more than the count:
+          #   - a flow asserting English copy is excluded: the chrome defaults to fr, so
+          #     it fails on every platform until it asserts by test id;
+          #   - a flow whose assertions sit inside `runFlow: when: visible:` guards is
+          #     excluded, because it goes green by skipping its own body. discover/01 is
+          #     out for that reason: its edit-sheet assertions need an installed coach.
+          # settings/06 earns its place only weakly — it is notVisible-only, so it would
+          # also pass on a blank screen; it stays as the settings smoke until a positive
+          # settings assertion exists that does not depend on English copy.
+          echo "Running critical-path subset with per-test retry..."
+          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/04-send-message-response.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml visual/01-authentication.yaml"
+
+          # The list is unconditional now, so an empty one means someone edited it to
+          # nothing — which under the guard below would silently report a green run of
+          # zero flows, exactly the smoke behaviour this lane just deleted.
+          if [ -z "$CRITICAL_TESTS" ]; then
+            echo "CRITICAL_TESTS is empty — refusing to report a run of zero flows."
+            kill $METRO_PID 2>/dev/null || true
+            adb emu kill 2>/dev/null || true
+            exit 1
           fi
 
           if [ -n "$CRITICAL_TESTS" ]; then
@@ -337,7 +364,7 @@ jobs:
             echo "Total: $TOTAL_PASSED passed, $TOTAL_FAILURES failed out of $TEST_NUM tests"
 
             # Write summary
-            echo "## Android E2E Test Results ($SUITE_MODE mode)" >> /tmp/android-summary.txt
+            echo "## Android E2E Test Results (critical mode)" >> /tmp/android-summary.txt
             echo "- Total: $TEST_NUM" >> /tmp/android-summary.txt
             echo "- Passed: $TOTAL_PASSED" >> /tmp/android-summary.txt
             echo "- Failed: $TOTAL_FAILURES" >> /tmp/android-summary.txt
@@ -406,7 +433,10 @@ jobs:
           exit 0
 
       - name: Run Maestro tests on Android
-        timeout-minutes: 45
+        # 45 was sized for the one-flow smoke. A critical run is 10 flows, each with up
+        # to 3 attempts, after an emulator boot and a cold Metro bundle; the job cap is
+        # 120, so this leaves headroom for the diagnostics and upload steps after it.
+        timeout-minutes: 90
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -425,7 +455,6 @@ jobs:
           TEST_EMAIL: "mobiletest@pierre.dev"
           TEST_PASSWORD: "MobileTest1234"
           BACKEND_URL: "http://10.0.2.2:8081"
-          MAESTRO_SUITE_MODE: ${{ (github.event_name == 'workflow_dispatch' || github.ref != 'refs/heads/main') && 'critical' || 'smoke' }}
 
       - name: Post Android test summary
         if: always()

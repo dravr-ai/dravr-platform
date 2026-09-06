@@ -330,8 +330,8 @@ Run these as the user unless noted.
    under a forced rotation is lower severity than one that crashes.
 7. **Accessibility.** `ui_describe_all` is the tree. Interactive elements need an
    `accessibilityRole` and a label (the tab bar sets both). Touch targets ≥44×44.
-8. **Android — the full walk, not a spot check.** The nightly Android workflow runs one flow
-   (smoke mode on a scheduled run), so nothing there catches an Android-only defect. Repeat
+8. **Android — the full walk, not a spot check.** The Android workflow runs a ten-flow
+   critical list, one per area; everything outside it is unverified on Android. Repeat
    Phases 1–5 on an emulator. What differs, each learned the hard way on 2026-09-05:
 
    - **Toolchain.** The SDK lives at `/opt/homebrew/share/android-commandlinetools` but nothing
@@ -438,7 +438,7 @@ Routing — pick by where the bug actually lives:
 
 | Bug lives in | Destination | Run it with | CI workflow |
 |---|---|---|---|
-| A UI journey: navigation, gating, a control that does not work on device | `.maestro/<area>/NN-name.yaml` | `maestro test .maestro/<area>/NN-name.yaml` | `mobile-e2e-ios.yml` + `mobile-e2e-android.yml` — **nightly cron + `workflow_dispatch` only** |
+| A UI journey: navigation, gating, a control that does not work on device | `.maestro/<area>/NN-name.yaml` | `maestro test .maestro/<area>/NN-name.yaml` | `mobile-e2e-ios.yml` + `mobile-e2e-android.yml` — push (mobile paths), nightly cron, dispatch |
 | API contract, auth, real data shape — anything reproducible without a simulator | `integration/specs/<area>.integration.test.js` | `bun run e2e:integration` | **none — no workflow runs this suite** |
 | Component / hook render logic given known props or a mocked API | `__tests__/<Name>.test.tsx` or `src/<path>/__tests__/` | `bun run test` | `mobile-unit-tests.yml`, every push touching `frontend-mobile/**` or `packages/**` |
 | Backend handler logic | **also** `crates/pierre-server/tests/<area>_test.rs` | `cargo test --test <file>` | `ci-backend.yml` / `ci-postgres.yml` |
@@ -453,12 +453,13 @@ that decide whether your new test guards anything:
 
 - A new Maestro flow in a **new** directory does not run at all until the directory is added to
   `flows:` in `.maestro/config.yaml`.
-- Even inside a registered directory, the nightly workflows do not run the whole suite. On a
-  branch push or manual dispatch they run a hardcoded ~11-flow *critical* list
-  (`BATCH1_FILES` / `BATCH2_FILES` in `mobile-e2e-ios.yml`, `CRITICAL_TESTS` in
-  `mobile-e2e-android.yml`); on a push to `main` they run smoke only. **A new flow that is not
-  added to those lists never runs in CI.** Add it, or say plainly in the report that the flow is
-  local-only.
+- Even inside a registered directory, the workflows do not run the whole suite. Every trigger
+  runs a hardcoded *critical* list — `CRITICAL_TESTS` in `mobile-e2e-android.yml` (10 flows),
+  `BATCH1_FILES` / `BATCH2_FILES` in `mobile-e2e-ios.yml` (5). **A new flow that is not added to
+  those lists never runs in CI.** Add it, or say plainly in the report that the flow is
+  local-only. Two rules govern what may go in: no flow that asserts literal English copy (the
+  chrome defaults to `fr`), and no flow whose assertions are *all* inside `runFlow: when:`
+  guards, because it goes green by skipping its own body.
 - `bun run e2e:integration` is referenced by no workflow. A spec you add there is a local gate
   only — run it yourself and say so.
 
@@ -601,9 +602,10 @@ relevant workflow reaches terminal status (WebFetch the Actions page first; `gh 
 sparingly; never `gh run watch` or a <60s poll loop). Cancelled ≠ green. Red → fix and re-push in
 the same session.
 
-Note what push-time CI will *not* tell you: the e2e workflows are nightly. If your fix is guarded
-only by a Maestro flow, the earliest CI signal is the next 06:00 UTC run, or a manual
-`workflow_dispatch`. Trigger the dispatch or say in the report that the flow is unverified in CI.
+Since 2026-09-05 both e2e workflows also run on push, on `frontend-mobile/**` and the seven
+shared packages the app consumes, so a flow in the critical list gives a signal on the same push.
+A flow *outside* that list still gets none: the earliest signal is the 06:00 UTC run, and only if
+someone reads it. Add the flow to the list, or say in the report that it is unverified in CI.
 
 ## Phase 10 — Report
 
