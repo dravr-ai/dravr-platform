@@ -19,6 +19,16 @@
 
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_tool_runtime::conversions::Formatted;
+use pierre_tool_runtime::implementations::admin::{
+    AdminAssignCoachTool, AdminCreateSystemCoachTool, AdminDeleteSystemCoachTool,
+    AdminGetSystemCoachTool, AdminListCoachAssignmentsTool, AdminListSystemCoachesTool,
+    AdminUnassignCoachTool, AdminUpdateSystemCoachTool,
+};
+use pierre_tool_runtime::implementations::admin_output::{
+    AdminAssignCoachResult, AdminCreateSystemCoachResult, AdminDeleteSystemCoachResult,
+    AdminGetSystemCoachResult, AdminListCoachAssignmentsResult, AdminListSystemCoachesResult,
+    AdminUnassignCoachResult, AdminUpdateSystemCoachResult, CoachAssignmentEntry, SystemCoachEntry,
+};
 use pierre_tool_runtime::implementations::analytics::output::{
     ActivityMetricsResult, BestPerformance, DayFrequency, HardEasyPatternResult,
     InsufficientPatternData, IntensityDistribution, MetricsInputSummary, NoRacePrediction,
@@ -1950,4 +1960,228 @@ fn the_two_race_prediction_shapes_match_exactly_one_arm_each() {
             "the {label} answer matched arms {matched:?}; it must match exactly one:\n{value:#}"
         );
     }
+}
+
+// ============================================================================
+// admin
+// ============================================================================
+
+#[test]
+fn each_admin_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "admin_list_system_coaches",
+            <AdminListSystemCoachesTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminListSystemCoachesTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(
+                Formatted<AdminListSystemCoachesResult>
+            ))
+            .expect("derives"),
+        ),
+        (
+            "admin_create_system_coach",
+            <AdminCreateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminCreateSystemCoachTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(AdminCreateSystemCoachResult))
+                .expect("derives"),
+        ),
+        (
+            "admin_get_system_coach",
+            <AdminGetSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminGetSystemCoachTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(Formatted<AdminGetSystemCoachResult>))
+                .expect("derives"),
+        ),
+        (
+            "admin_update_system_coach",
+            <AdminUpdateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminUpdateSystemCoachTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(AdminUpdateSystemCoachResult))
+                .expect("derives"),
+        ),
+        (
+            "admin_delete_system_coach",
+            <AdminDeleteSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminDeleteSystemCoachTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(AdminDeleteSystemCoachResult))
+                .expect("derives"),
+        ),
+        (
+            "admin_assign_coach",
+            <AdminAssignCoachTool as McpTool<dyn ToolRuntime>>::definition(&AdminAssignCoachTool),
+            serde_json::to_value(schemars::schema_for!(AdminAssignCoachResult)).expect("derives"),
+        ),
+        (
+            "admin_unassign_coach",
+            <AdminUnassignCoachTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminUnassignCoachTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(AdminUnassignCoachResult)).expect("derives"),
+        ),
+        (
+            "admin_list_coach_assignments",
+            <AdminListCoachAssignmentsTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminListCoachAssignmentsTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(AdminListCoachAssignmentsResult))
+                .expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn every_admin_projection_declares_the_visibility_an_operator_decides() {
+    // The operator-facing twins differ from the athlete-facing coach tools in
+    // exactly this: who a system coach is visible to is the operator's call,
+    // so every admin projection reports it. An admin schema that dropped it
+    // would be describing the athlete's view by mistake.
+    for (name, schema) in [
+        (
+            "SystemCoachEntry",
+            serde_json::to_value(schemars::schema_for!(SystemCoachEntry)).expect("derives"),
+        ),
+        (
+            "AdminCreateSystemCoachResult",
+            serde_json::to_value(schemars::schema_for!(AdminCreateSystemCoachResult))
+                .expect("derives"),
+        ),
+        (
+            "AdminGetSystemCoachResult",
+            serde_json::to_value(schemars::schema_for!(AdminGetSystemCoachResult))
+                .expect("derives"),
+        ),
+        (
+            "AdminUpdateSystemCoachResult",
+            serde_json::to_value(schemars::schema_for!(AdminUpdateSystemCoachResult))
+                .expect("derives"),
+        ),
+    ] {
+        assert!(
+            schema["properties"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} is an object schema"))
+                .contains_key("visibility"),
+            "{name} must declare visibility: it is what makes this the operator's view"
+        );
+    }
+}
+
+#[test]
+fn admin_list_system_coaches_declares_a_schema_that_accepts_its_payload() {
+    let sample = Formatted::Json(AdminListSystemCoachesResult {
+        coaches: vec![SystemCoachEntry {
+            id: "b21f0f4e-0000-4000-8000-000000000001".to_owned(),
+            title: "Nutrition Basics".to_owned(),
+            description: Some("Shipped with the platform".to_owned()),
+            category: "nutrition".to_owned(),
+            tags: vec!["nutrition".to_owned()],
+            token_count: 540,
+            visibility: "tenant".to_owned(),
+            created_at: "2026-07-01T08:00:00+00:00".to_owned(),
+            updated_at: "2026-08-14T11:30:00+00:00".to_owned(),
+        }],
+        count: 1,
+        total: 12,
+        offset: 0,
+    });
+
+    assert_declares_and_accepts(
+        <AdminListSystemCoachesTool as McpTool<dyn ToolRuntime>>::definition(
+            &AdminListSystemCoachesTool,
+        )
+        .output_schema,
+        &serde_json::to_value(schemars::schema_for!(
+            Formatted<AdminListSystemCoachesResult>
+        ))
+        .expect("derives"),
+        &sample,
+        "admin_list_system_coaches",
+    );
+}
+
+#[test]
+fn an_assignment_row_validates_without_an_email_or_an_assigner() {
+    // Both are Option on the wire and the compiler caught it: a deleted
+    // account leaves the assignment row behind with no email to join to, and
+    // rows predating the assigned_by column have no operator to name. A
+    // schema demanding either would reject a listing the tool really sends.
+    let sample = AdminListCoachAssignmentsResult {
+        coach_id: "b21f0f4e-0000-4000-8000-000000000002".to_owned(),
+        assignments: vec![
+            CoachAssignmentEntry {
+                user_id: "u-1".to_owned(),
+                user_email: Some("alice@acme.test".to_owned()),
+                assigned_at: "2026-08-01T09:00:00+00:00".to_owned(),
+                assigned_by: Some("admin-1".to_owned()),
+            },
+            CoachAssignmentEntry {
+                user_id: "u-2".to_owned(),
+                user_email: None,
+                assigned_at: "2026-05-02T09:00:00+00:00".to_owned(),
+                assigned_by: None,
+            },
+        ],
+        count: 2,
+        total: 240,
+        truncated: true,
+    };
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(AdminListCoachAssignmentsResult))
+            .expect("derives"),
+    )
+    .expect("compiles");
+    let value = serde_json::to_value(&sample).expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "an assignment with no email and no assigner must still validate:\n{value:#}"
+    );
+    assert!(
+        value["truncated"].as_bool() == Some(true)
+            && value["total"].as_u64() > value["count"].as_u64(),
+        "a truncated listing must say so, or an operator reads a short list as a complete one"
+    );
+}
+
+#[test]
+fn the_admin_schemas_reject_payloads_missing_a_required_field() {
+    let assign = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(AdminAssignCoachResult)).expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        !assign.is_valid(&json!({
+            "assigned": true,
+            "coach_id": "b21f0f4e-0000-4000-8000-000000000003",
+            "coach_title": "Nutrition Basics",
+            "user_id": "u-1",
+        })),
+        "an assignment reply with no assigned_by is not an audit record"
+    );
+
+    let unassign = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(AdminUnassignCoachResult)).expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        !unassign.is_valid(&json!({ "unassigned": true })),
+        "admin_unassign_coach must say which coach and which athlete"
+    );
 }

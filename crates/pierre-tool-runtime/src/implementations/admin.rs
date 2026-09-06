@@ -32,11 +32,16 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use super::admin_output::{
+    AdminAssignCoachResult, AdminCreateSystemCoachResult, AdminDeleteSystemCoachResult,
+    AdminGetSystemCoachResult, AdminListCoachAssignmentsResult, AdminListSystemCoachesResult,
+    AdminUnassignCoachResult, AdminUpdateSystemCoachResult, CoachAssignmentEntry, SystemCoachEntry,
+};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -148,12 +153,12 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<Formatted<AdminListSystemCoachesResult>>(tool_definition(
             "admin_list_system_coaches",
             "List all system coaches in the tenant (admin only)",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -188,32 +193,29 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
                 .map_err(|e| AppError::internal(format!("Failed to list system coaches: {e}")))?;
 
             let total = coaches.len();
-            let coach_summaries: Vec<Value> = coaches
+            let coach_summaries: Vec<SystemCoachEntry> = coaches
                 .iter()
                 .skip(offset)
                 .take(limit)
-                .map(|c| {
-                    json!({
-                        "id": c.id.to_string(),
-                        "title": c.title,
-                        "description": c.description,
-                        "category": c.category.as_str(),
-                        "tags": c.tags,
-                        "token_count": c.token_count,
-                        "visibility": c.visibility.as_str(),
-                        "created_at": c.created_at.to_rfc3339(),
-                        "updated_at": c.updated_at.to_rfc3339(),
-                    })
+                .map(|c| SystemCoachEntry {
+                    id: c.id.to_string(),
+                    title: c.title.clone(),
+                    description: c.description.clone(),
+                    category: c.category.as_str().to_owned(),
+                    tags: c.tags.clone(),
+                    token_count: c.token_count,
+                    visibility: c.visibility.as_str().to_owned(),
+                    created_at: c.created_at.to_rfc3339(),
+                    updated_at: c.updated_at.to_rfc3339(),
                 })
                 .collect();
 
-            let count = coach_summaries.len();
-            let payload = json!({
-                "coaches": coach_summaries,
-                "count": count,
-                "total": total,
-                "offset": offset,
-            });
+            let payload = AdminListSystemCoachesResult {
+                count: coach_summaries.len(),
+                coaches: coach_summaries,
+                total,
+                offset,
+            };
 
             ok_typed("admin_list_system_coaches", apply_format(payload, format))
         }
@@ -306,12 +308,12 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             properties,
             Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
         );
-        tool_definition(
+        answers_with::<AdminCreateSystemCoachResult>(tool_definition(
             "admin_create_system_coach",
             "Create a new system coach visible to all tenant users (admin only)",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -363,17 +365,20 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to create system coach: {e}")))?;
 
-            Ok(ToolResult::ok(json!({
-                "id": coach.id.to_string(),
-                "title": coach.title,
-                "description": coach.description,
-                "category": coach.category.as_str(),
-                "tags": coach.tags,
-                "token_count": coach.token_count,
-                "visibility": coach.visibility.as_str(),
-                "is_system": coach.is_system,
-                "created_at": coach.created_at.to_rfc3339(),
-            })))
+            ok_typed(
+                "admin_create_system_coach",
+                AdminCreateSystemCoachResult {
+                    id: coach.id.to_string(),
+                    title: coach.title,
+                    description: coach.description,
+                    category: coach.category.as_str().to_owned(),
+                    tags: coach.tags,
+                    token_count: coach.token_count,
+                    visibility: coach.visibility.as_str().to_owned(),
+                    is_system: coach.is_system,
+                    created_at: coach.created_at.to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -400,12 +405,12 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
-        tool_definition(
+        answers_with::<Formatted<AdminGetSystemCoachResult>>(tool_definition(
             "admin_get_system_coach",
             "Get detailed information about a system coach (admin only)",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -443,19 +448,19 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
 
             match coach {
                 Some(c) => {
-                    let payload = json!({
-                        "id": c.id.to_string(),
-                        "title": c.title,
-                        "description": c.description,
-                        "system_prompt": c.system_prompt,
-                        "category": c.category.as_str(),
-                        "tags": c.tags,
-                        "token_count": c.token_count,
-                        "visibility": c.visibility.as_str(),
-                        "is_system": c.is_system,
-                        "created_at": c.created_at.to_rfc3339(),
-                        "updated_at": c.updated_at.to_rfc3339(),
-                    });
+                    let payload = AdminGetSystemCoachResult {
+                        id: c.id.to_string(),
+                        title: c.title,
+                        description: c.description,
+                        system_prompt: c.system_prompt,
+                        category: c.category.as_str().to_owned(),
+                        tags: c.tags,
+                        token_count: c.token_count,
+                        visibility: c.visibility.as_str().to_owned(),
+                        is_system: c.is_system,
+                        created_at: c.created_at.to_rfc3339(),
+                        updated_at: c.updated_at.to_rfc3339(),
+                    };
                     ok_typed("admin_get_system_coach", apply_format(payload, format))
                 }
                 None => Ok(ToolResult::error(json!({
@@ -533,12 +538,12 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
-        tool_definition(
+        answers_with::<AdminUpdateSystemCoachResult>(tool_definition(
             "admin_update_system_coach",
             "Update an existing system coach (admin only)",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -617,18 +622,21 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to update system coach: {e}")))?;
 
             match coach {
-                Some(c) => Ok(ToolResult::ok(json!({
-                    "id": c.id.to_string(),
-                    "title": c.title,
-                    "description": c.description,
-                    "system_prompt": c.system_prompt,
-                    "category": c.category.as_str(),
-                    "tags": c.tags,
-                    "token_count": c.token_count,
-                    "visibility": c.visibility.as_str(),
-                    "is_system": c.is_system,
-                    "updated_at": c.updated_at.to_rfc3339(),
-                }))),
+                Some(c) => ok_typed(
+                    "admin_update_system_coach",
+                    AdminUpdateSystemCoachResult {
+                        id: c.id.to_string(),
+                        title: c.title,
+                        description: c.description,
+                        system_prompt: c.system_prompt,
+                        category: c.category.as_str().to_owned(),
+                        tags: c.tags,
+                        token_count: c.token_count,
+                        visibility: c.visibility.as_str().to_owned(),
+                        is_system: c.is_system,
+                        updated_at: c.updated_at.to_rfc3339(),
+                    },
+                ),
                 None => Ok(ToolResult::error(json!({
                     "error": format!("System agent not found: {coach_id}"),
                 }))),
@@ -659,12 +667,12 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
-        tool_definition(
+        answers_with::<AdminDeleteSystemCoachResult>(tool_definition(
             "admin_delete_system_coach",
             "Delete a system coach and remove all assignments (admin only)",
             schema,
             Some(destructive_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -700,10 +708,13 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to delete system coach: {e}")))?;
 
             if deleted {
-                Ok(ToolResult::ok(json!({
-                    "deleted": true,
-                    "coach_id": coach_id,
-                })))
+                ok_typed(
+                    "admin_delete_system_coach",
+                    AdminDeleteSystemCoachResult {
+                        deleted: true,
+                        coach_id: coach_id.to_owned(),
+                    },
+                )
             } else {
                 Ok(ToolResult::error(json!({
                     "error": format!("System agent not found: {coach_id}"),
@@ -746,12 +757,12 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
             properties,
             Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
         );
-        tool_definition(
+        answers_with::<AdminAssignCoachResult>(tool_definition(
             "admin_assign_coach",
             "Assign a system coach to a specific user (admin only)",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -809,13 +820,16 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to assign coach: {e}")))?;
 
-            Ok(ToolResult::ok(json!({
-                "assigned": true,
-                "coach_id": coach_id,
-                "coach_title": coach.title,
-                "user_id": target_user_id.to_string(),
-                "assigned_by": admin_user_id.to_string(),
-            })))
+            ok_typed(
+                "admin_assign_coach",
+                AdminAssignCoachResult {
+                    assigned: true,
+                    coach_id: coach_id.to_owned(),
+                    coach_title: coach.title,
+                    user_id: target_user_id.to_string(),
+                    assigned_by: admin_user_id.to_string(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -853,12 +867,12 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
             properties,
             Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
         );
-        tool_definition(
+        answers_with::<AdminUnassignCoachResult>(tool_definition(
             "admin_unassign_coach",
             "Remove a coach assignment from a user (admin only)",
             schema,
             Some(destructive_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -906,11 +920,14 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to unassign coach: {e}")))?;
 
             if unassigned {
-                Ok(ToolResult::ok(json!({
-                    "unassigned": true,
-                    "coach_id": coach_id,
-                    "user_id": target_user_id.to_string(),
-                })))
+                ok_typed(
+                    "admin_unassign_coach",
+                    AdminUnassignCoachResult {
+                        unassigned: true,
+                        coach_id: coach_id.to_owned(),
+                        user_id: target_user_id.to_string(),
+                    },
+                )
             } else {
                 Ok(ToolResult::error(json!({
                     "error": format!(
@@ -948,12 +965,12 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
-        tool_definition(
+        answers_with::<AdminListCoachAssignmentsResult>(tool_definition(
             "admin_list_coach_assignments",
             "List all assignments for a system coach (admin only)",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1003,26 +1020,27 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
             // carry an assignment per athlete, and this listing had no cap.
             // The truncation is stated in the payload rather than hidden.
             let total = assignments.len();
-            let assignment_list: Vec<Value> = assignments
+            let assignment_list: Vec<CoachAssignmentEntry> = assignments
                 .iter()
                 .take(MAX_ASSIGNMENT_ROWS)
-                .map(|a| {
-                    json!({
-                        "user_id": a.user_id,
-                        "user_email": a.user_email,
-                        "assigned_at": a.assigned_at,
-                        "assigned_by": a.assigned_by,
-                    })
+                .map(|a| CoachAssignmentEntry {
+                    user_id: a.user_id.clone(),
+                    user_email: a.user_email.clone(),
+                    assigned_at: a.assigned_at.clone(),
+                    assigned_by: a.assigned_by.clone(),
                 })
                 .collect();
 
-            Ok(ToolResult::ok(json!({
-                "coach_id": coach_id,
-                "assignments": assignment_list,
-                "count": assignment_list.len(),
-                "total": total,
-                "truncated": total > MAX_ASSIGNMENT_ROWS,
-            })))
+            ok_typed(
+                "admin_list_coach_assignments",
+                AdminListCoachAssignmentsResult {
+                    coach_id: coach_id.to_owned(),
+                    count: assignment_list.len(),
+                    assignments: assignment_list,
+                    total,
+                    truncated: total > MAX_ASSIGNMENT_ROWS,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

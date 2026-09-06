@@ -50,6 +50,9 @@ pub(crate) mod handler_bridge;
 #[cfg(feature = "tools-admin")]
 pub mod admin;
 
+/// Answer shapes for the admin coach tools, and their derived schemas.
+pub mod admin_output;
+
 /// Analytics tools: `analyze_activity`, `calculate_metrics`,
 /// `analyze_performance_trends`, etc. (`tools-analytics` feature).
 #[cfg(feature = "tools-analytics")]
