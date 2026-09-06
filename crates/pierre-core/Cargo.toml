@@ -122,7 +122,7 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.8.0" }
 
 # Health and wellness domain models with composition-based provider traits
-dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.5" }
+dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.7" }
 
 # Standalone Stripe billing capability — gated behind the `billing-stripe`
 # feature so the trait-only `billing` feature stays vendor-free. The

@@ -25,7 +25,7 @@ pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 
 chrono = { version = "0.4", features = ["serde"] }
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.9.2" }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.10.0" }
 dravr-tronc = { version = "1.0.0", features = ["notifications"] }
 gethostname = "1"
 serde_json = "1.0"
