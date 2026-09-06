@@ -73,7 +73,7 @@ is green is the `primary-container` tint or `primary` ink.
 |---|---|---|
 | `surface` | `#f7f6f2` | **The one ground**: rail, list column, thread canvas, every page |
 | `surface-container-lowest` | `#ffffff` | Cards, coach bubbles, popovers, table bodies |
-| `surface-container-low` | `#ebeae5` | Composer and search fields, row hover, the day pill, the login aside |
+| `surface-container-low` | `#ebeae5` | Composer and search fields, row hover, the day pill, the login aside **in dark** (§5 gives light the tint) |
 | `surface-container` | `#e0dfda` | Pressed states |
 | `surface-container-high` | `#d7d6d1` | Reserved |
 | `surface-container-highest` | `#cfcec9` | Reserved |
@@ -208,6 +208,13 @@ The wordmark is the only tracked text in the product (`tracking-brand`,
 this pairing is a separate change (see the vault `Design/` plan). The native
 font fallback chain in `tailwind.config.js` is `'System', 'sans-serif'` so
 unloaded screens still render correctly.
+
+**The label step is not part of that deferral, and it already moved.** The
+retired 11px caps at 0.08em were a *label* rule, not a family choice, so the
+phone's `Input` primitive now renders the same 14px sentence-case label the
+web one does. Deferring the family is what the vault plan covers; leaving one
+client in tracked caps meant the same sign-in form read as two products
+depending on which one an athlete opened.
 
 ### Scale
 
@@ -380,13 +387,50 @@ surfaces.
 
 ### Auth and onboarding
 
-Login is a paper page: the aside sits on `surface-container-low` with the
-lockup top-left, the mark at 220px and the one serif line in the product
-(Newsreader italic), and nothing on it is pinned to a dark fill — it follows
-the scheme like the form. The other auth pages are one white card with a
-hairline on `surface`, and every onboarding step is a bare column on
-`surface` under a row of small dots and sentence-case step labels. There is
-no gradient strip anywhere.
+Login is two sheets side by side. The aside carries the lockup top-left, the
+mark at 220px and the one serif line in the product (Newsreader italic); the
+form column carries the heading, the underlined fields and the one filled
+button. In **light** the aside sits on the `primary-container` tint and the
+form on `surface-container-lowest` (white): the sage wash is the brand moment,
+and the white sheet lifts the form off it. In **dark** the aside sits on
+`surface-container-low` and the form on `surface`, because the tint is a dense
+green there and the mint mark already carries the brand. Be precise about what
+separates them: that pair measures **1.09:1**, a smaller fill step than the
+1.11:1 the light scheme was just moved off. It works in dark and only in dark,
+because dark has the second channel §4 describes — the pale `ghost-border`
+hairline reads on a near-black ground, and it is the hairline carrying the
+edge, not the fill. Turn the same pairing onto paper and there is nothing left.
+Below `lg` the aside is gone and the form stands on `surface` alone.
+
+The pairing is not decoration. The first Boreal v2 login put the aside on
+`surface-container-low` beside a form on `surface`, two warm paper tones a
+half-step apart (1.11:1), and the page read as one muddy field with a form
+floating in it — the "light mode looks unfinished" complaint of 2026-09-05.
+A tint beside white is the light scheme's version of what the dark scheme
+gets from a grey step: two surfaces that are *different things*, not two
+greys.
+
+**The aside's ink is the one deliberate exception to the on-color pairing.**
+§2 binds `on-primary-container` as the text role for `primary-container`, and
+every other web call site honours that — the athlete bubble, the active rail
+item, the avatar ground. The login aside does not: its headline stays
+`on-surface` and its blurb `on-surface-variant`, measured at **13.9:1** and
+**7.6:1** on the tint, with `primary` ink for the wordmark at 6.1:1. The
+binding exists to stop unreadable pairings, and none of those are close to the
+floor. Carrying `on-primary-container` here would tint the whole editorial
+moment forest-green, which is a brand decision rather than a contrast one — so
+it is written down as an exception instead of taken silently. Anywhere the
+tint is a *component* fill, the bound ink is not optional.
+
+The other auth pages are one white card with a hairline on `surface`, and
+every onboarding step is a bare column on `surface` under a row of small
+dots and sentence-case step labels. There is no gradient strip anywhere.
+
+The copy on the login aside says what the product is, in the athlete's
+words: an agent that reads their training and shows its work, over the
+providers they can connect and the four pillars they can ask about. It
+never describes the design ("rendered in ink") or the company. The AI is an
+**agent**; a human professional is a **coach** — ADR-026 in the vault.
 
 ### Chat surfaces — the messenger layout
 
@@ -420,7 +464,7 @@ plate of its own.
 | Element | Class | Notes |
 |---|---|---|
 | Agent turn | `MessageBubble` (`side="assistant"`), no class | Left side, prose on the canvas: no fill, no border, no radius. A 24px initials avatar in the gutter on the first row of a run, the words to `max-w-[620px]`, reading text at 15px. One container per exchange — the athlete's — is what keeps the thread calm. |
-| Athlete bubble | `.chat-bubble-user` | Right side. `primary-container` / `on-primary-container` in both schemes — a filled `primary` reads as a CTA, not as a message. Radius 14 with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]`. |
+| Athlete bubble | `.chat-bubble-user` | Right side. `primary-container` / `on-primary-container` in both schemes — a filled `primary` reads as a CTA, not as a message. Radius 14 with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]`. **Both clients**: the phone wore a neutral `surface-container-high` here until 2026-09-05, which on the paper canvas was a grey blob that said nothing about whose message it was. |
 | Time stamp | `text-xs` | On the agent's author line for the first row of a run and in the hover row for later rows; inside the bubble for the athlete. 24-hour clock in every locale, the same clock the list row shows. |
 | Author line | `text-sm font-semibold text-on-surface` + `text-xs text-outline` time | Agent's name and the time, on the first row of a run only; the athlete's side carries no label (alignment says it). |
 | Actions row | under the content | Copy / share / rate / regenerate and model·latency show on hover, focus, or a coarse pointer — never as a permanent line under every reply. |
@@ -538,6 +582,26 @@ in the vault under `Design/Boreal v2.1 — Less`.
 | Admin sidebar | 260px, 44px items | **232px, 32px items** |
 | Stat tiles | bordered, coloured numerals | **label over a mono number**, no box |
 | Dividers | one hairline | **two**: `ghost-border` at pane edges, `ghost-border-faint` inside lists |
+
+**Light-scheme revision (2026-09-06).** v2.1 shrank the chrome; the light
+scheme still read as unfinished beside dark, and the reason was not scale. It
+was that surfaces which are different things sat a half-step apart. Prototyped
+against the running app before anything was committed: a de-yellowed neutral
+ladder, a denser hairline and a whisper shadow on resting cards each moved the
+page so little that a side-by-side could not separate them, so the tokens are
+untouched. Composition moved it — the login aside on the sage tint beside a
+white form sheet (1.23:1, against 1.11:1 for the two paper tones it replaced).
+
+The phone came with it, because three of its surfaces had never reached v2 at
+all: its login was a hardcoded `#00241a → #0d3b2e` gradient under a card pinned
+to the light palette — the one screen in the app that could not be dark,
+whatever the athlete had chosen; its `Input` label was still the 11px caps at
+0.08em that v2 retired on web; and the athlete's bubble was a neutral grey
+tier rather than the tint §5 specifies. All three read the live palette now,
+and the login draws the shared `BrandLockup` rather than a second copy of the
+lockup spec. The login copy was rewritten in the same pass to say what the
+product does instead of describing its own design, and three claims were cut
+back to what the code actually delivers.
 
 **Boreal v2 (2026-09).** The Product Tier had grown four visible greys, a
 primary that read as black, three header idioms, a gradient-decorated operator

@@ -11,7 +11,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import { BOREAL_LIGHT, PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
@@ -24,13 +24,6 @@ interface InputProps extends Omit<TextInputProps, 'style'> {
    * underline, so both values render identically — same as the web Input.
    */
   variant?: 'default' | 'glass';
-  /**
-   * Force the input to render with the BOREAL_LIGHT palette regardless of
-   * the user's appearance preference. Used by always-light brand surfaces
-   * (e.g. the login card sitting on the deep-green hero) where the parent
-   * background is fixed and the input must remain legible against it.
-   */
-  surface?: 'auto' | 'light';
   testID?: string;
 }
 
@@ -40,7 +33,6 @@ export function Input({
   containerStyle,
   showPasswordToggle = false,
   variant: _variant = 'default',
-  surface = 'auto',
   secureTextEntry,
   testID,
   ...props
@@ -50,31 +42,21 @@ export function Input({
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   const shouldHidePassword = secureTextEntry && !isPasswordVisible;
-  const isLightSurface = surface === 'light';
 
-  // When pinned to light, use BOREAL_LIGHT tokens directly so the input reads
-  // correctly on a fixed white card even when the global theme is dark.
-  const fieldColors = isLightSurface
-    ? {
-        text: BOREAL_LIGHT.onSurface,
-        secondary: BOREAL_LIGHT.onSurfaceVariant,
-        tertiary: BOREAL_LIGHT.outline,
-        background: BOREAL_LIGHT.surfaceContainerLow,
-        border: 'rgba(26, 28, 27, 0.10)',
-        errorBorder: BOREAL_LIGHT.error,
-        accent: BOREAL_LIGHT.primary,
-        errorText: BOREAL_LIGHT.error,
-      }
-    : {
-        text: themeColors.text.primary,
-        secondary: themeColors.text.secondary,
-        tertiary: themeColors.text.tertiary,
-        background: themeColors.background.secondary,
-        border: themeColors.border.default,
-        errorBorder: themeColors.error,
-        accent: themeColors.text.accent,
-        errorText: themeColors.error,
-      };
+  // The live palette, always. There used to be a `surface="light"` escape
+  // hatch that pinned these to BOREAL_LIGHT for a screen whose background was
+  // a fixed deep-green hero; that hero is gone and every surface follows the
+  // athlete's appearance setting, so the escape hatch had no caller left.
+  const fieldColors = {
+    text: themeColors.text.primary,
+    secondary: themeColors.text.secondary,
+    tertiary: themeColors.text.tertiary,
+    background: themeColors.background.secondary,
+    border: themeColors.border.default,
+    errorBorder: themeColors.error,
+    accent: themeColors.text.accent,
+    errorText: themeColors.error,
+  };
 
   // Boreal Editorial field, DESIGN.md §5 — the same single bottom stroke the web
   // Input wears. The two platforms rendered the same component in two languages
@@ -99,10 +81,14 @@ export function Input({
 
   return (
     <View className="mb-4" style={containerStyle}>
+      {/* Sentence case at the label step, no tracking — DESIGN.md §3. The 11px
+          caps at 0.08em were the v1 label face; web retired them in the v2 token
+          pass and the phone kept them, so the same form read as two products
+          depending on which client an athlete opened. */}
       {label && (
         <Text
-          className="text-[11px] mb-2 font-medium uppercase"
-          style={{ color: fieldColors.secondary, letterSpacing: 0.08 * 11 }}
+          className="text-sm mb-2 font-medium"
+          style={{ color: fieldColors.secondary }}
         >
           {label}
         </Text>

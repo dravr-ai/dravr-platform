@@ -9,7 +9,7 @@ import {
   type ViewStyle,
   type TextStyle,
 } from 'react-native';
-import { BOREAL_LIGHT, PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'gradient' | 'pill' | 'activity' | 'nutrition' | 'recovery';
 type ButtonSize = 'sm' | 'md' | 'lg';
@@ -24,12 +24,6 @@ interface ButtonProps {
   fullWidth?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
-  /**
-   * Pin the button to the BOREAL_LIGHT palette regardless of the user's
-   * appearance preference. Used by always-light brand surfaces (e.g. the
-   * login card) where the parent background is fixed.
-   */
-  surface?: 'auto' | 'light';
   testID?: string;
 }
 
@@ -87,12 +81,10 @@ export function Button({
   fullWidth = false,
   style,
   textStyle,
-  surface = 'auto',
   testID,
 }: ButtonProps) {
   const colors = useThemeColors();
   const isDisabled = disabled || loading;
-  const isLightSurface = surface === 'light';
 
   // Variant-specific styles (shadows require style objects in RN)
   const variantShadowStyles = useMemo<Partial<Record<ButtonVariant, ViewStyle>>>(() => ({
@@ -148,31 +140,12 @@ export function Button({
     isDisabled ? 'opacity-70' : '',
   ].filter(Boolean).join(' ');
 
-  // When pinned to a light surface, override the Tailwind-class palette with
-  // BOREAL_LIGHT directly so the button still reads against a fixed-white
-  // brand card even when the global theme is dark.
-  const lightSurfaceOverride: ViewStyle | undefined = isLightSurface
-    ? (() => {
-        const fillByVariant: Partial<Record<ButtonVariant, string>> = {
-          primary: BOREAL_LIGHT.primary,
-          gradient: BOREAL_LIGHT.primary,
-          pill: BOREAL_LIGHT.primary,
-          danger: BOREAL_LIGHT.error,
-        };
-        const fill = fillByVariant[variant];
-        return fill ? { backgroundColor: fill } : undefined;
-      })()
-    : undefined;
-
-  const lightSurfaceTextOverride: TextStyle | undefined =
-    isLightSurface && ['primary', 'gradient', 'pill', 'danger'].includes(variant)
-      ? { color: '#ffffff' }
-      : undefined;
-
-  // Combine className styles with shadow styles (shadows need style prop in RN)
+  // Combine className styles with shadow styles (shadows need style prop in RN).
+  // There used to be a `surface="light"` override here that pinned the fill and
+  // the label to BOREAL_LIGHT for a screen with a fixed deep-green ground; that
+  // screen now follows the athlete's appearance setting, so nothing called it.
   const combinedStyle: ViewStyle = {
     ...variantShadowStyles[variant],
-    ...lightSurfaceOverride,
     ...style,
   };
 
@@ -191,7 +164,7 @@ export function Button({
           size="small"
         />
       ) : (
-        <Text className={textClassName} style={[lightSurfaceTextOverride, textStyle]}>{title}</Text>
+        <Text className={textClassName} style={textStyle}>{title}</Text>
       )}
     </TouchableOpacity>
   );

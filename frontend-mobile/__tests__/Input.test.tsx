@@ -36,6 +36,33 @@ describe('Input Component', () => {
       );
       expect(queryByText('Email Address')).toBeNull();
     });
+
+    // DESIGN.md §3: labels are sentence case in the body face, no tracking.
+    // The 11px caps at 0.08em were the v1 label face, retired on web in the
+    // Boreal v2 token pass; the phone kept them for months and nothing here
+    // noticed, because `uppercase` is a NativeWind class with no compiled CSS
+    // under jest — the rendered TEXT is unchanged either way, so an assertion
+    // on the words alone cannot see the regression. Assert the class and the
+    // style, which is what actually differs.
+    it('sets the label in sentence case at the body step, never tracked caps', () => {
+      const { getByText } = render(<Input label="Email address" placeholder="x" />);
+      const label = getByText('Email address');
+
+      expect(label.props.className).toContain('text-sm');
+      expect(label.props.className).not.toMatch(/uppercase/);
+      expect(label.props.className).not.toMatch(/text-\[11px\]/);
+
+      // Tracking is the other half of the retired face: the old label set
+      // letterSpacing to 0.08em of 11px. Any positive tracking here is that
+      // face coming back.
+      const raw = label.props.style as { letterSpacing?: number } | Array<{ letterSpacing?: number }>;
+      const layers = Array.isArray(raw) ? raw : [raw];
+      const tracking = layers.reduce<number | undefined>(
+        (found, layer) => layer?.letterSpacing ?? found,
+        undefined,
+      );
+      expect(tracking).toBeUndefined();
+    });
   });
 
   describe('error state', () => {

@@ -227,6 +227,41 @@ test.describe('Boreal Theme — visible layout elements', () => {
     await expect(page.getByText('DRAVR').first()).toBeVisible();
   });
 
+  // The headline complaint about light mode was not any one component: it was
+  // that the aside and the form were two warm paper tones a half-step apart
+  // (1.11:1) pretending to be different things. Assertions on visibility pass
+  // identically before and after that fix, so this one MEASURES: at >=1024px
+  // the two panes must resolve to different fills, and the aside must be the
+  // sage tint rather than another paper tier. DESIGN.md §5 "Auth and onboarding".
+  test('login pairs a tinted aside with a white form sheet in light mode', async ({ page }) => {
+    await forceLightTheme(page);
+    await setupThemeMocks(page, { isAdmin: true });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('form', { timeout: 10000 });
+
+    const aside = page.locator('aside');
+    await expect(aside).toBeVisible();
+
+    const fill = (locator: typeof aside) =>
+      locator.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    const asideBg = await fill(aside);
+    const formBg = await fill(page.locator('main'));
+
+    // primary-container #e1eae5 beside surface-container-lowest #ffffff.
+    expect(asideBg).toBe('rgb(225, 234, 229)');
+    expect(formBg).toBe('rgb(255, 255, 255)');
+    expect(asideBg).not.toBe(formBg);
+
+    // Below lg the aside is gone and the form stands on the page canvas, so
+    // the white sheet must not leak into the single-column layout.
+    await page.setViewportSize({ width: 900, height: 900 });
+    await expect(aside).toBeHidden();
+    expect(await fill(page.locator('main'))).toBe('rgb(247, 246, 242)');
+  });
+
   test('dashboard renders the editorial layout', async ({ page }) => {
     await forceLightTheme(page);
     await setupThemeMocks(page, { isAdmin: true });

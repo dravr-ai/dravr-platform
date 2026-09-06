@@ -159,8 +159,23 @@ describe('client locale corpus', () => {
     // notice opened with a warning emoji, which the untranslated scanner read
     // as decoration and skipped; without it the sentence was a bare English
     // literal on screen. `a2a.secretShownOnce` is the key it always needed, +1.
+    //
+    // 2384 until the login copy stopped naming a persona at the athlete. The
+    // phone's login carried `app.heroPersona` — "The Technical Naturalist" —
+    // as a tracked over-line above the headline: internal vocabulary, in the
+    // caps the type scale had already retired, on the first screen anyone
+    // sees. The rewritten hero says what the product does instead, and the
+    // key lost its only caller, so it is deleted rather than translated five
+    // ways for nobody, -1.
+    //
+    // 2383 until the same sweep caught its two siblings. `app.heroLead` was a
+    // byte-identical twin of `auth.taglineLead` in all five locales — the
+    // phone had its own copy of the login headline, so editing the web pair
+    // silently desynced it; the phone now reads the shared key. And
+    // `auth.taglinePersona` is the other half of the retired brand line, an
+    // orphan on exactly the grounds `heroPersona` was deleted for. -2.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2384);
+    expect(reference).toHaveLength(2381);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

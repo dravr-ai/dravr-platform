@@ -1,5 +1,5 @@
 // ABOUTME: Self-service forgot password screen for requesting a reset code
-// ABOUTME: Professional dark theme UI with glassmorphism matching LoginScreen design
+// ABOUTME: Glass card over the fixed brand gradient — its palette is pinned, not the athlete's scheme
 
 import React, { useState } from 'react';
 import {

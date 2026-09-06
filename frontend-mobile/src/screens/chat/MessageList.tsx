@@ -495,7 +495,15 @@ export function MessageList({
     switch (block.type) {
       case 'prose':
         return context.isUser ? (
-          <Text key={key} className="text-base text-text-primary leading-6">
+          // The ink the tint binds. DESIGN.md §2 pairs `primary-container`
+          // with `on-primary-container` (9.8:1 light, 7.5:1 dark), so the
+          // bubble's ink moves with its ground instead of staying on the
+          // body role the canvas uses.
+          <Text
+            key={key}
+            className="text-base leading-6"
+            style={{ color: colors.tokens.onPrimaryContainer }}
+          >
             {block.text}
           </Text>
         ) : (
@@ -627,21 +635,26 @@ export function MessageList({
         className={`${groupStart ? 'mt-3' : 'mt-1'} ${isUser ? 'items-end' : ''}`}
       >
         {isUser ? (
-          /* User message — right-aligned bubble. Uses surface-container-high
-             so it sits one tier above the canvas in both modes (clearly
-             darker than cream in light, clearly lighter than ink in dark)
-             plus a strong hairline border for added separation. */
+          /* The athlete's message — right-aligned, on the sage tint in both
+             schemes, which is what DESIGN.md §5 specifies and what the web
+             bubble already wore. A neutral `surface-container-high` made the
+             athlete's own words a grey blob on the light canvas and said
+             nothing about whose they were; the tint is the same green the
+             active rail item and the unread pill carry, so the thread reads
+             as a conversation with two sides rather than as grey on paper.
+             A FILLED primary is not the alternative — that reads as a call to
+             action, not as a message. */
           <View
             className="max-w-[85%] rounded-2xl rounded-br-[4px] px-4 py-3"
-            style={{
-              backgroundColor: colors.tokens.surfaceContainerHigh,
-              borderWidth: 1,
-              borderColor: colors.border.strong,
-            }}
+            style={{ backgroundColor: colors.tokens.primaryContainer }}
           >
             {blocks.map((block, index) => renderBlock(block, index, context))}
             {clock ? (
-              <Text className="mt-1 text-right text-xs text-text-secondary" testID="message-time">
+              <Text
+                className="mt-1 text-right text-xs"
+                style={{ color: colors.tokens.onPrimaryContainer, opacity: 0.75 }}
+                testID="message-time"
+              >
                 {clock}
               </Text>
             ) : null}

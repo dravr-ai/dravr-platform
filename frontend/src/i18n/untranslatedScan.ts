@@ -17,9 +17,9 @@ import path from 'path';
  */
 /**
  * A text node. The capital-letter anchor this used to carry missed prose that
- * continues across markup — the login heading reads "…rendered in ink." on the
- * far side of a `<br />`, lowercase, and stayed English through three passes
- * because of it. Lowercase captures are admitted only when they are more than
+ * continues across markup — the login heading puts "and shows its work." on
+ * the far side of a `<br />`, lowercase, and prose in that position stayed
+ * English through three passes because of it. Lowercase captures are admitted only when they are more than
  * one word, which keeps bare identifiers out.
  *
  * It closes on `{` as well as `<`, because copy is regularly followed straight

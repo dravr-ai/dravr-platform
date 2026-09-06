@@ -1,5 +1,5 @@
 // ABOUTME: Login screen with email/password and Google Sign-In authentication
-// ABOUTME: Boreal Editorial hero backdrop with floating glass form card
+// ABOUTME: The phone's half of DESIGN.md §5 "Auth and onboarding" — tint page, white form sheet, both schemes
 
 import React, { useState } from 'react';
 import {
@@ -8,18 +8,17 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Image,
   ActivityIndicator,
-  type ImageStyle,
   type ViewStyle,
   type TextStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
 import { Button, Input } from '../../components/ui';
-import { PROVIDER_COLORS, spacing, glassCard, buttonGlow, BOREAL_LIGHT } from '../../constants/theme';
+import { BrandLockup } from '../../components/ui/BrandLockup';
+import { PROVIDER_COLORS, spacing } from '../../constants/theme';
 import {
   FIREBASE_NOT_CONFIGURED,
   GOOGLE_SIGNIN_UNAVAILABLE,
@@ -30,7 +29,6 @@ import {
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
 
 /**
  * The catalogue key for a Google sign-in failure.
@@ -57,6 +55,25 @@ function googleFailureKey(error: unknown): string {
 export function LoginScreen() {
   const { t } = useTranslation();
   const router = useRouter();
+  const { scheme } = useTheme();
+  const colors = useThemeColors();
+  const { tokens } = colors;
+  const isDark = scheme === 'dark';
+
+  /**
+   * The two sheets, the phone's version of the web login's aside-and-form.
+   *
+   * Light pairs the sage tint with a white card, so the brand ground and the
+   * form read as different things; dark pairs the paper-dark canvas with a
+   * container tier ABOVE it, because a `lowest` card sinks below a near-black
+   * ground while the tint becomes a dense green wall. Before this the screen
+   * was a hardcoded `#00241a → #0d3b2e` gradient — the retired v1 primary —
+   * under a card pinned to light, so it ignored the athlete's appearance
+   * setting entirely and shipped the one surface in the app that could not
+   * be dark.
+   */
+  const pageGround = isDark ? tokens.surface : tokens.primaryContainer;
+  const cardGround = isDark ? tokens.surfaceContainerHigh : tokens.surfaceContainerLowest;
   const { login, loginWithFirebase } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -123,70 +140,36 @@ export function LoginScreen() {
     }
   };
 
-  // Editorial hero wordmark — the DRAVR lockup in Space Grotesk with brand letter-spacing
-  const wordmarkStyle: TextStyle = {
-    fontFamily: 'SpaceGrotesk_SemiBold',
-    fontSize: 28,
-    letterSpacing: 4.2, // ≈ 0.15em on 28px
-    color: '#a3d0be', // primaryFixedDim — reads on deep-forest backdrop
-  };
-
-  // Editorial over-line (t('app.heroPersona')) — tiny tracked label
-  const kickerStyle: TextStyle = {
-    fontFamily: 'Inter_Medium',
-    fontSize: 11,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    color: '#a3d0be',
-    opacity: 0.85,
-  };
-
-  // Hero headline — editorial display typography
+  // The headline that says what the product is.
   const heroHeadlineStyle: TextStyle = {
     fontFamily: 'SpaceGrotesk_SemiBold',
-    fontSize: 28,
-    lineHeight: 34,
-    color: '#ffffff',
+    fontSize: 26,
+    lineHeight: 32,
+    color: tokens.onSurface,
   };
 
   const heroLeadStyle: TextStyle = {
     fontFamily: 'PlusJakartaSans',
     fontSize: 14,
     lineHeight: 22,
-    color: '#a3d0be',
+    color: tokens.onSurfaceVariant,
   };
 
-  // Logo style (pixel-specific dimensions)
-  // The boreal badge carries its own near-white ground, so it needs the app
-  // icon's corner radius to read as a badge on the deep-forest hero field.
-  const logoStyle: ImageStyle = { width: 48, height: 48, borderRadius: 12 };
-
-  // Elevated card surface — sits above the forest backdrop
+  // The form sheet. Hairline, no shadow — DESIGN.md §4: hairlines lift,
+  // shadows float, and nothing at rest floats.
   const cardStyle: ViewStyle = {
-    ...glassCard,
-    backgroundColor: BOREAL_LIGHT.surfaceContainerLowest, // pure white
+    backgroundColor: cardGround,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border.default,
     overflow: 'hidden',
-    shadowOpacity: 0.18,
-    shadowRadius: 32,
   };
 
-  // Button with ambient shadow
-  const glowButtonStyle: ViewStyle = {
-    ...buttonGlow,
-    marginTop: spacing.md,
-  };
+  const submitButtonStyle: ViewStyle = { marginTop: spacing.md };
 
   return (
-    <View className="flex-1" testID="login-screen" style={{ backgroundColor: BOREAL_LIGHT.primary }}>
-      {/* Full-bleed Boreal hero backdrop — 145° primary → primary-container */}
-      <LinearGradient
-        colors={['#00241a', '#0d3b2e']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-      />
-      <StatusBar style="light" />
+    <View className="flex-1" testID="login-screen" style={{ backgroundColor: pageGround }}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
@@ -196,28 +179,30 @@ export function LoginScreen() {
         >
           {/* Editorial hero band — brand moment at the top */}
           <View style={{ marginTop: spacing.md, marginBottom: spacing.xl }}>
-            <View className="flex-row items-center" style={{ gap: spacing.sm, marginBottom: spacing.lg }}>
-              <Image
-                source={require('../../../assets/icon.png')}
-                style={logoStyle}
-                resizeMode="contain"
-              />
-              <Text style={wordmarkStyle}>{PRODUCT_WORDMARK}</Text>
+            {/* One lockup component, the same one the chat tab header wears —
+                the mark and the wordmark are not re-specified per screen. */}
+            <View style={{ marginBottom: spacing.lg }}>
+              <BrandLockup size={40} testID="login-lockup" />
             </View>
-            <Text style={kickerStyle}>{t('app.heroPersona')}</Text>
-            <Text style={[heroHeadlineStyle, { marginTop: spacing.sm, marginBottom: spacing.sm }]}>
-              {t('app.heroLead')}{'\n'}{t('auth.taglineTail')}
+            {/* One sentence, one pair of keys — the same two the web aside
+                uses. The phone joins them with a space and lets the line
+                break fall where the width says: a hard `\n` here fought the
+                wrap and rendered the designed two lines as a ragged three at
+                390pt, and a phone-only copy of the lead is a second source
+                for the same sentence. Web keeps its `<br>`, where the aside
+                only ever renders at >=1024px and the break is a design choice. */}
+            <Text style={[heroHeadlineStyle, { marginBottom: spacing.sm }]}>
+              {`${t('auth.taglineLead')} ${t('auth.taglineTail')}`}
             </Text>
             <Text style={heroLeadStyle}>
               {t('app.heroBlurb')}
             </Text>
           </View>
 
-          {/* Floating form card — white surface over the forest hero. Every
-              element inside this region uses BOREAL_LIGHT directly because
-              the card is brand-fixed and must read correctly even when the
-              user's global preference is dark. */}
-          <View style={cardStyle}>
+          {/* The form sheet on the brand ground. Every element inside reads
+              the live palette, so the whole screen follows the athlete's
+              appearance setting. */}
+          <View style={cardStyle} testID="login-card">
             <View className="px-6 py-7">
               <View className="mb-5">
                 <Text
@@ -225,12 +210,12 @@ export function LoginScreen() {
                     fontFamily: 'SpaceGrotesk_SemiBold',
                     fontSize: 24,
                     marginBottom: 4,
-                    color: BOREAL_LIGHT.onSurface,
+                    color: tokens.onSurface,
                   }}
                 >
                   {t('common.login')}
                 </Text>
-                <Text style={{ fontSize: 14, color: BOREAL_LIGHT.onSurfaceVariant }}>
+                <Text style={{ fontSize: 14, color: tokens.onSurfaceVariant }}>
                   {t('app.welcomeBack')}
                 </Text>
               </View>
@@ -246,7 +231,6 @@ export function LoginScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   error={errors.email}
-                  surface="light"
                   testID="email-input"
                 />
 
@@ -260,7 +244,6 @@ export function LoginScreen() {
                   returnKeyType="go"
                   onSubmitEditing={handleLogin}
                   error={errors.password}
-                  surface="light"
                   testID="password-input"
                 />
 
@@ -269,7 +252,7 @@ export function LoginScreen() {
                   className="self-end mb-2"
                   testID="forgot-password-link"
                 >
-                  <Text style={{ fontSize: 12, color: BOREAL_LIGHT.outline }}>
+                  <Text style={{ fontSize: 12, color: tokens.primary }}>
                     {t('app.forgotPasswordLink')}
                   </Text>
                 </TouchableOpacity>
@@ -279,8 +262,7 @@ export function LoginScreen() {
                   onPress={handleLogin}
                   loading={isLoading}
                   fullWidth
-                  surface="light"
-                  style={glowButtonStyle}
+                  style={submitButtonStyle}
                   testID="login-button"
                 />
 
@@ -289,16 +271,16 @@ export function LoginScreen() {
                   <>
                     <View className="flex-row items-center my-5">
                       <View
-                        style={{ flex: 1, height: 1, backgroundColor: BOREAL_LIGHT.outlineVariant }}
+                        style={{ flex: 1, height: 1, backgroundColor: colors.border.default }}
                       />
                       <Text
                         className="px-3"
-                        style={{ fontSize: 13, color: BOREAL_LIGHT.onSurfaceVariant }}
+                        style={{ fontSize: 13, color: tokens.onSurfaceVariant }}
                       >
                         {t('app.orContinueWith')}
                       </Text>
                       <View
-                        style={{ flex: 1, height: 1, backgroundColor: BOREAL_LIGHT.outlineVariant }}
+                        style={{ flex: 1, height: 1, backgroundColor: colors.border.default }}
                       />
                     </View>
 
@@ -316,12 +298,12 @@ export function LoginScreen() {
                         paddingHorizontal: 20,
                         borderRadius: 12,
                         borderWidth: 1,
-                        borderColor: 'rgba(26, 28, 27, 0.12)',
-                        backgroundColor: BOREAL_LIGHT.surfaceContainerLowest,
+                        borderColor: colors.border.strong,
+                        backgroundColor: 'transparent',
                       }}
                     >
                       {isGoogleLoading ? (
-                        <ActivityIndicator size="small" color={BOREAL_LIGHT.onSurface} />
+                        <ActivityIndicator size="small" color={tokens.onSurface} />
                       ) : (
                         <AntDesign name="google" size={20} color={PROVIDER_COLORS.google} />
                       )}
@@ -329,7 +311,7 @@ export function LoginScreen() {
                         style={{
                           fontSize: 15,
                           fontWeight: '500',
-                          color: BOREAL_LIGHT.onSurface,
+                          color: tokens.onSurface,
                         }}
                       >
                         {isGoogleLoading ? t('app.signingIn') : t('app.continueWithGoogle')}
@@ -341,12 +323,12 @@ export function LoginScreen() {
 
               {/* Register Link */}
               <View className="flex-row justify-center items-center gap-1 pt-4">
-                <Text style={{ fontSize: 13, color: BOREAL_LIGHT.onSurfaceVariant }}>
+                <Text style={{ fontSize: 13, color: tokens.onSurfaceVariant }}>
                   {t('app.noAccountYet')}
                 </Text>
                 <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
                   <Text
-                    style={{ fontSize: 13, fontWeight: '600', color: BOREAL_LIGHT.primary }}
+                    style={{ fontSize: 13, fontWeight: '600', color: tokens.primary }}
                   >
                     {t('app.createOne')}
                   </Text>
@@ -355,27 +337,20 @@ export function LoginScreen() {
             </View>
           </View>
 
-          {/* Footer band — fitness pillars */}
+          {/* The four pillars an athlete can ask about, sentence case like
+              the web aside's — no tracked caps, which v2 retired. */}
           <View
             className="flex-row items-center justify-center"
-            style={{ gap: spacing.md, marginTop: spacing.xl, opacity: 0.7 }}
+            style={{ gap: spacing.sm, marginTop: spacing.xl }}
           >
             {[t('app.activity'), t('app.nutrition'), t('app.recovery'), t('app.mobility')].map((pillar, i) => (
               <React.Fragment key={pillar}>
                 {i > 0 && (
-                  <Text style={{ color: '#a3d0be', opacity: 0.5 }} aria-hidden>
+                  <Text style={{ color: tokens.outline }} aria-hidden>
                     ·
                   </Text>
                 )}
-                <Text
-                  style={{
-                    fontFamily: 'Inter_Medium',
-                    fontSize: 10,
-                    letterSpacing: 1.2,
-                    textTransform: 'uppercase',
-                    color: '#a3d0be',
-                  }}
-                >
+                <Text style={{ fontFamily: 'PlusJakartaSans', fontSize: 13, color: tokens.onSurfaceVariant }}>
                   {pillar}
                 </Text>
               </React.Fragment>

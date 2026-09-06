@@ -170,11 +170,14 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
   return (
     <div className="min-h-dvh flex bg-surface text-on-surface">
       {/*
-        Editorial aside — the brand moment on a paper ground. It follows the
-        scheme like the form beside it: the mark swaps its ink under `.dark`,
-        and nothing here is pinned to a dark fill.
+        Editorial aside — the brand moment. In light it sits on the sage tint
+        (`primary-container`) beside a white form sheet: the two paper tones
+        the previous pairing used were a half-step apart and read as one
+        muddy field. Dark keeps its grey step, where the tint would be a dense
+        green wall. Nothing here is pinned to a fill that ignores the scheme:
+        the mark swaps its ink under `.dark` and the text roles follow.
       */}
-      <aside className="hidden lg:flex lg:w-1/2 xl:w-3/5 flex-col justify-between border-r ghost-border bg-surface-container-low p-12 xl:p-16">
+      <aside className="hidden lg:flex lg:w-1/2 xl:w-3/5 flex-col justify-between border-r ghost-border bg-primary-container p-12 dark:bg-surface-container-low xl:p-16">
         {/* Lockup */}
         <div className="flex items-center gap-3">
           <DravrLogo size={32} />
@@ -209,7 +212,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
       </aside>
 
       {/* Form column */}
-      <main className="flex-1 flex items-center justify-center px-6 py-12 sm:px-12 relative">
+      <main className="relative flex flex-1 items-center justify-center bg-surface px-6 py-12 sm:px-12 lg:bg-surface-container-lowest dark:lg:bg-surface">
         {/* Theme toggle */}
         <button
           type="button"
@@ -324,7 +327,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                     <div className="w-full border-t" style={{ borderColor: 'var(--ghost-border)' }} />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-3 bg-surface text-xs text-on-surface-variant">
+                    <span className="bg-surface px-3 text-xs text-on-surface-variant lg:bg-surface-container-lowest dark:lg:bg-surface">
                       {t('auth.orDivider')}
                     </span>
                   </div>
