@@ -65,7 +65,7 @@ struct GradientSample {
 /// Endurance terrain mix bucketed by horizontal distance.
 ///
 /// The four buckets sum (within rounding) to `total_distance_meters`.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TerrainSummary {
     /// Total horizontal distance analysed (m).
     pub total_distance_meters: f64,
@@ -84,7 +84,7 @@ pub struct TerrainSummary {
 }
 
 /// Strava climb category derived from the Fiets-style index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ClimbCategory {
     /// Hors catégorie — `score >= 80`.
@@ -102,7 +102,7 @@ pub enum ClimbCategory {
 }
 
 /// One climb segment found inside the route.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Climb {
     /// 0-based index of the first track point in the climb.
     pub start_index: usize,
@@ -119,7 +119,7 @@ pub struct Climb {
 }
 
 /// Endurance `routes.json` payload for a single activity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RouteSummary {
     /// SHA-256 hex of the input GPX bytes — used as cache key.
     pub gpx_hash: String,

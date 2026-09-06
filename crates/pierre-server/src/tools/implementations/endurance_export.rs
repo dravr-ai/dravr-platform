@@ -19,11 +19,12 @@ use serde_json::Value;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
+use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, task_capable, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -129,7 +130,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             required: Some(Vec::new()),
             ..Default::default()
         };
-        task_capable(tool_definition(
+        answers_with::<LatestSnapshot>(task_capable(tool_definition(
             "export_latest_snapshot",
             "Export the Endurance 'latest.json' snapshot for the authenticated user — \
              per-activity intensity factor, efficiency factor, variability index, \
@@ -140,7 +141,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
              contract. The response shape mirrors `GET /api/v1/endurance/latest`.",
             schema,
             Some(read_only_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

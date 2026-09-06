@@ -19,11 +19,13 @@ use serde_json::{json, Value};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
+use pierre_fitness_compute::intervals::IntervalsExport;
+use pierre_fitness_compute::routes::RouteSummary;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activity_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -118,7 +120,7 @@ pub struct ExportIntervalsTool;
 impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
     fn definition(&self) -> Tool {
         let schema = activity_id_schema();
-        tool_definition(
+        answers_with::<IntervalsExport>(tool_definition(
             "export_intervals",
             "Export the Endurance 'intervals.json' shape for a single activity — \
              one row per lap with avg HR, normalized power, intensity factor, and \
@@ -128,7 +130,7 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
              GET /api/v1/endurance/intervals/{activity_id}.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -178,7 +180,7 @@ pub struct ExportRoutesTool;
 impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
     fn definition(&self) -> Tool {
         let schema = activity_id_schema();
-        tool_definition(
+        answers_with::<RouteSummary>(tool_definition(
             "export_routes",
             "Export the Endurance 'routes.json' shape for a single activity — \
              GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, \
@@ -187,7 +189,7 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
              GET /api/v1/endurance/routes/{activity_id}.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

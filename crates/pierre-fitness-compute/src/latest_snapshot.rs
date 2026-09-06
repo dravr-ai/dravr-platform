@@ -38,7 +38,7 @@ pub const MAX_WINDOW_DAYS: u32 = 365;
 /// requires sensor streams (power, HR) that may be missing on a given
 /// activity. Per the Endurance deterministic-output rules, missing
 /// sensor data emits `None` rather than a synthesised estimate.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ActivitySection11Metrics {
     /// Intensity Factor — `normalized_power / ftp` (Coggan).
     /// `None` when the activity has no power stream or the user has no FTP.
@@ -55,7 +55,7 @@ pub struct ActivitySection11Metrics {
 }
 
 /// One row in the per-activity table embedded in the snapshot.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LatestSnapshotActivityRow {
     /// Provider activity id.
     pub activity_id: String,
@@ -89,7 +89,7 @@ pub struct LatestSnapshotActivityRow {
 /// [`build_latest_snapshot`]. Aggregates use simple arithmetic means
 /// across activities that contributed a value (i.e. drop `None`s before
 /// averaging — never substitute zeros).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LatestSnapshot {
     /// Window length in days that was analysed.
     pub window_days: u32,

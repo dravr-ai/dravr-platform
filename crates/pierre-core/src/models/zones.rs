@@ -145,7 +145,9 @@ impl PowerZoneSet {
 /// `above_max_seconds` equals total samples in the analyzed window. Used by
 /// the Endurance `latest.json` payload to surface polarized-distribution
 /// stats (Z1+Z2 share vs Z3 share vs Z4+Z5 share) to coaches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 pub struct ZoneDistribution {
     /// Seconds spent in zone 1 (active recovery / very easy).
     pub z1_seconds: u32,

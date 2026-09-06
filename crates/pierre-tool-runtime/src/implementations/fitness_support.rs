@@ -21,6 +21,7 @@
 
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::ActivitySummary;
+use crate::implementations::athlete_stats::{GetAthleteResult, GetStatsResult};
 use crate::implementations::data_helpers::activity_coverage_note;
 use crate::protocol::format::formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -1181,11 +1182,10 @@ pub(crate) async fn try_get_cached_athlete(
         );
         metadata.insert("cached".to_owned(), Value::Bool(true));
 
-        return Ok(Some(formatted_response(
-            &cached_athlete,
-            output_format,
-            metadata,
-        )?));
+        let payload = GetAthleteResult {
+            athlete: cached_athlete,
+        };
+        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
     }
     info!("Cache miss for athlete profile");
     Ok(None)
@@ -1222,7 +1222,7 @@ pub(crate) async fn fetch_and_cache_athlete(
             );
             metadata.insert("cached".to_owned(), Value::Bool(false));
 
-            formatted_response(&athlete, output_format, metadata)
+            formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
         }
         Err(e) => Ok(UniversalResponse {
             success: false,
@@ -1307,11 +1307,10 @@ pub(crate) async fn try_get_cached_stats(
         );
         metadata.insert("cached".to_owned(), Value::Bool(true));
 
-        return Ok(Some(formatted_response(
-            &cached_stats,
-            output_format,
-            metadata,
-        )?));
+        let payload = GetStatsResult {
+            stats: cached_stats,
+        };
+        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
     }
     info!("Cache miss for stats");
     Ok(None)
@@ -1415,5 +1414,5 @@ pub(crate) async fn fetch_and_cache_stats(
     }
 
     let metadata = create_stats_metadata(user_uuid, tenant_id, false);
-    formatted_response(&stats, output_format, metadata)
+    formatted_response(&GetStatsResult { stats }, output_format, metadata)
 }

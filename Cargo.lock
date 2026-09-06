@@ -3838,6 +3838,7 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest 0.12.28",
+ "schemars 0.9.0",
  "serde",
  "serde_json",
  "sha2",
@@ -4476,6 +4477,7 @@ dependencies = [
  "hmac",
  "html-escape",
  "http",
+ "jsonschema",
  "jsonwebtoken 10.3.0",
  "num-traits",
  "photograveur",
@@ -4535,6 +4537,7 @@ dependencies = [
  "reqwest-middleware",
  "ring",
  "rsa",
+ "schemars 0.9.0",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -5401,6 +5404,7 @@ dependencies = [
  "schemars_derive 0.9.0",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

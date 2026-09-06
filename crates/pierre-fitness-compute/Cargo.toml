@@ -21,6 +21,8 @@ pierre-database = { version = "0.3.0", path = "../pierre-database", default-feat
 pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.9.0" }
 
+# Derives the JSON Schemas the endurance export tools declare.
+schemars = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

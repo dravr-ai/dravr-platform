@@ -246,9 +246,17 @@ export const AthleteSchema = z.object({
 
 export const GetAthleteResponseSchema = z.object({
   athlete: AthleteSchema.optional(),
-  athlete_toon: z.string().optional(),
+  // `format: "toon"` replaces the whole payload with this one string. The key
+  // is `toon` for every tool, not `athlete_toon` — a property name that
+  // changes per tool cannot be stated in the outputSchema the server now
+  // declares, so it is fixed.
+  toon: z.string().optional(),
+  // A TOON encoding that fails falls back to JSON and says so, putting the
+  // payload under `result` rather than `athlete`.
+  result: AthleteSchema.optional(),
   format: z.enum(["json", "toon"]).optional(),
   format_fallback: z.boolean().optional(),
+  format_error: z.string().optional(),
 });
 
 /**
@@ -277,9 +285,12 @@ export const GetStatsResponseSchema = z.object({
     all_run_totals: ActivityTotalsSchema.optional(),
     all_swim_totals: ActivityTotalsSchema.optional(),
   }).optional(),
-  stats_toon: z.string().optional(),
+  // Fixed envelope keys — see GetAthleteResponseSchema for why.
+  toon: z.string().optional(),
+  result: z.unknown().optional(),
   format: z.enum(["json", "toon"]).optional(),
   format_fallback: z.boolean().optional(),
+  format_error: z.string().optional(),
 });
 
 // --------------------------------------------------------------------------

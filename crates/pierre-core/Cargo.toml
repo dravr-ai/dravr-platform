@@ -77,8 +77,8 @@ all-database = ["database-errors", "sqlx-types"]
 [dependencies]
 thiserror = "2.0"
 # Derives the JSON Schemas the MCP tools declare as their outputSchema.
-# chrono04: ProviderFreshness and friends carry DateTime<Utc>.
-schemars = { version = "0.9", features = ["chrono04"] }
+# chrono04 + uuid1: these types carry DateTime<Utc> and Uuid.
+schemars = { version = "0.9", features = ["chrono04", "uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

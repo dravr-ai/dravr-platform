@@ -12,6 +12,7 @@ use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{FormReading, TenantId};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::services::training_history_compute::{
@@ -23,11 +24,28 @@ use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
+
+/// What `compute_training_history` answers with.
+///
+/// A write tool that reports its own scope. The window is echoed because the
+/// caller may have passed none and taken the default, and `rows_upserted` is
+/// how a coach knows whether the recompute actually had days to work with —
+/// zero is a valid answer for a window the athlete did not train in.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ComputeTrainingHistoryResult {
+    /// First day of the window recomputed, as `YYYY-MM-DD`.
+    pub from: String,
+    /// Last day of the window, inclusive.
+    pub to: String,
+    /// How many daily rows were written or overwritten.
+    pub rows_upserted: usize,
+}
 
 fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {
@@ -122,7 +140,7 @@ pub struct ComputeTrainingHistoryTool;
 impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
     fn definition(&self) -> Tool {
         let schema = date_range_schema();
-        task_capable(tool_definition(
+        answers_with::<ComputeTrainingHistoryResult>(task_capable(tool_definition(
             "compute_training_history",
             "Compute and persist Endurance daily training-state rollups for the \
              authenticated user across the requested window — CTL, ATL, TSB \
@@ -133,7 +151,7 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
              window is the last 90 days.",
             schema,
             Some(write_safe_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -161,11 +179,14 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
             let count =
                 compute_and_persist_history(&context.resources, tenant_id, user_id, from, to)
                     .await?;
-            Ok(ToolResult::ok(json!({
-                "from": from.format("%Y-%m-%d").to_string(),
-                "to": to.format("%Y-%m-%d").to_string(),
-                "rows_upserted": count,
-            })))
+            ok_typed(
+                "compute_training_history",
+                ComputeTrainingHistoryResult {
+                    from: from.format("%Y-%m-%d").to_string(),
+                    to: to.format("%Y-%m-%d").to_string(),
+                    rows_upserted: count,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

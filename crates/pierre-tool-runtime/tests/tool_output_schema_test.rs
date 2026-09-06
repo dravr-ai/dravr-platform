@@ -18,7 +18,6 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
-use pierre_core::models::{Athlete, Stats};
 use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::admin::{
@@ -42,7 +41,9 @@ use pierre_tool_runtime::implementations::analytics::{
     AnalyzePerformanceTrendsTool, CalculateMetricsTool, CompareActivitiesTool, DetectPatternsTool,
     PredictPerformanceTool,
 };
-use pierre_tool_runtime::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
+use pierre_tool_runtime::implementations::athlete_stats::{
+    GetAthleteResult, GetAthleteTool, GetStatsResult, GetStatsTool,
+};
 use pierre_tool_runtime::implementations::coaches::{
     ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool, GetActiveCoachTool,
     GetCoachTool, HideCoachTool, ListCoachesTool, ListHiddenCoachesTool, SearchCoachesTool,
@@ -2933,23 +2934,27 @@ fn the_group_projection_carries_no_more_of_a_peer_than_it_should() {
 // athlete and stats
 // ============================================================================
 
-/// These two answer with the provider models themselves, so their schemas are
-/// derived from `Athlete` and `Stats` rather than from a projection.
+/// These two answer with the provider model under a named key.
 ///
-/// That is the shape to prefer where it is available: nothing to keep in
-/// sync, because there is only one type.
+/// The key is the contract, not decoration: `GetAthleteResponseSchema` in the
+/// TypeScript SDK reads `athlete`, and `provider_backend_resolver_test`
+/// asserts it. Consolidating the envelope unwrapped them once and that test
+/// caught it — which is the argument for the named envelope over the bare
+/// model, however tempting one level fewer looks.
 #[test]
 fn the_athlete_and_stats_tools_declare_the_models_they_answer_with() {
     for (tool_name, declared, derived) in [
         (
             "get_athlete",
             <GetAthleteTool as McpTool<dyn ToolRuntime>>::definition(&GetAthleteTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<Athlete>)).expect("derives"),
+            serde_json::to_value(schemars::schema_for!(Formatted<GetAthleteResult>))
+                .expect("derives"),
         ),
         (
             "get_stats",
             <GetStatsTool as McpTool<dyn ToolRuntime>>::definition(&GetStatsTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<Stats>)).expect("derives"),
+            serde_json::to_value(schemars::schema_for!(Formatted<GetStatsResult>))
+                .expect("derives"),
         ),
     ] {
         assert_eq!(
@@ -2972,7 +2977,8 @@ fn the_toon_envelope_key_is_fixed_rather_than_named_after_the_tool() {
     // and `stats_toon`. A property name that changes per tool cannot be
     // stated in a schema at all, which is why the envelope keys are fixed —
     // and this is the assertion that keeps someone from reintroducing one.
-    let schema = serde_json::to_value(schemars::schema_for!(Formatted<Athlete>)).expect("derives");
+    let schema =
+        serde_json::to_value(schemars::schema_for!(Formatted<GetAthleteResult>)).expect("derives");
 
     // The PROPERTY names, not the rendered text. The envelope's own doc
     // comment names the spellings it replaced, so a substring match reads

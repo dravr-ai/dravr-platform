@@ -19,6 +19,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::models::TenantId;
 use pierre_core::models::{Athlete, Stats};
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use pierre_cache::{CacheKey, CacheResource};
@@ -45,6 +46,28 @@ use pierre_core::errors::AppResult;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::backend_resolver;
 use pierre_tools_core::ToolResult;
+
+/// What `get_athlete` answers with.
+///
+/// The provider's athlete under an `athlete` key rather than at the top
+/// level. The key is the contract: `GetAthleteResponseSchema` in the
+/// TypeScript SDK reads `athlete`, and `provider_backend_resolver_test`
+/// asserts it. Unwrapping it to save one level would break both.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetAthleteResult {
+    /// The athlete profile as the provider reports it.
+    pub athlete: Athlete,
+}
+
+/// What `get_stats` answers with.
+///
+/// Same shape of contract as [`GetAthleteResult`]: the totals live under a
+/// `stats` key that the SDK schema reads by name.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetStatsResult {
+    /// Lifetime and recent totals as the provider reports them.
+    pub stats: Stats,
+}
 
 // ============================================================================
 // GetAthleteTool - Get athlete profile
@@ -83,7 +106,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
 
         let schema = object_schema(properties, None);
 
-        answers_with::<Formatted<Athlete>>(task_capable(tool_definition(
+        answers_with::<Formatted<GetAthleteResult>>(task_capable(tool_definition(
             "get_athlete",
             "Retrieve the user's athlete profile from connected fitness providers including personal details and preferences",
             schema,
@@ -236,7 +259,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
 
         let schema = object_schema(properties, None);
 
-        answers_with::<Formatted<Stats>>(task_capable(tool_definition(
+        answers_with::<Formatted<GetStatsResult>>(task_capable(tool_definition(
             "get_stats",
             "Retrieve aggregated activity statistics from a connected fitness provider. The top-level total_* fields are ALL-TIME / lifetime totals. When the provider supplies it (currently Strava), a `year_to_date` object holds CURRENT-CALENDAR-YEAR totals — use that for 'this year' / annual questions and never report the all-time totals as annual. If `year_to_date` is absent, the provider does not expose annual figures. IMPORTANT: Strava's ride and run totals here count ONLY the base sport type and EXCLUDE variant disciplines (VirtualRide, GravelRide, MountainBikeRide, EBikeRide; TrailRun, VirtualRun), so they undercount multi-discipline athletes. For a true cross-discipline total (e.g. 'total km cycling this year'), do NOT report this single ride/run figure — call get_activities for the period and sum distance across all related sport types.",
             schema,
