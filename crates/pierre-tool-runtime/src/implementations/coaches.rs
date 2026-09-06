@@ -28,13 +28,13 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use super::coaches_tool_shape::{
-    destructive_annotations, extract_format, finalize_payload, read_only_annotations,
-    write_annotations,
+    destructive_annotations, extract_format, read_only_annotations, write_annotations,
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -210,7 +210,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
                 "has_more": has_more,
             });
 
-            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            ok_typed("list_coaches", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -477,7 +477,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
                         "created_at": c.created_at.to_rfc3339(),
                         "updated_at": c.updated_at.to_rfc3339(),
                     });
-                    Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+                    ok_typed("get_coach", apply_format(payload, format))
                 }
                 None => Ok(ToolResult::error(json!({
                     "error": format!("Coach not found: {coach_id}"),
@@ -934,7 +934,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
                 "has_more": has_more,
             });
 
-            Ok(ToolResult::ok(finalize_payload(payload, "results", format)))
+            ok_typed("search_coaches", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -1144,7 +1144,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
                             "token_count": c.token_count,
                         }
                     });
-                    Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+                    ok_typed("get_active_coach", apply_format(payload, format))
                 }
                 None => Ok(ToolResult::ok(json!({
                     "active": false,
@@ -1372,7 +1372,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
                 "count": count,
             });
 
-            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            ok_typed("list_hidden_coaches", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)

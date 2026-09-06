@@ -35,7 +35,8 @@ use uuid::Uuid;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -48,7 +49,7 @@ use pierre_core::models::coaches::{
 };
 use pierre_core::models::TenantId;
 use pierre_core::pagination::parse_limit_offset;
-use pierre_formatters::{format_output, OutputFormat};
+use pierre_formatters::OutputFormat;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -58,28 +59,6 @@ fn extract_format(args: &Value) -> OutputFormat {
         .and_then(Value::as_str)
         .map(OutputFormat::from_str_param)
         .unwrap_or_default()
-}
-
-/// Apply TOON formatting to a result payload, mirroring `apply_format_to_response`.
-fn finalize_payload(value: Value, data_key: &str, format: OutputFormat) -> Value {
-    match format {
-        OutputFormat::Json => value,
-        OutputFormat::Toon => match format_output(&value, OutputFormat::Toon) {
-            Ok(formatted) => {
-                let toon_key = format!("{data_key}_toon");
-                json!({
-                    toon_key: formatted.data,
-                    "format": "toon",
-                })
-            }
-            Err(e) => json!({
-                data_key: value,
-                "format": "json",
-                "format_fallback": true,
-                "format_error": e.to_string(),
-            }),
-        },
-    }
 }
 
 /// Annotations for idempotent write operations (create, update, assign).
@@ -236,7 +215,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
                 "offset": offset,
             });
 
-            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            ok_typed("admin_list_system_coaches", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -477,7 +456,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
                         "created_at": c.created_at.to_rfc3339(),
                         "updated_at": c.updated_at.to_rfc3339(),
                     });
-                    Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+                    ok_typed("admin_get_system_coach", apply_format(payload, format))
                 }
                 None => Ok(ToolResult::error(json!({
                     "error": format!("System agent not found: {coach_id}"),

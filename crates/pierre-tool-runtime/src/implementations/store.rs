@@ -48,13 +48,12 @@ use pierre_services::coach_store::{
 use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
-use super::coaches_tool_shape::{
-    extract_format, finalize_payload, read_only_annotations, write_annotations,
-};
+use super::coaches_tool_shape::{extract_format, read_only_annotations, write_annotations};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -209,7 +208,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
                 "has_more": page.has_more,
                 "next_cursor": page.next_cursor,
             });
-            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            ok_typed("browse_coach_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -293,7 +292,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
                 "count": rendered.len(),
                 "coaches": rendered,
             });
-            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            ok_typed("search_coach_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -382,7 +381,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                     installed.title
                 ),
             });
-            Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+            ok_typed("install_coach_from_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
