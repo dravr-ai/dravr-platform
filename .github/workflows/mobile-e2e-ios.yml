@@ -7,12 +7,36 @@
 name: "CI: Mobile E2E (iOS)"
 
 on:
+  push:
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
+    paths:
+      - 'frontend-mobile/**'
+      # Only the shared packages frontend-mobile depends on. `packages/**` would put
+      # a macOS runner (billed at 10x) on every push to mcp-types, scene-types or the
+      # eslint/tsconfig configs, which the app does not consume.
+      - 'packages/api-client/**'
+      - 'packages/chat-utils/**'
+      - 'packages/domain-utils/**'
+      - 'packages/i18n/**'
+      - 'packages/shared-constants/**'
+      - 'packages/shared-types/**'
+      - 'packages/ui-logic/**'
+      - '.github/workflows/mobile-e2e-ios.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # On main the sha is part of the group, so every commit gets its own group
+  # and nothing can cancel another commit's verdict. Branches share a group per
+  # ref and keep cancelling, where fast feedback beats a stale result. Without the
+  # sha this lane would lose verdicts the moment it gained a push trigger: a burst
+  # of mobile pushes would cancel each other's e2e run (carnet#169 on ci-postgres).
+  # `github.event_name` is in the group for the mirror-image reason: a scheduled or
+  # dispatched run on main carries the TIP's sha, so without it the 06:00 cron joins
+  # the tip's push-run group and kills that verdict mid-flight (ci-backend.yml records
+  # the same collision on 2026-08-31).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 permissions:
@@ -594,27 +618,22 @@ jobs:
         working-directory: frontend-mobile
         run: |
           MAESTRO="$HOME/.maestro/bin/maestro"
-          # Push to main runs only the smoke test (already validated above).
-          # Branch pushes and manual triggers run the critical-path subset (~11 tests).
-          SUITE_MODE="${{ (github.event_name == 'workflow_dispatch' || github.ref != 'refs/heads/main') && 'critical' || 'smoke' }}"
-          echo "Suite mode: $SUITE_MODE (event=${{ github.event_name }}, ref=${{ github.ref }})"
 
-          if [ "$SUITE_MODE" = "critical" ]; then
-            echo "Running critical-path subset (~11 tests) in two batches..."
-            # Batch 1: Login flow (validates auth works end-to-end)
-            # Batch 2: One test from each feature area (validates post-login features)
-            BATCH1_FILES="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml"
-            BATCH2_FILES="settings/01-screen-rendering.yaml chat/01-basic-visibility.yaml coaches/01-basic-rendering.yaml store/01-basic-rendering.yaml coach-wizard/01-wizard-navigation.yaml social/01-friends-screen.yaml visual/01-authentication.yaml visual/02-home-screen.yaml"
-            BATCH_COUNT=2
-          else
-            echo "Push to main: smoke test already validated the environment."
-            if [ -f maestro-smoke-results.xml ]; then
-              cp maestro-smoke-results.xml maestro-results.xml
-            else
-              echo '<?xml version="1.0" encoding="UTF-8"?><testsuites></testsuites>' > maestro-results.xml
-            fi
-            exit 0
-          fi
+          # Every trigger runs the critical subset (decided 2026-09-05). The mode this
+          # replaces ran one flow on a scheduled main run, and its critical branch had
+          # never executed once — which is how three of its eleven entries came to name
+          # files that do not exist (coach-wizard/01, coaches/01, social/01).
+          #
+          # The list below drops those three and the three that assert English copy
+          # (settings/01, store/01, visual/02): the chrome defaults to fr, so they fail
+          # on every platform until they assert by test id. What remains is measured
+          # green on iOS only for login/01 (the nightly smoke); the rest pass on an
+          # Android emulator and are expected, not proven, to pass here. The first
+          # scheduled run after this lands is what turns that into evidence.
+          echo "Running critical-path subset in two batches..."
+          BATCH1_FILES="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml"
+          BATCH2_FILES="chat/01-basic-visibility.yaml visual/01-authentication.yaml"
+          BATCH_COUNT=2
 
           TOTAL_FAILURES=0
           TOTAL_PASSED=0
@@ -631,15 +650,27 @@ jobs:
             echo "=== Batch $BATCH_NUM ==="
             echo "Files: $FLOW_ARGS"
 
+            BATCH_RC=0
             $MAESTRO test --device "$SIMULATOR_UDID" $FLOW_ARGS \
-              --format junit --output "maestro-results-batch${BATCH_NUM}.xml" || true
+              --format junit --output "maestro-results-batch${BATCH_NUM}.xml" || BATCH_RC=$?
 
             # grep -c returns exit code 1 when no matches; assign separately to avoid
             # || echo "0" appending a second line that breaks arithmetic.
             BATCH_TESTS=$(grep -c '<testcase' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null) || BATCH_TESTS=0
             BATCH_FAILS=$(grep -c '<failure' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null) || BATCH_FAILS=0
             BATCH_PASSED=$((BATCH_TESTS - BATCH_FAILS))
-            echo "Batch $BATCH_NUM: $BATCH_TESTS tests, $BATCH_PASSED passed, $BATCH_FAILS failures"
+            echo "Batch $BATCH_NUM: $BATCH_TESTS tests, $BATCH_PASSED passed, $BATCH_FAILS failures (maestro rc=$BATCH_RC)"
+
+            # A driver that dies before writing junit leaves 0 tests and 0 failures, which
+            # every count below reads as "nothing went wrong". Maestro's own exit status is
+            # the only signal that separates that from a real pass, so a non-zero rc with
+            # no recorded failure is counted as one — otherwise the lane reports success
+            # for a batch in which no flow ran at all.
+            if [ "$BATCH_RC" -ne 0 ] && [ "$BATCH_FAILS" -eq 0 ]; then
+              echo "Batch $BATCH_NUM: maestro exited $BATCH_RC without recording a failure — counting it as one."
+              BATCH_FAILS=1
+              TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+            fi
             TOTAL_FAILURES=$((TOTAL_FAILURES + BATCH_FAILS))
             TOTAL_PASSED=$((TOTAL_PASSED + BATCH_PASSED))
 
@@ -665,7 +696,7 @@ jobs:
           echo "Total test results: $TOTAL_PASSED passed, $TOTAL_FAILURES failed"
 
           # Write test summary to GitHub Step Summary for visibility
-          echo "## iOS E2E Test Results ($SUITE_MODE mode)" >> $GITHUB_STEP_SUMMARY
+          echo "## iOS E2E Test Results (critical mode)" >> $GITHUB_STEP_SUMMARY
           echo "- Passed: $TOTAL_PASSED" >> $GITHUB_STEP_SUMMARY
           echo "- Failed: $TOTAL_FAILURES" >> $GITHUB_STEP_SUMMARY
           if [ "$TOTAL_FAILURES" -gt 0 ]; then
