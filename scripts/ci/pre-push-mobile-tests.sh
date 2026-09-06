@@ -170,13 +170,39 @@ echo ""
 # ============================================================================
 # Summary
 # ============================================================================
+# Tier 4: Maestro flows can fail
+# ============================================================================
+echo ""
+echo "🎭 Tier 4: Maestro Assertion Coverage"
+echo "-------------------------------------"
+echo -n "Checking every flow can fail... "
+
+# carnet#364: a flow whose assertions all sit inside `runFlow: when:` is
+# skipped when its precondition is absent, and a skipped flow reports success.
+# Four store flows and two others were in that state; two of them were in the
+# Android nightly. Compile-free, so it costs nothing to run here.
+MAESTRO_OUT=$("$(dirname "${BASH_SOURCE[0]}")/check-maestro-assertions.sh" 2>&1)
+MAESTRO_STATUS=$?
+
+if [[ $MAESTRO_STATUS -eq 0 ]]; then
+    echo "✅"
+    PASSED=$((PASSED + 1))
+    echo "$MAESTRO_OUT" | sed 's/^/   /'
+else
+    echo "❌"
+    FAILED=$((FAILED + 1))
+    echo ""
+    echo "$MAESTRO_OUT" | sed 's/^/   /'
+fi
+
+# ============================================================================
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
 echo "======================================="
 echo "Mobile Pre-Push Validation Complete"
 echo "======================================="
-echo "Checks passed: $PASSED/5"
+echo "Checks passed: $PASSED/6"
 echo "Duration:      ${DURATION}s"
 echo ""
 

@@ -14,61 +14,74 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Open an agent detail
+# The seeded store publishes system agents, so the first card is a precondition
+# this environment guarantees rather than a coin toss to guard on.
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+- tapOn:
+    id: "coach-card-0"
+- extendedWaitUntil:
+    visible:
+      id: "store-coach-detail-screen"
+    timeout: 5000
+
+# Wait for the install state to resolve (install or installed)
+- extendedWaitUntil:
+    visible: "Install.*"
+    timeout: 15000
+
+# SETUP, and the only conditional step: the edit sheet belongs to the athlete's
+# own copy, so the listing has to be installed before there is anything to
+# edit. Whether a previous run left it installed is genuine device variance;
+# what the sheet then contains is not, and used to be guarded too — on a device
+# with nothing installed this flow skipped all eleven assertions and passed.
 - runFlow:
     when:
-      visible:
-        id: "coach-card-0"
+      visible: "Install Agent"
     commands:
-      - tapOn:
-          id: "coach-card-0"
+      - tapOn: "Install Agent"
       - extendedWaitUntil:
           visible:
-            id: "store-coach-detail-screen"
+            id: "post-install-hint"
           timeout: 5000
-
-      # Wait for the install state to resolve (install or installed)
-      - extendedWaitUntil:
-          visible: "Install.*"
-          timeout: 15000
-
-      # An installed listing is the athlete's own copy, so it offers Edit agent
-      - runFlow:
-          when:
-            visible:
-              id: "edit-coach-button"
-          commands:
-            - tapOn:
-                id: "edit-coach-button"
-
-            # The edit sheet: one screen, no create mode, no version history
-            - extendedWaitUntil:
-                visible:
-                  id: "coach-editor-screen"
-                timeout: 10000
-            - assertVisible: "Edit Agent"
-            # The wizard's own words, as the wizard wrote them before b460057d3
-            # removed it. Neither string exists in the catalogue any more, so
-            # the new spelling would guard text nothing can render.
-            - assertNotVisible: "Create Coach"
-            - assertNotVisible:
-                id: "version-history-button"
-            - assertNotVisible: "Forked from a system coach"
-            - assertVisible:
-                id: "coach-title-input"
-            - assertVisible:
-                id: "save-button"
-            - assertVisible:
-                id: "delete-coach-button"
-
-            # Leave without saving
-            - tapOn:
-                id: "back-button"
-            - extendedWaitUntil:
-                visible:
-                  id: "store-coach-detail-screen"
-                timeout: 5000
-
-      # Navigate back
       - tapOn:
-          id: "back-button"
+          id: "post-install-dismiss"
+
+# From here the listing is installed on any device, so the editor is reachable
+# unconditionally.
+- extendedWaitUntil:
+    visible:
+      id: "edit-coach-button"
+    timeout: 10000
+- tapOn:
+    id: "edit-coach-button"
+
+# The edit sheet: one screen, no create mode, no version history
+- extendedWaitUntil:
+    visible:
+      id: "coach-editor-screen"
+    timeout: 10000
+- assertVisible: "Edit Agent"
+# The wizard's own words, as the wizard wrote them before b460057d3
+# removed it. Neither string exists in the catalogue any more, so
+# the new spelling would guard text nothing can render.
+- assertNotVisible: "Create Coach"
+- assertNotVisible:
+    id: "version-history-button"
+- assertNotVisible: "Forked from a system coach"
+- assertVisible:
+    id: "coach-title-input"
+- assertVisible:
+    id: "save-button"
+- assertVisible:
+    id: "delete-coach-button"
+
+# Leave without saving
+- tapOn:
+    id: "back-button"
+- extendedWaitUntil:
+    visible:
+      id: "store-coach-detail-screen"
+    timeout: 5000

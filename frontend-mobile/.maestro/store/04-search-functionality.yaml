@@ -1,5 +1,5 @@
-# ABOUTME: Test search functionality in Discover screen
-# ABOUTME: Converted from store.test.js "search functionality" tests
+# ABOUTME: Search in Discover filters the list — a matchless term empties it, clearing restores it
+# ABOUTME: Asserts the effect of searching, not merely that the list container survived it
 
 appId: ai.dravr.app
 
@@ -14,25 +14,35 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Test: should search for agents
+# The seeded store publishes system agents, so a first card is a precondition
+# this environment guarantees. Assert it rather than guarding on it: if it is
+# missing the store is broken and every assertion below is meaningless.
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+
+# A term no agent title or description can match must empty the list. This is
+# the assertion the flow existed for and never made: waiting for `coach-list`
+# proved nothing, because the container is present before the search too.
 - tapOn:
     id: "search-input"
 - eraseText
-- inputText: "training"
+- inputText: "zzqqxx-no-such-agent"
 
-# Wait for search results
 - extendedWaitUntil:
-    visible:
-      id: "coach-list"
+    visible: "No agents found"
     timeout: 5000
+- assertNotVisible:
+    id: "coach-card-0"
 
-# Test: should clear search
+# Clearing the term brings the catalogue back.
 - tapOn:
     id: "search-input"
 - eraseText
 
-# Should show all agents again
 - extendedWaitUntil:
     visible:
-      id: "coach-list"
+      id: "coach-card-0"
     timeout: 5000
+- assertNotVisible: "No agents found"

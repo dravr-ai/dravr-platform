@@ -1,5 +1,5 @@
-# ABOUTME: Test pull to refresh in Discover screen
-# ABOUTME: Converted from store.test.js "pull to refresh" tests
+# ABOUTME: Pull to refresh in Discover reloads the catalogue and keeps it rendered
+# ABOUTME: Asserts a card is present after the refresh, not just that the list container exists
 
 appId: ai.dravr.app
 
@@ -14,16 +14,22 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Test: should refresh agents on pull down
-# Scroll down first, then scroll up to trigger refresh
-- scroll
-
-- swipe:
-    direction: UP
-    duration: 400
-
-# Wait for refresh to complete
+# A card before the refresh, so the assertion after it means something.
 - extendedWaitUntil:
     visible:
-      id: "coach-list"
-    timeout: 5000
+      id: "coach-card-0"
+    timeout: 10000
+
+# Pull down from the top of the list to trigger the refresh.
+- swipe:
+    direction: DOWN
+    duration: 400
+
+# The catalogue is back after refetching. Waiting on `coach-list` alone would
+# have passed with an empty list, which is what a broken refresh looks like.
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+- assertVisible:
+    id: "search-input"

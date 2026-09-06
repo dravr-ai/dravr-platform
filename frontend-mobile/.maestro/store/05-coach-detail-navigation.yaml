@@ -1,5 +1,5 @@
-# ABOUTME: Test navigation to agent detail from Discover
-# ABOUTME: Converted from store.test.js "coach detail navigation" tests
+# ABOUTME: Tapping an agent card in Discover opens its detail screen and back returns to the store
+# ABOUTME: The first card is asserted, not guarded — a store with no cards is a failure, not a skip
 
 appId: ai.dravr.app
 
@@ -14,35 +14,36 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Ensure agents are loaded
+# The seeded store publishes system agents. Guarding on the card meant a store
+# that rendered nothing skipped the whole flow and reported success; asserting
+# it means the same store fails here, where it should.
 - extendedWaitUntil:
     visible:
-      id: "coach-list"
+      id: "coach-card-0"
+    timeout: 10000
+
+- tapOn:
+    id: "coach-card-0"
+
+# The detail screen mounts with its testID, then fetches. The Install button
+# renders only once the detail and installation status have both resolved, so
+# it is the honest signal that the screen actually loaded.
+- extendedWaitUntil:
+    visible:
+      id: "store-coach-detail-screen"
     timeout: 5000
+- assertVisible:
+    id: "coach-title"
+- extendedWaitUntil:
+    visible: "Install Agent"
+    timeout: 15000
 
-# Try to find any agent card and tap it
-# Note: This requires at least one agent in the store
-- runFlow:
-    when:
-      visible:
-        id: "coach-card-0"
-    commands:
-      - tapOn:
-          id: "coach-card-0"
-
-      # Should see agent detail screen
-      - extendedWaitUntil:
-          visible:
-            id: "store-coach-detail-screen"
-          timeout: 5000
-
-      # Wait for agent detail data to load. The screen testID appears on
-      # mount, but the Install button renders only after async fetch of
-      # agent detail and installation status completes.
-      - extendedWaitUntil:
-          visible: "Install Agent"
-          timeout: 15000
-
-      # Navigate back
-      - tapOn:
-          id: "back-button"
+# Back returns to the store rather than leaving the detail on screen.
+- tapOn:
+    id: "back-button"
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 5000
+- assertNotVisible:
+    id: "store-coach-detail-screen"
