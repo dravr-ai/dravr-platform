@@ -120,7 +120,7 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # grep the deploy log for "apt security epoch:" and compare it to the ARG in the
 # SHA the run claims. When those disagree, the run is not testing this tree.
 # See carnet#262.
-ARG APT_SECURITY_EPOCH=2026-09-03
+ARG APT_SECURITY_EPOCH=2026-09-06
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
