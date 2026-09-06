@@ -1361,13 +1361,14 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.8.0#4e48fa379e32ca70760a9d3b819862543bd511b1"
+version = "0.9.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.9.0#eadc1061ab3fe707b07781b38e6544306e060370"
 dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
  "rayon",
+ "schemars 0.9.0",
  "serde",
  "serde_json",
  "serde_yaml",

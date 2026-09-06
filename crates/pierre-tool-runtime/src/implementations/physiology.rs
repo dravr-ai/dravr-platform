@@ -1,4 +1,4 @@
-// ABOUTME: set_physiology — the only production writer of user_physiological_profiles
+// ABOUTME: set_physiology, the only production writer of user_physiological_profiles, and estimate_vo2max beside it
 // ABOUTME: Read-modify-write so saving one measurement never nulls the rest of the athlete's profile
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -43,6 +43,7 @@ use crate::implementations::configuration::{
     validate_parameter_relationships,
 };
 use crate::implementations::data_helpers::read_only_annotations;
+use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -105,7 +106,7 @@ fn write_annotations() -> ToolAnnotations {
 /// Read an optional number, rejecting a non-numeric value rather than
 /// silently ignoring it — a dropped measurement is exactly the failure this
 /// tool exists to end.
-fn optional_number(args: &Value, key: &str) -> AppResult<Option<f64>> {
+pub(super) fn optional_number(args: &Value, key: &str) -> AppResult<Option<f64>> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(raw) => raw
@@ -938,7 +939,11 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
 /// Build the physiology tool set for registration.
 #[must_use]
 pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
-    vec![Box::new(SetPhysiologyTool), Box::new(EstimateVo2maxTool)]
+    vec![
+        Box::new(SetPhysiologyTool),
+        Box::new(EstimateVo2maxTool),
+        Box::new(EstimateLactateThresholdsTool),
+    ]
 }
 
 // Guardian security classification (see `crate::security`). The write is

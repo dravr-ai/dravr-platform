@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 111
+// Tool count: 112
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -602,6 +602,29 @@ export interface DiscoverRoutesParams {
 
   /** What kind of route to look for. One of: 'run', 'trail_running', 'ride', 'mountain_bike', 'gravel_ride', 'ebike_ride', 'hike', 'walk', 'cross_country_skiing', 'alpine_skiing', 'backcountry_skiing', 'snowshoe'. Defaults to 'run'. */
   sport_type?: string;
+}
+
+
+/**
+ * Locate the athlete's lactate thresholds from a step test they report — each stage's power in watts or pace in seconds per kilometre, its blood lactate in mmol/L, and heart rate if a strap was worn. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each under its own name with the intensity, lactate and heart rate at that point; the lactate band table from 1.0 to 4.0 mmol/L; and power zones anchored on the modified-Dmax LT2 when the stages are in watts. Call it when the athlete reports a test such as '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Needs at least four stages, each harder than the last. This only estimates: to keep a threshold, call set_physiology with ftp_watts or threshold_pace_sec_per_km after the athlete confirms it.
+ */
+export interface EstimateLactateThresholdsParams {
+
+  /** The stages in the order they were run, easiest first, at least four, each harder than the last. */
+  stages: {
+
+  /** Heart rate at the end of the stage in bpm, when a strap was worn. Omit otherwise. */
+  heart_rate?: number;
+
+  /** The stage's intensity in the test's unit: watts, or seconds per kilometre for a running pace. */
+  intensity: number;
+
+  /** Blood lactate sampled at the end of the stage, in mmol/L. */
+  lactate_mmol: number;
+}[];
+
+  /** How every stage's intensity is expressed — watts for power, seconds_per_km for a running pace. */
+  unit: string;
 }
 
 
@@ -2102,6 +2125,7 @@ export const TOOL_NAMES = [
   "detect_patterns",
   "disconnect_provider",
   "discover_routes",
+  "estimate_lactate_thresholds",
   "estimate_vo2max",
   "export_dossier",
   "export_intervals",
@@ -2224,6 +2248,7 @@ export interface ToolParamsMap {
   "detect_patterns": DetectPatternsParams;
   "disconnect_provider": DisconnectProviderParams;
   "discover_routes": DiscoverRoutesParams;
+  "estimate_lactate_thresholds": EstimateLactateThresholdsParams;
   "estimate_vo2max": EstimateVo2maxParams;
   "export_dossier": ExportDossierParams;
   "export_intervals": ExportIntervalsParams;

@@ -39,6 +39,7 @@ This comprehensive guide explains the scientific methods, algorithms, and decisi
   - [age-based max heart rate estimation](#age-based-max-heart-rate-estimation)
   - [heart rate zones](#heart-rate-zones)
   - [power zones (cycling)](#power-zones-cycling)
+  - [lactate step test thresholds](#lactate-step-test-thresholds)
 
 ### Core Metrics And Calculations
 - [core metrics](#core-metrics)
@@ -532,6 +533,34 @@ The target *family* follows the sport — power for every cycling discipline, pa
 **Which structure a plan day sends.** A plan day saved with `steps` — the same `WorkoutStep` vocabulary `prescribe_workout` pushes — goes out as those steps, repeats grouped into `Nx` blocks, with `moving_time` summed from them; every step's `target_zone` must sit inside the grammar above, and the save refuses one that does not, naming the vocabulary, because a step the provider cannot target earns no planned load. A day without steps gets one step only when its `intensity` is inside the grammar and it has a `duration_min`; otherwise it is a timed entry carrying the coach's words — never a step the coach did not state.
 
 Source: `IntervalsIcuProvider::dsl_target` (`crates/pierre-providers/src/intervals_icu_calendar.rs`), `plan_calendar_push::plan_day_session` (`crates/pierre-services/src/plan_calendar_push.rs`) and `implementations::calendar::validate_step` (`crates/pierre-tool-runtime/src/implementations/calendar.rs`), pinned by `crates/pierre-server/tests/plan_calendar_push_test.rs`, `training_plan_tools_test.rs` and `workout_push_test.rs`.
+
+### Lactate Step Test Thresholds
+
+A graded lactate test — stage intensity as watts or seconds per kilometre, blood lactate in mmol/L at the end of each stage, heart rate when a strap was worn — is the one measurement that locates the two thresholds directly instead of from a percentage of a maximum. `estimate_lactate_thresholds` reads the stages the athlete reports and answers with every construct the protocol supports, **each under its own name**, because the constructs do not coincide (Jamnick et al. 2020) and a single blended number would hide which one the coach is quoting.
+
+**Input rules.** Four to fifty stages, easiest first, each harder than the last — more watts, or a faster pace. Four is the floor because a cubic has four coefficients and the log-log split needs two stages a side. Fifty is the ceiling because the log-log search fits a regression pair at every split, so its cost is quadratic in the stage count, while a real protocol runs four to eight stages and the longest ramps reach about fifteen; the count is checked before any fitting, in `dravr_cageux::algorithms::lactate::MAX_STAGES` and again at the tool edge from that same constant. Pace stages are analysed on the speed axis (`1000 / sec_per_km`, metres per second) so "harder" is monotonic, and the answers come back as pace. Lactate outside 0.3–25 mmol/L, heart rate outside 40–220 bpm, power outside 1–2500 W or pace outside 1:40–30:00/km is refused naming the stage.
+
+**The constructs.**
+
+| Marks | Method | Construction | Reference |
+|---|---|---|---|
+| LT1 | log-log breakpoint | ln(lactate) against ln(effort) is split at every position leaving at least two stages on each side; the split with the least summed squared residual wins, and LT1 is the intersection of its two regression lines. Not determinable when the second segment is not steeper than the first, or the lines meet outside the tested range. | Beaver, Wasserman & Whipp 1985, *J Appl Physiol* 59(6):1936–1940 |
+| LT2 | modified Dmax | A third-order least-squares fit of lactate against effort (effort normalised to 0..1 across the stages). The chord runs from the stage **before the first stage-to-stage rise greater than 0.4 mmol/L** to the last stage; LT2 is the point on the curve farthest below that chord, solved where the curve's slope equals the chord's. The rise is compared with the representation error taken out, because meters read to 0.1 mmol/L and a rise of exactly 0.4 is not one value in binary64 — comparing raw would let the athlete's particular decimal pair decide where the chord starts. Not determinable when no rise exceeds 0.4 mmol/L, when fewer than one stage lies inside the chord, or when the curve never departs from it by as much as a meter can display. | Bishop, Jenkins & Mackinnon 1998, *Med Sci Sports Exerc* 30(8):1270–1275 |
+| LT2 | Dmax | The same construction with the chord from the first stage to the last, and the same departure floor. | Cheng et al. 1992, *Int J Sports Med* 13(7):518–522 |
+| LT2 | fixed 4.0 mmol/L OBLA | Linear interpolation of the first crossing of 4.0 mmol/L between the two bracketing stages. Not determinable when lactate never reaches 4.0, or the first stage already sits at or above it. Labelled as the **convention** it is: trained athletes turn at 2.5–4.0 mmol/L (Seiler-Viken et al. 2025) and the fixed value is the reference critique's subject. | Heck et al. 1985, *Int J Sports Med* 6(3):117–130; critique Faude, Kindermann & Meyer 2009, *Sports Med* 39(6):469–490 |
+
+Heart rate at a threshold is interpolated between the two stages that bracket it, and only when both carried one. A construct the stages cannot support is reported as `not_determinable` with the reason — never substituted with the 75 % LTHR or 0.88 × max HR rules `threshold_estimation.rs` uses when no test exists.
+
+**Two bounds exist because a plausible number is worse than none.** Both are in the engine, so no consumer can skip them.
+
+- *The Dmax departure floor* (`DMAX_MIN_DEPARTURE_MMOL`, 0.1 mmol/L, the meter's display step). Either Dmax construction will otherwise accept any positive departure from its chord, including departures that describe the least-squares fit rather than the athlete: a submaximal test that never approached LT2 returns a confident threshold sitting on a few thousandths of a mmol, and it can land *below* LT1. Below the floor the answer is `not_determinable`, which is what OBLA and modified Dmax already do when the protocol cannot support them.
+- *The rise comparison* carries the floating-point representation error. A stage-to-stage rise of exactly 0.4 mmol/L is the common case on a 0.1-resolution meter, and binary64 does not agree with itself about it: `1.6 - 1.2` is 0.400000000000000133 while `2.0 - 1.6`, `1.4 - 1.0` and `2.4 - 2.0` are 0.399999999999999911. A raw comparison therefore let the recorded decimals, not the physiology, decide where the chord started — moving LT2 and every power zone anchored on it by about 5 %. The published criterion is a rise *greater than* 0.4, which on a 0.1-resolution meter means 0.5 or more.
+
+**Band table.** For each of 1.0, 1.5, 2.0, 2.5, 3.0, 3.5 and 4.0 mmol/L the stages actually crossed, the intensity and heart rate at the first crossing, by linear interpolation on the measured stages. The levels span the LT1 band (1.0–2.0) and the LT2 band (2.5–4.0) of Seiler-Viken et al. (2025). The cubic fit's coefficients and r² are reported beside it.
+
+**Zones and storage.** When the stages are in watts, power zones are derived from the modified-Dmax LT2 rounded to the watt through the same `derive_power_zone_set` that `set_physiology` persists for an FTP; for pace the band table carries the paces and no zone set is derived. The tool writes nothing: `saved` is `false`, and `to_store` names `ftp_watts` or `threshold_pace_sec_per_km` on `set_physiology` once the athlete confirms the threshold. The profile has no field for heart rate at threshold, so that number stays in the reply.
+
+Source: `dravr_cageux::algorithms::lactate` (`LactateStepTest::analyze`, dravr-cageux v0.8.2) and `implementations::lactate_thresholds` (`crates/pierre-tool-runtime/src/implementations/lactate_thresholds.rs`), pinned by dravr-cageux `tests/lactate_test.rs` and `crates/pierre-server/tests/estimate_lactate_thresholds_tool_test.rs`.
 
 ---
 

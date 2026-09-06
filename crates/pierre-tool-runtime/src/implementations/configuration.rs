@@ -390,7 +390,7 @@ pub(crate) fn derive_power_zone_set(
 }
 
 /// Render power zones for a tool payload from the typed boundaries.
-fn power_zones_payload(zones: &PowerZoneSet) -> Value {
+pub(crate) fn power_zones_payload(zones: &PowerZoneSet) -> Value {
     json!({
         "zone_1": { "min_watts": 0, "max_watts": zones.z1_max },
         "zone_2": { "min_watts": zones.z1_max, "max_watts": zones.z2_max },

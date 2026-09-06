@@ -725,6 +725,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "detect_patterns",
     "disconnect_provider",
     "discover_routes",
+    "estimate_lactate_thresholds",
     "estimate_vo2max",
     "export_dossier",
     "export_intervals",

@@ -173,13 +173,16 @@ names the origin of every number used.
 The athlete's typed measurements. `user_physiological_profiles` is read by
 training-load compute, the Endurance dossier and interval exports, the athlete
 snapshot, and `GET /api/v1/endurance/*`; `set_physiology` is its only writer.
-`estimate_vo2max` feeds it: it turns a field test the athlete describes into a
-VO2max the coach can confirm and then save.
+Two read-only estimators feed it: `estimate_vo2max` turns a field test the
+athlete describes into a VO2max, and `estimate_lactate_thresholds` turns a
+lactate step test into LT1 and LT2 — each a number the coach confirms with the
+athlete and then saves.
 
 | Tool Name | Description | Required Parameters | Optional Parameters |
 |-----------|-------------|---------------------|---------------------|
 | `set_physiology` | Save the athlete's physiological measurements so personalised calculations use their real numbers | - | `ftp_watts` (integer), `threshold_pace_sec_per_km` (number), `max_hr` (integer), `resting_hr` (integer), `lactate_threshold_percentage` (number), `vo2_max` (number), `weight` (number), `age` (integer), `fitness_level` (string), `primary_sport` (string), `training_experience_years` (integer) |
 | `estimate_vo2max` | Estimate VO2max in ml/kg/min from a field test the athlete describes; reports the number, the equation used, and which inputs were defaulted from the profile | `method` (string) | `distance_meters` (number), `time_seconds` (number), `heart_rate` (number), `power_watts` (number), `weight_kg` (number), `age` (integer), `gender` (string), `max_speed_ms` (number), `recovery_speed_ms` (number), `vdot` (number) |
+| `estimate_lactate_thresholds` | Locate LT1 and LT2 from a graded lactate step test the athlete reports; each construct is named, the band table and power zones come with it | `unit` (string), `stages` (array) | - |
 
 ### Parameter Details
 
@@ -211,6 +214,31 @@ VO2max the coach can confirm and then save.
   the athlete to correct.
 - The tool only estimates. Its response says `saved: false` and points at
   `set_physiology` for storing the number once the athlete confirms it.
+
+**`estimate_lactate_thresholds`**:
+- `unit` is `watts` or `seconds_per_km`; every stage's `intensity` is in that
+  unit. `stages` lists the test in the order it was run, easiest first, at
+  least four, each harder than the last; each stage carries `intensity`,
+  `lactate_mmol` and, when a strap was worn, `heart_rate`.
+- The reply keeps the constructs apart because they do not coincide: `lt1` by
+  the log-log breakpoint (Beaver 1985); `lt2` as a list of three — modified
+  Dmax (Bishop 1998), Dmax (Cheng 1992) and the fixed 4.0 mmol/L OBLA (Heck
+  1985, labelled as the convention Faude 2009 critiques). Each entry is either
+  `determined`, with the intensity, lactate and interpolated heart rate at that
+  point, or `not_determinable` with the reason — never a rule-of-thumb value.
+- `band_table` interpolates the intensity and heart rate at each of 1.0, 1.5,
+  2.0, 2.5, 3.0, 3.5 and 4.0 mmol/L the stages actually crossed; `curve_fit` is
+  the cubic the Dmax constructions ran on, with its r².
+- `power_zones` anchors on the modified-Dmax LT2 when the stages are in watts,
+  through the same derivation `set_physiology` persists for an FTP; for pace it
+  says why it is unavailable.
+- `stored_profile` echoes the athlete's saved FTP, threshold pace and max HR so
+  the coach can put the estimate beside them.
+- Too few stages, a stage not harder than the one before, or a reading outside
+  what a meter produces is rejected as invalid input naming the stage.
+- The tool only estimates. Its response says `saved: false`; `to_store` names
+  `ftp_watts` or `threshold_pace_sec_per_km` on `set_physiology`, and notes that
+  the profile has no field for heart rate at threshold.
 
 ---
 

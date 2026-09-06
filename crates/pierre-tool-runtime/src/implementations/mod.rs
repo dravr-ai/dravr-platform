@@ -23,6 +23,9 @@
 //!   (`tools-memory`)
 //! - `physiology` — `set_physiology`, the athlete's typed measurements, and
 //!   `estimate_vo2max`, a field-test estimate for it (`tools-config`)
+//! - `lactate_thresholds` — `estimate_lactate_thresholds`, LT1 and LT2 from a
+//!   lactate step test, the read-only sibling of `set_physiology`
+//!   (`tools-config`)
 //! - `mobility` — stretching exercises, yoga poses, mobility recommendations
 //!   (`tools-mobility`)
 //! - `recipes` — recipe constraints / validate / save / list / search
@@ -100,9 +103,16 @@ pub mod fitness_config;
 ///
 /// `set_physiology` is the only production writer of
 /// `user_physiological_profiles`; `estimate_vo2max` turns a field test the
-/// athlete describes into a number for it.
+/// athlete describes into a number for it. The lactate step test has its own
+/// module, [`lactate_thresholds`].
 #[cfg(feature = "tools-config")]
 pub mod physiology;
+
+/// `estimate_lactate_thresholds` — LT1 and LT2 from a lactate step test the
+/// athlete reports, the read-only sibling of `set_physiology`
+/// (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub mod lactate_thresholds;
 
 /// The coach-facing per-activity DTO rendered by `mode=summary`.
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
