@@ -174,6 +174,13 @@ locals {
     # 403s on `cloudkms.keyRings.get` during refresh and EVERY apply aborts
     # before reaching any other resource — silently stranding env-var changes.
     "roles/cloudkms.admin",
+    # Manage the messaging turn queue added by turn_queue.tf (carnet#126) and
+    # its IAM. `queueAdmin` is the queue-scoped role: it can create, configure
+    # and set IAM on a queue but cannot read or create the tasks inside one,
+    # which the runner never needs — the backend enqueues with its own
+    # `cloudtasks.enqueuer` binding. Without this the apply 403s on
+    # `cloudtasks.queues.create`.
+    "roles/cloudtasks.queueAdmin",
   ]
 }
 

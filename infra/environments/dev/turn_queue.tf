@@ -57,7 +57,12 @@ resource "google_cloud_tasks_queue" "turns" {
     max_dispatches_per_second = 5
   }
 
-  depends_on = [module.project]
+  # Both edges are real: the API has to be on, and the runner has to hold
+  # `roles/cloudtasks.queueAdmin` — granted in module.service_accounts —
+  # before it may create a queue. Without the second edge Terraform is free to
+  # attempt the queue first and 403 on `cloudtasks.queues.create`, which is
+  # what a fresh environment did on 2026-09-06.
+  depends_on = [module.project, module.service_accounts]
 }
 
 # The service agent Cloud Tasks mints OIDC tokens through. Declaring it makes
