@@ -26,13 +26,12 @@
 mod common;
 mod helpers;
 
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::http::StatusCode;
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use helpers::notify_capture::{capture_notify, only, NotifyEvent};
 use pierre_auth::tenant::TenantContext;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
@@ -43,103 +42,9 @@ use pierre_services::oauth_flow::OAuthService;
 use pierre_tool_runtime::implementations::connection::DisconnectProviderTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
 use uuid::Uuid;
 
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-
-// ============================================================================
-// Notify-event capture
-// ============================================================================
-
-/// One `target: "notify"` event, with every field rendered as a string.
-#[derive(Clone, Debug)]
-struct NotifyEvent {
-    event: String,
-    fields: HashMap<String, String>,
-}
-
-impl NotifyEvent {
-    fn field(&self, name: &str) -> &str {
-        self.fields
-            .get(name)
-            .unwrap_or_else(|| panic!("event {} has no field {name}", self.event))
-    }
-}
-
-#[derive(Clone, Default)]
-struct NotifyCapture {
-    events: Arc<Mutex<Vec<NotifyEvent>>>,
-}
-
-#[derive(Debug, Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for NotifyCapture
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        if event.metadata().target() != "notify" {
-            return;
-        }
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        let name = visitor
-            .fields
-            .get("event")
-            .cloned()
-            .unwrap_or_else(|| panic!("notify event with no `event` field: {visitor:?}"));
-        self.events.lock().unwrap().push(NotifyEvent {
-            event: name,
-            fields: visitor.fields,
-        });
-    }
-}
-
-/// Install a capture subscriber for the current thread.
-///
-/// The guard must stay alive for the duration of the code under test — the
-/// subscriber is uninstalled when it drops.
-fn capture_notify() -> (Arc<Mutex<Vec<NotifyEvent>>>, DefaultGuard) {
-    let capture = NotifyCapture::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
-
-/// Exactly one event with this name, or a panic naming what was seen instead.
-fn only(events: &Arc<Mutex<Vec<NotifyEvent>>>, name: &str) -> NotifyEvent {
-    let all = events.lock().unwrap();
-    let matching: Vec<NotifyEvent> = all.iter().filter(|e| e.event == name).cloned().collect();
-    assert_eq!(
-        matching.len(),
-        1,
-        "expected exactly one `{name}`, saw {:?}",
-        all.iter().map(|e| e.event.clone()).collect::<Vec<_>>()
-    );
-    matching.into_iter().next().unwrap()
-}
 
 // ============================================================================
 // Fixtures

@@ -14,12 +14,9 @@ use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
 
 use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::span::{Attributes, Id, Record};
+use tracing::subscriber::{set_default, DefaultGuard};
+use tracing::{Event, Metadata, Subscriber};
 
 /// One `target: "notify"` event, with every field rendered as a string.
 #[derive(Clone, Debug)]
@@ -79,11 +76,42 @@ impl Visit for FieldVisitor {
     }
 }
 
-impl<S> Layer<S> for NotifyCapture
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+/// A whole `Subscriber`, not a `Layer` over a `Registry`.
+///
+/// The distinction is load-bearing. `common::init_test_logging` installs a
+/// process-global `fmt` subscriber over its own `Registry`; layering this
+/// capture over a SECOND `Registry` as the thread-local default put two
+/// registries in one process with disjoint span-id spaces. sqlx-sqlite ships a
+/// `tracing::Span` to its worker thread with every command, and when the span
+/// is dropped there, tracing-subscriber closes its parent through whatever
+/// dispatcher is current on the DROPPING thread — the global registry, which
+/// has never seen that id — and panics `tried to drop a ref to Id(..), but no
+/// such span exists!`. That killed the sqlx worker and, behind a one-connection
+/// test pool, stalled the next acquire into a 500.
+///
+/// Capture never needed span storage: it reads events only. Owning no spans
+/// means no id can be minted here for another registry to choke on, and a
+/// foreign span closed on this thread reaches a `try_close` that does nothing.
+impl Subscriber for NotifyCapture {
+    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+        true
+    }
+
+    // One id for every span: nothing here looks a span up, and the id is never
+    // handed to a registry that would try to resolve it.
+    fn new_span(&self, _span: &Attributes<'_>) -> Id {
+        Id::from_u64(1)
+    }
+
+    fn record(&self, _span: &Id, _values: &Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
+
+    fn enter(&self, _span: &Id) {}
+
+    fn exit(&self, _span: &Id) {}
+
+    fn event(&self, event: &Event<'_>) {
         if event.metadata().target() != "notify" {
             return;
         }
@@ -109,7 +137,7 @@ where
 pub fn capture_notify() -> (CapturedEvents, DefaultGuard) {
     let capture = NotifyCapture::default();
     let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
+    let guard = set_default(capture);
     (events, guard)
 }
 
