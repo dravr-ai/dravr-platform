@@ -291,7 +291,11 @@ export function StoreScreen() {
   );
 
   const renderEmptyState = () => (
-    <View className="flex-1 justify-center items-center py-16">
+    // testID because the copy inside is translated: an e2e flow asserting the
+    // English string passes or fails on the device's language rather than on
+    // whether the list actually emptied. Every other element on this screen
+    // carries one; this was the gap that made the search flow unassertable.
+    <View className="flex-1 justify-center items-center py-16" testID="store-empty-state">
       <Text className="text-lg font-semibold text-text-primary mb-1">
         {searchQuery ? t('app.noCoachesFound') : t('app.noCoachesAvailable')}
       </Text>

@@ -30,17 +30,20 @@ appId: ai.dravr.app
 - eraseText
 - inputText: "zzqqxx-no-such-agent"
 
-# Dismiss the keyboard before asserting. The search bar floats at the bottom of
-# the screen, so with the keyboard up it sits over the list and the centred
-# empty state is not in the visible hierarchy — the assertion below fails on a
-# screen that is rendering correctly. `hideKeyboard` is unreliable in Expo Go
-# v55, so this taps a non-interactive area to blur the field, the same
-# workaround helpers/login.yaml documents for its own inputs.
+# Blur the field first: the search bar floats at the bottom, so the keyboard
+# sits over the list. `hideKeyboard` is unreliable in Expo Go v55, so tap a
+# non-interactive area — the workaround helpers/login.yaml documents.
 - tapOn:
     point: "50%,20%"
 
+# Assert the empty state by testID, not by its English copy. The server log for
+# the run that caught this shows the search returning "0 results" while the
+# assertion on "No agents found" failed three times: the list HAD emptied and
+# the flow was reading for a string whose text depends on the device language.
+# The id is the same on every locale, which is what makes this assertable.
 - extendedWaitUntil:
-    visible: "No agents found"
+    visible:
+      id: "store-empty-state"
     timeout: 10000
 - assertNotVisible:
     id: "coach-card-0"
@@ -56,4 +59,5 @@ appId: ai.dravr.app
     visible:
       id: "coach-card-0"
     timeout: 10000
-- assertNotVisible: "No agents found"
+- assertNotVisible:
+    id: "store-empty-state"
