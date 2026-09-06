@@ -1,0 +1,70 @@
+# ABOUTME: Long-course pyramidal flavour — pyramidal architecture carrying the durability and fuelling emphasis a race over six hours demands
+# ABOUTME: Same TID band as pyramidal-base (70-80 / 15-20 / 5-10); what differs is the modifiers, the long session's late quality, and the brick
+id: pyramidal-long-course
+family: pyramidal
+sequencing: linear
+modifiers: [durability_block, fuelling_progression]
+evidence_tier: cohort
+caveat: null
+tid_targets:
+  base:
+    z1: { min: 0.70, max: 0.80 }
+    z2: { min: 0.15, max: 0.20 }
+    z3: { min: 0.05, max: 0.10 }
+  build:
+    z1: { min: 0.70, max: 0.80 }
+    z2: { min: 0.15, max: 0.20 }
+    z3: { min: 0.05, max: 0.10 }
+hard_sessions_per_week:
+  min: 1
+  max: 2
+  recovery_limited_max: 1
+  max_by_sessions_per_week:
+    - { from_sessions: 6, max: 3 }
+    - { from_sessions: 10, max: 4 }
+min_spacing_hours_between_hard: { default: 48, recovery_limited: 72 }
+session_mix:
+  base:
+    endurance: 4
+    endurance_long: 3
+    tempo: 1
+    sweet_spot: 1
+    threshold: 1
+    neuromuscular: 1
+    recovery: 1
+    strength_max: 1
+  build:
+    endurance: 3
+    endurance_long: 3
+    sweet_spot: 2
+    threshold: 1
+    brick: 2
+    race_specific: 1
+    recovery: 1
+    strength_maint: 1
+prerequisites:
+  min_hours_per_week: 8.0
+  min_sessions_per_week: 5
+  measurement: [[hr], [pace], [power], [rpe]]
+  min_training_age_years: 1.0
+contraindications: [acute_injury]
+loading_pattern: { default: "3:1", recovery_limited: "2:1" }
+readiness_substitution:
+  p0:
+    purposes: [recovery]
+    max_hard_sessions_per_week: 0
+  p1:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint]
+    max_hard_sessions_per_week: 0
+  p2:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, sweet_spot, threshold, brick]
+    max_hard_sessions_per_week: 1
+  p3:
+    purposes: [recovery, endurance, endurance_long, tempo, mobility, strength_aa, strength_maint, sweet_spot, threshold, brick, race_specific, neuromuscular, strength_max]
+    max_hard_sessions_per_week: 2
+max_weeks: null
+evidence_refs:
+  - evidence/sports_science/training_prescription/doherty-2020-marathon-dose-response.md
+  - evidence/sports_science/physiological/hunter-2025-durability-measurement.md
+  - evidence/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md
+  - evidence/sports_science/nutrition/costa-2017-gi-syndrome.md

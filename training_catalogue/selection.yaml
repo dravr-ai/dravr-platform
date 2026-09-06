@@ -11,6 +11,9 @@ rows:
       - { id: norwegian-threshold-density, reason: "needs eight or more sessions a week" }
       - { id: norwegian-singles-subthreshold, reason: "needs six or more sessions a week" }
       - { id: polarized-classic, reason: "needs four hours a week for two hard sessions and a long session" }
+      - { id: pyramidal-base, reason: "needs four hours a week for a controlled sub-threshold session and a long session" }
+      - { id: race-specific, reason: "needs four hours a week to hold race-pace work on top of easy volume" }
+      - { id: pyramidal-long-course, reason: "needs eight hours a week for the long sessions durability work is built from" }
       - { id: pyramidal-to-polarized, reason: "needs six hours a week across a sixteen-week window" }
     tier: rct
     evidence_refs:
@@ -25,6 +28,8 @@ rows:
     exclude:
       - { id: norwegian-threshold-density, reason: "needs eight or more sessions a week" }
       - { id: norwegian-singles-subthreshold, reason: "needs six or more sessions a week" }
+      - { id: pyramidal-to-polarized, reason: "needs six hours a week across a sixteen-week window" }
+      - { id: pyramidal-long-course, reason: "needs eight hours a week for the long sessions durability work is built from" }
     tier: rct
     evidence_refs:
       - evidence/sports_science/training_prescription/festa-2019-polarized-vs-threshold-recreational.md
@@ -66,6 +71,8 @@ rows:
       - { id: pyramidal-to-polarized, reason: "its polarized half needs interval experience a first season lacks" }
       - { id: norwegian-threshold-density, reason: "described only at elite volumes and frequencies" }
       - { id: norwegian-singles-subthreshold, reason: "daily sub-threshold work needs a season of structured training first" }
+      - { id: race-specific, reason: "race-pace work is what a first season builds toward, not what it is made of" }
+      - { id: time-crunched-threshold, reason: "an interval-dense block is contraindicated in a first season" }
     tier: rct
     evidence_refs:
       - evidence/sports_science/training_prescription/qin-2025-recreational-marathon-tid-responders.md
@@ -114,7 +121,6 @@ rows:
     prefer:
       - { id: polarized-classic, weight: 4 }
       - { id: race-specific, weight: 2 }
-      - { id: pyramidal-to-polarized, weight: 2 }
     exclude: []
     tier: review
     evidence_refs:
@@ -126,7 +132,6 @@ rows:
     prefer:
       - { id: polarized-classic, weight: 4 }
       - { id: race-specific, weight: 2 }
-      - { id: pyramidal-to-polarized, weight: 2 }
     exclude: []
     tier: review
     evidence_refs:
@@ -149,7 +154,6 @@ rows:
     prefer:
       - { id: polarized-classic, weight: 4 }
       - { id: race-specific, weight: 2 }
-      - { id: pyramidal-to-polarized, weight: 2 }
     exclude: []
     tier: review
     evidence_refs:
@@ -240,7 +244,7 @@ rows:
   - input: event_class
     value: ironman
     prefer:
-      - { id: pyramidal-base, weight: 5 }
+      - { id: pyramidal-long-course, weight: 5 }
       - { id: race-specific, weight: 2 }
       - { id: hvlit-foundation, weight: 1 }
     exclude: []
@@ -248,17 +252,19 @@ rows:
     evidence_refs:
       - evidence/sports_science/training_prescription/doherty-2020-marathon-dose-response.md
       - evidence/sports_science/training_prescription/gonzalez-rave-2022-reverse-periodization.md
+      - evidence/sports_science/physiological/hunter-2025-durability-measurement.md
     note: "Over six hours of racing: pyramidal and volume-led, with durability and fuelling emphasis; reverse sequencing is optional because it shows no edge."
   - input: event_class
     value: ultra
     prefer:
-      - { id: pyramidal-base, weight: 5 }
+      - { id: pyramidal-long-course, weight: 5 }
       - { id: hvlit-foundation, weight: 2 }
     exclude: []
     tier: cohort
     evidence_refs:
       - evidence/sports_science/training_prescription/doherty-2020-marathon-dose-response.md
       - evidence/sports_science/training_prescription/fokkema-2020-recreational-volume-and-time.md
+      - evidence/sports_science/physiological/hunter-2025-durability-measurement.md
     note: "Over six hours of racing: pyramidal and volume-led, with durability and fuelling emphasis; volume matters more than pace."
   - input: event_class
     value: open_water_swim
@@ -364,6 +370,9 @@ rows:
       - { id: polarized-classic, reason: "a polarized distribution cannot be labelled from effort alone" }
       - { id: pyramidal-to-polarized, reason: "its polarized half cannot be labelled from effort alone" }
       - { id: norwegian-threshold-density, reason: "needs a lactate meter, or power with heart rate" }
+      - { id: norwegian-singles-subthreshold, reason: "sub-threshold singles need pace, heart rate or power to stay under the line" }
+      - { id: race-specific, reason: "race pace is a pace, a power or a heart rate; effort alone cannot hold it" }
+      - { id: time-crunched-threshold, reason: "a threshold block needs power, pace or heart rate to sit in the band" }
     tier: review
     evidence_refs:
       - evidence/sports_science/training_prescription/seiler-2010-best-practice.md
@@ -409,6 +418,18 @@ rows:
     evidence_refs:
       - evidence/sports_science/training_prescription/helgerud-2007-4x4-raises-vo2max.md
     note: "No short-interval or block flavour; introduce 4 x 4 minutes after four to six weeks of strides and tempo."
+  - input: interval_experience
+    value: some
+    prefer:
+      - { id: pyramidal-base, weight: 2 }
+      - { id: polarized-classic, weight: 1 }
+      - { id: pyramidal-to-polarized, weight: 1 }
+    exclude:
+      - { id: norwegian-threshold-density, reason: "three or four interval sessions a week need more than one season of interval work" }
+    tier: rct
+    evidence_refs:
+      - evidence/sports_science/training_prescription/ronnestad-2015-30-15-short-intervals.md
+    note: "One season of intervals earns the polarized half, not the threshold-dense one; keep to two quality sessions a week."
   - input: interval_experience
     value: two_seasons
     prefer:
