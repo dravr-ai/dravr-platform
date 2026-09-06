@@ -44,7 +44,7 @@ use pierre_services::server_lifecycle;
 use pierre_tool_runtime::guardian;
 
 type Result<T> = AppResult<T>;
-use std::{env, process, sync::Arc};
+use std::{env, sync::Arc};
 
 #[cfg(feature = "client-messaging")]
 use pierre_mcp_server::services::turn_runner::TurnRunner;
@@ -811,6 +811,8 @@ async fn create_server(
 #[cfg(feature = "client-messaging")]
 fn select_turn_runner() -> Arc<TurnRunner> {
     use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    use std::process;
+
     let runner = TurnRunner::from_env(turn_watchdog()).unwrap_or_else(|e| {
         error!(error = %e, "messaging turn runner configuration refused");
         process::exit(1)

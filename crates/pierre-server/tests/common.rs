@@ -566,9 +566,10 @@ pub async fn create_sibling_server_resources_with_chat_provider(
         .await
 }
 
-/// [`create_sibling_server_resources_with_chat_provider`] with the messaging
-/// turn runner chosen: a sibling on Cloud Tasks mounts the turn-run route,
-/// which is how a test delivers a task to "the next instance".
+/// A sibling context with the messaging turn runner chosen.
+///
+/// A sibling on Cloud Tasks mounts the turn-run route, which is how a test
+/// delivers a task to "the next instance".
 ///
 /// # Errors
 ///
@@ -590,10 +591,10 @@ pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
     .await
 }
 
-/// [`create_test_server_resources_with_chat_provider`] with the messaging
-/// turn runner chosen (registre#126). Tests of the Cloud Tasks path build a
-/// runner over a local stand-in for the Cloud Tasks API and pass it here;
-/// everything else leaves the runner in-process.
+/// A test context with the messaging turn runner chosen (registre#126).
+///
+/// Tests of the Cloud Tasks path build a runner over a local stand-in for the
+/// Cloud Tasks API and pass it here; everything else leaves it in-process.
 ///
 /// # Errors
 ///

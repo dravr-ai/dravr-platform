@@ -144,7 +144,6 @@ pub struct CommonSlice {
     /// Where a messaging turn is started: in this process, or as a Cloud
     /// Tasks request this service receives, so an instance mid-turn is one
     /// Cloud Run waits for (registre#126). Chosen once at boot.
-    #[cfg(feature = "client-messaging")]
     pub turn_runner: Arc<TurnRunner>,
     /// Client for the photograveur press service.
     ///
