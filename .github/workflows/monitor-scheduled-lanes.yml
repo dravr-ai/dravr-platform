@@ -24,7 +24,7 @@
 # a second, noisier copy of the push gate.
 #
 # Two failure shapes are detected, because a conclusion-only read would lie:
-#   1. RED — the latest completed run of an active scheduled-only lane
+#   1. RED — the latest completed cron-or-dispatch run of an active lane
 #      concluded something other than success/skipped/neutral. A `cancelled`
 #      conclusion counts: on this fleet it is more often a job timeout than a
 #      human preemption.
@@ -64,7 +64,7 @@ env:
 
 jobs:
   scan:
-    name: Read every scheduled-only lane's verdict
+    name: Read every cron lane's scheduled and dispatched verdicts
     runs-on: ubuntu-latest
 
     steps:
