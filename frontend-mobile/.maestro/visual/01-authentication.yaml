@@ -16,9 +16,24 @@ appId: ai.dravr.app
 - assertVisible:
     id: "password-input"
 
-# Test: login - displays login button
+# The submit control sits below the fold on a short screen (CI's emulator is
+# shorter than a Pixel 6), so reach it by scrolling rather than assuming it is
+# already on screen — 2026-09-06.
+- scrollUntilVisible:
+    element:
+      id: "login-button"
+    direction: DOWN
+    timeout: 20000
 - assertVisible:
     id: "login-button"
+
+# Scrolling to the button left the viewport at the bottom of the form, which put
+# the fields the rest of this flow drives off the top. Scroll back before going on.
+- scrollUntilVisible:
+    element:
+      id: "email-input"
+    direction: UP
+    timeout: 20000
 
 # Test: login - password is masked
 - tapOn:
@@ -40,6 +55,11 @@ appId: ai.dravr.app
 # Dismiss keyboard. hideKeyboard fails in Expo Go v55.
 - tapOn:
     point: "50%,20%"
+- scrollUntilVisible:
+    element:
+      id: "login-button"
+    direction: DOWN
+    timeout: 20000
 - tapOn:
     id: "login-button"
 

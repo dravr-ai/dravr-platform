@@ -24,6 +24,14 @@ appId: ai.dravr.app
 # Dismiss keyboard so login button is visible. hideKeyboard fails in Expo Go v55.
 - tapOn:
     point: "50%,20%"
+# The submit control sits below the fold on a short screen (CI's emulator is
+# shorter than a Pixel 6), so reach it by scrolling rather than assuming it is
+# already on screen — 2026-09-06.
+- scrollUntilVisible:
+    element:
+      id: "login-button"
+    direction: DOWN
+    timeout: 20000
 - tapOn:
     id: "login-button"
 

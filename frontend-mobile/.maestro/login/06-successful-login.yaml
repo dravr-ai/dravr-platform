@@ -29,6 +29,15 @@ appId: ai.dravr.app
     point: "50%,20%"
 
 # Tap the Sign In button (testID="login-button" on Button component).
+# The submit control sits below the fold on a short screen — CI's emulator is
+# shorter than a Pixel 6 and could not find login-button at all (2026-09-06,
+# 8 of 10 critical flows). Scroll to it the way a user would rather than
+# assuming it is on screen.
+- scrollUntilVisible:
+    element:
+      id: "login-button"
+    direction: DOWN
+    timeout: 20000
 - tapOn:
     id: "login-button"
 
