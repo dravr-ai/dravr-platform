@@ -158,13 +158,25 @@ jobs:
       - name: Validate the bump in CI
         # The push above uses the default GITHUB_TOKEN, and GitHub suppresses
         # workflow runs on GITHUB_TOKEN pushes — so the bump commit would land
-        # unvalidated. Dispatch ci-backend explicitly (clippy + doc-tests +
-        # backend-test shards) so every bump carries real coverage. The PAT
-        # path was abandoned: DRAVR_PRIVATE_DEPS_TOKEN is read-only on this repo.
+        # unvalidated. Dispatch explicitly so every bump carries real coverage.
+        # The PAT path was abandoned: DRAVR_PRIVATE_DEPS_TOKEN is read-only on
+        # this repo.
+        #
+        # BOTH lanes, not just ci-backend. A bump touches Cargo.toml, Cargo.lock
+        # and crates/**, which matches ci-postgres's push paths exactly — the
+        # only reason it does not run is the suppressed push, the same reason
+        # ci-backend is dispatched here. Dispatching one and not the other left
+        # main's per-push verdict lane blind to every bump: 0927f04f8 moved a
+        # pinned catalogue count, ci-backend caught it on dispatch, and the
+        # PostgreSQL lane never saw that tree at all. Its last green on main was
+        # 9f3ee5138, an ANCESTOR of the bump, so main read green while two
+        # feature branches hit the failure first.
         if: steps.bump.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run ci-backend.yml --ref main
+        run: |
+          gh workflow run ci-backend.yml --ref main
+          gh workflow run ci-postgres.yml --ref main
 
       - name: Run the messaging eval asserters on the bumped prompts
         # A bump lands new coach prompts. Dispatching the eval's Phase 0-3
