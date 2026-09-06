@@ -35,14 +35,16 @@ use pierre_memory::commitments::{
     MIN_TARGET_SESSIONS,
 };
 use pierre_memory::{parse_plan_date, sanitize_sport_slug};
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 use tracing::info;
 use uuid::Uuid;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -51,6 +53,38 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
+
+/// What `commitment_create` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct CommitmentCreateResult {
+    /// The commitment the coach can later cancel or check against.
+    pub commitment_id: String,
+    /// Whether this call created it. False when an identical open commitment
+    /// already existed, which is a success — see
+    /// `duplicate_of_open_commitment`.
+    pub recorded: bool,
+    /// How many sessions the athlete committed to.
+    pub sessions: u32,
+    /// The sport, when the commitment named one.
+    pub sport: Option<String>,
+    /// RFC 3339 timestamp the window closes at.
+    pub window_end: String,
+    /// Whether an open commitment already covered this. A duplicate is
+    /// dropped rather than stacked, so the coach can say "already noted"
+    /// instead of promising a second check. Always the inverse of `recorded`;
+    /// both are on the wire because they answer different questions.
+    pub duplicate_of_open_commitment: bool,
+}
+
+/// What `commitment_cancel` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct CommitmentCancelResult {
+    /// The commitment that was asked about, echoed back.
+    pub commitment_id: String,
+    /// Whether one was actually cancelled. False when nothing open matched,
+    /// which is a success: the athlete is not committed either way.
+    pub cancelled: bool,
+}
 
 /// Annotation set for tools that mutate commitment state.
 fn write_annotations() -> ToolAnnotations {
@@ -200,12 +234,12 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
                 "coach_id".to_owned(),
             ]),
         );
-        tool_definition(
+        answers_with::<CommitmentCreateResult>(tool_definition(
             "commitment_create",
             "Record a commitment the athlete just made, so it can be checked against their real activity data when the window closes. Call this ONLY after the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both first and call this on their answer. Do not use it for your own plans or reminders.",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -309,16 +343,17 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
                 );
             }
 
-            Ok(ToolResult::ok(json!({
-                "commitment_id": commitment.id,
-                "recorded": recorded,
-                "sessions": commitment.target_sessions,
-                "sport": commitment.sport,
-                "window_end": commitment.window_end.to_rfc3339(),
-                // A duplicate is dropped rather than stacked, so the coach can
-                // say "already noted" instead of promising a second check.
-                "duplicate_of_open_commitment": !recorded,
-            })))
+            ok_typed(
+                "commitment_create",
+                CommitmentCreateResult {
+                    commitment_id: commitment.id.clone(),
+                    recorded,
+                    sessions: commitment.target_sessions,
+                    sport: commitment.sport,
+                    window_end: commitment.window_end.to_rfc3339(),
+                    duplicate_of_open_commitment: !recorded,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -348,12 +383,12 @@ impl McpTool<dyn ToolRuntime> for CommitmentCancelTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["commitment_id".to_owned()]));
-        tool_definition(
+        answers_with::<CommitmentCancelResult>(tool_definition(
             "commitment_cancel",
             "Retract a commitment the athlete no longer wants to be held to, so it is never counted or reported. Use when they say they are dropping it or the circumstances changed — injury, travel, a plan revision. Retracting is not failing; do not use this to record that they missed it.",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -382,10 +417,13 @@ impl McpTool<dyn ToolRuntime> for CommitmentCancelTool {
                 .cancel_commitment(&tenant_id.to_string(), commitment_id.trim())
                 .await?;
 
-            Ok(ToolResult::ok(json!({
-                "commitment_id": commitment_id,
-                "cancelled": cancelled,
-            })))
+            ok_typed(
+                "commitment_cancel",
+                CommitmentCancelResult {
+                    commitment_id: commitment_id.trim().to_owned(),
+                    cancelled,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

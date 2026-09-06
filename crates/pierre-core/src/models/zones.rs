@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// [`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries
 /// per-activity time-in-zone counts. `HrZoneSet` is the per-user definition;
 /// `HeartRateZone` is the per-activity occupancy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct HrZoneSet {
     /// Upper bound of Zone 1 (active recovery / very easy) in bpm.
     pub z1_max: u16,
@@ -80,7 +80,7 @@ impl HrZoneSet {
 ///
 /// Each `zN_max` is the upper bound (inclusive) of zone `N` in watts. Same
 /// monotonicity invariant as [`HrZoneSet`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PowerZoneSet {
     /// Upper bound of Zone 1 (active recovery) in watts.
     pub z1_max: u32,

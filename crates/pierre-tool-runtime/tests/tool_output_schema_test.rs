@@ -50,6 +50,9 @@ use pierre_tool_runtime::implementations::coaches_output::{
     HiddenCoachEntry, HideCoachResult, ListCoachesResult, ListHiddenCoachesResult,
     SearchCoachesResult, ShowCoachResult, ToggleCoachFavoriteResult, UpdateCoachResult,
 };
+use pierre_tool_runtime::implementations::commitments::{
+    CommitmentCancelResult, CommitmentCancelTool, CommitmentCreateResult, CommitmentCreateTool,
+};
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
     DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
@@ -2454,5 +2457,110 @@ fn a_failed_sync_is_a_reported_outcome_not_a_rejected_payload() {
     assert!(
         validator.is_valid(&failed),
         "a reported sync failure must satisfy the schema:\n{failed:#}"
+    );
+}
+
+// ============================================================================
+// commitments
+// ============================================================================
+
+#[test]
+fn each_commitment_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "commitment_create",
+            <CommitmentCreateTool as McpTool<dyn ToolRuntime>>::definition(&CommitmentCreateTool),
+            serde_json::to_value(schemars::schema_for!(CommitmentCreateResult)).expect("derives"),
+        ),
+        (
+            "commitment_cancel",
+            <CommitmentCancelTool as McpTool<dyn ToolRuntime>>::definition(&CommitmentCancelTool),
+            serde_json::to_value(schemars::schema_for!(CommitmentCancelResult)).expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn a_duplicate_commitment_is_a_valid_answer_not_an_error() {
+    // A second identical commitment is dropped rather than stacked, so the
+    // coach can say "already noted" instead of promising a second check. The
+    // schema has to accept recorded:false, or the honest answer to a repeat
+    // becomes a protocol violation.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(CommitmentCreateResult)).expect("derives"),
+    )
+    .expect("compiles");
+
+    for (label, sample) in [
+        (
+            "first",
+            CommitmentCreateResult {
+                commitment_id: "c1f0b2d3-0000-4000-8000-000000000001".to_owned(),
+                recorded: true,
+                sessions: 3,
+                sport: Some("run".to_owned()),
+                window_end: "2026-09-13T00:00:00+00:00".to_owned(),
+                duplicate_of_open_commitment: false,
+            },
+        ),
+        (
+            "duplicate",
+            CommitmentCreateResult {
+                commitment_id: "c1f0b2d3-0000-4000-8000-000000000001".to_owned(),
+                recorded: false,
+                sessions: 3,
+                // No sport named: a commitment can be to sessions in general.
+                sport: None,
+                window_end: "2026-09-13T00:00:00+00:00".to_owned(),
+                duplicate_of_open_commitment: true,
+            },
+        ),
+    ] {
+        let value = serde_json::to_value(&sample).expect("serializes");
+        assert!(
+            validator.is_valid(&value),
+            "the {label} commitment answer must satisfy the declared schema:\n{value:#}"
+        );
+        assert_eq!(
+            value["recorded"].as_bool(),
+            value["duplicate_of_open_commitment"].as_bool().map(|d| !d),
+            "the two flags answer different questions but must stay consistent"
+        );
+    }
+}
+
+#[test]
+fn cancelling_nothing_is_a_valid_answer_too() {
+    // False means nothing open matched. The athlete is not committed either
+    // way, so it is a success, and the schema must accept it.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(CommitmentCancelResult)).expect("derives"),
+    )
+    .expect("compiles");
+    let value = serde_json::to_value(CommitmentCancelResult {
+        commitment_id: "c1f0b2d3-0000-4000-8000-000000000002".to_owned(),
+        cancelled: false,
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "must accept a no-op cancel:\n{value:#}"
+    );
+    assert!(
+        !validator.is_valid(&json!({ "cancelled": false })),
+        "but it must still say WHICH commitment was asked about"
     );
 }
