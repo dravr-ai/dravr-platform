@@ -260,10 +260,10 @@ pub struct ProviderConnectionStatus {
 /// What `get_connection_status` answers with.
 ///
 /// Genuinely polymorphic: the tool answers a different shape depending on what
-/// was asked. Modelled as an untagged enum so the derived schema is a `oneOf`
-/// over the three real shapes, rather than one struct with everything optional
-/// — which would describe none of them and would let a client believe a
-/// `providers` map might arrive alongside a `provider` field.
+/// was asked. Modelled as an untagged enum so the derived schema is an
+/// `anyOf` over the three real shapes, rather than one struct with everything
+/// optional — which would describe none of them and would let a client
+/// believe a `providers` map might arrive alongside a `provider` field.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ConnectionStatusResult {

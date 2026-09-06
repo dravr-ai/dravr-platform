@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsInputSummary};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::{
     create_configured_provider_with_tenant, TenantCredentialContext,
 };
@@ -13,6 +14,7 @@ use crate::protocols::ProtocolError;
 use pierre_config::constants::limits::{self, METERS_PER_KILOMETER};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::efficiency_defaults::{
     DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
 };
@@ -198,25 +200,28 @@ fn build_metrics_response(
     metrics: &CalculatedMetrics,
     max_hr: f64,
     max_hr_source: &str,
-) -> UniversalResponse {
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
     use limits;
 
-    UniversalResponse {
+    let payload = ActivityMetricsResult {
+        pace: metrics.pace,
+        speed: metrics.speed,
+        intensity_score: metrics.intensity_score,
+        efficiency_score: metrics.efficiency_score,
+        max_hr_used: max_hr,
+        max_hr_source: max_hr_source.to_owned(),
+        metrics_summary: MetricsInputSummary {
+            distance_km: params.distance / METERS_PER_KILOMETER,
+            duration_minutes: params.duration / limits::SECONDS_PER_MINUTE,
+            elevation_meters: params.elevation_gain,
+            average_heart_rate: params.heart_rate,
+        },
+    };
+
+    let response = UniversalResponse {
         success: true,
-        result: Some(serde_json::json!({
-            "pace": metrics.pace,
-            "speed": metrics.speed,
-            "intensity_score": metrics.intensity_score,
-            "efficiency_score": metrics.efficiency_score,
-            "max_hr_used": max_hr,
-            "max_hr_source": max_hr_source,
-            "metrics_summary": {
-                "distance_km": params.distance / METERS_PER_KILOMETER,
-                "duration_minutes": params.duration / limits::SECONDS_PER_MINUTE,
-                "elevation_meters": params.elevation_gain,
-                "average_heart_rate": params.heart_rate
-            }
-        })),
+        result: None,
         error: None,
         metadata: Some({
             let mut map = HashMap::new();
@@ -236,7 +241,9 @@ fn build_metrics_response(
             );
             map
         }),
-    }
+    };
+
+    apply_format_typed(response, payload, output_format)
 }
 
 /// Fetch activity from provider and calculate metrics (helper for `activity_id` path)
@@ -246,6 +253,7 @@ async fn fetch_and_calculate_metrics(
     activity_id: &str,
     provider_name: &str,
     user_uuid: uuid::Uuid,
+    output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     // Get valid token
     let token_data = match executor
@@ -325,12 +333,7 @@ async fn fetch_and_calculate_metrics(
     let (max_hr, max_hr_source) = determine_max_heart_rate(params.max_hr_provided, params.user_age);
     let metrics = calculate_activity_metrics(&params, max_hr);
 
-    Ok(build_metrics_response(
-        &params,
-        &metrics,
-        max_hr,
-        &max_hr_source,
-    ))
+    build_metrics_response(&params, &metrics, max_hr, &max_hr_source, output_format)
 }
 
 /// Handle `calculate_metrics` tool - calculate custom fitness metrics (async)
@@ -373,10 +376,14 @@ pub fn handle_calculate_metrics(
                 )
             })?;
 
-        let result =
-            fetch_and_calculate_metrics(executor, &request, activity_id, provider_name, user_uuid)
-                .await?;
-
-        Ok(apply_format_to_response(result, "metrics", output_format))
+        fetch_and_calculate_metrics(
+            executor,
+            &request,
+            activity_id,
+            provider_name,
+            user_uuid,
+            output_format,
+        )
+        .await
     })
 }

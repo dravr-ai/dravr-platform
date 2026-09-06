@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::conversions::{apply_format, Formatted};
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use pierre_formatters::{format_output, OutputFormat};
@@ -21,6 +22,49 @@ pub fn extract_output_format(request: &UniversalRequest) -> OutputFormat {
         .get("format")
         .and_then(|v| v.as_str())
         .map_or(OutputFormat::Json, OutputFormat::from_str_param)
+}
+
+/// Put a typed payload on a response, honouring the caller's `format` choice.
+///
+/// The format logic itself is [`apply_format`], the single TOON primitive the
+/// tool crate has; this adds only what a `UniversalResponse` carries and a
+/// `ToolResult` does not — the `format` stamp in its metadata, which predates
+/// the envelope and is what an operator reads in a trace.
+///
+/// A handler that calls this can declare an output schema, because the shape
+/// on the wire is now `Formatted<T>` for a `T` the compiler knows. The
+/// untyped [`apply_format_to_response`] cannot: its payload is a `Value` and
+/// its TOON key is built from a runtime string.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::InternalError`] if `payload` does not serialize.
+/// For a type deriving `Serialize` over owned data this cannot happen; it is
+/// an error rather than a panic because the alternative is taking the server
+/// down over one malformed reply.
+pub fn apply_format_typed<T: Serialize>(
+    mut response: UniversalResponse,
+    payload: T,
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
+    let formatted = apply_format(payload, output_format);
+    let stamp = match formatted {
+        Formatted::Toon { .. } => "toon",
+        Formatted::Json(_) | Formatted::Fallback { .. } => "json",
+    };
+    let fell_back = matches!(formatted, Formatted::Fallback { .. });
+
+    response.result = Some(
+        to_value(formatted)
+            .map_err(|e| ProtocolError::InternalError(format!("result did not serialize: {e}")))?,
+    );
+    if let Some(ref mut metadata) = response.metadata {
+        metadata.insert("format".to_owned(), Value::String(stamp.to_owned()));
+        if fell_back {
+            metadata.insert("format_fallback".to_owned(), Value::Bool(true));
+        }
+    }
+    Ok(response)
 }
 
 /// Apply format transformation to an existing `UniversalResponse`.

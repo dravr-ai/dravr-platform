@@ -19,6 +19,14 @@
 
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_tool_runtime::conversions::Formatted;
+use pierre_tool_runtime::implementations::analytics::output::{
+    ActivityMetricsResult, DayFrequency, HardEasyPatternResult, InsufficientPatternData,
+    IntensityDistribution, MetricsInputSummary, OvertrainingResult, PatternsResult,
+    PerformanceTrendsResult, TrendStatistics, VolumeProgressionResult, WeeklySchedulePatternResult,
+};
+use pierre_tool_runtime::implementations::analytics::{
+    AnalyzePerformanceTrendsTool, CalculateMetricsTool, DetectPatternsTool,
+};
 use pierre_tool_runtime::implementations::coaches::{
     ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool, GetActiveCoachTool,
     GetCoachTool, HideCoachTool, ListCoachesTool, ListHiddenCoachesTool, SearchCoachesTool,
@@ -811,7 +819,7 @@ fn connect_provider_declares_a_schema_that_accepts_its_payload() {
 #[test]
 fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
     // The tool answers a different shape depending on what was asked, so the
-    // schema is a oneOf and every arm has to validate against it.
+    // schema is an anyOf and every shape it sends has to validate against it.
     let derived =
         &serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives");
     let declared =
@@ -870,7 +878,7 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
 
 #[test]
 fn the_connection_status_schema_still_rejects_a_shape_the_tool_never_sends() {
-    // Without this the oneOf could be vacuous — three arms that between them
+    // Without this the anyOf could be vacuous — three arms that between them
     // accept anything would pass the test above and describe nothing.
     let validator = jsonschema::validator_for(
         &serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives"),
@@ -1130,7 +1138,8 @@ fn search_recipes_declares_a_schema_that_accepts_no_matches() {
 /// Five of the thirteen honour a `format` argument and so answer through the
 /// `Formatted` envelope; the other eight always send their own shape. Getting
 /// that wrong is exactly the drift this table exists to catch — a client told
-/// to expect a `oneOf` and handed a bare object has been lied to.
+/// to expect the envelope's `anyOf` and handed a bare object has been lied
+/// to.
 #[test]
 fn each_coach_schema_is_attached_to_the_tool_it_names() {
     for (tool_name, declared, derived) in [
@@ -1517,4 +1526,286 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             "{tool}: the declared schema rejected the payload the tool sends:\n{payload:#}"
         );
     }
+}
+
+// ============================================================================
+// analytics
+// ============================================================================
+
+#[test]
+fn each_analytics_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "analyze_performance_trends",
+            <AnalyzePerformanceTrendsTool as McpTool<dyn ToolRuntime>>::definition(
+                &AnalyzePerformanceTrendsTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(Formatted<PerformanceTrendsResult>))
+                .expect("derives"),
+        ),
+        (
+            "detect_patterns",
+            <DetectPatternsTool as McpTool<dyn ToolRuntime>>::definition(&DetectPatternsTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<PatternsResult>))
+                .expect("derives"),
+        ),
+        (
+            "calculate_metrics",
+            <CalculateMetricsTool as McpTool<dyn ToolRuntime>>::definition(&CalculateMetricsTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<ActivityMetricsResult>))
+                .expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn analyze_performance_trends_declares_a_schema_that_accepts_both_of_its_answers() {
+    // Six of this tool's seven returns are degenerate — no activities, an
+    // unknown metric, too few points to regress — and carry no statistics.
+    // A schema that only described the successful answer would make every one
+    // of them a protocol violation.
+    let derived = serde_json::to_value(schemars::schema_for!(Formatted<PerformanceTrendsResult>))
+        .expect("derives");
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+
+    let regressed = Formatted::Json(PerformanceTrendsResult {
+        metric: "pace".to_owned(),
+        timeframe: "month".to_owned(),
+        trend: "improving".to_owned(),
+        activities_analyzed: 18,
+        statistics: Some(TrendStatistics {
+            slope: -0.004,
+            r_squared: 0.62,
+            confidence: 0.62,
+            correlation: -0.79,
+            standard_error: 0.001,
+            p_value: Some(0.002),
+            moving_average_7day: 5.31,
+            start_value: Some(5.48),
+            end_value: Some(5.19),
+            percent_change: Some(-5.29),
+        }),
+        insights: vec!["Analyzed 18 data points over 29 days".to_owned()],
+    });
+    let no_data = Formatted::Json(PerformanceTrendsResult {
+        metric: "power".to_owned(),
+        timeframe: "week".to_owned(),
+        trend: "no_data".to_owned(),
+        activities_analyzed: 0,
+        statistics: None,
+        insights: vec!["No activities found for analysis".to_owned()],
+    });
+
+    for (label, payload) in [("regressed", &regressed), ("no_data", &no_data)] {
+        let value = serde_json::to_value(payload).expect("serializes");
+        assert!(
+            validator.is_valid(&value),
+            "the {label} answer must satisfy the schema the tool declares:\n{value:#}"
+        );
+    }
+
+    // The degenerate answer omits the key rather than sending it null: a
+    // client that sees `statistics` at all can trust there is a regression.
+    let value = serde_json::to_value(&no_data).expect("serializes");
+    assert!(
+        value.get("statistics").is_none(),
+        "an absent regression must be an absent key, not a null one"
+    );
+}
+
+/// Each `detect_patterns` shape must match exactly ONE arm of the derived
+/// schema.
+///
+/// This is the property that makes an untagged enum usable by a client: it
+/// branches on which arm accepted the answer. It is not free — it holds only
+/// because every variant requires a field no other variant has — and the
+/// schema does NOT assert it, because schemars emits `anyOf` for an untagged
+/// enum, which is satisfied by matching one arm OR several. So checking the
+/// whole schema proves nothing here; the arms are pulled out of `anyOf` and
+/// checked one at a time, and an overlap fails this test rather than quietly
+/// making the contract unusable.
+#[test]
+fn every_detect_patterns_shape_matches_exactly_one_arm() {
+    let schema = serde_json::to_value(schemars::schema_for!(PatternsResult)).expect("derives");
+    let defs = schema.get("$defs").cloned().unwrap_or_else(|| json!({}));
+    let arms: Vec<serde_json::Value> = schema["anyOf"]
+        .as_array()
+        .expect("an untagged enum derives a list of arms")
+        .iter()
+        .map(|arm| {
+            // Each arm is a $ref into $defs; give it the definitions back so
+            // it can be compiled on its own.
+            let mut arm = arm.clone();
+            arm.as_object_mut()
+                .expect("each arm is an object")
+                .insert("$defs".to_owned(), defs.clone());
+            arm
+        })
+        .collect();
+    assert_eq!(arms.len(), 5, "detect_patterns answers with five shapes");
+    let arm_validators: Vec<_> = arms
+        .iter()
+        .map(|a| jsonschema::validator_for(a).expect("each arm compiles"))
+        .collect();
+
+    let shapes = [
+        (
+            "insufficient",
+            PatternsResult::Insufficient(InsufficientPatternData {
+                pattern_type: "overtraining".to_owned(),
+                activities_analyzed: 2,
+                patterns_detected: vec![],
+                insights: vec!["Need at least 3 activities for pattern detection".to_owned()],
+                confidence: "insufficient_data".to_owned(),
+            }),
+        ),
+        (
+            "weekly_schedule",
+            PatternsResult::WeeklySchedule(Box::new(WeeklySchedulePatternResult {
+                pattern_type: "weekly_schedule".to_owned(),
+                preferred_training_days: vec![DayFrequency {
+                    day: "Tuesday".to_owned(),
+                    frequency: 9,
+                }],
+                patterns_detected: vec!["Consistent weekly schedule detected".to_owned()],
+                insights: vec!["Consistent weekly schedule detected".to_owned()],
+                consistency_score: 44.0,
+                avg_activities_per_week: 3.4,
+                confidence: "high".to_owned(),
+            })),
+        ),
+        (
+            "training_blocks",
+            PatternsResult::HardEasy(Box::new(HardEasyPatternResult {
+                pattern_type: "training_blocks".to_owned(),
+                pattern_detected: true,
+                intensity_distribution: IntensityDistribution {
+                    hard_percentage: 22.0,
+                    easy_percentage: 78.0,
+                },
+                adequate_recovery: true,
+                patterns_detected: vec!["Hard days follow easy days".to_owned()],
+                insights: vec!["Hard days follow easy days".to_owned()],
+                confidence: "medium".to_owned(),
+            })),
+        ),
+        (
+            "progression",
+            PatternsResult::VolumeProgression(Box::new(VolumeProgressionResult {
+                pattern_type: "progression".to_owned(),
+                trend: "increasing".to_owned(),
+                weekly_volumes: vec![32.0, 36.5, 41.0],
+                week_numbers: vec![34, 35, 36],
+                volume_spikes_detected: false,
+                spike_weeks: vec![],
+                patterns_detected: vec!["Volume is increasing".to_owned()],
+                insights: vec!["Volume is increasing".to_owned()],
+                confidence: "medium".to_owned(),
+            })),
+        ),
+        (
+            "overtraining",
+            PatternsResult::Overtraining(Box::new(OvertrainingResult {
+                pattern_type: "overtraining".to_owned(),
+                risk_level: "moderate".to_owned(),
+                warning_signs: vec!["Heart rate drift detected: 4.2% increase".to_owned()],
+                insights: vec!["Heart rate drift detected: 4.2% increase".to_owned()],
+                hr_drift_detected: true,
+                performance_decline: false,
+                insufficient_recovery: false,
+                confidence: "medium".to_owned(),
+                recommendations: vec!["Monitor recovery closely".to_owned()],
+            })),
+        ),
+    ];
+
+    for (label, shape) in shapes {
+        let value = serde_json::to_value(shape).expect("serializes");
+        let matched: Vec<usize> = arm_validators
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_valid(&value))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            matched.len(),
+            1,
+            "detect_patterns' {label} answer matched arms {matched:?}; it must match exactly one, \
+             or a client cannot tell which shape it was handed:\n{value:#}"
+        );
+    }
+}
+
+#[test]
+fn calculate_metrics_declares_a_schema_that_accepts_its_payload() {
+    // An activity with no heart rate is ordinary — a bike computer without a
+    // strap — and the summary reports it absent rather than zero.
+    let sample = Formatted::Json(ActivityMetricsResult {
+        pace: 5.24,
+        speed: 11.45,
+        intensity_score: 0.0,
+        efficiency_score: 68.2,
+        max_hr_used: 187.0,
+        max_hr_source: "estimated from age".to_owned(),
+        metrics_summary: MetricsInputSummary {
+            distance_km: 12.4,
+            duration_minutes: 65,
+            elevation_meters: 143.0,
+            average_heart_rate: None,
+        },
+    });
+
+    assert_declares_and_accepts(
+        <CalculateMetricsTool as McpTool<dyn ToolRuntime>>::definition(&CalculateMetricsTool)
+            .output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<ActivityMetricsResult>))
+            .expect("derives"),
+        &sample,
+        "calculate_metrics",
+    );
+}
+
+#[test]
+fn the_analytics_schemas_reject_payloads_missing_a_required_field() {
+    let trends = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(PerformanceTrendsResult)).expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        !trends.is_valid(&json!({
+            "metric": "pace",
+            "timeframe": "month",
+            "activities_analyzed": 18,
+            "insights": [],
+        })),
+        "a trend answer with no trend is not something a client can read"
+    );
+
+    let metrics = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(ActivityMetricsResult)).expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        !metrics.is_valid(&json!({
+            "pace": 5.24,
+            "speed": 11.45,
+            "intensity_score": 0.0,
+            "efficiency_score": 68.2,
+            "max_hr_used": 187.0,
+            "max_hr_source": "estimated from age",
+        })),
+        "calculate_metrics must report the inputs its numbers came from"
+    );
 }

@@ -23,6 +23,9 @@
 
 pub(crate) mod inner;
 
+/// The shapes the analytics tools answer with, and their derived schemas.
+pub mod output;
+
 // The training-load payload builder is reachable from integration tests: this
 // crate keeps tests external, so content coverage of the JSON the model reads
 // needs the builder public. Its production caller is the tool handler below.
@@ -38,7 +41,11 @@ use tracing::info;
 use crate::capabilities::{PROVIDER_ANALYTICS, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, task_capable, tool_definition,
+    tool_result_to_response, Formatted,
+};
+use crate::implementations::analytics::output::{
+    ActivityMetricsResult, PatternsResult, PerformanceTrendsResult,
 };
 use crate::implementations::fitness_support::process_activity_analysis;
 use crate::implementations::handler_bridge;
@@ -200,12 +207,12 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<PatternsResult>>(task_capable(tool_definition(
             "detect_patterns",
             "Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -732,12 +739,12 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<ActivityMetricsResult>>(task_capable(tool_definition(
             "calculate_metrics",
             "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -809,12 +816,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             properties,
             Some(vec!["provider".to_owned(), "metric".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<PerformanceTrendsResult>>(task_capable(tool_definition(
             "analyze_performance_trends",
             "Analyze performance trends over time with statistical analysis and insights for a specific metric",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

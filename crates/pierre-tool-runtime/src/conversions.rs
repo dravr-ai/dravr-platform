@@ -145,8 +145,11 @@ pub fn ok_typed<T: Serialize>(tool: &str, payload: T) -> AppResult<ToolResult> {
 /// why this is a type rather than three call sites deciding for themselves:
 /// `format=json` sends the tool's own shape, `format=toon` sends a compact
 /// string envelope, and a TOON conversion that fails falls back to JSON while
-/// saying so. Untagged, so the derived schema is a `oneOf` over exactly those
-/// three and a client can tell which it got.
+/// saying so. Untagged, so the derived schema is an `anyOf` over exactly
+/// those three arms — schemars emits `anyOf` for an untagged enum, not
+/// `oneOf`, so the schema does not itself assert the arms are mutually
+/// exclusive. A client tells them apart by the keys: `toon` and `result` are
+/// the envelope's, and they are fixed rather than per-tool for that reason.
 ///
 /// The envelope keys are fixed (`toon`, `result`) rather than derived from a
 /// per-tool `data_key`. A property name that changes per tool cannot be stated
