@@ -35,7 +35,8 @@ use super::intake;
 use super::otp::apply_conversation_recipient;
 use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
 use super::resume::{
-    finish_turn_record, hand_off_drained_turn, keep_lease, note_placeholder, DrainHandOff,
+    finish_turn_record, hand_off_drained_turn, keep_lease, note_placeholder,
+    release_turn_for_retry, DrainHandOff,
     MAX_TURN_ATTEMPTS,
 };
 use super::turn_guard::{
@@ -566,13 +567,22 @@ async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
     // incur, and keeps every reply-path consistent with the
     // credentials live at the moment the dispatch started.
     //
-    // `None` means the tenant has no configured channel — we cannot
-    // reply at all, so log and bail without spending compute on the
-    // LLM pipeline.
-    let Some(channel_config) = load_dispatch_channel_config(dispatch).await else {
-        drop(dispatch_guard);
-        evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
-        return TurnClose::Finished;
+    // A tenant with no configured channel cannot be replied to at all, so
+    // the turn ends without spending compute on the LLM pipeline. A failed
+    // READ is a different fact and hands the row back instead.
+    let channel_config = match load_dispatch_channel_config(dispatch).await {
+        ChannelConfigLookup::Loaded(config) => *config,
+        ChannelConfigLookup::Absent => {
+            drop(dispatch_guard);
+            evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+            return TurnClose::Finished;
+        }
+        ChannelConfigLookup::Unavailable => {
+            release_turn_for_retry(dispatch).await;
+            drop(dispatch_guard);
+            evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+            return TurnClose::HandedOff;
+        }
     };
 
     // One-time onboarding coach proposal: on the user's first provider-connected
@@ -716,20 +726,60 @@ fn log_dispatch_start(dispatch: &PendingDispatch) {
 
 /// The channel config a turn replies through, loaded once per turn.
 ///
-/// `None` means the tenant has no configured channel — the turn cannot
-/// reply at all, so the caller drops it without spending compute on the LLM
-/// pipeline.
-async fn load_dispatch_channel_config(dispatch: &PendingDispatch) -> Option<ChannelConfig> {
+/// Three outcomes, not two, because "this tenant has no channel" and "the
+/// database did not answer" are not the same fact and must not end the turn
+/// the same way. `load_channel_config` folds both into `None`, so the read is
+/// repeated here against the repository directly — the same three-way shape
+/// [`resume::rebuild_dispatch`] already uses for a resumed run.
+async fn load_dispatch_channel_config(dispatch: &PendingDispatch) -> ChannelConfigLookup {
     let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
-    let config = load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await;
-    if config.is_none() {
-        warn!(
-            channel = %dispatch.channel,
-            tenant_id = %dispatch.channel_tenant_id,
-            "channel config unavailable at dispatch time; dropping turn with no reply"
-        );
+    match db
+        .get_channel_config(dispatch.channel_tenant_id, &dispatch.channel)
+        .await
+    {
+        Ok(Some(raw)) => match serde_json::from_value::<ChannelConfig>(raw) {
+            Ok(config) => ChannelConfigLookup::Loaded(Box::new(config)),
+            Err(e) => {
+                error!(
+                    error = %e,
+                    channel = %dispatch.channel,
+                    "channel config does not deserialize; the turn cannot reply"
+                );
+                ChannelConfigLookup::Absent
+            }
+        },
+        Ok(None) => {
+            warn!(
+                channel = %dispatch.channel,
+                tenant_id = %dispatch.channel_tenant_id,
+                "tenant has no channel config; dropping turn with no reply"
+            );
+            ChannelConfigLookup::Absent
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                channel = %dispatch.channel,
+                tenant_id = %dispatch.channel_tenant_id,
+                "channel config lookup failed; handing the turn back for another run"
+            );
+            ChannelConfigLookup::Unavailable
+        }
     }
-    config
+}
+
+/// What a dispatch's channel-config read found.
+enum ChannelConfigLookup {
+    /// The credentials this turn replies with.
+    Loaded(Box<ChannelConfig>),
+    /// The tenant has no usable config. Nothing will change by retrying, so
+    /// the turn ends and its row is finished.
+    Absent,
+    /// The read itself failed. That may not hold next time, so the row is
+    /// handed back rather than deleted — deleting it here is how a single
+    /// transient fault would cost the athlete their answer permanently, with
+    /// a status placeholder left standing forever (registre#109).
+    Unavailable,
 }
 
 /// How [`serve_turn`] left the athlete.

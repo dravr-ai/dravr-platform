@@ -413,6 +413,34 @@ async fn record_unrecorded_run(
     }
 }
 
+/// Hand a recorded turn's row back because this run could not proceed for a
+/// reason that may not hold next time.
+///
+/// The counterpart to [`finish_turn_record`]: that one is for an end the
+/// athlete has been served, this one is for a fault that is nobody's answer.
+/// The row becomes claimable at once rather than waiting out its lease, so the
+/// next delivery or the next sweep retries within seconds. A no-op for an
+/// unrecorded run, which has no row to hand back.
+pub(super) async fn release_turn_for_retry(dispatch: &PendingDispatch) {
+    let Some(record) = dispatch.record.as_ref() else {
+        return;
+    };
+    if let Err(e) = dispatch
+        .resources
+        .common
+        .repos
+        .resumable_turns
+        .release_resumable_turn(dispatch.session_tenant_id, &record.row_id, now_ms())
+        .await
+    {
+        warn!(
+            error = %e,
+            row_id = %record.row_id,
+            "turn could not release its row for retry; the lease expires it instead"
+        );
+    }
+}
+
 /// Delete the row a recorded dispatch was running from.
 ///
 /// Called on every end a turn can reach, so the lease can never expire on a
