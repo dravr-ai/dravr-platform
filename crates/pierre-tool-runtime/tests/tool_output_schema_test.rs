@@ -18,6 +18,8 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::models::SportType;
 use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::admin::{
@@ -94,6 +96,10 @@ use pierre_tool_runtime::implementations::nutrition::{
     DailyNutritionResult, FoodDetailsResult, FoodNutrientEntry, GetFoodDetailsTool,
     GetNutrientTimingTool, MealFoodEntry, NutrientTimingResult, PostWorkoutTiming,
     PreWorkoutTiming, ProteinDistribution, SearchFoodResult, SearchFoodTool,
+};
+use pierre_tool_runtime::implementations::physiology::{
+    EstimateVo2maxResult, EstimateVo2maxTool, PhysiologyProfile, SetPhysiologyResult,
+    SetPhysiologyTool,
 };
 use pierre_tool_runtime::implementations::playbooks::{
     ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
@@ -3321,5 +3327,136 @@ fn a_comparison_row_carries_one_baseline_not_both() {
     assert!(
         neutral.get("improved").is_none(),
         "a metric with no better direction must omit `improved`, not guess one"
+    );
+}
+
+// ============================================================================
+// physiology
+// ============================================================================
+
+#[test]
+fn each_physiology_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "set_physiology",
+            <SetPhysiologyTool as McpTool<dyn ToolRuntime>>::definition(&SetPhysiologyTool),
+            serde_json::to_value(schemars::schema_for!(SetPhysiologyResult)).expect("derives"),
+        ),
+        (
+            "estimate_vo2max",
+            <EstimateVo2maxTool as McpTool<dyn ToolRuntime>>::definition(&EstimateVo2maxTool),
+            serde_json::to_value(schemars::schema_for!(EstimateVo2maxResult)).expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn an_almost_empty_physiology_profile_still_validates() {
+    // A profile is built up over time. An athlete who has given only a
+    // resting heart rate has one field set, and every measurement is Option
+    // because of it — reporting an unknown as zero would let a coach reason
+    // off a fabricated number.
+    let derived =
+        serde_json::to_value(schemars::schema_for!(SetPhysiologyResult)).expect("derives");
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+    let value = serde_json::to_value(SetPhysiologyResult {
+        saved: true,
+        created: true,
+        updated_fields: vec!["resting_hr"],
+        profile: PhysiologyProfile {
+            ftp_watts: None,
+            threshold_pace_sec_per_km: None,
+            max_hr: None,
+            resting_hr: Some(48),
+            lactate_threshold_percentage: None,
+            vo2_max: None,
+            weight: None,
+            age: None,
+            fitness_level: FitnessLevel::Intermediate,
+            primary_sport: SportType::Run,
+            training_experience_years: None,
+            hr_zones: None,
+            power_zones: None,
+        },
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "a one-field profile must satisfy the schema:\n{value:#}"
+    );
+    // hr_zones needs BOTH a resting and a maximum heart rate, so a profile
+    // with only one of them has none — absent, not an empty object.
+    assert!(
+        value["profile"]["hr_zones"].is_null(),
+        "zones derived from a pair must be absent when only one is known"
+    );
+}
+
+#[test]
+fn the_updated_fields_list_names_fields_never_measurements() {
+    // The measurements are health data. The tool logs and reports which
+    // fields were set, by name — and this asserts the list stays names, so
+    // nobody "improves" it into a map of what was written.
+    let derived =
+        serde_json::to_value(schemars::schema_for!(SetPhysiologyResult)).expect("derives");
+    let updated = &derived["properties"]["updated_fields"];
+    assert_eq!(
+        updated["type"], "array",
+        "updated_fields is a list of names: {updated:#}"
+    );
+    assert_eq!(
+        updated["items"]["type"], "string",
+        "of STRINGS — a list of objects would be the measurements themselves: {updated:#}"
+    );
+}
+
+#[test]
+fn estimate_vo2max_says_it_did_not_save() {
+    // The estimate comes off a published equation fitted on a field test, and
+    // an athlete should confirm a number before it shapes their zones. So the
+    // tool reports saved:false and tells the caller what to do next — both
+    // are on the wire, and both are asserted rather than assumed.
+    let derived =
+        serde_json::to_value(schemars::schema_for!(EstimateVo2maxResult)).expect("derives");
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+    let value = serde_json::to_value(EstimateVo2maxResult {
+        method: "cooper_12_minute".to_owned(),
+        vo2max_ml_kg_min: 52.4,
+        formula: "Cooper (1968): VO2max = (distance_m - 504.9) / 44.73".to_owned(),
+        defaults_from_profile: vec!["weight", "age"],
+        stored_vo2_max: None,
+        saved: false,
+        to_store: "call set_physiology with vo2_max once the athlete confirms the number"
+            .to_owned(),
+    })
+    .expect("serializes");
+
+    assert!(validator.is_valid(&value), "estimate answer:\n{value:#}");
+    assert_eq!(
+        value["saved"], false,
+        "this tool estimates, it does not write"
+    );
+    assert!(
+        value["to_store"]
+            .as_str()
+            .is_some_and(|s| s.contains("set_physiology")),
+        "and it names the tool that WOULD write it"
+    );
+    assert!(
+        value["stored_vo2_max"].is_null(),
+        "an athlete with no stored VO2max gets null, not the estimate echoed back"
     );
 }

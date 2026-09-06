@@ -32,12 +32,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tracing::info;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
+};
 use crate::implementations::configuration::{
     derive_hr_zone_set, derive_power_zone_set, validate_parameter_ranges,
     validate_parameter_relationships,
@@ -50,7 +53,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{HrZoneSet, PowerZoneSet, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_intelligence::algorithms::Vo2maxAlgorithm;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -425,22 +428,103 @@ fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<()> {
 }
 
 /// Render a profile for the tool response.
-fn profile_payload(profile: &UserPhysiologicalProfile) -> Value {
-    json!({
-        "ftp_watts": profile.ftp_watts,
-        "threshold_pace_sec_per_km": profile.threshold_pace_sec_per_km,
-        "max_hr": profile.max_hr,
-        "resting_hr": profile.resting_hr,
-        "lactate_threshold_percentage": profile.lactate_threshold_percentage,
-        "vo2_max": profile.vo2_max,
-        "weight": profile.weight,
-        "age": profile.age,
-        "fitness_level": profile.fitness_level,
-        "primary_sport": profile.primary_sport,
-        "training_experience_years": profile.training_experience_years,
-        "hr_zones": profile.hr_zones,
-        "power_zones": profile.power_zones,
-    })
+fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
+    PhysiologyProfile {
+        ftp_watts: profile.ftp_watts,
+        threshold_pace_sec_per_km: profile.threshold_pace_sec_per_km,
+        max_hr: profile.max_hr,
+        resting_hr: profile.resting_hr,
+        lactate_threshold_percentage: profile.lactate_threshold_percentage,
+        vo2_max: profile.vo2_max,
+        weight: profile.weight,
+        age: profile.age,
+        fitness_level: profile.fitness_level,
+        primary_sport: profile.primary_sport.clone(),
+        training_experience_years: profile.training_experience_years,
+        hr_zones: profile.hr_zones,
+        power_zones: profile.power_zones,
+    }
+}
+
+/// The athlete's physiological profile as the tools echo it back.
+///
+/// Every measurement is optional: a profile is built up over time, and an
+/// athlete who has only ever given a resting heart rate has a profile with
+/// one field set. Reporting the absent ones as absent rather than as zero is
+/// what keeps a coach from reasoning off a fabricated number.
+///
+/// `fitness_level` and `primary_sport` are NOT optional — they carry their
+/// own defaults — which is why they are the enums rather than strings.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PhysiologyProfile {
+    /// Functional threshold power, in watts.
+    pub ftp_watts: Option<u32>,
+    /// Threshold pace, in seconds per kilometre.
+    pub threshold_pace_sec_per_km: Option<f64>,
+    /// Maximum heart rate, in bpm.
+    pub max_hr: Option<u16>,
+    /// Resting heart rate, in bpm.
+    pub resting_hr: Option<u16>,
+    /// Lactate threshold as a percentage of maximum heart rate.
+    pub lactate_threshold_percentage: Option<f64>,
+    /// `VO2max`, in ml/kg/min.
+    pub vo2_max: Option<f64>,
+    /// Body mass, in kilograms.
+    pub weight: Option<f64>,
+    /// Age in years.
+    pub age: Option<u16>,
+    /// Self-reported level: beginner, intermediate, advanced.
+    pub fitness_level: FitnessLevel,
+    /// The sport the athlete mostly trains. Open-ended: a provider-specific
+    /// sport no enum anticipated arrives as `Other`.
+    pub primary_sport: SportType,
+    /// Years of structured training.
+    pub training_experience_years: Option<u8>,
+    /// Heart-rate zone boundaries. Absent until both a resting and a maximum
+    /// heart rate are on the profile, because they are derived from the pair.
+    pub hr_zones: Option<HrZoneSet>,
+    /// Power zone boundaries. Absent for an athlete with no power meter or
+    /// saved FTP.
+    pub power_zones: Option<PowerZoneSet>,
+}
+
+/// What `set_physiology` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SetPhysiologyResult {
+    /// Always true: the tool errors rather than reporting a failed save.
+    pub saved: bool,
+    /// Whether this call created the profile rather than updating one.
+    pub created: bool,
+    /// Which fields this call set, by name. Names only — the measurements
+    /// themselves are health data and do not belong in a field list.
+    pub updated_fields: Vec<&'static str>,
+    /// The profile as it now stands, so the coach need not read it back.
+    pub profile: PhysiologyProfile,
+}
+
+/// What `estimate_vo2max` answers with.
+///
+/// Deliberately does not save. The estimate comes off a published equation
+/// fitted on a field test, and an athlete should confirm a number before it
+/// starts shaping their zones — which is what `to_store` says to do.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct EstimateVo2maxResult {
+    /// Which field test the estimate came from.
+    pub method: String,
+    /// The estimate, in ml/kg/min, rounded to one decimal.
+    pub vo2max_ml_kg_min: f64,
+    /// The equation used, named so the number is auditable.
+    pub formula: String,
+    /// Which inputs were taken from the stored profile rather than given in
+    /// the call, by name — so the athlete can see what the estimate assumed.
+    pub defaults_from_profile: Vec<&'static str>,
+    /// The `VO2max` already on the profile, for comparison. Absent when none
+    /// is stored.
+    pub stored_vo2_max: Option<f64>,
+    /// Always false: this tool estimates, it does not write.
+    pub saved: bool,
+    /// What to do with the number once the athlete confirms it.
+    pub to_store: String,
 }
 
 // ============================================================================
@@ -520,12 +604,12 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             required: None,
             ..Default::default()
         };
-        tool_definition(
+        answers_with::<SetPhysiologyResult>(tool_definition(
             "set_physiology",
             "Save the athlete's physiological measurements — FTP, threshold pace, max and resting heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -619,12 +703,15 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 "saved athlete physiology"
             );
 
-            Ok(ToolResult::ok(json!({
-                "saved": true,
-                "created": created,
-                "updated_fields": updated_fields,
-                "profile": profile_payload(&stored),
-            })))
+            ok_typed(
+                "set_physiology",
+                SetPhysiologyResult {
+                    saved: true,
+                    created,
+                    updated_fields,
+                    profile: profile_payload(&stored),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -876,12 +963,12 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
             required: Some(vec!["method".to_owned()]),
             ..Default::default()
         };
-        tool_definition(
+        answers_with::<EstimateVo2maxResult>(tool_definition(
             "estimate_vo2max",
             "Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, or a VDOT they already know. Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -936,15 +1023,20 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
                 "estimated VO2max from a field test"
             );
 
-            Ok(ToolResult::ok(json!({
-                "method": method,
-                "vo2max_ml_kg_min": (vo2max * 10.0).round() / 10.0,
-                "formula": algorithm.description(),
-                "defaults_from_profile": defaults_from_profile,
-                "stored_vo2_max": profile.as_ref().and_then(|p| p.vo2_max),
-                "saved": false,
-                "to_store": "call set_physiology with vo2_max once the athlete confirms the number",
-            })))
+            ok_typed(
+                "estimate_vo2max",
+                EstimateVo2maxResult {
+                    method,
+                    vo2max_ml_kg_min: (vo2max * 10.0).round() / 10.0,
+                    formula: algorithm.description(),
+                    defaults_from_profile,
+                    stored_vo2_max: profile.as_ref().and_then(|p| p.vo2_max),
+                    saved: false,
+                    to_store:
+                        "call set_physiology with vo2_max once the athlete confirms the number"
+                            .to_owned(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

@@ -199,7 +199,7 @@ pub enum ZoneGranularity {
 }
 
 /// Athlete fitness level
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub enum FitnessLevel {
     /// Beginner athlete (0-1 years experience)
     Beginner,
