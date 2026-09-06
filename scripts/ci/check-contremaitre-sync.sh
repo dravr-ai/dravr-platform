@@ -502,6 +502,59 @@ for kind, const in CONSTS.items():
 if 'include_str!("../../../training_catalogue/selection.yaml")' not in text:
     hits.append(f"{table}: EMBEDDED_SELECTION does not include training_catalogue/selection.yaml")
 
+# The counts the tests in this repo pin against the tree. The catalogue data
+# lives in dravr-contremaitre and these constants live here, so nothing at
+# authoring time can see them: on 2026-09-06 a ninth flavour landed upstream and
+# the hourly bump red two lanes on counts no one upstream could have known about
+# (carnet#359). Every number below is derivable from the files on disk, so the
+# check is the derivation. A pattern that cannot be found fails loudly rather
+# than passing as "in sync" — a silently skipped count is the thing being fixed.
+counts = {kind: len(on_disk[kind]) for kind in SHAPES}
+seed_total = sum(counts.values()) + 1  # + selection.yaml
+PINS = [
+    ("crates/pierre-server/tests/training_catalogue_test.rs",
+     r"const FLAVOUR_IDS: \[&str; (\d+)\]", (counts["flavours"],), "FLAVOUR_IDS length"),
+    ("crates/pierre-server/tests/training_catalogue_test.rs",
+     r"const SEED_FILE_COUNT: usize = (\d+);", (seed_total,), "SEED_FILE_COUNT"),
+    ("crates/pierre-server/tests/training_catalogue_test.rs",
+     r"assert_eq!\(stats\.flavours, (\d+)", (counts["flavours"],), "stats.flavours"),
+    ("crates/pierre-server/tests/training_catalogue_sync_test.rs",
+     r"\(stats\.flavours, stats\.skeletons, stats\.workouts\),\s*\((\d+), (\d+), (\d+)\)",
+     (counts["flavours"], counts["skeletons"], counts["workouts"]), "the (flavours, skeletons, workouts) stats"),
+    ("crates/pierre-server/tests/training_catalogue_sync_test.rs",
+     r"assert_eq!\(\w+\.compiled_in_count, (\d+)\)", (seed_total,), "compiled_in_count"),
+]
+for rel, pattern, expected, label in PINS:
+    f = pathlib.Path(rel)
+    if not f.is_file():
+        hits.append(f"{rel}: missing — the catalogue count check cannot run")
+        continue
+    found = re.findall(pattern, f.read_text(encoding="utf-8"))
+    if not found:
+        hits.append(f"{rel}: {label} not found by the count scan; the check can no longer see it — fix the pattern, never ignore it")
+        continue
+    for got in found:
+        got_t = tuple(int(x) for x in (got if isinstance(got, tuple) else (got,)))
+        if got_t != expected:
+            shown = got_t[0] if len(got_t) == 1 else got_t
+            want = expected[0] if len(expected) == 1 else expected
+            hits.append(f"{rel}: {label} pins {shown} but the tree on disk has {want} "
+                        f"({counts['flavours']} flavours, {counts['skeletons']} skeletons, {counts['workouts']} workouts, selection.yaml)")
+
+# Every catalogue file is served either from the compiled-in seed or from
+# contremaitre, so the pair must always sum to the seed total.
+sync_rel = "crates/pierre-server/tests/training_catalogue_sync_test.rs"
+sync_f = pathlib.Path(sync_rel)
+if sync_f.is_file():
+    pairs = re.findall(r"\(stats\.compiled_in_count, stats\.contremaitre_count\),\s*\((\d+), (\d+)\)",
+                       sync_f.read_text(encoding="utf-8"))
+    if not pairs:
+        hits.append(f"{sync_rel}: the (compiled_in, contremaitre) pairs were not found by the count scan — fix the pattern, never ignore it")
+    for a, b in pairs:
+        if int(a) + int(b) != seed_total:
+            hits.append(f"{sync_rel}: ({a}, {b}) sums to {int(a)+int(b)}, but the catalogue has {seed_total} files; "
+                        "every file is served from the seed or from contremaitre, so the pair must sum to the total")
+
 # The mirror, only when the pinned rev carries training/.
 canon = pathlib.Path(cm_root) / "training" if cm_root else None
 if canon is not None and canon.is_dir():
