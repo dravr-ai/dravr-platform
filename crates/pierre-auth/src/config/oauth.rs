@@ -255,6 +255,25 @@ impl Default for OAuth2ServerConfig {
     }
 }
 
+/// Resolve the OAuth issuer from the two addresses a deployment may know
+/// itself by, falling back to the local form.
+///
+/// Split out of [`OAuth2ServerConfig::from_env`] so the precedence can be
+/// tested without mutating process environment: `from_env` reads the same
+/// three inputs and does nothing else with them.
+#[must_use]
+pub fn resolve_issuer_url(
+    explicit: Option<&str>,
+    base_url: Option<&str>,
+    http_port: u16,
+) -> String {
+    explicit
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .or_else(|| base_url.map(str::trim).filter(|v| !v.is_empty()))
+        .map_or_else(|| format!("http://localhost:{http_port}"), str::to_owned)
+}
+
 impl OAuth2ServerConfig {
     /// Load `OAuth2` authorization server configuration from environment
     #[must_use]
@@ -265,8 +284,23 @@ impl OAuth2ServerConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(8081);
         Self {
-            issuer_url: env::var("OAUTH2_ISSUER_URL")
-                .unwrap_or_else(|_| format!("http://localhost:{http_port}")),
+            // The issuer is published verbatim in
+            // `/.well-known/oauth-authorization-server` and
+            // `/.well-known/oauth-protected-resource`, so a localhost default
+            // that survives into a deployment tells every external MCP client
+            // to send its authorization, token and JWKS requests to its own
+            // machine. `OAUTH2_ISSUER_URL` is set nowhere in infra, so dev
+            // advertised `http://localhost:8081` and no external client could
+            // complete OAuth against it (carnet#358). BASE_URL is the address
+            // the deployment already knows itself by — the same fallback the
+            // redirect URIs above use — so the localhost form is now reached
+            // only when neither is set, which is the local case it was written
+            // for.
+            issuer_url: resolve_issuer_url(
+                env::var("OAUTH2_ISSUER_URL").ok().as_deref(),
+                env::var("BASE_URL").ok().as_deref(),
+                http_port,
+            ),
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
             default_login_password: env::var("OAUTH_DEFAULT_PASSWORD").ok(),
         }
