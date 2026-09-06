@@ -53,6 +53,8 @@ pub mod messaging;
 pub mod messaging_link_states;
 /// Reaction → chat-message resolution for the shared per-message feedback write
 pub mod messaging_reactions;
+/// The embedded `SQLite` migration set
+mod migrations;
 /// Mobility features (stretching exercises and yoga poses)
 pub mod mobility;
 /// OAuth callback notification handling
@@ -150,6 +152,7 @@ pub use user_mcp_tokens::{
 pub use user_oauth_tokens::OAuthTokenData;
 
 use crate::backends::{shared, DatabaseProvider};
+use crate::database::migrations::SQLITE_MIGRATIONS;
 use base64::engine::general_purpose::{self, STANDARD};
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -347,10 +350,7 @@ impl Database {
     async fn migrate_impl(&self) -> AppResult<()> {
         info!("Running database migrations...");
 
-        // Run all pending migrations embedded at compile-time from ./migrations directory
-        // Using compile-time macro which embeds migrations into the binary
-        // This ensures migrations are available regardless of working directory
-        sqlx::migrate!("./migrations")
+        SQLITE_MIGRATIONS
             .run(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Migration failed: {e}")))?;
