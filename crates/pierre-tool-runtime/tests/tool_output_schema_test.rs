@@ -87,6 +87,10 @@ use pierre_tool_runtime::implementations::recipes::{
     GetRecipeTool, ListRecipesResult, ListRecipesTool, RecipeDetail, RecipeSearchMatch,
     RecipeSummary, SearchRecipesResult, SearchRecipesTool,
 };
+use pierre_tool_runtime::implementations::store::{
+    BrowseCoachStoreResult, BrowseCoachStoreTool, InstallCoachFromStoreResult,
+    InstallCoachFromStoreTool, SearchCoachStoreResult, SearchCoachStoreTool, StoreCoachEntry,
+};
 use pierre_tool_runtime::implementations::stored_data::{
     DataSourcesResult, DateRange, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
     GetSleepSessionsTool, HealthSnapshotsResult, ListDataSourcesTool, RecoveryMetricsResult,
@@ -2184,4 +2188,151 @@ fn the_admin_schemas_reject_payloads_missing_a_required_field() {
         !unassign.is_valid(&json!({ "unassigned": true })),
         "admin_unassign_coach must say which coach and which athlete"
     );
+}
+
+// ============================================================================
+// coach store
+// ============================================================================
+
+fn a_store_coach() -> StoreCoachEntry {
+    StoreCoachEntry {
+        id: "9c3a77b1-0000-4000-8000-000000000001".to_owned(),
+        title: "Marathon Build".to_owned(),
+        description: Some("Sixteen weeks to a first marathon".to_owned()),
+        category: "training".to_owned(),
+        tags: vec!["run".to_owned(), "marathon".to_owned()],
+        sample_prompts: vec!["What should this week look like?".to_owned()],
+        install_count: 412,
+        published_at: Some("2026-06-11T14:00:00+00:00".to_owned()),
+    }
+}
+
+#[test]
+fn each_store_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "browse_coach_store",
+            <BrowseCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&BrowseCoachStoreTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<BrowseCoachStoreResult>))
+                .expect("derives"),
+        ),
+        (
+            "search_coach_store",
+            <SearchCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachStoreTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachStoreResult>))
+                .expect("derives"),
+        ),
+        (
+            "install_coach_from_store",
+            <InstallCoachFromStoreTool as McpTool<dyn ToolRuntime>>::definition(
+                &InstallCoachFromStoreTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(
+                Formatted<InstallCoachFromStoreResult>
+            ))
+            .expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn no_store_schema_promises_a_system_prompt() {
+    // Browse and search return many coaches and the prompt is by far the
+    // largest field on a store row; install echoes the same compact shape so
+    // a client renders one card either way. A schema that declared the prompt
+    // would be promising the tools send something they deliberately withhold.
+    let entry = serde_json::to_value(schemars::schema_for!(StoreCoachEntry)).expect("derives");
+    assert!(
+        !entry["properties"]
+            .as_object()
+            .expect("object schema")
+            .contains_key("system_prompt"),
+        "the store projection must not declare system_prompt"
+    );
+    assert!(
+        serde_json::to_value(a_store_coach())
+            .expect("serializes")
+            .get("system_prompt")
+            .is_none(),
+        "and the payload must not carry it either"
+    );
+}
+
+#[test]
+fn the_store_schemas_accept_their_payloads() {
+    for (tool, derived, payload) in [
+        (
+            "browse_coach_store",
+            serde_json::to_value(schemars::schema_for!(Formatted<BrowseCoachStoreResult>))
+                .expect("derives"),
+            serde_json::to_value(Formatted::Json(BrowseCoachStoreResult {
+                coaches: vec![a_store_coach()],
+                count: 1,
+                has_more: true,
+                next_cursor: Some("eyJvIjoyMH0".to_owned()),
+            }))
+            .expect("serializes"),
+        ),
+        (
+            "browse_coach_store (last page)",
+            serde_json::to_value(schemars::schema_for!(Formatted<BrowseCoachStoreResult>))
+                .expect("derives"),
+            // The last page has no cursor to hand back, and an unpublished
+            // coach has no publication date. Both are ordinary.
+            serde_json::to_value(Formatted::Json(BrowseCoachStoreResult {
+                coaches: vec![StoreCoachEntry {
+                    published_at: None,
+                    description: None,
+                    ..a_store_coach()
+                }],
+                count: 1,
+                has_more: false,
+                next_cursor: None,
+            }))
+            .expect("serializes"),
+        ),
+        (
+            "search_coach_store",
+            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachStoreResult>))
+                .expect("derives"),
+            serde_json::to_value(Formatted::Json(SearchCoachStoreResult {
+                query: "marathon".to_owned(),
+                count: 1,
+                coaches: vec![a_store_coach()],
+            }))
+            .expect("serializes"),
+        ),
+        (
+            "install_coach_from_store",
+            serde_json::to_value(schemars::schema_for!(
+                Formatted<InstallCoachFromStoreResult>
+            ))
+            .expect("derives"),
+            serde_json::to_value(Formatted::Json(InstallCoachFromStoreResult {
+                installed: true,
+                coach: a_store_coach(),
+                message: "'Marathon Build' is now in your coach library.".to_owned(),
+            }))
+            .expect("serializes"),
+        ),
+    ] {
+        let validator =
+            jsonschema::validator_for(&derived).unwrap_or_else(|e| panic!("{tool} schema: {e}"));
+        assert!(
+            validator.is_valid(&payload),
+            "{tool}: the declared schema rejected the payload the tool sends:\n{payload:#}"
+        );
+    }
 }
