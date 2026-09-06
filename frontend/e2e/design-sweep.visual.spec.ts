@@ -159,8 +159,30 @@ const THREAD_CONVERSATIONS = {
   limit: 50,
   offset: 0,
 };
+/**
+ * The morning before the exchange below — enough rows to overflow the
+ * transcript at the sweep's viewport. The layout gate then measures what only
+ * a long thread shows: the pane must not scroll, because every athlete row
+ * carries an absolutely positioned screen-reader label and the transcript's
+ * scroller has to be the containing block that keeps them inside it.
+ */
+const THREAD_MORNING = Array.from({ length: 16 }, (_, i) => {
+  const fromAthlete = i % 2 === 0;
+  return {
+    id: `sweep-morning-${i}`,
+    conversation_id: 'conv-sweep',
+    role: fromAthlete ? 'user' : 'assistant',
+    content: fromAthlete
+      ? `Question ${i / 2 + 1} : je garde la sortie longue de samedi ?`
+      : 'Oui, garde-la telle quelle : la charge de la semaine tient et le repos de vendredi suffit.',
+    created_at: new Date(Date.parse('2026-09-05T07:00:00Z') + i * 8 * 60_000).toISOString(),
+    ...(fromAthlete ? {} : { model: 'claude-sonnet-5', execution_time_ms: 700 }),
+  };
+});
+
 const THREAD_MESSAGES = {
   messages: [
+    ...THREAD_MORNING,
     {
       id: 'sweep-1',
       conversation_id: 'conv-sweep',

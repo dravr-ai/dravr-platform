@@ -44,6 +44,13 @@ export interface LayoutReport {
   collisions: EdgeCollision[];
   /** Horizontal overflow of the document, px. Any value > 0 is a defect. */
   documentOverflowPx: number;
+  /**
+   * Vertical overflow of the pane itself, px, measured on `bleed` surfaces only
+   * (a `padded` page scrolls in the pane by design). A bleed surface owns its
+   * scrolling, so any value > 0 means something escaped its scroller — the
+   * first focus then scrolls the pane and takes the surface's header with it.
+   */
+  paneOverflowPx: number;
 }
 
 /**
@@ -64,10 +71,19 @@ export async function measurePageLayout(page: Page): Promise<LayoutReport> {
       const gutterPx = window.innerWidth >= mdBreakpoint ? md : base;
 
       if (!shell) {
-        return { shellFound: false, layout: null, gutterPx, collisions: [], documentOverflowPx };
+        return {
+          shellFound: false,
+          layout: null,
+          gutterPx,
+          collisions: [],
+          documentOverflowPx,
+          paneOverflowPx: 0,
+        };
       }
 
       const layout = shell.getAttribute('data-page-layout');
+      const paneOverflowPx =
+        layout === 'bleed' ? Math.max(0, shell.scrollHeight - shell.clientHeight) : 0;
       const paneBox = shell.getBoundingClientRect();
       // A scrolled pane legitimately puts its first child above the top gutter.
       const atScrollTop = shell.scrollTop <= 1;
@@ -120,7 +136,7 @@ export async function measurePageLayout(page: Page): Promise<LayoutReport> {
         }
       }
 
-      return { shellFound: true, layout, gutterPx, collisions, documentOverflowPx };
+      return { shellFound: true, layout, gutterPx, collisions, documentOverflowPx, paneOverflowPx };
     },
     { mdBreakpoint: MD_BREAKPOINT_PX, base: PAGE_GUTTER_PX.base, md: PAGE_GUTTER_PX.md },
   );
@@ -142,6 +158,11 @@ export function describeLayoutFailures(surface: string, report: LayoutReport): s
   );
   if (report.documentOverflowPx > 0) {
     lines.push(`${surface}: document scrolls horizontally by ${report.documentOverflowPx}px`);
+  }
+  if (report.paneOverflowPx > 0) {
+    lines.push(
+      `${surface} [${report.layout}]: the pane scrolls vertically by ${report.paneOverflowPx}px — a bleed surface owns its scrolling`,
+    );
   }
   return lines;
 }
