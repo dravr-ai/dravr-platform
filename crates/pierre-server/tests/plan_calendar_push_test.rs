@@ -41,6 +41,8 @@ fn day(
         intensity: intensity.to_owned(),
         steps: Vec::new(),
         fueling: None,
+        template_slug: None,
+        template_params: None,
     }
 }
 
@@ -81,6 +83,7 @@ fn week(id: &str, week_start: &str, focus: &str, days: Vec<PlannedDay>) -> PlanW
         adjustment_reason: String::new(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        phase_index: None,
     }
 }
 

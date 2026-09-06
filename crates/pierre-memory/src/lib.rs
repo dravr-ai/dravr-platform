@@ -72,6 +72,6 @@ pub use playbooks::{
 pub use scope::MemoryScope;
 pub use sessions::{CoachSession, SessionStatus};
 pub use training_plans::{
-    parse_plan_date, BlockPhase, GoalRace, PlanBlock, PlanStatus, PlanWeek, PlannedDay,
-    RacePriority, TrainingPlan, WeekStatus, MAX_DAYS_PER_WEEK,
+    parse_plan_date, FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay,
+    RacePriority, SelectedBy, TemplateParams, TrainingPlan, WeekStatus, MAX_DAYS_PER_WEEK,
 };

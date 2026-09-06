@@ -999,7 +999,7 @@ export interface GetTrainingHistoryParams {
 
 
 /**
- * Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.
+ * Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.
  */
 export interface GetTrainingPlanParams {
 
@@ -1404,7 +1404,7 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.
+ * Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.
  */
 export interface SaveTrainingPlanParams {
 
@@ -1420,27 +1420,21 @@ export interface SaveTrainingPlanParams {
   /** Existing pillar Goal fact this plan serves, when known. */
   goal_fact_id?: string;
 
-  /** The plan outline (goal race + strategy, optionally blocks). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan. */
+  /** The plan outline — the athlete's vision: goal race + strategy, optionally the season phases, the flavour and the season window. Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan. */
   outline?: {
 
-  /** Ordered training blocks from now to the goal race. Omit for a short plan that has no mesocycle structure. */
-  blocks?: {
+  /** The flavour the season runs on, with who chose it. Omit for a plan laid out without one. */
+  flavour?: {
 
-  /** What this block is for, in coach voice. */
-  intent: string;
+  /** A flavour id from the training catalogue (polarized-classic, pyramidal-base, hvlit-foundation, …); the save refuses an id the catalogue does not hold and lists the ones it does. */
+  id: string;
 
-  /** One of: rest | base | build | peak | taper. */
-  phase: string;
+  /** Why a coach or athlete chose this flavour over the rule's proposal. Required for coach and athlete; omit for rule. */
+  override_reason?: string;
 
-  /** Block start date, YYYY-MM-DD. */
-  start: string;
-
-  /** Optional target weekly volume in hours. */
-  target_hours?: number;
-
-  /** Block length in weeks. */
-  weeks: number;
-}[];
+  /** Who chose it: rule (the selection rule's proposal, taken as is), coach, or athlete. */
+  selected_by: string;
+};
 
   /** The goal (A) race this plan builds toward. */
   goal_race: {
@@ -1458,6 +1452,87 @@ export interface SaveTrainingPlanParams {
   priority: string;
 };
 
+  /** Ordered season phases, from the season start (or now) through the goal race and any later peak. Omit for a short plan that has no mesocycle structure. */
+  phases?: {
+
+  /** The intensity architecture this phase runs on when it differs from the plan's flavour. One of: polarized | pyramidal | threshold | lactate_guided | hiit_dense | hvlit. */
+  flavour_override?: string;
+
+  /** Most hard sessions a week in this phase. */
+  hard_sessions_max?: number;
+
+  /** What this phase is for THIS athlete, in coach voice. */
+  intent: string;
+
+  /** One of: prep | base | build | specialty | peak | taper | race | transition | recovery. */
+  kind: string;
+
+  /** Load-to-recovery week pattern inside the phase, as "3:1" or "2:1". */
+  loading_pattern?: string;
+
+  /** What the phase is for, one sentence (the skeleton's text when laid out from one). */
+  purpose?: string;
+
+  /** Weights over the workout purposes this phase draws its sessions from, as {purpose: weight}. Purposes: recovery | endurance | endurance_long | tempo | sweet_spot | threshold | vo2max_long | vo2max_short | sprint | neuromuscular | race_specific | brick | strength_aa | strength_max | strength_maint | plyometric | mobility. */
+  session_mix?: Record<string, any>;
+
+  /** The catalogue skeleton this phase was laid out from, when one was. */
+  skeleton_id?: string;
+
+  /** Phase start date, YYYY-MM-DD. */
+  start: string;
+
+  /** Optional target weekly volume in hours. */
+  target_hours?: number;
+
+  /** Share of time below LT1 / between the thresholds / above LT2 the phase aims for. Give it when the plan runs on a catalogue flavour; omit otherwise. */
+  tid_target?: {
+
+  /** Share of training time below LT1. */
+  z1: {
+
+  /** Upper bound, 0 to 1. */
+  max: number;
+
+  /** Lower bound, 0 to 1. */
+  min: number;
+};
+
+  /** Share of training time between LT1 and LT2. */
+  z2: {
+
+  /** Upper bound, 0 to 1. */
+  max: number;
+
+  /** Lower bound, 0 to 1. */
+  min: number;
+};
+
+  /** Share of training time above LT2. */
+  z3: {
+
+  /** Upper bound, 0 to 1. */
+  max: number;
+
+  /** Lower bound, 0 to 1. */
+  min: number;
+};
+};
+
+  /** Weekly volume as a share of the season's peak week. */
+  volume_share_of_peak?: {
+
+  /** Upper bound, 0 to 1. */
+  max: number;
+
+  /** Lower bound, 0 to 1. */
+  min: number;
+};
+
+  /** Phase length in weeks. */
+  weeks: number;
+}[];
+
   /** Other races on the calendar (B/C priorities). */
   races?: {
 
@@ -1473,6 +1548,12 @@ export interface SaveTrainingPlanParams {
   /** A = goal race, B = tune-up, C = training race. */
   priority: string;
 }[];
+
+  /** Last day of the season, YYYY-MM-DD; omit when the plan ends with its goal race. */
+  season_end?: string;
+
+  /** First day of the season the phases lay out, YYYY-MM-DD; omit when the plan runs from its first phase. */
+  season_start?: string;
 
   /** The coach's strategy in prose — what the athlete sees as the long-term direction. */
   strategy: string;
@@ -1537,12 +1618,37 @@ export interface SaveTrainingPlanParams {
   target_zone: string;
 }[];
 
+  /** The values this day fills the template's ranges with (list_workout_templates shows each template's ranges and defaults). */
+  template_params?: {
+
+  /** Session duration in minutes, for a continuous template. */
+  duration_minutes?: number;
+
+  /** Repetitions per set. */
+  reps?: number;
+
+  /** Recovery interval in seconds. */
+  rest_seconds?: number;
+
+  /** Sets, when the template has them. */
+  sets?: number;
+
+  /** Work interval in seconds. */
+  work_seconds?: number;
+};
+
+  /** The catalogue template this day instantiates (a slug from list_workout_templates). Give it for every quality session built from the bank; omit for a rest day or a session written without one. */
+  template_slug?: string;
+
   /** What to do, in coach voice. */
   workout: string;
 }[];
 
   /** The week's intent in one line. */
   focus?: string;
+
+  /** Index (from 0) of the outline phase this week instantiates, so the week is measured against that phase's targets. Omit when the plan has no phases. */
+  phase_index?: number;
 
   /** Date of the week's first day, YYYY-MM-DD. */
   week_start: string;

@@ -7,7 +7,7 @@
 use chrono::NaiveDate;
 use pierre_core::models::{LoadSnapshot, TenantId};
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanBlock, PlanWeek};
+use pierre_memory::training_plans::{parse_plan_date, PlanPhase, PlanWeek};
 use pierre_services::ramp_check::RampVerdict;
 use pierre_services::recent_load::recent_load_snapshot;
 use tracing::{info, warn};
@@ -130,12 +130,12 @@ pub(super) async fn athlete_today(repos: &RepositoryRegistry, user_id: &str) -> 
         )
 }
 
-/// The gaps a stored plan leaves, given its active weeks and outline blocks.
+/// The gaps a stored plan leaves, given its active weeks and outline phases.
 ///
 /// A week or block whose date does not parse, or whose span leaves the
 /// calendar, is skipped rather than guessed at — `parse_plan_date` is a format
 /// check, so a stored `+262142-12-31` reaches here intact.
-fn coverage_gaps(weeks: &[PlanWeek], blocks: &[PlanBlock], today: NaiveDate) -> Vec<CoverageGap> {
+fn coverage_gaps(weeks: &[PlanWeek], phases: &[PlanPhase], today: NaiveDate) -> Vec<CoverageGap> {
     let spans: Vec<(NaiveDate, NaiveDate)> = weeks
         .iter()
         .filter_map(|w| {
@@ -145,16 +145,9 @@ fn coverage_gaps(weeks: &[PlanWeek], blocks: &[PlanBlock], today: NaiveDate) -> 
         })
         .collect();
     let mut gaps = Vec::new();
-    // Blocks the outline claims are running right now. A plan that says it is
+    // Phases the outline claims are running right now. A plan that says it is
     // in a phase today has asserted it should be prescribing today.
-    let block_spans_today = blocks.iter().any(|b| {
-        parse_plan_date(&b.start).is_some_and(|start| {
-            u64::from(b.weeks)
-                .checked_mul(7)
-                .and_then(|days| start.checked_add_days(chrono::Days::new(days)))
-                .is_some_and(|end| (start..end).contains(&today))
-        })
-    });
+    let block_spans_today = phases.iter().any(|p| p.covers(today));
     // A week that has already ended is proof the plan was under way.
     let plan_has_started = block_spans_today || spans.iter().any(|(_, e)| *e < today);
     // Not covering today only means something once the plan claims to be
@@ -166,20 +159,16 @@ fn coverage_gaps(weeks: &[PlanWeek], blocks: &[PlanBlock], today: NaiveDate) -> 
         gaps.push(CoverageGap::UncoveredToday);
     }
     // Only meaningful once the plan has both a phased outline and some weeks:
-    // an outline with no blocks promises nothing, and a plan with no weeks at
+    // an outline with no phases promises nothing, and a plan with no weeks at
     // all cannot be measured against one.
     let last_week_end = spans.iter().map(|(_, e)| *e).max();
     // Both sides must be the block's / week's LAST COVERED DAY. A block spans
     // `[start, start + 7 * weeks)` — exclusive — while a week's `end` is
     // inclusive, so comparing them raw reports every exactly-covered plan as
     // one day short and the signal fires on every save.
-    let outline_last_day = blocks
+    let outline_last_day = phases
         .iter()
-        .filter_map(|b| {
-            let start = parse_plan_date(&b.start)?;
-            let days = u64::from(b.weeks).checked_mul(7)?.checked_sub(1)?;
-            start.checked_add_days(chrono::Days::new(days))
-        })
+        .filter_map(|p| p.end_exclusive()?.checked_sub_days(chrono::Days::new(1)))
         .max();
     if let (Some(week_end), Some(block_end)) = (last_week_end, outline_last_day) {
         if block_end > week_end {
@@ -202,7 +191,7 @@ pub(super) async fn emit_coverage_check(
     tenant_id: &str,
     user_id: &str,
     plan_id: &str,
-    blocks: &[PlanBlock],
+    phases: &[PlanPhase],
 ) {
     let weeks = match repos
         .training_plans
@@ -221,7 +210,7 @@ pub(super) async fn emit_coverage_check(
         .filter(|w| parse_plan_date(&w.week_start).is_some())
         .max_by_key(|w| w.week_start.clone())
         .map_or_else(String::new, |w| w.week_start.clone());
-    for gap in coverage_gaps(&weeks, blocks, today) {
+    for gap in coverage_gaps(&weeks, phases, today) {
         info!(
             target: "notify",
             event = "training_plan.coverage_gap",

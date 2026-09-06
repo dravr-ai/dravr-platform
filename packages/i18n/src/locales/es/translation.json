@@ -1317,7 +1317,7 @@
       "start_failed": "No pude iniciar el perfil en esta conversación. Vuelve a intentarlo en un momento."
     },
     "plan": {
-      "block_line": "Bloque: {0}{1}",
+      "phase_line": "Fase: {0}{1}",
       "day_line": "{0}: {1}",
       "description": "Mostrar tu plan de entrenamiento — cuenta atrás hacia el objetivo más hoy y mañana, la semana completa, o solo hoy",
       "empty": "Aún no hay plan guardado — pide a tu coach que construya uno hacia tu objetivo.",

@@ -16,6 +16,7 @@
 //! and displays nothing looks exactly like success.
 
 use chrono::{NaiveDate, Utc};
+use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::FuelingProtocol;
 use pierre_memory::training_plans::{
     GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
@@ -43,6 +44,8 @@ fn fuelled_day() -> PlannedDay {
             sodium_mg_per_h: Some(600.0),
             carb_source: Some("glucose:fructose 1:0.8".to_owned()),
         }),
+        template_slug: None,
+        template_params: None,
     }
 }
 
@@ -61,7 +64,10 @@ fn plan() -> TrainingPlan {
         },
         races: Vec::new(),
         strategy: "build then taper".to_owned(),
-        blocks: Vec::new(),
+        flavour: None,
+        season_start: None,
+        season_end: None,
+        phases: Vec::new(),
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
@@ -84,6 +90,7 @@ fn week_with(days: Vec<PlannedDay>) -> PlanWeek {
         adjustment_reason: String::new(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        phase_index: None,
     }
 }
 
@@ -184,6 +191,8 @@ fn a_rest_day_produces_no_session_to_fuel() {
         intensity: String::new(),
         steps: Vec::new(),
         fueling: None,
+        template_slug: None,
+        template_params: None,
     };
     assert!(plan_day_session(Uuid::new_v4(), &rest, 0).is_none());
 }
@@ -195,8 +204,13 @@ fn a_rest_day_produces_no_session_to_fuel() {
 #[test]
 fn the_prompt_renders_the_fuelling_clause() {
     let week = week_with(vec![fuelled_day()]);
-    let out = render_training_plan_block(&plan(), &[week], date("2026-09-03"))
-        .expect("an active plan renders a block");
+    let out = render_training_plan_block(
+        &plan(),
+        &[week],
+        date("2026-09-03"),
+        &TrainingCatalogueRegistry::new(),
+    )
+    .expect("an active plan renders a block");
 
     assert!(
         out.contains("fuel: 90 g/h carbs"),
@@ -214,8 +228,13 @@ fn the_prompt_renders_the_fuelling_clause() {
 fn a_day_without_fuelling_renders_no_clause() {
     let mut day = fuelled_day();
     day.fueling = None;
-    let out = render_training_plan_block(&plan(), &[week_with(vec![day])], date("2026-09-03"))
-        .expect("an active plan renders a block");
+    let out = render_training_plan_block(
+        &plan(),
+        &[week_with(vec![day])],
+        date("2026-09-03"),
+        &TrainingCatalogueRegistry::new(),
+    )
+    .expect("an active plan renders a block");
 
     assert!(
         !out.contains("fuel:"),

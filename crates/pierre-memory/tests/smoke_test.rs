@@ -13,8 +13,9 @@
     clippy::float_cmp
 )]
 
+use pierre_core::models::periodization::PhaseKind;
 use pierre_memory::facts::{FactKind, UserFactMetrics};
-use pierre_memory::training_plans::{BlockPhase, RacePriority};
+use pierre_memory::training_plans::RacePriority;
 
 #[test]
 fn fact_kind_str_round_trip_covers_all_variants() {
@@ -44,19 +45,19 @@ fn fact_kind_parse_lenient_falls_back_to_other_for_unknown() {
     );
 }
 
-/// The prompt-injection and `/plan` renderers label blocks and races from
+/// The prompt-injection and `/plan` renderers label phases and races from
 /// `as_str`. Serde is the schema these strings are stored and re-read under, so
 /// any divergence would silently change athlete-facing text while every
-/// serialization test still passed — this pins the two to each other.
+/// serialization test still passed — this pins the two to each other, over
+/// every phase kind the kernel defines.
 #[test]
-fn block_phase_as_str_matches_what_serde_emits() {
-    let variants = [
-        (BlockPhase::Rest, "rest"),
-        (BlockPhase::Base, "base"),
-        (BlockPhase::Build, "build"),
-        (BlockPhase::Peak, "peak"),
-        (BlockPhase::Taper, "taper"),
-    ];
+fn phase_kind_as_str_matches_what_serde_emits() {
+    let variants: Vec<(PhaseKind, &str)> = PhaseKind::ALL
+        .iter()
+        .map(|kind| (*kind, kind.as_str()))
+        .collect();
+    assert_eq!(variants.len(), 9, "the kernel names nine phase kinds");
+    assert!(variants.iter().any(|(k, _)| *k == PhaseKind::Recovery));
     for (phase, expected) in variants {
         assert_eq!(phase.as_str(), expected, "phase label drifted");
         let serialized = serde_json::to_value(phase)

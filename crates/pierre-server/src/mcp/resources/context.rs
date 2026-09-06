@@ -335,6 +335,7 @@ impl ServerContext {
             prompt_registry: self.mcp.prompt_registry.clone(),
             tool_description_registry: self.mcp.tool_description_registry.clone(),
             evidence_registry: self.mcp.evidence_registry.clone(),
+            training_catalogue_registry: self.mcp.training_catalogue_registry.clone(),
             messaging_strings_registry: self.mcp.messaging_strings_registry.clone(),
             cageux_config_registry: self.fitness.cageux_config_registry.clone(),
             harness_config_registry: self.fitness.harness_config_registry.clone(),

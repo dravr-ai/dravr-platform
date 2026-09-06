@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::training_plans::{
-    GoalRace, PlanBlock, PlanStatus, PlanWeek, PlannedDay, TrainingPlan, WeekStatus,
+    FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, TrainingPlan,
+    WeekStatus,
 };
 
 /// A new plan outline to persist. Saving supersedes the athlete's current
@@ -29,8 +30,14 @@ pub struct SaveTrainingPlanParams<'a> {
     pub races: &'a [GoalRace],
     /// The coach's strategy in prose.
     pub strategy: &'a str,
-    /// Ordered mesocycle blocks.
-    pub blocks: &'a [PlanBlock],
+    /// The flavour the season runs on, when one was chosen.
+    pub flavour: Option<&'a FlavourSelection>,
+    /// First day of the season, when the plan states one.
+    pub season_start: Option<&'a str>,
+    /// Last day of the season, when the plan states one.
+    pub season_end: Option<&'a str>,
+    /// Ordered season phases.
+    pub phases: &'a [PlanPhase],
     /// Conversation the plan was agreed in, for provenance.
     pub source_conversation_id: Option<&'a str>,
 }
@@ -47,8 +54,14 @@ pub struct PlanOutlineInput<'a> {
     pub races: &'a [GoalRace],
     /// The coach's strategy in prose.
     pub strategy: &'a str,
-    /// Ordered mesocycle blocks.
-    pub blocks: &'a [PlanBlock],
+    /// The flavour the season runs on, when one was chosen.
+    pub flavour: Option<&'a FlavourSelection>,
+    /// First day of the season, when the plan states one.
+    pub season_start: Option<&'a str>,
+    /// Last day of the season, when the plan states one.
+    pub season_end: Option<&'a str>,
+    /// Ordered season phases.
+    pub phases: &'a [PlanPhase],
     /// Conversation the plan was agreed in, for provenance.
     pub source_conversation_id: Option<&'a str>,
 }
@@ -69,6 +82,8 @@ pub struct PlanWeekInput<'a> {
     pub days: &'a [PlannedDay],
     /// Why the coach re-saved this week; empty on first save.
     pub adjustment_reason: &'a str,
+    /// Index of the outline phase this week instantiates, when stated.
+    pub phase_index: Option<u32>,
 }
 
 /// A whole atomic save: an optional outline plus zero or more weeks, all
@@ -183,8 +198,14 @@ pub struct TrainingPlanRow {
     pub races_json: String,
     /// `strategy` column.
     pub strategy: String,
-    /// `blocks_json` column.
-    pub blocks_json: String,
+    /// `phases_json` column.
+    pub phases_json: String,
+    /// `flavour_json` column; `None` for a plan without a flavour.
+    pub flavour_json: Option<String>,
+    /// `season_start` column.
+    pub season_start: Option<String>,
+    /// `season_end` column.
+    pub season_end: Option<String>,
     /// `status` column.
     pub status: String,
     /// `supersedes_id` column.
@@ -219,6 +240,8 @@ pub struct PlanWeekRow {
     pub supersedes_id: Option<String>,
     /// `adjustment_reason` column.
     pub adjustment_reason: String,
+    /// `phase_index` column; `None` when the week names no phase.
+    pub phase_index: Option<i64>,
     /// `created_at` epoch seconds.
     pub created_at: i64,
     /// `updated_at` epoch seconds.
@@ -239,8 +262,15 @@ pub(crate) fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<Training
         .map_err(|e| AppError::database(format!("training plan goal_race_json: {e}")))?;
     let races: Vec<GoalRace> = serde_json::from_str(&row.races_json)
         .map_err(|e| AppError::database(format!("training plan races_json: {e}")))?;
-    let blocks: Vec<PlanBlock> = serde_json::from_str(&row.blocks_json)
-        .map_err(|e| AppError::database(format!("training plan blocks_json: {e}")))?;
+    let phases: Vec<PlanPhase> = serde_json::from_str(&row.phases_json)
+        .map_err(|e| AppError::database(format!("training plan phases_json: {e}")))?;
+    let flavour: Option<FlavourSelection> = row
+        .flavour_json
+        .as_deref()
+        .filter(|json| !json.trim().is_empty())
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|e| AppError::database(format!("training plan flavour_json: {e}")))?;
     let status = PlanStatus::parse(&row.status).ok_or_else(|| {
         AppError::database(format!("unknown training plan status: {}", row.status))
     })?;
@@ -253,7 +283,10 @@ pub(crate) fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<Training
         goal_race,
         races,
         strategy: row.strategy,
-        blocks,
+        flavour,
+        season_start: row.season_start,
+        season_end: row.season_end,
+        phases,
         status,
         supersedes_id: row.supersedes_id,
         source_conversation_id: row.source_conversation_id,
@@ -268,6 +301,16 @@ pub(crate) fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
         .map_err(|e| AppError::database(format!("plan week days_json: {e}")))?;
     let status = WeekStatus::parse(&row.status)
         .ok_or_else(|| AppError::database(format!("unknown plan week status: {}", row.status)))?;
+    let phase_index = row
+        .phase_index
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| {
+            AppError::database(format!(
+                "plan week phase_index out of range: {:?}",
+                row.phase_index
+            ))
+        })?;
     Ok(PlanWeek {
         id: row.id,
         tenant_id: row.tenant_id,
@@ -275,6 +318,7 @@ pub(crate) fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
         plan_id: row.plan_id,
         week_start: row.week_start,
         focus: row.focus,
+        phase_index,
         days,
         status,
         supersedes_id: row.supersedes_id,
@@ -295,8 +339,10 @@ pub(crate) struct PlanInsertValues {
     pub goal_race_json: String,
     /// Serialized secondary races.
     pub races_json: String,
-    /// Serialized blocks.
-    pub blocks_json: String,
+    /// Serialized phases.
+    pub phases_json: String,
+    /// Serialized flavour selection, when one was chosen.
+    pub flavour_json: Option<String>,
     /// Insert timestamp (epoch seconds).
     pub now: i64,
 }
@@ -309,14 +355,20 @@ pub(crate) fn plan_insert_values(
         .map_err(|e| AppError::internal(format!("serialize goal race: {e}")))?;
     let races_json = serde_json::to_string(params.races)
         .map_err(|e| AppError::internal(format!("serialize races: {e}")))?;
-    let blocks_json = serde_json::to_string(params.blocks)
-        .map_err(|e| AppError::internal(format!("serialize blocks: {e}")))?;
+    let phases_json = serde_json::to_string(params.phases)
+        .map_err(|e| AppError::internal(format!("serialize phases: {e}")))?;
+    let flavour_json = params
+        .flavour
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| AppError::internal(format!("serialize flavour: {e}")))?;
     Ok(PlanInsertValues {
         id: uuid::Uuid::new_v4().to_string(),
         coach_slug: params.coach_slug.unwrap_or_default().to_owned(),
         goal_race_json,
         races_json,
-        blocks_json,
+        phases_json,
+        flavour_json,
         now: Utc::now().timestamp(),
     })
 }
@@ -361,8 +413,14 @@ pub(crate) struct BuiltPlan<'a> {
     pub races: &'a [GoalRace],
     /// Strategy prose.
     pub strategy: &'a str,
-    /// Mesocycle blocks.
-    pub blocks: &'a [PlanBlock],
+    /// Flavour selection, when one was chosen.
+    pub flavour: Option<&'a FlavourSelection>,
+    /// Season window start.
+    pub season_start: Option<&'a str>,
+    /// Season window end.
+    pub season_end: Option<&'a str>,
+    /// Season phases.
+    pub phases: &'a [PlanPhase],
     /// Outline this row superseded, if any.
     pub superseded: Option<String>,
     /// Provenance conversation.
@@ -384,7 +442,10 @@ pub(crate) fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
         goal_race: b.goal_race.clone(),
         races: b.races.to_vec(),
         strategy: b.strategy.to_owned(),
-        blocks: b.blocks.to_vec(),
+        flavour: b.flavour.cloned(),
+        season_start: b.season_start.map(str::to_owned),
+        season_end: b.season_end.map(str::to_owned),
+        phases: b.phases.to_vec(),
         status: PlanStatus::Active,
         supersedes_id: b.superseded,
         source_conversation_id: b.source_conversation_id.map(str::to_owned),
@@ -413,6 +474,8 @@ pub(crate) struct BuiltWeek<'a> {
     pub superseded: Option<String>,
     /// Adjustment reason.
     pub adjustment_reason: &'a str,
+    /// Phase the week instantiates, when stated.
+    pub phase_index: Option<u32>,
     /// Insert timestamp (epoch seconds).
     pub now: i64,
 }
@@ -427,6 +490,7 @@ pub(crate) fn built_plan_week(b: BuiltWeek<'_>) -> AppResult<PlanWeek> {
         plan_id: b.plan_id.to_owned(),
         week_start: b.week_start.to_owned(),
         focus: b.focus.to_owned(),
+        phase_index: b.phase_index,
         days: b.days.to_vec(),
         status: WeekStatus::Active,
         supersedes_id: b.superseded,

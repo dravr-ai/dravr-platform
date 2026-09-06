@@ -91,6 +91,7 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::{
     EvidenceRegistry, MessagingStringsRegistry, PromptRegistry, ToolDescriptionRegistry,
+    TrainingCatalogueRegistry,
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
@@ -192,6 +193,8 @@ pub struct ChatPipelineContext {
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
     /// Hot-reloadable claim verification corpus.
     pub evidence_registry: Arc<EvidenceRegistry>,
+    /// Hot-reloadable training catalogue; the plan block names its templates.
+    pub training_catalogue_registry: Arc<TrainingCatalogueRegistry>,
     /// Hot-reloadable messaging-strings registry (canned replies, banners).
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
     /// Hot-reloadable cageux intelligence config.

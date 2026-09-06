@@ -1317,7 +1317,7 @@
       "start_failed": "Je n'ai pas réussi à démarrer le profil sur cette conversation. Réessaie dans un instant."
     },
     "plan": {
-      "block_line": "Bloc : {0}{1}",
+      "phase_line": "Phase : {0}{1}",
       "day_line": "{0} : {1}",
       "description": "Afficher ton plan d'entraînement — compte à rebours vers l'objectif plus aujourd'hui et demain, la semaine complète, ou aujourd'hui seulement",
       "empty": "Aucun plan enregistré pour l'instant — demande à ton coach d'en construire un vers ton objectif.",

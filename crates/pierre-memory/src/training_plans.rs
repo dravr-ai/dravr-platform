@@ -1,5 +1,5 @@
-// ABOUTME: Training-plan domain model — coach-authored plan outlines + weekly microcycles
-// ABOUTME: Two-level periodization (outline blocks / day-by-day weeks); supersession, never mutation
+// ABOUTME: Training-plan domain model — the athlete's vision (flavour, season phases) + weekly microcycles
+// ABOUTME: Two-level periodization (outline phases / day-by-day weeks); supersession, never mutation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,9 +9,12 @@
 //! A training plan is the coach's strategic answer to a dated goal, split in
 //! two levels that mirror endurance periodization:
 //!
-//! - [`TrainingPlan`] — the **outline** (macrocycle): a goal-race snapshot,
-//!   the ordered [`PlanBlock`]s (base/build/peak/taper…), and a prose
-//!   strategy. One `active` outline per (tenant, user, coach).
+//! - [`TrainingPlan`] — the **vision** (macrocycle): a goal-race snapshot,
+//!   the season window, the [`FlavourSelection`] with its provenance, the
+//!   ordered [`PlanPhase`]s (prep/base/build/specialty/peak/taper/race/
+//!   transition/recovery — the kernel's [`PhaseKind`]) each carrying the
+//!   purpose, volume and intensity targets the fortnight is written against,
+//!   and a prose strategy. One `active` outline per (tenant, user, coach).
 //! - [`PlanWeek`] — one **microcycle**: seven [`PlannedDay`] rows with
 //!   intensity expressed *relative to thresholds* (zones, %FTP) so an FTP
 //!   retest never invalidates a stored plan, and — when the coach states
@@ -31,8 +34,14 @@
 //! trigger→intervention pattern. A plan is never a followup (no due-at
 //! semantics) and never a playbook (not evidence-scored).
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::models::periodization::serde_num::{whole_u32_opt, whole_u8};
+use pierre_core::models::periodization::{
+    FlavourFamily, LoadingPattern, Modifier, PhaseKind, Sequencing, Share, TidTarget,
+    WorkoutPurpose,
+};
 use pierre_core::models::{FuelingProtocol, WorkoutStep};
 use serde::{Deserialize, Serialize};
 
@@ -152,55 +161,189 @@ pub struct GoalRace {
     pub priority: RacePriority,
 }
 
-/// Phase of a training block within the outline.
+/// Who chose the plan's flavour — the provenance that makes the choice
+/// measurable (D4: the rule proposes, a human may overrule, the override
+/// rate is the falsification test).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BlockPhase {
-    /// Recovery / reset week(s).
-    Rest,
-    /// Aerobic volume foundation.
-    Base,
-    /// Progressive load with race-specific intensity.
-    Build,
-    /// Sharpening at race demands.
-    Peak,
-    /// Pre-race freshening: shorter, sharper, more rest.
-    Taper,
+pub enum SelectedBy {
+    /// The selection rule's top-ranked flavour, taken as proposed.
+    Rule,
+    /// A human coach chose or overrode, with `override_reason` recorded.
+    Coach,
+    /// The athlete chose or overrode, with `override_reason` recorded.
+    Athlete,
 }
 
-impl BlockPhase {
-    /// Stable string identifier — byte-for-byte what serde emits for this
-    /// variant, so renderers can label a block without a JSON round-trip.
+impl SelectedBy {
+    /// Stable string identifier — byte-for-byte what serde emits.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Rest => "rest",
-            Self::Base => "base",
-            Self::Build => "build",
-            Self::Peak => "peak",
-            Self::Taper => "taper",
+            Self::Rule => "rule",
+            Self::Coach => "coach",
+            Self::Athlete => "athlete",
         }
     }
 }
 
-/// One block of the outline (mesocycle): a phase with a start date, a length
-/// in weeks, and the coach's intent for it.
+/// The flavour a vision runs on, with its provenance.
+///
+/// `id` names a catalogue flavour (`training/flavours/<id>.yaml`); `family`,
+/// `sequencing` and `modifiers` are copied from that flavour at save time so a
+/// stored plan still says what it was built on after the catalogue moves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlavourSelection {
+    /// Catalogue flavour id (`polarized-classic`, `hvlit-foundation`, …).
+    pub id: String,
+    /// Intensity architecture of the flavour at save time.
+    pub family: FlavourFamily,
+    /// Phase sequencing of the flavour at save time.
+    pub sequencing: Sequencing,
+    /// Orthogonal add-ons of the flavour at save time.
+    #[serde(default)]
+    pub modifiers: Vec<Modifier>,
+    /// Who chose it.
+    pub selected_by: SelectedBy,
+    /// Why a human overrode the rule, when they did. Empty for a rule
+    /// selection; required prose for a coach or athlete choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_reason: Option<String>,
+}
+
+/// One phase of the vision (mesocycle): a kind with a start date, a length
+/// in weeks, its purpose, and the targets the fortnight is written against.
+///
+/// `purpose` is the catalogue's text for what the phase is for (the skeleton
+/// that produced it, or the coach's own words when authored by hand);
+/// `intent` stays the coach's voice for this athlete. The targets are optional
+/// because a coach may lay out a season by hand without stating them — the
+/// save-time rails only measure what a phase states.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PlanBlock {
-    /// What kind of block this is.
-    pub phase: BlockPhase,
-    /// Civil start date of the block, `YYYY-MM-DD` (a Monday by convention,
+pub struct PlanPhase {
+    /// What kind of phase this is.
+    pub kind: PhaseKind,
+    /// Civil start date of the phase, `YYYY-MM-DD` (a Monday by convention,
     /// not enforced — athletes' weeks start where their lives allow).
     pub start: String,
-    /// Block length in weeks.
+    /// Phase length in weeks.
     #[serde(deserialize_with = "whole_u8")]
     pub weeks: u8,
+    /// What the phase is for, one sentence.
+    #[serde(default)]
+    pub purpose: String,
     /// The coach's intent, in coach voice ("rebuild volume, one moderate
     /// day/week").
     pub intent: String,
     /// Target weekly volume in hours, when the coach prescribes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_hours: Option<f32>,
+    /// Weekly volume as a share of the season's peak week.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_share_of_peak: Option<Share>,
+    /// Share of time below LT1 / between / above LT2 the phase aims for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tid_target: Option<TidTarget>,
+    /// Most hard sessions a week in this phase.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub hard_sessions_max: Option<u32>,
+    /// Weights over workout purposes the phase draws its sessions from;
+    /// empty when the phase states none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub session_mix: BTreeMap<WorkoutPurpose, u8>,
+    /// The intensity architecture this phase runs on when it differs from the
+    /// plan's flavour (a pyramidal base under a polarized plan).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flavour_override: Option<FlavourFamily>,
+    /// Load-to-recovery week pattern inside the phase ("3:1").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loading_pattern: Option<LoadingPattern>,
+    /// The catalogue skeleton this phase was laid out from, when one was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skeleton_id: Option<String>,
+}
+
+impl PlanPhase {
+    /// Civil start date, when it parses.
+    #[must_use]
+    pub fn start_date(&self) -> Option<NaiveDate> {
+        parse_plan_date(&self.start)
+    }
+
+    /// First day after the phase — `start + 7 × weeks` — when it exists on
+    /// the calendar. A phase whose span runs past `NaiveDate::MAX` holds no
+    /// end date, the same way an unparseable start holds no start.
+    #[must_use]
+    pub fn end_exclusive(&self) -> Option<NaiveDate> {
+        let days = u64::from(self.weeks).checked_mul(7)?;
+        self.start_date()?.checked_add_days(chrono::Days::new(days))
+    }
+
+    /// Whether `date` falls inside the phase's span.
+    #[must_use]
+    pub fn covers(&self, date: NaiveDate) -> bool {
+        match (self.start_date(), self.end_exclusive()) {
+            (Some(start), Some(end)) => (start..end).contains(&date),
+            _ => false,
+        }
+    }
+}
+
+/// The parameters a planned day fills in on its template, inside the
+/// template's ranges — what makes template use measurable at save time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct TemplateParams {
+    /// Sets, when the template has them.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub sets: Option<u32>,
+    /// Repetitions per set.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub reps: Option<u32>,
+    /// Work interval in seconds.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub work_seconds: Option<u32>,
+    /// Recovery interval in seconds.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub rest_seconds: Option<u32>,
+    /// Session duration in minutes, for continuous templates.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub duration_minutes: Option<u32>,
+}
+
+impl TemplateParams {
+    /// `true` when no parameter is stated.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.sets.is_none()
+            && self.reps.is_none()
+            && self.work_seconds.is_none()
+            && self.rest_seconds.is_none()
+            && self.duration_minutes.is_none()
+    }
 }
 
 /// One prescribed day inside a [`PlanWeek`].
@@ -242,6 +385,15 @@ pub struct PlannedDay {
     /// enough not to need fuelling, and for a rest day.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling: Option<FuelingProtocol>,
+    /// The catalogue template this day instantiates, when it does — the
+    /// slug `list_workout_templates` lists. Absent for a rest day and for a
+    /// session the coach wrote without a template, which the compliance
+    /// verdict then counts as unclassified rather than guesses at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_slug: Option<String>,
+    /// The values this day fills the template's ranges with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_params: Option<TemplateParams>,
 }
 
 impl PlannedDay {
@@ -275,8 +427,20 @@ pub struct TrainingPlan {
     /// The coach's strategy in prose — what the athlete sees as "what the
     /// coach has in mind".
     pub strategy: String,
-    /// Ordered mesocycle blocks from now to the goal race.
-    pub blocks: Vec<PlanBlock>,
+    /// The flavour the season runs on, with who chose it. `None` for a plan
+    /// laid out without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flavour: Option<FlavourSelection>,
+    /// First day of the season the phases lay out, `YYYY-MM-DD`; `None`
+    /// when the plan runs from its first phase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season_start: Option<String>,
+    /// Last day of the season, `YYYY-MM-DD`; `None` when the plan ends with
+    /// its goal race.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season_end: Option<String>,
+    /// Ordered phases of the season, multi-peak allowed.
+    pub phases: Vec<PlanPhase>,
     /// Lifecycle status.
     pub status: PlanStatus,
     /// Outline this one replaced, if any (audit chain).
@@ -305,6 +469,15 @@ pub struct PlanWeek {
     pub week_start: String,
     /// The week's intent in coach voice ("volume back up, one moderate day").
     pub focus: String,
+    /// Index into the outline's `phases` of the phase this week instantiates,
+    /// when the coach states it; the week is then measured against that
+    /// phase's targets.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub phase_index: Option<u32>,
     /// The day rows, in date order. At most seven.
     pub days: Vec<PlannedDay>,
     /// Lifecycle status.
@@ -339,9 +512,10 @@ pub fn parse_plan_date(s: &str) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_plan_date, BlockPhase, GoalRace, PlanBlock, PlanStatus, PlannedDay, RacePriority,
-        WeekStatus,
+        parse_plan_date, GoalRace, PhaseKind, PlanPhase, PlanStatus, PlannedDay, RacePriority,
+        SelectedBy, WeekStatus,
     };
+    use std::collections::BTreeMap;
 
     #[test]
     fn statuses_roundtrip_through_db_strings() {
@@ -373,18 +547,39 @@ mod tests {
         let back = serde_json::from_str::<GoalRace>(&json).ok();
         assert_eq!(back, Some(race));
 
-        let block = PlanBlock {
-            phase: BlockPhase::Build,
+        let phase = PlanPhase {
+            kind: PhaseKind::Build,
             start: "2026-07-13".to_owned(),
             weeks: 2,
+            purpose: String::new(),
             intent: "volume back, one moderate day/week".to_owned(),
             target_hours: Some(9.5),
+            volume_share_of_peak: None,
+            tid_target: None,
+            hard_sessions_max: Some(2),
+            session_mix: BTreeMap::new(),
+            flavour_override: None,
+            loading_pattern: None,
+            skeleton_id: None,
         };
-        let json = serde_json::to_string(&block).unwrap_or_default();
-        assert!(json.contains("\"phase\":\"build\""));
-        let back = serde_json::from_str::<PlanBlock>(&json).ok();
-        assert_eq!(back.as_ref().map(|b| b.phase), Some(BlockPhase::Build));
-        assert_eq!(back.and_then(|b| b.target_hours), Some(9.5));
+        let json = serde_json::to_string(&phase).unwrap_or_default();
+        assert!(json.contains("\"kind\":\"build\""));
+        assert!(
+            !json.contains("session_mix"),
+            "an empty mix is not serialized"
+        );
+        let back = serde_json::from_str::<PlanPhase>(&json).ok();
+        assert_eq!(back.as_ref().map(|p| p.kind), Some(PhaseKind::Build));
+        assert_eq!(back.as_ref().and_then(|p| p.target_hours), Some(9.5));
+        assert_eq!(back.and_then(|p| p.hard_sessions_max), Some(2));
+        assert_eq!(
+            phase.end_exclusive(),
+            parse_plan_date("2026-07-27"),
+            "two weeks from a Monday ends on the third Monday"
+        );
+        assert!(phase.covers(parse_plan_date("2026-07-26").unwrap_or_default()));
+        assert!(!phase.covers(parse_plan_date("2026-07-27").unwrap_or_default()));
+        assert_eq!(SelectedBy::Coach.as_str(), "coach");
     }
 
     #[test]
@@ -397,6 +592,8 @@ mod tests {
             intensity: String::new(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         };
         assert!(rest.is_rest());
         // duration_min: None must not serialize a null (schema hygiene for

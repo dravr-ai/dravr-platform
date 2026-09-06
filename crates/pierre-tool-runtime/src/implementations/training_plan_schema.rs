@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use pierre_core::models::periodization::{FlavourFamily, PhaseKind, WorkoutPurpose};
 use pierre_mcp_schema::PropertySchema;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -113,35 +114,160 @@ fn race_schema(description: &str) -> PropertySchema {
     )
 }
 
-/// Schema for one outline block.
-fn block_schema() -> PropertySchema {
+/// The `as_str` names of a vocabulary, joined for a schema description.
+fn vocabulary<T: Copy>(all: &[T], name: fn(T) -> &'static str) -> String {
+    all.iter().map(|v| name(*v)).collect::<Vec<_>>().join(" | ")
+}
+
+/// Schema for a `{ min, max }` share of something (0 to 1).
+fn share_schema(description: &str) -> PropertySchema {
+    let mut p = HashMap::new();
+    p.insert("min".to_owned(), number_prop("Lower bound, 0 to 1."));
+    p.insert("max".to_owned(), number_prop("Upper bound, 0 to 1."));
+    object_prop(description, p, vec!["min".to_owned(), "max".to_owned()])
+}
+
+/// Schema for a phase's time-in-zone target.
+fn tid_target_schema() -> PropertySchema {
     let mut p = HashMap::new();
     p.insert(
-        "phase".to_owned(),
-        string_prop("One of: rest | base | build | peak | taper."),
+        "z1".to_owned(),
+        share_schema("Share of training time below LT1."),
+    );
+    p.insert(
+        "z2".to_owned(),
+        share_schema("Share of training time between LT1 and LT2."),
+    );
+    p.insert(
+        "z3".to_owned(),
+        share_schema("Share of training time above LT2."),
+    );
+    object_prop(
+        "Share of time below LT1 / between the thresholds / above LT2 the phase aims for. Give it when the plan runs on a catalogue flavour; omit otherwise.",
+        p,
+        vec!["z1".to_owned(), "z2".to_owned(), "z3".to_owned()],
+    )
+}
+
+/// Schema for one season phase.
+fn phase_schema() -> PropertySchema {
+    let mut p = HashMap::new();
+    p.insert(
+        "kind".to_owned(),
+        string_prop(&format!(
+            "One of: {}.",
+            vocabulary(PhaseKind::ALL, PhaseKind::as_str)
+        )),
     );
     p.insert(
         "start".to_owned(),
-        string_prop("Block start date, YYYY-MM-DD."),
+        string_prop("Phase start date, YYYY-MM-DD."),
     );
-    p.insert("weeks".to_owned(), integer_prop("Block length in weeks."));
+    p.insert("weeks".to_owned(), integer_prop("Phase length in weeks."));
+    p.insert(
+        "purpose".to_owned(),
+        string_prop(
+            "What the phase is for, one sentence (the skeleton's text when laid out from one).",
+        ),
+    );
     p.insert(
         "intent".to_owned(),
-        string_prop("What this block is for, in coach voice."),
+        string_prop("What this phase is for THIS athlete, in coach voice."),
     );
     p.insert(
         "target_hours".to_owned(),
         number_prop("Optional target weekly volume in hours."),
     );
+    p.insert(
+        "volume_share_of_peak".to_owned(),
+        share_schema("Weekly volume as a share of the season's peak week."),
+    );
+    p.insert("tid_target".to_owned(), tid_target_schema());
+    p.insert(
+        "hard_sessions_max".to_owned(),
+        integer_prop("Most hard sessions a week in this phase."),
+    );
+    p.insert(
+        "session_mix".to_owned(),
+        PropertySchema {
+            property_type: "object".to_owned(),
+            description: Some(format!(
+                "Weights over the workout purposes this phase draws its sessions from, as {{purpose: weight}}. Purposes: {}.",
+                vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
+            )),
+            ..Default::default()
+        },
+    );
+    p.insert(
+        "flavour_override".to_owned(),
+        string_prop(&format!(
+            "The intensity architecture this phase runs on when it differs from the plan's flavour. One of: {}.",
+            vocabulary(FlavourFamily::ALL, FlavourFamily::as_str)
+        )),
+    );
+    p.insert(
+        "loading_pattern".to_owned(),
+        string_prop("Load-to-recovery week pattern inside the phase, as \"3:1\" or \"2:1\"."),
+    );
+    p.insert(
+        "skeleton_id".to_owned(),
+        string_prop("The catalogue skeleton this phase was laid out from, when one was."),
+    );
     object_prop(
-        "One training block (mesocycle).",
+        "One season phase (mesocycle).",
         p,
         vec![
-            "phase".to_owned(),
+            "kind".to_owned(),
             "start".to_owned(),
             "weeks".to_owned(),
             "intent".to_owned(),
         ],
+    )
+}
+
+/// Schema for the plan's flavour selection.
+fn flavour_schema() -> PropertySchema {
+    let mut p = HashMap::new();
+    p.insert(
+        "id".to_owned(),
+        string_prop("A flavour id from the training catalogue (polarized-classic, pyramidal-base, hvlit-foundation, …); the save refuses an id the catalogue does not hold and lists the ones it does."),
+    );
+    p.insert(
+        "selected_by".to_owned(),
+        string_prop(
+            "Who chose it: rule (the selection rule's proposal, taken as is), coach, or athlete.",
+        ),
+    );
+    p.insert(
+        "override_reason".to_owned(),
+        string_prop("Why a coach or athlete chose this flavour over the rule's proposal. Required for coach and athlete; omit for rule."),
+    );
+    object_prop(
+        "The flavour the season runs on, with who chose it. Omit for a plan laid out without one.",
+        p,
+        vec!["id".to_owned(), "selected_by".to_owned()],
+    )
+}
+
+/// Schema for the values a day fills its template's ranges with.
+fn template_params_schema() -> PropertySchema {
+    let mut p = HashMap::new();
+    for (key, text) in [
+        ("sets", "Sets, when the template has them."),
+        ("reps", "Repetitions per set."),
+        ("work_seconds", "Work interval in seconds."),
+        ("rest_seconds", "Recovery interval in seconds."),
+        (
+            "duration_minutes",
+            "Session duration in minutes, for a continuous template.",
+        ),
+    ] {
+        p.insert(key.to_owned(), integer_prop(text));
+    }
+    object_prop(
+        "The values this day fills the template's ranges with (list_workout_templates shows each template's ranges and defaults).",
+        p,
+        Vec::new(),
     )
 }
 
@@ -213,6 +339,11 @@ fn day_schema() -> PropertySchema {
         ),
     );
     p.insert("fueling".to_owned(), fueling_schema());
+    p.insert(
+        "template_slug".to_owned(),
+        string_prop("The catalogue template this day instantiates (a slug from list_workout_templates). Give it for every quality session built from the bank; omit for a rest day or a session written without one."),
+    );
+    p.insert("template_params".to_owned(), template_params_schema());
     object_prop(
         "One prescribed day.",
         p,
@@ -246,19 +377,30 @@ pub(super) fn outline_schema() -> PropertySchema {
         ),
     );
     p.insert(
-        "blocks".to_owned(),
+        "phases".to_owned(),
         array_prop(
-            "Ordered training blocks from now to the goal race. Omit for a short plan that has no mesocycle structure.",
-            block_schema(),
+            "Ordered season phases, from the season start (or now) through the goal race and any later peak. Omit for a short plan that has no mesocycle structure.",
+            phase_schema(),
         ),
     );
-    // `blocks` is deliberately absent from the required list: a two-week
+    p.insert("flavour".to_owned(), flavour_schema());
+    p.insert(
+        "season_start".to_owned(),
+        string_prop("First day of the season the phases lay out, YYYY-MM-DD; omit when the plan runs from its first phase."),
+    );
+    p.insert(
+        "season_end".to_owned(),
+        string_prop(
+            "Last day of the season, YYYY-MM-DD; omit when the plan ends with its goal race.",
+        ),
+    );
+    // `phases` is deliberately absent from the required list: a two-week
     // "hold form then taper" plan has no mesocycle structure, and demanding
-    // one forced the coach to invent phase/start/weeks/intent before any plan
+    // one forced the coach to invent kind/start/weeks/intent before any plan
     // could be saved at all. The outline still needs a race to aim at and a
     // stated strategy.
     object_prop(
-        "The plan outline (goal race + strategy, optionally blocks). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan.",
+        "The plan outline — the athlete's vision: goal race + strategy, optionally the season phases, the flavour and the season window. Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan.",
         p,
         vec!["goal_race".to_owned(), "strategy".to_owned()],
     )
@@ -345,6 +487,10 @@ fn week_schema() -> PropertySchema {
     p.insert(
         "adjustment_reason".to_owned(),
         string_prop("Why this week is being re-saved; omit on first save."),
+    );
+    p.insert(
+        "phase_index".to_owned(),
+        integer_prop("Index (from 0) of the outline phase this week instantiates, so the week is measured against that phase's targets. Omit when the plan has no phases."),
     );
     object_prop(
         "One week of day-by-day prescriptions. Re-saving a week_start supersedes the previous version (prospective adjustment).",

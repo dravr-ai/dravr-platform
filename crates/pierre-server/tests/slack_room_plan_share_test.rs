@@ -55,6 +55,7 @@ mod slack_room {
         CoachingGroup, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
+    use pierre_core::models::periodization::PhaseKind;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus, COMMAND_FINISH_REASON};
     use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
@@ -66,14 +67,13 @@ mod slack_room {
     use pierre_mcp_server::services::messaging_ingress::room_echo::{
         settle_room_echo, RoomEchoSettlement,
     };
-    use pierre_memory::training_plans::{
-        BlockPhase, GoalRace, PlanBlock, PlannedDay, RacePriority,
-    };
+    use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
     use pierre_messaging::channel::MessagingChannel;
     use pierre_messaging::channels::slack::{ephemeral_payload, SlackChannel};
     use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
     use serde_json::{json, Value};
     use sha2::Sha256;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::task::spawn_blocking;
@@ -205,6 +205,8 @@ mod slack_room {
             intensity: "Z2".to_owned(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         };
         let goal = GoalRace {
             name: "Unbound XL".to_owned(),
@@ -212,12 +214,20 @@ mod slack_room {
             discipline: "gravel".to_owned(),
             priority: RacePriority::A,
         };
-        let blocks = vec![PlanBlock {
-            phase: BlockPhase::Build,
+        let blocks = vec![PlanPhase {
+            kind: PhaseKind::Build,
             start: date(0),
             weeks: 4,
             intent: "volume up".to_owned(),
             target_hours: Some(14.0),
+            purpose: String::new(),
+            volume_share_of_peak: None,
+            tid_target: None,
+            hard_sessions_max: None,
+            session_mix: BTreeMap::new(),
+            flavour_override: None,
+            loading_pattern: None,
+            skeleton_id: None,
         }];
         // Offset 2 is today, offset 3 tomorrow — the compact, week and today
         // views all land on PLAN_SESSION.
@@ -241,7 +251,10 @@ mod slack_room {
                     goal_race: &goal,
                     races: &[],
                     strategy: "rebuild volume then sharpen",
-                    blocks: &blocks,
+                    flavour: None,
+                    season_start: None,
+                    season_end: None,
+                    phases: &blocks,
                     source_conversation_id: None,
                 }),
                 weeks: &[PlanWeekInput {
@@ -249,6 +262,7 @@ mod slack_room {
                     focus: "build volume",
                     days: &days,
                     adjustment_reason: "",
+                    phase_index: None,
                 }],
             })
             .await
