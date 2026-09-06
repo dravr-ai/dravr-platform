@@ -871,7 +871,12 @@ export default function ChatTab({
       {/* Usage warning banner */}
       <UsageWarningBanner level={usageStatus.level} text={usageStatus.text} />
       {banner}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* The scroller is the containing block for everything positioned inside
+          the transcript — a screen-reader-only label is `position: absolute`,
+          and without `relative` here it resolves against the tab root, where
+          twenty of them stretch the outer pane to the transcript's full height
+          and the first focus scrolls the header and the list off screen. */}
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="px-4 py-4 md:px-6">
           <MessageList
             messages={messagesData?.messages || []}
