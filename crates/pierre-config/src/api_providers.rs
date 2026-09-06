@@ -153,7 +153,11 @@ pub struct FitbitApiConfig {
     pub auth_url: String,
     /// Fitbit token URL
     pub token_url: String,
-    /// Fitbit revoke URL
+    /// Fitbit token-revocation URL.
+    ///
+    /// `POST /oauth2/revoke` with the client credentials as HTTP Basic auth
+    /// and the access or refresh token as the `token` form param; revoking
+    /// either kills every token of that user for the app.
     pub revoke_url: String,
     /// Rate limit for hourly window
     pub rate_limit_hourly: u32,
@@ -191,7 +195,11 @@ pub struct GarminApiConfig {
     pub auth_url: String,
     /// Garmin token URL
     pub token_url: String,
-    /// Garmin revoke URL
+    /// Garmin Health API user-deregistration URL.
+    ///
+    /// Garmin has no token-revocation endpoint; withdrawing consent is a
+    /// `DELETE` on the user's registration, authenticated with the user's
+    /// access token as `Bearer`.
     pub revoke_url: String,
     /// Default activities per page when fetching
     pub default_activities_per_page: usize,
@@ -221,7 +229,7 @@ impl GarminApiConfig {
             ),
             revoke_url: env_var_or(
                 "GARMIN_REVOKE_URL",
-                "https://connectapi.garmin.com/oauth-service/oauth/revoke",
+                "https://apis.garmin.com/wellness-api/rest/user/registration",
             ),
             default_activities_per_page: env::var("GARMIN_DEFAULT_ACTIVITIES_PER_PAGE")
                 .ok()

@@ -43,7 +43,7 @@
 //!         Some(OAuthEndpoints {
 //!             auth_url: "https://api.prod.whoop.com/oauth/oauth2/auth",
 //!             token_url: "https://api.prod.whoop.com/oauth/oauth2/token",
-//!             revoke_url: Some("https://api.prod.whoop.com/oauth/oauth2/revoke"),
+//!             revoke_url: Some("https://api.prod.whoop.com/developer/v2/user/access"),
 //!         })
 //!     }
 //!
@@ -403,7 +403,7 @@ impl ProviderDescriptor for GarminDescriptor {
         Some(OAuthEndpoints {
             auth_url: "https://connect.garmin.com/oauthConfirm",
             token_url: "https://connectapi.garmin.com/oauth-service/oauth/access_token",
-            revoke_url: Some("https://connectapi.garmin.com/oauth-service/oauth/revoke"),
+            revoke_url: Some("https://apis.garmin.com/wellness-api/rest/user/registration"),
         })
     }
 
@@ -499,7 +499,7 @@ impl ProviderDescriptor for WhoopDescriptor {
         Some(OAuthEndpoints {
             auth_url: "https://api.prod.whoop.com/oauth/oauth2/auth",
             token_url: "https://api.prod.whoop.com/oauth/oauth2/token",
-            revoke_url: Some("https://api.prod.whoop.com/oauth/oauth2/revoke"),
+            revoke_url: Some("https://api.prod.whoop.com/developer/v2/user/access"),
         })
     }
 

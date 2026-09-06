@@ -226,7 +226,9 @@ impl GarminProvider {
             auth_url: "https://connect.garmin.com/oauthConfirm".to_owned(),
             token_url: "https://connectapi.garmin.com/oauth-service/oauth/access_token".to_owned(),
             api_base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-            revoke_url: Some("https://connectapi.garmin.com/oauth-service/oauth/revoke".to_owned()),
+            revoke_url: Some(
+                "https://apis.garmin.com/wellness-api/rest/user/registration".to_owned(),
+            ),
             default_scopes: GARMIN_DEFAULT_SCOPES
                 .split(',')
                 .map(str::to_owned)

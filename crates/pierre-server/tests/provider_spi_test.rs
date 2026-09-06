@@ -138,9 +138,11 @@ fn test_whoop_descriptor_to_config() {
         config.token_url,
         "https://api.prod.whoop.com/oauth/oauth2/token"
     );
+    // WHOOP has no token-revocation endpoint: consent withdrawal is
+    // `DELETE /developer/v2/user/access` with the user's bearer token.
     assert_eq!(
         config.revoke_url.as_deref(),
-        Some("https://api.prod.whoop.com/oauth/oauth2/revoke")
+        Some("https://api.prod.whoop.com/developer/v2/user/access")
     );
     assert!(config.default_scopes.contains(&"read:recovery".to_owned()));
 }

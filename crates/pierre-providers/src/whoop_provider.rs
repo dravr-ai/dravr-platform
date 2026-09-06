@@ -212,7 +212,7 @@ impl WhoopProvider {
             auth_url: "https://api.prod.whoop.com/oauth/oauth2/auth".to_owned(),
             token_url: "https://api.prod.whoop.com/oauth/oauth2/token".to_owned(),
             api_base_url: "https://api.prod.whoop.com/developer/v2".to_owned(),
-            revoke_url: Some("https://api.prod.whoop.com/oauth/oauth2/revoke".to_owned()),
+            revoke_url: Some("https://api.prod.whoop.com/developer/v2/user/access".to_owned()),
             default_scopes: oauth_providers::WHOOP_DEFAULT_SCOPES
                 .split(' ')
                 .map(str::to_owned)

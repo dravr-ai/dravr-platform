@@ -10,6 +10,7 @@ use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
     feature = "provider-strava",
     feature = "provider-garmin",
     feature = "provider-fitbit",
+    feature = "provider-terra",
     feature = "provider-whoop",
     feature = "provider-coros"
 ))]
@@ -64,6 +65,10 @@ use crate::spi::WhoopDescriptor;
 use crate::spi::{SciotteDescriptor, SciotteGarminDescriptor};
 #[cfg(feature = "provider-strava")]
 use crate::strava_provider::StravaProviderFactory;
+#[cfg(feature = "provider-terra")]
+use crate::terra::constants::{
+    TERRA_API_BASE_URL, TERRA_DEAUTH_URL, TERRA_TOKEN_URL, TERRA_WIDGET_SESSION_URL,
+};
 #[cfg(feature = "provider-terra")]
 use crate::terra::{TerraDataCache, TerraDescriptor, TerraProviderFactory};
 #[cfg(feature = "provider-whoop")]
@@ -167,7 +172,7 @@ impl ProviderRegistry {
                 "https://connect.garmin.com/oauthConfirm",
                 "https://connectapi.garmin.com/oauth-service/oauth/access_token",
                 "https://apis.garmin.com/wellness-api/rest",
-                Some("https://connectapi.garmin.com/oauth-service/oauth/revoke"),
+                Some("https://apis.garmin.com/wellness-api/rest/user/registration"),
                 &["wellness:read".to_owned(), "activities:read".to_owned()],
             );
         registry.set_default_config(
@@ -228,18 +233,27 @@ impl ProviderRegistry {
             Box::new(TerraProviderFactory::new(terra_cache)),
         );
         registry.register_descriptor(oauth_providers::TERRA, Box::new(TerraDescriptor));
+        let (_, _, auth_url, token_url, api_base_url, revoke_url, scopes) =
+            load_provider_env_config(
+                oauth_providers::TERRA,
+                TERRA_WIDGET_SESSION_URL,
+                TERRA_TOKEN_URL,
+                TERRA_API_BASE_URL,
+                Some(TERRA_DEAUTH_URL),
+                &oauth_providers::TERRA_DEFAULT_SCOPES
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
+            );
         registry.set_default_config(
             oauth_providers::TERRA,
             ProviderConfig {
                 name: oauth_providers::TERRA.to_owned(),
-                auth_url: "https://api.tryterra.co/v2/auth/generateWidgetSession".to_owned(),
-                token_url: "https://api.tryterra.co/v2/auth/token".to_owned(),
-                api_base_url: "https://api.tryterra.co/v2".to_owned(),
-                revoke_url: Some("https://api.tryterra.co/v2/auth/deauthenticateUser".to_owned()),
-                default_scopes: oauth_providers::TERRA_DEFAULT_SCOPES
-                    .split(',')
-                    .map(str::to_owned)
-                    .collect(),
+                auth_url,
+                token_url,
+                api_base_url,
+                revoke_url,
+                default_scopes: scopes,
             },
         );
     }
@@ -258,7 +272,7 @@ impl ProviderRegistry {
                 "https://api.prod.whoop.com/oauth/oauth2/auth",
                 "https://api.prod.whoop.com/oauth/oauth2/token",
                 "https://api.prod.whoop.com/developer/v2",
-                Some("https://api.prod.whoop.com/oauth/oauth2/revoke"),
+                Some("https://api.prod.whoop.com/developer/v2/user/access"),
                 &oauth_providers::WHOOP_DEFAULT_SCOPES
                     .split(' ')
                     .map(str::to_owned)
@@ -406,6 +420,14 @@ impl ProviderRegistry {
     /// Set default configuration for a provider
     pub fn set_default_config(&mut self, provider_name: &'static str, config: ProviderConfig) {
         self.default_configs.insert(provider_name, config);
+    }
+
+    /// The default configuration a provider was registered with — its
+    /// endpoints after the `PIERRE_<PROVIDER>_*_URL` environment overrides
+    /// were applied — without instantiating the provider.
+    #[must_use]
+    pub fn default_config(&self, provider_name: &str) -> Option<&ProviderConfig> {
+        self.default_configs.get(provider_name)
     }
 
     /// Register a provider descriptor

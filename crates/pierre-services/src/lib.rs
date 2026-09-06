@@ -200,7 +200,7 @@ mod oauth_bridge_notify;
 pub mod oauth_flow;
 
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
-mod provider_revocation;
+pub mod provider_revocation;
 
 /// Post-OAuth redirect URL validation and construction (allowlist, state decoding)
 pub mod oauth_redirects;
