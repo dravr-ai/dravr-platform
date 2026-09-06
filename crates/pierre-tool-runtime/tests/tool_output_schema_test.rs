@@ -57,6 +57,11 @@ use pierre_tool_runtime::implementations::connection::{
     ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
     DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
 };
+use pierre_tool_runtime::implementations::fitness_config::{
+    DeleteFitnessConfigResult, DeleteFitnessConfigTool, GetFitnessConfigResult,
+    GetFitnessConfigTool, ListFitnessConfigsResult, ListFitnessConfigsTool, SetFitnessConfigResult,
+    SetFitnessConfigTool,
+};
 use pierre_tool_runtime::implementations::goals::{
     AnalyzeGoalFeasibilityTool, SetGoalTool, SuggestGoalsTool, TrackProgressTool,
 };
@@ -2562,5 +2567,151 @@ fn cancelling_nothing_is_a_valid_answer_too() {
     assert!(
         !validator.is_valid(&json!({ "cancelled": false })),
         "but it must still say WHICH commitment was asked about"
+    );
+}
+
+// ============================================================================
+// fitness_config
+// ============================================================================
+
+#[test]
+fn each_fitness_config_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "get_fitness_config",
+            <GetFitnessConfigTool as McpTool<dyn ToolRuntime>>::definition(&GetFitnessConfigTool),
+            serde_json::to_value(schemars::schema_for!(GetFitnessConfigResult)).expect("derives"),
+        ),
+        (
+            "set_fitness_config",
+            <SetFitnessConfigTool as McpTool<dyn ToolRuntime>>::definition(&SetFitnessConfigTool),
+            serde_json::to_value(schemars::schema_for!(SetFitnessConfigResult)).expect("derives"),
+        ),
+        (
+            "list_fitness_configs",
+            <ListFitnessConfigsTool as McpTool<dyn ToolRuntime>>::definition(
+                &ListFitnessConfigsTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(ListFitnessConfigsResult)).expect("derives"),
+        ),
+        (
+            "delete_fitness_config",
+            <DeleteFitnessConfigTool as McpTool<dyn ToolRuntime>>::definition(
+                &DeleteFitnessConfigTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(DeleteFitnessConfigResult))
+                .expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn a_missing_fitness_config_answers_with_a_null_config_not_an_error() {
+    // A configuration nobody has saved is a fact about the tenant, not a
+    // fault, so the tool reports it. `config: null` has to be describable or
+    // the ordinary answer to a first-time read is a protocol violation.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(GetFitnessConfigResult)).expect("derives"),
+    )
+    .expect("compiles");
+    let value = serde_json::to_value(GetFitnessConfigResult {
+        configuration_name: "default".to_owned(),
+        config: None,
+        source: "not_found".to_owned(),
+        message: Some("No configuration found with name 'default'".to_owned()),
+        retrieved_at: "2026-09-06T17:00:00+00:00".to_owned(),
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "a not-found configuration must satisfy the schema:\n{value:#}"
+    );
+    assert!(
+        value["config"].is_null(),
+        "and it must send config as an explicit null, not omit it — a client \
+         distinguishes 'no configuration' from 'field missing'"
+    );
+    assert_eq!(value["source"], "not_found");
+}
+
+#[test]
+fn deleting_nothing_omits_the_delete_timestamp() {
+    // success:false means there was nothing to delete, which leaves the
+    // tenant in the state the caller wanted. deleted_at is what separates a
+    // delete that happened from one that had nothing to do.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(DeleteFitnessConfigResult)).expect("derives"),
+    )
+    .expect("compiles");
+
+    let removed = serde_json::to_value(DeleteFitnessConfigResult {
+        success: true,
+        configuration_name: "old".to_owned(),
+        user_level: true,
+        message: "Configuration 'old' deleted successfully".to_owned(),
+        deleted_at: Some("2026-09-06T17:05:00+00:00".to_owned()),
+    })
+    .expect("serializes");
+    let nothing = serde_json::to_value(DeleteFitnessConfigResult {
+        success: false,
+        configuration_name: "never-existed".to_owned(),
+        user_level: true,
+        message: "Configuration 'never-existed' not found".to_owned(),
+        deleted_at: None,
+    })
+    .expect("serializes");
+
+    assert!(validator.is_valid(&removed), "a real delete must validate");
+    assert!(validator.is_valid(&nothing), "and so must a no-op one");
+    assert!(
+        removed.get("deleted_at").is_some() && nothing.get("deleted_at").is_none(),
+        "only the delete that happened carries a timestamp"
+    );
+}
+
+#[test]
+fn the_fitness_config_listing_reports_both_scopes_it_merged() {
+    // A name can be tenant-level and overridden per athlete. Reporting only
+    // the merged list would hide that, so the two scopes stay on the wire.
+    let derived =
+        serde_json::to_value(schemars::schema_for!(ListFitnessConfigsResult)).expect("derives");
+    let props = derived["properties"].as_object().expect("object schema");
+    for field in [
+        "configurations",
+        "user_specific",
+        "tenant_level",
+        "total_count",
+    ] {
+        assert!(
+            props.contains_key(field),
+            "list_fitness_configs must declare {field}"
+        );
+    }
+
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+    let value = serde_json::to_value(ListFitnessConfigsResult {
+        configurations: vec!["default".to_owned(), "racing".to_owned()],
+        user_specific: vec!["racing".to_owned()],
+        tenant_level: vec!["default".to_owned(), "racing".to_owned()],
+        total_count: 2,
+        retrieved_at: "2026-09-06T17:10:00+00:00".to_owned(),
+    })
+    .expect("serializes");
+    assert!(
+        validator.is_valid(&value),
+        "the merged listing must validate:\n{value:#}"
     );
 }
