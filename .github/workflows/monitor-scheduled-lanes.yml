@@ -1,13 +1,27 @@
-# ABOUTME: Daily red-detector for scheduled-only workflows — reads each lane's latest completed run
+# ABOUTME: Daily red-detector for every workflow with a cron — reads its latest scheduled or dispatched run
 # ABOUTME: Opens a private carnet issue when a lane is red or its cron has silently stopped firing
 #
-# A push lane's red gets read because someone just pushed and is waiting for
-# the verdict. A lane that runs only on `schedule` has no such reader: it goes
-# red on a Monday at 3 AM UTC with nobody attached to the outcome, nothing
-# re-runs it until the next cron, and it never appears in the run list anyone
-# checks after a push. cross-platform.yml sat red for seven days
-# (2026-08-24 → 08-31) and was found by accident (carnet#160). This monitor is
-# the reader those lanes lack.
+# A PUSH RUN's red gets read because someone just pushed and is waiting for the
+# verdict. A CRON RUN has no such reader: it goes red on a Monday at 3 AM UTC
+# with nobody attached to the outcome, nothing re-runs it until the next cron,
+# and it never appears in the run list anyone checks after a push.
+# cross-platform.yml sat red for seven days (2026-08-24 → 08-31) and was found
+# by accident (carnet#160). This monitor is the reader those runs lack.
+#
+# The unit is the RUN, not the workflow. Selecting only workflows without a
+# `push` trigger read as equivalent and is not: nine lanes carry both, and they
+# are the heaviest scheduled coverage in the fleet — ci-backend's nightly
+# SQLite shards (the only lane that runs several hundred server test files),
+# ci-postgres, ci-redis, mcp-scan, both mobile E2E nightlies. Their cron
+# verdicts had no reader at all. ci-backend's 2026-09-05 nightly was red and
+# went unread; on 2026-09-06 its dispatched run caught a contremaitre bump that
+# had moved a pinned catalogue count, and that sat red for over an hour until
+# someone looked by hand.
+#
+# So the scan takes every lane with a `schedule` trigger and reads only its
+# `schedule` and `workflow_dispatch` runs. Push runs are deliberately never
+# read: they already have a reader, and alarming on them would turn this into
+# a second, noisier copy of the push gate.
 #
 # Two failure shapes are detected, because a conclusion-only read would lie:
 #   1. RED — the latest completed run of an active scheduled-only lane
@@ -23,9 +37,9 @@
 #
 # Manually disabled workflows appear in the step summary but never alarm:
 # disabling in the UI is a deliberate operator act. The scan enumerates lanes
-# from the checked-out workflow files (`schedule` in `on:`, no `push`), so a
-# future cron lane is covered the day it lands — including this one, which
-# matches its own selector.
+# from the checked-out workflow files (`schedule` in `on:`), so a future cron
+# lane is covered the day it lands — including this one, which matches its own
+# selector.
 
 name: "Monitor: Scheduled Lane Health"
 
@@ -104,7 +118,7 @@ jobs:
                   doc = yaml.safe_load(fh)
               # YAML 1.1 parses a bare `on` key as boolean True.
               on = doc.get("on", doc.get(True))
-              if not isinstance(on, dict) or "schedule" not in on or "push" in on:
+              if not isinstance(on, dict) or "schedule" not in on:
                   continue
               name = doc.get("name", f)
               state = states.get(f, "unknown")
@@ -112,14 +126,20 @@ jobs:
                   rows.append((name, f, f"({state})", "not alarmed"))
                   continue
               wf = os.path.basename(f)
-              runs = api(
-                  f"repos/{REPO}/actions/workflows/{wf}/runs"
-                  "?status=completed&per_page=1"
-              )["workflow_runs"]
-              if not runs:
-                  rows.append((name, f, "never completed a run", "not alarmed"))
+              # Per event, because the API takes one `event` at a time — and
+              # because "latest completed run" unfiltered would be a push run
+              # on any lane that also builds on push, which is the reader this
+              # monitor must not duplicate.
+              candidates = []
+              for event in ("schedule", "workflow_dispatch"):
+                  candidates += api(
+                      f"repos/{REPO}/actions/workflows/{wf}/runs"
+                      f"?status=completed&event={event}&per_page=1"
+                  )["workflow_runs"]
+              if not candidates:
+                  rows.append((name, f, "never completed a cron run", "not alarmed"))
                   continue
-              run = runs[0]
+              run = max(candidates, key=lambda r: r["run_started_at"])
               started = dt.datetime.fromisoformat(
                   run["run_started_at"].replace("Z", "+00:00")
               )
