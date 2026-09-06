@@ -9,19 +9,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{RefreshConfig, TenantId};
+use pierre_core::models::{ProviderFreshness, RefreshConfig, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::provider_refresh::{RefreshService, SyncMetrics};
 use pierre_tools_core::ToolResult;
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 use tracing::info;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -58,6 +60,61 @@ fn freshness_annotations() -> ToolAnnotations {
 /// (e.g., "last activity was 5 days ago" for a daily runner) or when
 /// the user explicitly asks to refresh.
 pub struct RefreshProviderDataTool;
+
+/// What `refresh_provider_data` answers with.
+///
+/// Two shapes, because the tool does two things: asked for one provider it
+/// syncs it and reports the outcome; asked for all of them it kicks off the
+/// ones that need it and reports what it started. Every variant carries a
+/// field no other has, so a client can tell which it was handed.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum RefreshProviderDataResult {
+    /// One named provider was synced.
+    Single(SingleProviderRefresh),
+    /// Every stale provider was kicked off at once.
+    All(AllProvidersRefresh),
+}
+
+/// The outcome of syncing one named provider.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SingleProviderRefresh {
+    /// The provider that was refreshed.
+    pub provider: String,
+    /// Whether the sync completed. False is a reported outcome, not an error:
+    /// a provider being down is news the athlete can act on.
+    pub success: bool,
+    /// What happened, in plain language.
+    pub message: String,
+    /// Rows brought in. Zero when the sync failed, and also when it was
+    /// started without waiting — `success` is what separates those.
+    pub records_synced: u32,
+}
+
+/// What was started when every provider was asked to refresh.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct AllProvidersRefresh {
+    /// Always `refresh_triggered`. Present so this shape is distinguishable
+    /// from the single-provider one, and so a client reads intent rather
+    /// than inferring it from which keys arrived.
+    pub status: String,
+    /// Providers a sync was started for.
+    pub refreshing: Vec<String>,
+    /// Providers left alone because their data was already fresh.
+    pub already_fresh: Vec<String>,
+    /// Per-provider freshness behind those two lists.
+    pub details: Vec<ProviderFreshness>,
+}
+
+/// What `get_data_freshness` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DataFreshnessResult {
+    /// How current each connected provider's data is.
+    pub providers: Vec<ProviderFreshness>,
+    /// Process-wide sync counters, for an operator reading a trace. They
+    /// count since process start, so a restart resets them.
+    pub sync_metrics: SyncMetrics,
+}
 
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
@@ -105,14 +162,14 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
         );
 
         let schema = object_schema(properties, Some(vec!["provider".to_owned()]));
-        tool_definition(
+        answers_with::<RefreshProviderDataResult>(tool_definition(
             "refresh_provider_data",
             "Trigger a data refresh from a connected fitness provider. Use when the user's data \
              seems outdated, when they ask about recent activities that aren't showing, or when \
              they explicitly request a sync. Set wait=true to block until sync completes.",
             schema,
             Some(refresh_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -174,23 +231,29 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
                     .check_and_refresh(context.user_id, tenant_id, &config)
                     .await;
 
-                Ok(ToolResult::ok(json!({
-                    "status": "refresh_triggered",
-                    "refreshing": status.refreshing,
-                    "already_fresh": status.fresh,
-                    "details": status.details,
-                })))
+                ok_typed(
+                    "refresh_provider_data",
+                    RefreshProviderDataResult::All(AllProvidersRefresh {
+                        status: "refresh_triggered".to_owned(),
+                        refreshing: status.refreshing,
+                        already_fresh: status.fresh,
+                        details: status.details,
+                    }),
+                )
             } else {
                 let result = refresh_service
                     .refresh_provider(context.user_id, tenant_id, provider, wait)
                     .await;
 
-                Ok(ToolResult::ok(json!({
-                    "provider": result.provider,
-                    "success": result.success,
-                    "message": result.message,
-                    "records_synced": result.records_synced,
-                })))
+                ok_typed(
+                    "refresh_provider_data",
+                    RefreshProviderDataResult::Single(SingleProviderRefresh {
+                        provider: result.provider,
+                        success: result.success,
+                        message: result.message,
+                        records_synced: result.records_synced,
+                    }),
+                )
             }
         }
         .await;
@@ -217,14 +280,14 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
             required: None,
             ..Default::default()
         };
-        tool_definition(
+        answers_with::<DataFreshnessResult>(tool_definition(
             "get_data_freshness",
             "Check how fresh the user's fitness data is across all connected providers. \
              Returns last sync time and freshness level for each provider. Use this to \
              decide if a refresh is needed before answering data-dependent questions.",
             schema,
             Some(freshness_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -255,10 +318,13 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
 
             let metrics = SyncMetrics::snapshot();
 
-            Ok(ToolResult::ok(json!({
-                "providers": freshness,
-                "sync_metrics": metrics,
-            })))
+            ok_typed(
+                "get_data_freshness",
+                DataFreshnessResult {
+                    providers: freshness,
+                    sync_metrics: metrics,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

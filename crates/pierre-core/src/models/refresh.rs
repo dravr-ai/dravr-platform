@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This is a pure value type — it does not decide *whether* to refresh.
 /// Strategies inspect the freshness and make that decision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum DataFreshness {
     /// Synced less than 1 hour ago
     Fresh,
@@ -92,7 +92,7 @@ impl fmt::Display for DataFreshness {
 }
 
 /// Per-provider freshness snapshot for a single user.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProviderFreshness {
     /// Provider name (e.g. "strava", "whoop", "garmin")
     pub provider: String,

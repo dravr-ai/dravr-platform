@@ -96,6 +96,10 @@ use pierre_tool_runtime::implementations::stored_data::{
     GetSleepSessionsTool, HealthSnapshotsResult, ListDataSourcesTool, RecoveryMetricsResult,
     SleepSessionsResult,
 };
+use pierre_tool_runtime::implementations::sync::{
+    AllProvidersRefresh, DataFreshnessResult, GetDataFreshnessTool, RefreshProviderDataResult,
+    RefreshProviderDataTool, SingleProviderRefresh,
+};
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -2335,4 +2339,120 @@ fn the_store_schemas_accept_their_payloads() {
             "{tool}: the declared schema rejected the payload the tool sends:\n{payload:#}"
         );
     }
+}
+
+// ============================================================================
+// sync
+// ============================================================================
+
+#[test]
+fn each_sync_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "refresh_provider_data",
+            <RefreshProviderDataTool as McpTool<dyn ToolRuntime>>::definition(
+                &RefreshProviderDataTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(RefreshProviderDataResult))
+                .expect("derives"),
+        ),
+        (
+            "get_data_freshness",
+            <GetDataFreshnessTool as McpTool<dyn ToolRuntime>>::definition(&GetDataFreshnessTool),
+            serde_json::to_value(schemars::schema_for!(DataFreshnessResult)).expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn both_refresh_shapes_match_exactly_one_arm() {
+    // Asked for one provider the tool reports an outcome; asked for all of
+    // them it reports what it started. `status` and `provider` are what keep
+    // those apart — drop either and a client is guessing.
+    let schema =
+        serde_json::to_value(schemars::schema_for!(RefreshProviderDataResult)).expect("derives");
+    let defs = schema.get("$defs").cloned().unwrap_or_else(|| json!({}));
+    let arms: Vec<_> = schema["anyOf"]
+        .as_array()
+        .expect("an untagged enum derives a list of arms")
+        .iter()
+        .map(|arm| {
+            let mut arm = arm.clone();
+            arm.as_object_mut()
+                .expect("each arm is an object")
+                .insert("$defs".to_owned(), defs.clone());
+            jsonschema::validator_for(&arm).expect("each arm compiles")
+        })
+        .collect();
+    assert_eq!(arms.len(), 2, "refresh_provider_data answers two shapes");
+
+    for (label, value) in [
+        (
+            "single",
+            serde_json::to_value(RefreshProviderDataResult::Single(SingleProviderRefresh {
+                provider: "strava".to_owned(),
+                success: true,
+                message: "Synced 42 activities".to_owned(),
+                records_synced: 42,
+            }))
+            .expect("serializes"),
+        ),
+        (
+            "all",
+            serde_json::to_value(RefreshProviderDataResult::All(AllProvidersRefresh {
+                status: "refresh_triggered".to_owned(),
+                refreshing: vec!["garmin".to_owned()],
+                already_fresh: vec!["strava".to_owned()],
+                details: vec![],
+            }))
+            .expect("serializes"),
+        ),
+    ] {
+        let matched: Vec<usize> = arms
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_valid(&value))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            matched.len(),
+            1,
+            "the {label} refresh answer matched arms {matched:?}; it must match exactly one:\n{value:#}"
+        );
+    }
+}
+
+#[test]
+fn a_failed_sync_is_a_reported_outcome_not_a_rejected_payload() {
+    // A provider being down is news the athlete can act on, so the tool
+    // answers success:false rather than erroring. The schema has to accept
+    // that, or the honest answer becomes a protocol violation.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(RefreshProviderDataResult)).expect("derives"),
+    )
+    .expect("compiles");
+    let failed = serde_json::to_value(RefreshProviderDataResult::Single(SingleProviderRefresh {
+        provider: "whoop".to_owned(),
+        success: false,
+        message: "Provider returned 503".to_owned(),
+        records_synced: 0,
+    }))
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&failed),
+        "a reported sync failure must satisfy the schema:\n{failed:#}"
+    );
 }

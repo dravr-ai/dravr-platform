@@ -1135,7 +1135,7 @@ fn record_sync_latency(elapsed: Duration) {
 }
 
 /// Snapshot of sync metrics for observability endpoints.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct SyncMetrics {
     /// Total successful syncs since process start.
     pub successes: u64,
