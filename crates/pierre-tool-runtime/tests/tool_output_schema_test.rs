@@ -18,6 +18,7 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_core::models::{Athlete, Stats};
 use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::admin::{
@@ -40,6 +41,7 @@ use pierre_tool_runtime::implementations::analytics::output::{
 use pierre_tool_runtime::implementations::analytics::{
     AnalyzePerformanceTrendsTool, CalculateMetricsTool, DetectPatternsTool, PredictPerformanceTool,
 };
+use pierre_tool_runtime::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use pierre_tool_runtime::implementations::coaches::{
     ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool, GetActiveCoachTool,
     GetCoachTool, HideCoachTool, ListCoachesTool, ListHiddenCoachesTool, SearchCoachesTool,
@@ -2922,4 +2924,73 @@ fn the_group_projection_carries_no_more_of_a_peer_than_it_should() {
     })
     .expect("serializes");
     assert!(validator.is_valid(&value), "group activities:\n{value:#}");
+}
+
+// ============================================================================
+// athlete and stats
+// ============================================================================
+
+/// These two answer with the provider models themselves, so their schemas are
+/// derived from `Athlete` and `Stats` rather than from a projection.
+///
+/// That is the shape to prefer where it is available: nothing to keep in
+/// sync, because there is only one type.
+#[test]
+fn the_athlete_and_stats_tools_declare_the_models_they_answer_with() {
+    for (tool_name, declared, derived) in [
+        (
+            "get_athlete",
+            <GetAthleteTool as McpTool<dyn ToolRuntime>>::definition(&GetAthleteTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<Athlete>)).expect("derives"),
+        ),
+        (
+            "get_stats",
+            <GetStatsTool as McpTool<dyn ToolRuntime>>::definition(&GetStatsTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<Stats>)).expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn the_toon_envelope_key_is_fixed_rather_than_named_after_the_tool() {
+    // These two used to build their own TOON envelope keyed `athlete_toon`
+    // and `stats_toon`. A property name that changes per tool cannot be
+    // stated in a schema at all, which is why the envelope keys are fixed —
+    // and this is the assertion that keeps someone from reintroducing one.
+    let schema = serde_json::to_value(schemars::schema_for!(Formatted<Athlete>)).expect("derives");
+
+    // The PROPERTY names, not the rendered text. The envelope's own doc
+    // comment names the spellings it replaced, so a substring match reads
+    // documentation as contract — which is exactly what this test did on its
+    // first run, and it failed for that reason rather than a real one.
+    let keys: Vec<String> = schema["anyOf"]
+        .as_array()
+        .expect("the envelope derives a list of arms")
+        .iter()
+        .filter_map(|arm| arm.get("properties")?.as_object())
+        .flat_map(|props| props.keys().cloned())
+        .collect();
+
+    for banned in ["athlete_toon", "stats_toon", "result_toon"] {
+        assert!(
+            !keys.iter().any(|k| k == banned),
+            "the envelope must not name its key after the tool: found {banned} in {keys:?}"
+        );
+    }
+    assert!(
+        keys.iter().any(|k| k == "toon"),
+        "and it must carry the fixed toon key: {keys:?}"
+    );
 }

@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_core::models::TenantId;
+use pierre_core::models::{Athlete, Stats};
 use serde_json::{json, Value};
 
 use pierre_cache::{CacheKey, CacheResource};
@@ -26,7 +27,8 @@ use uuid::Uuid;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, task_capable, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::implementations::fitness_support::{
@@ -81,12 +83,12 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
 
         let schema = object_schema(properties, None);
 
-        task_capable(tool_definition(
+        answers_with::<Formatted<Athlete>>(task_capable(tool_definition(
             "get_athlete",
             "Retrieve the user's athlete profile from connected fitness providers including personal details and preferences",
             schema,
             Some(read_only_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -234,12 +236,12 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
 
         let schema = object_schema(properties, None);
 
-        task_capable(tool_definition(
+        answers_with::<Formatted<Stats>>(task_capable(tool_definition(
             "get_stats",
             "Retrieve aggregated activity statistics from a connected fitness provider. The top-level total_* fields are ALL-TIME / lifetime totals. When the provider supplies it (currently Strava), a `year_to_date` object holds CURRENT-CALENDAR-YEAR totals — use that for 'this year' / annual questions and never report the all-time totals as annual. If `year_to_date` is absent, the provider does not expose annual figures. IMPORTANT: Strava's ride and run totals here count ONLY the base sport type and EXCLUDE variant disciplines (VirtualRide, GravelRide, MountainBikeRide, EBikeRide; TrailRun, VirtualRun), so they undercount multi-discipline athletes. For a true cross-discipline total (e.g. 'total km cycling this year'), do NOT report this single ride/run figure — call get_activities for the period and sum distance across all related sport types.",
             schema,
             Some(read_only_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

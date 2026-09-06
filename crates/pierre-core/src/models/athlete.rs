@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 ///     provider: "strava".into(),
 /// };
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Athlete {
     /// Unique identifier for the athlete (provider-specific)
     pub id: String,
@@ -65,7 +65,7 @@ pub struct Athlete {
 ///     year_to_date: None,
 /// };
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Stats {
     /// Total number of recorded activities over all time
     pub total_activities: u64,
@@ -86,7 +86,7 @@ pub struct Stats {
 ///
 /// Used for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the
 /// lifetime totals so a period can be reported with the same fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PeriodTotals {
     /// Number of recorded activities in the period
     pub total_activities: u64,
@@ -102,7 +102,7 @@ pub struct PeriodTotals {
 ///
 /// Each metric represents a different aspect of athletic performance
 /// that can be optimized and tracked over time.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PrMetric {
     /// Fastest pace achieved (seconds per meter)
@@ -119,7 +119,7 @@ pub enum PrMetric {
 ///
 /// Tracks the athlete's best performance in various metrics.
 /// Links back to the specific activity where the record was achieved.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PersonalRecord {
     /// `ID` of the activity where this record was achieved
     pub activity_id: String,

@@ -22,7 +22,7 @@
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::ActivitySummary;
 use crate::implementations::data_helpers::activity_coverage_note;
-use crate::protocol::format::build_formatted_response;
+use crate::protocol::format::formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::protocol::ProtocolError;
@@ -1181,9 +1181,8 @@ pub(crate) async fn try_get_cached_athlete(
         );
         metadata.insert("cached".to_owned(), Value::Bool(true));
 
-        return Ok(Some(build_formatted_response(
+        return Ok(Some(formatted_response(
             &cached_athlete,
-            "athlete",
             output_format,
             metadata,
         )?));
@@ -1223,7 +1222,7 @@ pub(crate) async fn fetch_and_cache_athlete(
             );
             metadata.insert("cached".to_owned(), Value::Bool(false));
 
-            build_formatted_response(&athlete, "athlete", output_format, metadata)
+            formatted_response(&athlete, output_format, metadata)
         }
         Err(e) => Ok(UniversalResponse {
             success: false,
@@ -1308,9 +1307,8 @@ pub(crate) async fn try_get_cached_stats(
         );
         metadata.insert("cached".to_owned(), Value::Bool(true));
 
-        return Ok(Some(build_formatted_response(
+        return Ok(Some(formatted_response(
             &cached_stats,
-            "stats",
             output_format,
             metadata,
         )?));
@@ -1417,5 +1415,5 @@ pub(crate) async fn fetch_and_cache_stats(
     }
 
     let metadata = create_stats_metadata(user_uuid, tenant_id, false);
-    build_formatted_response(&stats, "stats", output_format, metadata)
+    formatted_response(&stats, output_format, metadata)
 }

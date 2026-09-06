@@ -126,18 +126,19 @@ pub fn apply_format_to_response(
     response
 }
 
-/// Build a formatted response with format support (JSON or TOON).
+/// Put a typed payload on a fresh response, honouring the caller's format.
 ///
-/// Generic helper for all data-returning handlers.
+/// The same primitive [`apply_format`] as everywhere else, plus the `format`
+/// stamp `UniversalResponse` carries in its metadata and a `ToolResult` does
+/// not. Takes no `data_key`: the envelope's keys are fixed, because a
+/// property name that changes per tool cannot be stated in a schema, and a
+/// handler calling this is one that declares an `outputSchema`.
 ///
 /// # Errors
 ///
-/// Returns `ProtocolError::SerializationError` if:
-/// - Data serialization to JSON fails
-/// - TOON encoding fails (falls back to JSON with metadata flag)
-pub fn build_formatted_response<T, S>(
+/// Returns [`ProtocolError::InternalError`] if `data` does not serialize.
+pub fn formatted_response<T, S>(
     data: &T,
-    data_key: &str,
     output_format: OutputFormat,
     metadata: HashMap<String, Value, S>,
 ) -> Result<UniversalResponse, ProtocolError>
@@ -145,60 +146,11 @@ where
     T: Serialize,
     S: BuildHasher,
 {
-    // Convert to standard HashMap for UniversalResponse compatibility
-    let mut metadata: HashMap<String, Value> = metadata.into_iter().collect();
-
-    // Add format to metadata
-    metadata.insert(
-        "format".to_owned(),
-        Value::String(output_format.as_str().to_owned()),
-    );
-
-    let result_json = match output_format {
-        OutputFormat::Toon => {
-            // Convert data to JSON value first for TOON encoding
-            let data_value = to_value(data).map_err(|e| {
-                ProtocolError::SerializationError(format!("Failed to serialize data: {e}"))
-            })?;
-
-            match format_output(&data_value, OutputFormat::Toon) {
-                Ok(formatted) => {
-                    // Use _toon suffix for the data key to indicate TOON format
-                    let toon_key = format!("{data_key}_toon");
-                    json!({
-                        toon_key: formatted.data,
-                        "format": "toon"
-                    })
-                }
-                Err(e) => {
-                    // Fall back to JSON if TOON serialization fails
-                    warn!("TOON serialization failed, falling back to JSON: {}", e);
-                    metadata.insert("format".to_owned(), Value::String("json".to_owned()));
-                    metadata.insert("format_fallback".to_owned(), Value::Bool(true));
-                    metadata.insert("format_error".to_owned(), Value::String(e.to_string()));
-                    json!({
-                        data_key: to_value(data).map_err(|e| {
-                            ProtocolError::SerializationError(format!("Failed to serialize data: {e}"))
-                        })?,
-                        "format": "json"
-                    })
-                }
-            }
-        }
-        OutputFormat::Json => {
-            json!({
-                data_key: to_value(data).map_err(|e| {
-                    ProtocolError::SerializationError(format!("Failed to serialize data: {e}"))
-                })?,
-                "format": "json"
-            })
-        }
-    };
-
-    Ok(UniversalResponse {
+    let response = UniversalResponse {
         success: true,
-        result: Some(result_json),
+        result: None,
         error: None,
-        metadata: Some(metadata),
-    })
+        metadata: Some(metadata.into_iter().collect()),
+    };
+    apply_format_typed(response, data, output_format)
 }
