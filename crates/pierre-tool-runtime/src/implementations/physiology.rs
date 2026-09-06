@@ -529,10 +529,16 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
+        // The write lands in `user_physiological_profiles` and the reply is the
+        // profile re-read from storage, so this both writes and reads identity
+        // data. Without PROFILE the bits resolve to fitness:write, and the
+        // read is not declared at all.
         capabilities_to_tronc(
             ToolCapabilities::REQUIRES_AUTH
                 | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::WRITES_DATA,
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::WRITES_DATA
+                | ToolCapabilities::PROFILE,
         )
     }
 
@@ -879,7 +885,16 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::REQUIRES_TENANT)
+        // Reads the stored profile for weight and age defaults and echoes
+        // `stored_vo2_max`, so it discloses identity data. Runtime
+        // requirements alone resolve to an empty scope list, which the
+        // read-only default grant satisfies.
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::PROFILE,
+        )
     }
 
     async fn execute(

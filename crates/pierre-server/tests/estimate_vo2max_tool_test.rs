@@ -11,6 +11,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -381,5 +382,41 @@ fn estimate_vo2max_is_reachable_from_a_chat_turn() {
         names.iter().any(|n| n == "estimate_vo2max"),
         "estimate_vo2max must sit in a chat-callable category or the coach can never see it; got {} tools",
         names.len()
+    );
+}
+
+// ============================================================================
+// The profile access is scope-gated (carnet#363)
+// ============================================================================
+
+#[test]
+fn the_tool_declares_the_profile_access_it_performs() {
+    // reads the stored profile for weight and age defaults and echoes `stored_vo2_max`,
+    // so the call touches identity data. Declaring only the runtime
+    // requirements yields an empty scope list, which the
+    // read-only default grant an RFC 7591 registration receives satisfies —
+    // and that grant is exactly what the profile split exists to hold back.
+    common::init_server_config();
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let (_, _, caps, _) = registry
+        .all_tool_metadata()
+        .into_iter()
+        .find(|(name, _, _, _)| name == "estimate_vo2max")
+        .expect("the tool is registered");
+
+    assert!(
+        required_scopes(caps).contains(&OAuthScope::ProfileRead),
+        "touching the stored profile requires profile:read, not fitness:read"
+    );
+    assert_eq!(
+        missing_scope(&[OAuthScope::FitnessRead], caps),
+        Some(OAuthScope::ProfileRead),
+        "a fitness-read grant must be refused and told what it needed"
+    );
+    assert_eq!(
+        missing_scope(&OAuthScope::self_grant(), caps),
+        None,
+        "the athlete's own grant covers it"
     );
 }

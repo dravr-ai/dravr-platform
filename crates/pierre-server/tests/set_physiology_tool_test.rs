@@ -17,6 +17,7 @@ use pierre_intelligence::AlgorithmConfig;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -730,4 +731,55 @@ async fn an_explicit_argument_still_overrides_the_saved_profile() -> Result<()> 
     assert_eq!(result["input_sources"]["ftp"], json!("provided"));
     assert_eq!(result["personalized_zones"]["ftp"], json!(300));
     Ok(())
+}
+
+// ============================================================================
+// The profile access is scope-gated (carnet#363)
+// ============================================================================
+
+#[test]
+fn the_tool_declares_the_profile_access_it_performs() {
+    // writes `user_physiological_profiles` and returns the profile re-read from storage,
+    // so the call touches identity data. Declaring only the runtime
+    // requirements yields fitness:write, which the
+    // read-only default grant an RFC 7591 registration receives satisfies —
+    // and that grant is exactly what the profile split exists to hold back.
+    common::init_server_config();
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let (_, _, caps, _) = registry
+        .all_tool_metadata()
+        .into_iter()
+        .find(|(name, _, _, _)| name == "set_physiology")
+        .expect("the tool is registered");
+
+    assert!(
+        required_scopes(caps).contains(&OAuthScope::ProfileWrite),
+        "touching the stored profile requires profile:write, not fitness:write"
+    );
+    assert!(
+        required_scopes(caps).contains(&OAuthScope::ProfileRead),
+        "the reply is the profile re-read from storage, so the read is declared too"
+    );
+    // The tool needs both profile scopes, and `missing_scope` names the first
+    // one the caller lacks — so a fitness-write grant is turned away at the
+    // read, before the write is ever considered.
+    assert_eq!(
+        missing_scope(&[OAuthScope::FitnessWrite], caps),
+        Some(OAuthScope::ProfileRead),
+        "a fitness-write grant must be refused and told what it needed"
+    );
+    // Holding the read is not enough to write the athlete's profile; this is
+    // the assertion that would fail if PROFILE were dropped and the write
+    // resolved back to fitness:write.
+    assert_eq!(
+        missing_scope(&[OAuthScope::ProfileRead], caps),
+        Some(OAuthScope::ProfileWrite),
+        "profile:read alone must still be refused the write"
+    );
+    assert_eq!(
+        missing_scope(&OAuthScope::self_grant(), caps),
+        None,
+        "the athlete's own grant covers it"
+    );
 }
