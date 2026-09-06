@@ -52,6 +52,10 @@ use pierre_tool_runtime::implementations::playbooks::{
     ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
     ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
 };
+use pierre_tool_runtime::implementations::recipes::{
+    GetRecipeTool, ListRecipesResult, ListRecipesTool, RecipeDetail, RecipeSearchMatch,
+    RecipeSummary, SearchRecipesResult, SearchRecipesTool,
+};
 use pierre_tool_runtime::implementations::stored_data::{
     DataSourcesResult, DateRange, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
     GetSleepSessionsTool, HealthSnapshotsResult, ListDataSourcesTool, RecoveryMetricsResult,
@@ -983,5 +987,125 @@ fn the_stored_data_schema_also_accepts_the_toon_envelope() {
     assert!(
         validator.is_valid(&payload),
         "format=toon is a real reply from this tool and must satisfy its schema:\n{payload:#}"
+    );
+}
+
+/// The schema has to be attached to the tool it describes, and NOTHING in the
+/// type system enforces that: `answers_with::<T>` accepts any T, and
+/// `ok_typed`'s label is a free string. A result type wired to the wrong tool
+/// compiles, passes its own conformance test, and lies to every client.
+///
+/// This caught a real mistake. The three recipe payloads were first labelled
+/// `search_recipes` / `get_recipe` / `analyze_recipe_nutrition`, read off the
+/// order they appear in `inner.rs`. Two were wrong, and
+/// `analyze_recipe_nutrition` is not a tool at all.
+#[test]
+fn each_recipe_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "list_recipes",
+            <ListRecipesTool as McpTool<dyn ToolRuntime>>::definition(&ListRecipesTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<ListRecipesResult>))
+                .expect("derives"),
+        ),
+        (
+            "get_recipe",
+            <GetRecipeTool as McpTool<dyn ToolRuntime>>::definition(&GetRecipeTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<RecipeDetail>)).expect("derives"),
+        ),
+        (
+            "search_recipes",
+            <SearchRecipesTool as McpTool<dyn ToolRuntime>>::definition(&SearchRecipesTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<SearchRecipesResult>))
+                .expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn list_recipes_accepts_a_recipe_with_no_nutrition_yet() {
+    // has_nutrition false and calories_per_serving absent is the ordinary
+    // state of a freshly saved recipe.
+    let sample = Formatted::Json(ListRecipesResult {
+        recipes: vec![RecipeSummary {
+            id: "3f9c1a2e-0000-4000-8000-000000000001".to_owned(),
+            name: "Overnight oats".to_owned(),
+            servings: 1,
+            meal_timing: "breakfast".to_owned(),
+            total_time_mins: Some(5),
+            tags: vec!["quick".to_owned()],
+            has_nutrition: false,
+            calories_per_serving: None,
+            updated_at: "2026-09-05T09:00:00+00:00".to_owned(),
+        }],
+        count: 1,
+        offset: 0,
+        limit: 20,
+        has_more: false,
+    });
+    assert_declares_and_accepts(
+        <ListRecipesTool as McpTool<dyn ToolRuntime>>::definition(&ListRecipesTool).output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<ListRecipesResult>))
+            .expect("derives"),
+        &sample,
+        "list_recipes",
+    );
+}
+
+#[test]
+fn search_recipes_declares_a_schema_that_accepts_no_matches() {
+    let sample: Formatted<SearchRecipesResult> = Formatted::Json(SearchRecipesResult {
+        query: "tempeh".to_owned(),
+        results: vec![],
+        count: 0,
+        offset: 0,
+        limit: 20,
+        has_more: false,
+    });
+    assert_declares_and_accepts(
+        <SearchRecipesTool as McpTool<dyn ToolRuntime>>::definition(&SearchRecipesTool)
+            .output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<SearchRecipesResult>))
+            .expect("derives"),
+        &sample,
+        "search_recipes (no matches)",
+    );
+    // And the populated arm, since RecipeSearchMatch appears nowhere else.
+    let populated = Formatted::Json(SearchRecipesResult {
+        query: "oats".to_owned(),
+        results: vec![RecipeSearchMatch {
+            id: "3f9c1a2e-0000-4000-8000-000000000001".to_owned(),
+            name: "Overnight oats".to_owned(),
+            description: None,
+            servings: 1,
+            meal_timing: "breakfast".to_owned(),
+            tags: vec![],
+            calories_per_serving: Some(410.0),
+        }],
+        count: 1,
+        offset: 0,
+        limit: 20,
+        has_more: false,
+    });
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(Formatted<SearchRecipesResult>))
+            .expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        validator.is_valid(&serde_json::to_value(&populated).expect("serializes")),
+        "a populated search result must satisfy the schema too"
     );
 }

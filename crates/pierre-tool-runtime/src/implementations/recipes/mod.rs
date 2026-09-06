@@ -24,7 +24,8 @@ use serde_json::Value;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -35,6 +36,16 @@ use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 mod inner;
+
+/// The shapes the recipe tools answer with.
+///
+/// Re-exported because they ARE the declared output schemas — a client and the
+/// conformance tests both name them — while `inner` itself stays private: the
+/// handlers behind them are not part of this family's surface.
+pub use inner::{
+    ListRecipesResult, RecipeDetail, RecipeIngredientEntry, RecipeNutritionPerServing,
+    RecipeSearchMatch, RecipeSummary, SearchRecipesResult,
+};
 
 // ============================================================================
 // GetRecipeConstraintsTool
@@ -407,7 +418,12 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition("list_recipes", "List your saved recipes", schema, None)
+        answers_with::<Formatted<inner::ListRecipesResult>>(tool_definition(
+            "list_recipes",
+            "List your saved recipes",
+            schema,
+            None,
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -447,12 +463,12 @@ impl McpTool<dyn ToolRuntime> for GetRecipeTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["recipe_id".to_owned()]));
-        tool_definition(
+        answers_with::<Formatted<inner::RecipeDetail>>(tool_definition(
             "get_recipe",
             "Get details of a specific recipe",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -553,12 +569,12 @@ impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["query".to_owned()]));
-        tool_definition(
+        answers_with::<Formatted<inner::SearchRecipesResult>>(tool_definition(
             "search_recipes",
             "Search your recipes by name, tags, or description",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

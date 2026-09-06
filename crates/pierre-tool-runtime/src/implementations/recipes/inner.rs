@@ -6,7 +6,7 @@
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use pierre_intelligence::config::intelligence::MealTdeeProportionsConfig;
@@ -55,6 +55,161 @@ fn parse_output_format(args: &Value) -> OutputFormat {
     args.get("format")
         .and_then(Value::as_str)
         .map_or(OutputFormat::Json, OutputFormat::from_str_param)
+}
+
+/// One recipe as `list_recipes` lists it.
+///
+/// A summary for choosing between recipes, so it carries what you choose on
+/// and leaves ingredients and instructions to `get_recipe`.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecipeSummary {
+    /// Identifier `get_recipe` takes.
+    pub id: String,
+    /// Recipe name.
+    pub name: String,
+    /// How many servings it makes.
+    pub servings: u8,
+    /// When it is meant to be eaten, lowercased.
+    pub meal_timing: String,
+    /// Prep plus cook, minutes; absent when neither time is recorded.
+    pub total_time_mins: Option<u16>,
+    /// Free-form labels.
+    pub tags: Vec<String>,
+    /// Whether nutrition has been computed for it.
+    pub has_nutrition: bool,
+    /// Energy per serving, kcal, rounded; absent when nutrition has not been
+    /// computed. Distinct from `has_nutrition` being false only in that this
+    /// carries the figure when there is one.
+    pub calories_per_serving: Option<f64>,
+    /// RFC 3339 timestamp of the last edit.
+    pub updated_at: String,
+}
+
+/// What `list_recipes` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ListRecipesResult {
+    /// The matches on this page.
+    pub recipes: Vec<RecipeSummary>,
+    /// How many came back.
+    pub count: usize,
+    /// The paging offset these start at.
+    pub offset: u32,
+    /// The page size in force.
+    pub limit: u32,
+    /// Whether another page follows.
+    pub has_more: bool,
+}
+
+/// One ingredient in a recipe.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecipeIngredientEntry {
+    /// Ingredient name.
+    pub name: String,
+    /// How much, in `unit`.
+    pub amount: f64,
+    /// The unit `amount` is measured in, lowercased.
+    pub unit: String,
+    /// The same quantity in grams, which is what nutrition is computed from.
+    pub grams: f64,
+    /// How to prepare it — chopped, diced — when the recipe says.
+    pub preparation: Option<String>,
+    /// USDA identifier, when the ingredient was matched to their database.
+    pub fdc_id: Option<i64>,
+}
+
+/// Nutrition for one serving, as `get_recipe` reports it.
+///
+/// Every figure is rounded on the way out: energy and sodium to whole units,
+/// the macros to one decimal. The stored values carry more precision than a
+/// recipe justifies, and a client showing 23.400000000000002 g of protein is
+/// showing arithmetic rather than food.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecipeNutritionPerServing {
+    /// Energy, kcal.
+    pub calories: f64,
+    /// Protein, grams.
+    pub protein_g: f64,
+    /// Carbohydrate, grams.
+    pub carbs_g: f64,
+    /// Fat, grams.
+    pub fat_g: f64,
+    /// Fibre, grams; absent when not known.
+    pub fiber_g: Option<f64>,
+    /// Sodium, milligrams; absent when not known.
+    pub sodium_mg: Option<f64>,
+    /// Sugar, grams; absent when not known.
+    pub sugar_g: Option<f64>,
+    /// RFC 3339 timestamp of when these figures were validated.
+    pub validated_at: String,
+}
+
+/// What `get_recipe` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecipeDetail {
+    /// Identifier.
+    pub id: String,
+    /// Recipe name.
+    pub name: String,
+    /// What it is; absent when none was written.
+    pub description: Option<String>,
+    /// How many servings it makes.
+    pub servings: u8,
+    /// Preparation time, minutes.
+    pub prep_time_mins: Option<u16>,
+    /// Cooking time, minutes.
+    pub cook_time_mins: Option<u16>,
+    /// The two added, when both are known.
+    pub total_time_mins: Option<u16>,
+    /// When it is meant to be eaten, lowercased.
+    pub meal_timing: String,
+    /// What goes in it.
+    pub ingredients: Vec<RecipeIngredientEntry>,
+    /// How to make it, in order.
+    pub instructions: Vec<String>,
+    /// Free-form labels.
+    pub tags: Vec<String>,
+    /// Nutrition for one serving; absent until it has been computed.
+    pub nutrition_per_serving: Option<RecipeNutritionPerServing>,
+    /// RFC 3339 creation timestamp.
+    pub created_at: String,
+    /// RFC 3339 timestamp of the last edit.
+    pub updated_at: String,
+}
+
+/// One recipe matched by a free-text search.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecipeSearchMatch {
+    /// Identifier.
+    pub id: String,
+    /// Recipe name.
+    pub name: String,
+    /// What it is; absent when none was written.
+    pub description: Option<String>,
+    /// How many servings it makes.
+    pub servings: u8,
+    /// When it is meant to be eaten, lowercased.
+    pub meal_timing: String,
+    /// Free-form labels.
+    pub tags: Vec<String>,
+    /// Energy per serving, kcal, rounded; absent when not computed.
+    pub calories_per_serving: Option<f64>,
+}
+
+/// What `search_recipes` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SearchRecipesResult {
+    /// The query the matches were found for, echoed back.
+    pub query: String,
+    /// The matches on this page.
+    pub results: Vec<RecipeSearchMatch>,
+    /// How many came back.
+    pub count: usize,
+    /// The paging offset these start at.
+    pub offset: u32,
+    /// The page size in force.
+    pub limit: u32,
+    /// Whether another page follows.
+    pub has_more: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -512,20 +667,18 @@ pub async fn handle_list_recipes(ctx: &ToolExecutionContext, args: Value) -> App
         .await
         .map_err(|e| AppError::internal(format!("list_recipes: Failed to list recipes: {e}")))?;
 
-    let recipe_summaries: Vec<Value> = recipes
+    let recipe_summaries: Vec<RecipeSummary> = recipes
         .iter()
-        .map(|r| {
-            json!({
-                "id": r.id.to_string(),
-                "name": r.name,
-                "servings": r.servings,
-                "meal_timing": format!("{:?}", r.meal_timing).to_lowercase(),
-                "total_time_mins": r.total_time_mins(),
-                "tags": r.tags,
-                "has_nutrition": r.nutrition.is_some(),
-                "calories_per_serving": r.nutrition.as_ref().map(|n| n.calories.round()),
-                "updated_at": r.updated_at.to_rfc3339(),
-            })
+        .map(|r| RecipeSummary {
+            id: r.id.to_string(),
+            name: r.name.clone(),
+            servings: r.servings,
+            meal_timing: format!("{:?}", r.meal_timing).to_lowercase(),
+            total_time_mins: r.total_time_mins(),
+            tags: r.tags.clone(),
+            has_nutrition: r.nutrition.is_some(),
+            calories_per_serving: r.nutrition.as_ref().map(|n| n.calories.round()),
+            updated_at: r.updated_at.to_rfc3339(),
         })
         .collect();
 
@@ -534,15 +687,15 @@ pub async fn handle_list_recipes(ctx: &ToolExecutionContext, args: Value) -> App
     let has_more = returned_count == limit as usize;
     let offset_val = offset.unwrap_or(0);
 
-    let payload = json!({
-        "recipes": recipe_summaries,
-        "count": returned_count,
-        "offset": offset_val,
-        "limit": limit,
-        "has_more": has_more,
-    });
+    let payload = ListRecipesResult {
+        recipes: recipe_summaries,
+        count: returned_count,
+        offset: offset_val,
+        limit,
+        has_more,
+    };
 
-    ok_typed("search_recipes", apply_format(payload, output_format))
+    ok_typed("list_recipes", apply_format(payload, output_format))
 }
 
 // ---------------------------------------------------------------------------
@@ -569,38 +722,43 @@ pub async fn handle_get_recipe(ctx: &ToolExecutionContext, args: Value) -> AppRe
 
     match recipe {
         Some(r) => {
-            let payload = json!({
-                "id": r.id.to_string(),
-                "name": r.name,
-                "description": r.description,
-                "servings": r.servings,
-                "prep_time_mins": r.prep_time_mins,
-                "cook_time_mins": r.cook_time_mins,
-                "total_time_mins": r.total_time_mins(),
-                "meal_timing": format!("{:?}", r.meal_timing).to_lowercase(),
-                "ingredients": r.ingredients.iter().map(|i| json!({
-                    "name": i.name,
-                    "amount": i.amount,
-                    "unit": format!("{:?}", i.unit).to_lowercase(),
-                    "grams": i.grams,
-                    "preparation": i.preparation,
-                    "fdc_id": i.fdc_id,
-                })).collect::<Vec<_>>(),
-                "instructions": r.instructions,
-                "tags": r.tags,
-                "nutrition_per_serving": r.nutrition.map(|n| json!({
-                    "calories": n.calories.round(),
-                    "protein_g": (n.protein_g * 10.0).round() / 10.0,
-                    "carbs_g": (n.carbs_g * 10.0).round() / 10.0,
-                    "fat_g": (n.fat_g * 10.0).round() / 10.0,
-                    "fiber_g": n.fiber_g.map(|v| (v * 10.0).round() / 10.0),
-                    "sodium_mg": n.sodium_mg.map(f64::round),
-                    "sugar_g": n.sugar_g.map(|v| (v * 10.0).round() / 10.0),
-                    "validated_at": n.validated_at.to_rfc3339(),
-                })),
-                "created_at": r.created_at.to_rfc3339(),
-                "updated_at": r.updated_at.to_rfc3339(),
-            });
+            let total_time_mins = r.total_time_mins();
+            let payload = RecipeDetail {
+                id: r.id.to_string(),
+                name: r.name,
+                description: r.description,
+                servings: r.servings,
+                prep_time_mins: r.prep_time_mins,
+                cook_time_mins: r.cook_time_mins,
+                total_time_mins,
+                meal_timing: format!("{:?}", r.meal_timing).to_lowercase(),
+                ingredients: r
+                    .ingredients
+                    .iter()
+                    .map(|i| RecipeIngredientEntry {
+                        name: i.name.clone(),
+                        amount: i.amount,
+                        unit: format!("{:?}", i.unit).to_lowercase(),
+                        grams: i.grams,
+                        preparation: i.preparation.clone(),
+                        fdc_id: i.fdc_id,
+                    })
+                    .collect(),
+                instructions: r.instructions,
+                tags: r.tags,
+                nutrition_per_serving: r.nutrition.map(|n| RecipeNutritionPerServing {
+                    calories: n.calories.round(),
+                    protein_g: (n.protein_g * 10.0).round() / 10.0,
+                    carbs_g: (n.carbs_g * 10.0).round() / 10.0,
+                    fat_g: (n.fat_g * 10.0).round() / 10.0,
+                    fiber_g: n.fiber_g.map(|v| (v * 10.0).round() / 10.0),
+                    sodium_mg: n.sodium_mg.map(f64::round),
+                    sugar_g: n.sugar_g.map(|v| (v * 10.0).round() / 10.0),
+                    validated_at: n.validated_at.to_rfc3339(),
+                }),
+                created_at: r.created_at.to_rfc3339(),
+                updated_at: r.updated_at.to_rfc3339(),
+            };
             ok_typed("get_recipe", apply_format(payload, output_format))
         }
         None => Ok(ToolResult::error(json!({
@@ -682,18 +840,16 @@ pub async fn handle_search_recipes(
             AppError::internal(format!("search_recipes: Failed to search recipes: {e}"))
         })?;
 
-    let results: Vec<Value> = recipes
+    let results: Vec<RecipeSearchMatch> = recipes
         .iter()
-        .map(|r| {
-            json!({
-                "id": r.id.to_string(),
-                "name": r.name,
-                "description": r.description,
-                "servings": r.servings,
-                "meal_timing": format!("{:?}", r.meal_timing).to_lowercase(),
-                "tags": r.tags,
-                "calories_per_serving": r.nutrition.as_ref().map(|n| n.calories.round()),
-            })
+        .map(|r| RecipeSearchMatch {
+            id: r.id.to_string(),
+            name: r.name.clone(),
+            description: r.description.clone(),
+            servings: r.servings,
+            meal_timing: format!("{:?}", r.meal_timing).to_lowercase(),
+            tags: r.tags.clone(),
+            calories_per_serving: r.nutrition.as_ref().map(|n| n.calories.round()),
         })
         .collect();
 
@@ -702,19 +858,16 @@ pub async fn handle_search_recipes(
     let has_more = returned_count == limit as usize;
     let offset_val = offset.unwrap_or(0);
 
-    let payload = json!({
-        "query": query,
-        "results": results,
-        "count": returned_count,
-        "offset": offset_val,
-        "limit": limit,
-        "has_more": has_more,
-    });
+    let payload = SearchRecipesResult {
+        query: query.to_owned(),
+        results,
+        count: returned_count,
+        offset: offset_val,
+        limit,
+        has_more,
+    };
 
-    ok_typed(
-        "analyze_recipe_nutrition",
-        apply_format(payload, output_format),
-    )
+    ok_typed("search_recipes", apply_format(payload, output_format))
 }
 
 // ---------------------------------------------------------------------------
