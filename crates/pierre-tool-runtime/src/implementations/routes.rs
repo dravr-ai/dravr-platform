@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
@@ -15,7 +16,9 @@ use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
 use pierre_fitness_compute::osm_routes::{DiscoveredRoute, RouteDiscoveryService};
 
 use crate::capabilities::ToolCapabilities;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -25,6 +28,60 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::{resolve_sport_type, SportType};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
+
+/// What `discover_routes` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DiscoverRoutesResult {
+    /// The sport the search was for, as its serde name.
+    pub sport_type: String,
+    /// Where the search was centred, after resolving whatever the caller
+    /// named — a place, or coordinates.
+    pub center: RouteSearchCenter,
+    /// How far out the search reached, in metres.
+    pub radius_meters: u32,
+    /// How many routes came back.
+    pub count: usize,
+    /// The routes, nearest first.
+    pub routes: Vec<DiscoveredRouteEntry>,
+}
+
+/// Where a route search was centred.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RouteSearchCenter {
+    /// Latitude of the centre.
+    pub latitude: f64,
+    /// Longitude of the centre.
+    pub longitude: f64,
+    /// The resolved place name. Absent when the caller gave coordinates, so
+    /// there was no name to resolve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+}
+
+/// One route as `discover_routes` reports it.
+///
+/// Grounded in OpenStreetMap, which is why so much is optional: a way tagged
+/// by a volunteer may carry a name and nothing else.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DiscoveredRouteEntry {
+    /// The route's name in OSM.
+    pub name: String,
+    /// What kind of route it is, lowercased: cycling, hiking, ski.
+    pub route_type: String,
+    /// Approximate length in metres; absent when OSM carries no geometry
+    /// length for it.
+    pub distance_meters: Option<f64>,
+    /// Difficulty as the source grades it; absent when ungraded.
+    pub difficulty: Option<String>,
+    /// Which dataset it came from, lowercased.
+    pub source: String,
+    /// Latitude of the route start or centre.
+    pub latitude: f64,
+    /// Longitude of the route start or centre.
+    pub longitude: f64,
+    /// How far the route is from the search centre, in metres, rounded.
+    pub distance_from_center_meters: f64,
+}
 
 /// Upper bound on the Overpass `around:` radius to keep response sizes and
 /// Overpass query runtime within reasonable limits. Overpass itself will
@@ -143,7 +200,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             required: None,
             ..Default::default()
         };
-        tool_definition(
+        answers_with::<DiscoverRoutesResult>(tool_definition(
             "discover_routes",
             "Discover real named running, cycling, hiking, or ski routes near a location, \
              grounded in OpenStreetMap data via the Overpass API. Pass either a place name \
@@ -162,7 +219,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
              OpenSkiMap).",
             schema,
             Some(discover_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -218,25 +275,20 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 .await?;
 
             let count = routes.len();
-            let mut center_json = json!({
-                "latitude": resolved.latitude,
-                "longitude": resolved.longitude,
-            });
-            if let Some(name) = resolved.display_name {
-                if let Some(obj) = center_json.as_object_mut() {
-                    obj.insert("display_name".to_owned(), Value::String(name));
-                }
-            }
-            let response = json!({
-                "sport_type": sport_label(&sport),
-                "center": center_json,
-                "radius_meters": radius,
-                "count": count,
-                "routes": routes.iter().map(discovered_route_to_json).collect::<Vec<_>>(),
-            });
+            let response = DiscoverRoutesResult {
+                sport_type: sport_label(&sport).to_owned(),
+                center: RouteSearchCenter {
+                    latitude: resolved.latitude,
+                    longitude: resolved.longitude,
+                    display_name: resolved.display_name,
+                },
+                radius_meters: radius,
+                count,
+                routes: routes.iter().map(discovered_route_to_json).collect(),
+            };
 
             info!(count, "discover_routes: returning OSM-grounded routes");
-            Ok(ToolResult::ok(response))
+            ok_typed("discover_routes", response)
         }
         .await;
         tool_result_to_response(result)
@@ -329,17 +381,17 @@ async fn resolve_center(args: &Value) -> Result<ResolvedCenter, Value> {
 ///
 /// Kept tight — the LLM doesn't need the enum's `snake_case` wrapper and
 /// benefits from a flat structure when it wants to read a specific field.
-fn discovered_route_to_json(route: &DiscoveredRoute) -> Value {
-    json!({
-        "name": route.name,
-        "route_type": format!("{:?}", route.route_type).to_lowercase(),
-        "distance_meters": route.distance_meters,
-        "difficulty": route.difficulty,
-        "source": format!("{:?}", route.source).to_lowercase(),
-        "latitude": route.latitude,
-        "longitude": route.longitude,
-        "distance_from_center_meters": route.distance_from_center_meters.round(),
-    })
+fn discovered_route_to_json(route: &DiscoveredRoute) -> DiscoveredRouteEntry {
+    DiscoveredRouteEntry {
+        name: route.name.clone(),
+        route_type: format!("{:?}", route.route_type).to_lowercase(),
+        distance_meters: route.distance_meters,
+        difficulty: route.difficulty.clone(),
+        source: format!("{:?}", route.source).to_lowercase(),
+        latitude: route.latitude,
+        longitude: route.longitude,
+        distance_from_center_meters: route.distance_from_center_meters.round(),
+    }
 }
 
 /// Parse the LLM-supplied sport string into the typed [`SportType`].

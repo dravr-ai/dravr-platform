@@ -14,7 +14,8 @@ use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
 use pierre_services::plan_calendar_push::{
-    desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, CALENDAR_PROVIDER,
+    desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, PushReport,
+    CALENDAR_PROVIDER,
 };
 use serde_json::{json, Value};
 use tracing::warn;
@@ -28,7 +29,8 @@ use super::training_plans::{load_conversation, resolve_coach_slug};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -200,7 +202,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<PushReport>(task_capable(tool_definition(
             "push_training_plan",
             "Put the athlete's active training plan on their Intervals.icu calendar, or \
              bring the calendar up to date after the plan changed: creates the days that \
@@ -213,7 +215,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              from_date.",
             schema,
             Some(destructive_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -297,9 +299,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 emit_calendar_sync_completed(tenant, user_id, CALENDAR_PROVIDER, PUSH_TOOL, landed);
             }
 
-            let payload = serde_json::to_value(&report)
-                .map_err(|e| AppError::internal(format!("serialize push report: {e}")))?;
-            Ok(ToolResult::ok(payload))
+            ok_typed("push_training_plan", &report)
         }
         .await;
         tool_result_to_response(result)

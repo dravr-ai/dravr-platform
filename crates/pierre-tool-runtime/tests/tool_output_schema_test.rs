@@ -18,6 +18,7 @@
 //! one.
 
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::admin::{
     AdminAssignCoachTool, AdminCreateSystemCoachTool, AdminDeleteSystemCoachTool,
@@ -69,6 +70,9 @@ use pierre_tool_runtime::implementations::goals_output::{
     FeasibilityAnalysis, FeasibilityHistoricalContext, GoalFeasibilityResult, GoalSuggestionEntry,
     ProgressSummary, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
 };
+use pierre_tool_runtime::implementations::groups::{
+    GetGroupMemberActivitiesTool, GroupMemberActivitiesResult, GroupMemberActivity,
+};
 use pierre_tool_runtime::implementations::memory::{
     CoachFollowupScheduleResult, CoachFollowupScheduleTool, CoachNoteAddResult, CoachNoteAddTool,
     RecallUserMemoryResult, RecallUserMemoryTool, RecalledFact, RememberFactResult,
@@ -95,6 +99,9 @@ use pierre_tool_runtime::implementations::recipes::{
     GetRecipeTool, ListRecipesResult, ListRecipesTool, RecipeDetail, RecipeSearchMatch,
     RecipeSummary, SearchRecipesResult, SearchRecipesTool,
 };
+use pierre_tool_runtime::implementations::routes::{
+    DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
+};
 use pierre_tool_runtime::implementations::store::{
     BrowseCoachStoreResult, BrowseCoachStoreTool, InstallCoachFromStoreResult,
     InstallCoachFromStoreTool, SearchCoachStoreResult, SearchCoachStoreTool, StoreCoachEntry,
@@ -108,7 +115,11 @@ use pierre_tool_runtime::implementations::sync::{
     AllProvidersRefresh, DataFreshnessResult, GetDataFreshnessTool, RefreshProviderDataResult,
     RefreshProviderDataTool, SingleProviderRefresh,
 };
+use pierre_tool_runtime::implementations::training_plan_push::PushTrainingPlanTool;
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
+use pierre_tool_runtime::implementations::weather_forecast::{
+    GetWeatherForecastTool, WeatherForecastResult,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -2714,4 +2725,201 @@ fn the_fitness_config_listing_reports_both_scopes_it_merged() {
         validator.is_valid(&value),
         "the merged listing must validate:\n{value:#}"
     );
+}
+
+// ============================================================================
+// the single-tool surfaces
+// ============================================================================
+
+#[test]
+fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "get_weather_forecast",
+            <GetWeatherForecastTool as McpTool<dyn ToolRuntime>>::definition(
+                &GetWeatherForecastTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(WeatherForecastResult)).expect("derives"),
+        ),
+        (
+            "discover_routes",
+            <DiscoverRoutesTool as McpTool<dyn ToolRuntime>>::definition(&DiscoverRoutesTool),
+            serde_json::to_value(schemars::schema_for!(DiscoverRoutesResult)).expect("derives"),
+        ),
+        (
+            "get_group_member_activities",
+            <GetGroupMemberActivitiesTool as McpTool<dyn ToolRuntime>>::definition(
+                &GetGroupMemberActivitiesTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(GroupMemberActivitiesResult))
+                .expect("derives"),
+        ),
+        (
+            "push_training_plan",
+            <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
+            serde_json::to_value(schemars::schema_for!(PushReport)).expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn a_coordinate_forecast_omits_the_place_a_named_one_carries() {
+    // The place name is what the caller asked for resolved back to them.
+    // A coordinate lookup resolved nothing, so there is nothing to echo, and
+    // the key is absent rather than an empty string.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(WeatherForecastResult)).expect("derives"),
+    )
+    .expect("compiles");
+
+    let named = serde_json::to_value(WeatherForecastResult {
+        latitude: 45.5,
+        longitude: -73.57,
+        timestamp: "2026-09-08T11:00:00+00:00".to_owned(),
+        temperature_celsius: 18.5,
+        conditions: "partly cloudy".to_owned(),
+        humidity_percentage: Some(62.0),
+        wind_speed_kmh: Some(14.0),
+        place: Some("Montréal".to_owned()),
+    })
+    .expect("serializes");
+    // A provider model that reported neither humidity nor wind for that hour
+    // is ordinary, and both are Option because of it.
+    let bare = serde_json::to_value(WeatherForecastResult {
+        latitude: 45.5,
+        longitude: -73.57,
+        timestamp: "2026-09-08T11:00:00+00:00".to_owned(),
+        temperature_celsius: 18.5,
+        conditions: "clear".to_owned(),
+        humidity_percentage: None,
+        wind_speed_kmh: None,
+        place: None,
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&named),
+        "named-place forecast:\n{named:#}"
+    );
+    assert!(validator.is_valid(&bare), "coordinate forecast:\n{bare:#}");
+    assert!(named.get("place").is_some(), "a named place is echoed back");
+    assert!(
+        bare.get("place").is_none(),
+        "a coordinate lookup omits place rather than sending an empty string"
+    );
+}
+
+#[test]
+fn a_route_with_almost_no_osm_tags_still_validates() {
+    // These come from OpenStreetMap, tagged by volunteers. A way with a name
+    // and nothing else is the common case, which is why distance and
+    // difficulty are optional — a schema demanding them would reject most of
+    // what the tool actually returns.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(DiscoverRoutesResult)).expect("derives"),
+    )
+    .expect("compiles");
+    let value = serde_json::to_value(DiscoverRoutesResult {
+        sport_type: "run".to_owned(),
+        center: RouteSearchCenter {
+            latitude: 45.5,
+            longitude: -73.57,
+            display_name: None,
+        },
+        radius_meters: 5_000,
+        count: 1,
+        routes: vec![DiscoveredRouteEntry {
+            name: "Canal de Lachine".to_owned(),
+            route_type: "cycling".to_owned(),
+            distance_meters: None,
+            difficulty: None,
+            source: "overpass".to_owned(),
+            latitude: 45.47,
+            longitude: -73.58,
+            distance_from_center_meters: 3_400.0,
+        }],
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "an untagged OSM way must validate:\n{value:#}"
+    );
+}
+
+#[test]
+fn the_group_projection_carries_no_more_of_a_peer_than_it_should() {
+    // This is another athlete's data, shown because they consented to share
+    // it with the group. The projection is deliberately narrow, and the
+    // schema is where that narrowness becomes checkable: a field added here
+    // is a field shared with the peer's whole group.
+    let derived =
+        serde_json::to_value(schemars::schema_for!(GroupMemberActivity)).expect("derives");
+    let declared: Vec<String> = derived["properties"]
+        .as_object()
+        .expect("object schema")
+        .keys()
+        .cloned()
+        .collect();
+
+    let expected = [
+        "average_heart_rate",
+        "average_power",
+        "calories",
+        "distance_km",
+        "duration_minutes",
+        "elevation_gain_m",
+        "id",
+        "max_heart_rate",
+        "max_power",
+        "name",
+        "provider",
+        "sport",
+        "start_date",
+    ];
+    assert_eq!(
+        declared, expected,
+        "the group projection changed. Adding a field here shares it with the \
+         peer's whole group — confirm that is intended, then update this list."
+    );
+
+    // And the whole answer validates, member named by display name only.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(GroupMemberActivitiesResult)).expect("derives"),
+    )
+    .expect("compiles");
+    let value = serde_json::to_value(GroupMemberActivitiesResult {
+        member: "Alice".to_owned(),
+        group: "Tuesday Track".to_owned(),
+        count: 1,
+        activities: vec![GroupMemberActivity {
+            id: "strava-991".to_owned(),
+            name: "Intervals".to_owned(),
+            sport: "Run".to_owned(),
+            start_date: "2026-09-01T17:00:00+00:00".to_owned(),
+            distance_km: Some(10.4),
+            duration_minutes: 52,
+            elevation_gain_m: Some(48.0),
+            average_heart_rate: Some(158),
+            max_heart_rate: Some(181),
+            average_power: None,
+            max_power: None,
+            calories: Some(690),
+            provider: "strava".to_owned(),
+        }],
+    })
+    .expect("serializes");
+    assert!(validator.is_valid(&value), "group activities:\n{value:#}");
 }

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
@@ -16,7 +17,9 @@ use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
 use pierre_weather::{OpenMeteoForecastProvider, WeatherProvider, WeatherQuery};
 
 use crate::capabilities::ToolCapabilities;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
+};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -24,6 +27,35 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
+
+/// What `get_weather_forecast` answers with.
+///
+/// A single sample at the requested hour, not a series: the tool answers
+/// "what will it be like then", and a coach reasoning about one session does
+/// not need the rest of the day.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct WeatherForecastResult {
+    /// Latitude the forecast was read at, after resolving the place.
+    pub latitude: f64,
+    /// Longitude the forecast was read at.
+    pub longitude: f64,
+    /// RFC 3339 timestamp the sample is for.
+    pub timestamp: String,
+    /// Air temperature in degrees Celsius.
+    pub temperature_celsius: f32,
+    /// Sky and precipitation, in words.
+    pub conditions: String,
+    /// Relative humidity as a percentage. Absent when the provider's model
+    /// did not report it for that hour.
+    pub humidity_percentage: Option<f32>,
+    /// Wind speed in kilometres per hour. Absent when the provider's model
+    /// did not report it for that hour.
+    pub wind_speed_kmh: Option<f32>,
+    /// The place name, when the caller named a place rather than coordinates.
+    /// Absent for a coordinate lookup, because there is nothing to echo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+}
 
 /// Default hour-of-day (UTC) used when the caller omits `hour`. Noon is a
 /// reasonable proxy for a daytime training session and avoids the overnight
@@ -116,7 +148,7 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
             required: None,
             ..Default::default()
         };
-        tool_definition(
+        answers_with::<WeatherForecastResult>(tool_definition(
             "get_weather_forecast",
             "Get the weather forecast (temperature in °C, conditions, humidity, wind) for a \
              location and date, grounded in the Open-Meteo forecast API. Use this whenever the \
@@ -128,7 +160,7 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
              call this tool to obtain it.",
             schema,
             Some(forecast_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -180,22 +212,19 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
             }
         };
 
-        let mut response = json!({
-            "latitude": resolved.latitude,
-            "longitude": resolved.longitude,
-            "timestamp": timestamp.to_rfc3339(),
-            "temperature_celsius": sample.temperature_celsius,
-            "conditions": sample.conditions,
-            "humidity_percentage": sample.humidity_percentage,
-            "wind_speed_kmh": sample.wind_speed_kmh,
-        });
-        if let Some(name) = resolved.display_name {
-            if let Some(obj) = response.as_object_mut() {
-                obj.insert("place".to_owned(), Value::String(name));
-            }
-        }
-
-        Ok(ToolResult::ok(response))
+        ok_typed(
+            "get_weather_forecast",
+            WeatherForecastResult {
+                latitude: resolved.latitude,
+                longitude: resolved.longitude,
+                timestamp: timestamp.to_rfc3339(),
+                temperature_celsius: sample.temperature_celsius,
+                conditions: sample.conditions,
+                humidity_percentage: sample.humidity_percentage,
+                wind_speed_kmh: sample.wind_speed_kmh,
+                place: resolved.display_name,
+            },
+        )
         }
         .await;
         tool_result_to_response(result)
