@@ -27,14 +27,22 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::coaches_output::{
+    activate_coach_payload, active_coach_payload, create_coach_payload, get_coach_payload,
+    list_coaches_payload, list_hidden_coaches_payload, search_coaches_payload,
+    update_coach_payload, ActivateCoachResult, CreateCoachResult, DeactivateCoachResult,
+    DeleteCoachResult, GetActiveCoachResult, GetCoachResult, HideCoachResult, ListCoachesResult,
+    ListHiddenCoachesResult, SearchCoachesResult, ShowCoachResult, ToggleCoachFavoriteResult,
+    UpdateCoachResult,
+};
 use super::coaches_tool_shape::{
     destructive_annotations, extract_format, read_only_annotations, write_annotations,
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -102,12 +110,12 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
         );
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        answers_with::<Formatted<ListCoachesResult>>(tool_definition(
             "list_coaches",
             "List available AI coaches for personalized training guidance",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -177,39 +185,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to count coaches: {e}")))?;
 
-            let coach_summaries: Vec<Value> = coaches
-                .iter()
-                .map(|item| {
-                    json!({
-                        "id": item.coach.id.to_string(),
-                        "title": item.coach.title,
-                        "description": item.coach.description,
-                        "category": item.coach.category.as_str(),
-                        "tags": item.coach.tags,
-                        "token_count": item.coach.token_count,
-                        "is_favorite": item.is_favorite,
-                        "is_system": item.coach.is_system,
-                        "is_assigned": item.is_assigned,
-                        "use_count": item.use_count,
-                        "last_used_at": item.last_used_at.map(|dt| dt.to_rfc3339()),
-                        "updated_at": item.coach.updated_at.to_rfc3339(),
-                    })
-                })
-                .collect();
-
-            let returned_count = coach_summaries.len();
-            #[allow(clippy::cast_possible_truncation)]
-            let has_more = limit.is_some_and(|l| returned_count == l as usize);
-
-            let payload = json!({
-                "coaches": coach_summaries,
-                "count": returned_count,
-                "total": total,
-                "offset": offset.unwrap_or(0),
-                "limit": limit.unwrap_or(50),
-                "has_more": has_more,
-            });
-
+            let payload = list_coaches_payload(&coaches, total, offset, limit);
             ok_typed("list_coaches", apply_format(payload, format))
         }
         .await;
@@ -293,12 +269,12 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
             Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
         );
 
-        tool_definition(
+        answers_with::<CreateCoachResult>(tool_definition(
             "create_coach",
             "Create a custom AI coach with personalized training guidance",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -386,15 +362,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to create coach: {e}")))?;
 
-            Ok(ToolResult::ok(json!({
-                "id": coach.id.to_string(),
-                "title": coach.title,
-                "description": coach.description,
-                "category": coach.category.as_str(),
-                "tags": coach.tags,
-                "token_count": coach.token_count,
-                "created_at": coach.created_at.to_rfc3339(),
-            })))
+            ok_typed("create_coach", create_coach_payload(&coach))
         }
         .await;
         tool_result_to_response(result)
@@ -422,12 +390,12 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<Formatted<GetCoachResult>>(tool_definition(
             "get_coach",
             "Get detailed information about a specific coach",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -461,28 +429,14 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to get coach: {e}")))?;
 
-            match coach {
-                Some(c) => {
-                    let payload = json!({
-                        "id": c.id.to_string(),
-                        "title": c.title,
-                        "description": c.description,
-                        "system_prompt": c.system_prompt,
-                        "category": c.category.as_str(),
-                        "tags": c.tags,
-                        "token_count": c.token_count,
-                        "is_favorite": false,
-                        "use_count": 0,
-                        "last_used_at": Option::<String>::None,
-                        "created_at": c.created_at.to_rfc3339(),
-                        "updated_at": c.updated_at.to_rfc3339(),
-                    });
-                    ok_typed("get_coach", apply_format(payload, format))
-                }
-                None => Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
-                }))),
-            }
+            coach.map_or_else(
+                || {
+                    Ok(ToolResult::error(json!({
+                        "error": format!("Coach not found: {coach_id}"),
+                    })))
+                },
+                |c| ok_typed("get_coach", apply_format(get_coach_payload(&c), format)),
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -555,12 +509,12 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<UpdateCoachResult>(tool_definition(
             "update_coach",
             "Update an existing coach's settings",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -636,21 +590,14 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to update coach: {e}")))?;
 
-            match coach {
-                Some(c) => Ok(ToolResult::ok(json!({
-                    "id": c.id.to_string(),
-                    "title": c.title,
-                    "description": c.description,
-                    "system_prompt": c.system_prompt,
-                    "category": c.category.as_str(),
-                    "tags": c.tags,
-                    "token_count": c.token_count,
-                    "updated_at": c.updated_at.to_rfc3339(),
-                }))),
-                None => Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
-                }))),
-            }
+            coach.map_or_else(
+                || {
+                    Ok(ToolResult::error(json!({
+                        "error": format!("Coach not found: {coach_id}"),
+                    })))
+                },
+                |c| ok_typed("update_coach", update_coach_payload(&c)),
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -678,12 +625,12 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<DeleteCoachResult>(tool_definition(
             "delete_coach",
             "Delete a coach",
             schema,
             Some(destructive_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -717,10 +664,13 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to delete coach: {e}")))?;
 
             if deleted {
-                Ok(ToolResult::ok(json!({
-                    "deleted": true,
-                    "coach_id": coach_id,
-                })))
+                ok_typed(
+                    "delete_coach",
+                    DeleteCoachResult {
+                        deleted: true,
+                        coach_id: coach_id.to_owned(),
+                    },
+                )
             } else {
                 Ok(ToolResult::error(json!({
                     "error": format!("Coach not found: {coach_id}"),
@@ -753,12 +703,12 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<ToggleCoachFavoriteResult>(tool_definition(
             "toggle_coach_favorite",
             "Toggle the favorite status of a coach",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -798,10 +748,13 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
                     })))
                 },
                 |fav| {
-                    Ok(ToolResult::ok(json!({
-                        "coach_id": coach_id,
-                        "is_favorite": fav,
-                    })))
+                    ok_typed(
+                        "toggle_coach_favorite",
+                        ToggleCoachFavoriteResult {
+                            coach_id: coach_id.to_owned(),
+                            is_favorite: fav,
+                        },
+                    )
                 },
             )
         }
@@ -855,12 +808,12 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
         );
         let schema = object_schema(properties, Some(vec!["query".to_owned()]));
 
-        tool_definition(
+        answers_with::<Formatted<SearchCoachesResult>>(tool_definition(
             "search_coaches",
             "Search for coaches by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -906,34 +859,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to search coaches: {e}")))?;
 
-            let results: Vec<Value> = coaches
-                .iter()
-                .map(|c| {
-                    json!({
-                        "id": c.id.to_string(),
-                        "title": c.title,
-                        "description": c.description,
-                        "category": c.category.as_str(),
-                        "tags": c.tags,
-                        "token_count": c.token_count,
-                    })
-                })
-                .collect();
-
-            let returned_count = results.len();
-            let limit_val = limit.unwrap_or(20);
-            #[allow(clippy::cast_possible_truncation)]
-            let has_more = returned_count == limit_val as usize;
-
-            let payload = json!({
-                "query": query,
-                "results": results,
-                "returned_count": returned_count,
-                "offset": offset.unwrap_or(0),
-                "limit": limit_val,
-                "has_more": has_more,
-            });
-
+            let payload = search_coaches_payload(query, &coaches, offset, limit);
             ok_typed("search_coaches", apply_format(payload, format))
         }
         .await;
@@ -962,12 +888,12 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<ActivateCoachResult>(tool_definition(
             "activate_coach",
             "Activate a coach for personalized training guidance",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1000,20 +926,14 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to activate coach: {e}")))?;
 
-            match coach {
-                Some(c) => Ok(ToolResult::ok(json!({
-                    "id": c.id.to_string(),
-                    "title": c.title,
-                    "description": c.description,
-                    "system_prompt": c.system_prompt,
-                    "category": c.category.as_str(),
-                    "is_active": true,
-                    "token_count": c.token_count,
-                }))),
-                None => Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
-                }))),
-            }
+            coach.map_or_else(
+                || {
+                    Ok(ToolResult::error(json!({
+                        "error": format!("Coach not found: {coach_id}"),
+                    })))
+                },
+                |c| ok_typed("activate_coach", activate_coach_payload(&c)),
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -1037,12 +957,12 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<DeactivateCoachResult>(tool_definition(
             "deactivate_coach",
             "Deactivate the current coach and return to default AI guidance",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1070,9 +990,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to deactivate coach: {e}")))?;
 
-            Ok(ToolResult::ok(json!({
-                "deactivated": deactivated,
-            })))
+            ok_typed("deactivate_coach", DeactivateCoachResult { deactivated })
         }
         .await;
         tool_result_to_response(result)
@@ -1096,12 +1014,12 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<Formatted<GetActiveCoachResult>>(tool_definition(
             "get_active_coach",
             "Get the currently active coach",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1130,27 +1048,8 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to get active coach: {e}")))?;
 
-            match coach {
-                Some(c) => {
-                    let payload = json!({
-                        "active": true,
-                        "coach": {
-                            "id": c.id.to_string(),
-                            "title": c.title,
-                            "description": c.description,
-                            "system_prompt": c.system_prompt,
-                            "category": c.category.as_str(),
-                            "tags": c.tags,
-                            "token_count": c.token_count,
-                        }
-                    });
-                    ok_typed("get_active_coach", apply_format(payload, format))
-                }
-                None => Ok(ToolResult::ok(json!({
-                    "active": false,
-                    "coach": Value::Null,
-                }))),
-            }
+            let payload = active_coach_payload(coach.as_ref());
+            ok_typed("get_active_coach", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -1178,12 +1077,12 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<HideCoachResult>(tool_definition(
             "hide_coach",
             "Hide a coach from listings",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1216,10 +1115,13 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
             .map_err(|e| AppError::internal(format!("Failed to hide coach: {e}")))?;
 
         if success {
-            Ok(ToolResult::ok(json!({
-                "coach_id": coach_id,
-                "is_hidden": true,
-            })))
+            ok_typed(
+                "hide_coach",
+                HideCoachResult {
+                    coach_id: coach_id.to_owned(),
+                    is_hidden: true,
+                },
+            )
         } else {
             Ok(ToolResult::error(json!({
                 "error": "Agent cannot be hidden (only system or assigned agents can be hidden)",
@@ -1254,12 +1156,12 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<ShowCoachResult>(tool_definition(
             "show_coach",
             "Show a previously hidden coach",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1291,11 +1193,14 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to show coach: {e}")))?;
 
-            Ok(ToolResult::ok(json!({
-                "coach_id": coach_id,
-                "is_hidden": false,
-                "removed_preference": success,
-            })))
+            ok_typed(
+                "show_coach",
+                ShowCoachResult {
+                    coach_id: coach_id.to_owned(),
+                    is_hidden: false,
+                    removed_preference: success,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -1319,12 +1224,12 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<Formatted<ListHiddenCoachesResult>>(tool_definition(
             "list_hidden_coaches",
             "List all hidden coaches",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1353,25 +1258,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to list hidden coaches: {e}")))?;
 
-            let coach_summaries: Vec<Value> = coaches
-                .iter()
-                .map(|c| {
-                    json!({
-                        "id": c.id.to_string(),
-                        "title": c.title,
-                        "description": c.description,
-                        "category": c.category.as_str(),
-                        "is_system": c.is_system,
-                    })
-                })
-                .collect();
-
-            let count = coach_summaries.len();
-            let payload = json!({
-                "coaches": coach_summaries,
-                "count": count,
-            });
-
+            let payload = list_hidden_coaches_payload(&coaches);
             ok_typed("list_hidden_coaches", apply_format(payload, format))
         }
         .await;

@@ -19,6 +19,17 @@
 
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_tool_runtime::conversions::Formatted;
+use pierre_tool_runtime::implementations::coaches::{
+    ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool, GetActiveCoachTool,
+    GetCoachTool, HideCoachTool, ListCoachesTool, ListHiddenCoachesTool, SearchCoachesTool,
+    ShowCoachTool, ToggleCoachFavoriteTool, UpdateCoachTool,
+};
+use pierre_tool_runtime::implementations::coaches_output::{
+    ActivateCoachResult, ActiveCoachDetail, CoachListEntry, CoachSearchEntry, CreateCoachResult,
+    DeactivateCoachResult, DeleteCoachResult, GetActiveCoachResult, GetCoachResult,
+    HiddenCoachEntry, HideCoachResult, ListCoachesResult, ListHiddenCoachesResult,
+    SearchCoachesResult, ShowCoachResult, ToggleCoachFavoriteResult, UpdateCoachResult,
+};
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
     DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
@@ -1108,4 +1119,402 @@ fn search_recipes_declares_a_schema_that_accepts_no_matches() {
         validator.is_valid(&serde_json::to_value(&populated).expect("serializes")),
         "a populated search result must satisfy the schema too"
     );
+}
+
+// ============================================================================
+// coaches
+// ============================================================================
+
+/// Every coach tool, paired with the type its `execute` actually serializes.
+///
+/// Five of the thirteen honour a `format` argument and so answer through the
+/// `Formatted` envelope; the other eight always send their own shape. Getting
+/// that wrong is exactly the drift this table exists to catch — a client told
+/// to expect a `oneOf` and handed a bare object has been lied to.
+#[test]
+fn each_coach_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "list_coaches",
+            <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<ListCoachesResult>))
+                .expect("derives"),
+        ),
+        (
+            "create_coach",
+            <CreateCoachTool as McpTool<dyn ToolRuntime>>::definition(&CreateCoachTool),
+            serde_json::to_value(schemars::schema_for!(CreateCoachResult)).expect("derives"),
+        ),
+        (
+            "get_coach",
+            <GetCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetCoachTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<GetCoachResult>))
+                .expect("derives"),
+        ),
+        (
+            "update_coach",
+            <UpdateCoachTool as McpTool<dyn ToolRuntime>>::definition(&UpdateCoachTool),
+            serde_json::to_value(schemars::schema_for!(UpdateCoachResult)).expect("derives"),
+        ),
+        (
+            "delete_coach",
+            <DeleteCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeleteCoachTool),
+            serde_json::to_value(schemars::schema_for!(DeleteCoachResult)).expect("derives"),
+        ),
+        (
+            "toggle_coach_favorite",
+            <ToggleCoachFavoriteTool as McpTool<dyn ToolRuntime>>::definition(
+                &ToggleCoachFavoriteTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(ToggleCoachFavoriteResult))
+                .expect("derives"),
+        ),
+        (
+            "search_coaches",
+            <SearchCoachesTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachesTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachesResult>))
+                .expect("derives"),
+        ),
+        (
+            "activate_coach",
+            <ActivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&ActivateCoachTool),
+            serde_json::to_value(schemars::schema_for!(ActivateCoachResult)).expect("derives"),
+        ),
+        (
+            "deactivate_coach",
+            <DeactivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeactivateCoachTool),
+            serde_json::to_value(schemars::schema_for!(DeactivateCoachResult)).expect("derives"),
+        ),
+        (
+            "get_active_coach",
+            <GetActiveCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetActiveCoachTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<GetActiveCoachResult>))
+                .expect("derives"),
+        ),
+        (
+            "hide_coach",
+            <HideCoachTool as McpTool<dyn ToolRuntime>>::definition(&HideCoachTool),
+            serde_json::to_value(schemars::schema_for!(HideCoachResult)).expect("derives"),
+        ),
+        (
+            "show_coach",
+            <ShowCoachTool as McpTool<dyn ToolRuntime>>::definition(&ShowCoachTool),
+            serde_json::to_value(schemars::schema_for!(ShowCoachResult)).expect("derives"),
+        ),
+        (
+            "list_hidden_coaches",
+            <ListHiddenCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListHiddenCoachesTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<ListHiddenCoachesResult>))
+                .expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn list_coaches_declares_a_schema_that_accepts_its_payload() {
+    let sample = Formatted::Json(ListCoachesResult {
+        coaches: vec![CoachListEntry {
+            id: "6bd0b0f4-0000-4000-8000-000000000001".to_owned(),
+            title: "Threshold Builder".to_owned(),
+            description: Some("Six weeks of tempo work".to_owned()),
+            category: "training".to_owned(),
+            tags: vec!["run".to_owned(), "threshold".to_owned()],
+            token_count: 812,
+            is_favorite: true,
+            is_system: false,
+            is_assigned: true,
+            use_count: 14,
+            last_used_at: Some("2026-09-04T18:22:00+00:00".to_owned()),
+            updated_at: "2026-09-01T09:00:00+00:00".to_owned(),
+        }],
+        count: 1,
+        total: 7,
+        offset: 0,
+        limit: 50,
+        has_more: false,
+    });
+
+    assert_declares_and_accepts(
+        <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool).output_schema,
+        &serde_json::to_value(schemars::schema_for!(Formatted<ListCoachesResult>))
+            .expect("derives"),
+        &sample,
+        "list_coaches",
+    );
+}
+
+#[test]
+fn a_coach_with_no_description_and_no_use_yet_still_validates() {
+    // A freshly created coach: no description was given, it has never been
+    // used, so the two optional fields are absent rather than zeroed.
+    let sample = Formatted::Json(ListCoachesResult {
+        coaches: vec![CoachListEntry {
+            id: "6bd0b0f4-0000-4000-8000-000000000002".to_owned(),
+            title: "Untitled".to_owned(),
+            description: None,
+            category: "custom".to_owned(),
+            tags: vec![],
+            token_count: 0,
+            is_favorite: false,
+            is_system: false,
+            is_assigned: false,
+            use_count: 0,
+            last_used_at: None,
+            updated_at: "2026-09-05T00:00:00+00:00".to_owned(),
+        }],
+        count: 1,
+        total: 1,
+        offset: 0,
+        limit: 50,
+        has_more: false,
+    });
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(Formatted<ListCoachesResult>))
+            .expect("derives"),
+    )
+    .expect("compiles");
+
+    assert!(
+        validator.is_valid(&serde_json::to_value(&sample).expect("serializes")),
+        "an absent description or last-use must not fail the schema"
+    );
+}
+
+#[test]
+fn get_active_coach_declares_one_schema_that_covers_both_of_its_answers() {
+    // The tool sends the same key set whether or not a coach is active. If the
+    // schema only ever described the active answer, every idle reply would be
+    // a protocol violation — and idle is the common case.
+    let derived = serde_json::to_value(schemars::schema_for!(Formatted<GetActiveCoachResult>))
+        .expect("derives");
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+
+    let active = Formatted::Json(GetActiveCoachResult {
+        active: true,
+        coach: Some(ActiveCoachDetail {
+            id: "6bd0b0f4-0000-4000-8000-000000000003".to_owned(),
+            title: "Base Phase".to_owned(),
+            description: None,
+            system_prompt: "You coach aerobic base building.".to_owned(),
+            category: "training".to_owned(),
+            tags: vec!["base".to_owned()],
+            token_count: 640,
+        }),
+    });
+    let idle = Formatted::Json(GetActiveCoachResult {
+        active: false,
+        coach: None,
+    });
+
+    for (label, payload) in [("active", &active), ("idle", &idle)] {
+        let value = serde_json::to_value(payload).expect("serializes");
+        assert!(
+            validator.is_valid(&value),
+            "get_active_coach's {label} answer must satisfy the schema it declares:\n{value:#}"
+        );
+    }
+}
+
+#[test]
+fn get_coach_does_not_promise_usage_fields_it_cannot_fill() {
+    // It used to send is_favorite false, use_count 0 and last_used_at null
+    // unconditionally — the single-coach read does not join the usage table,
+    // so those were constants dressed as data. Declaring an outputSchema would
+    // have made them a promise. They are gone; list_coaches is where usage
+    // signals actually come from.
+    let derived = serde_json::to_value(schemars::schema_for!(GetCoachResult)).expect("derives");
+    let properties = derived["properties"]
+        .as_object()
+        .expect("the result type is an object schema");
+
+    for absent in ["is_favorite", "use_count", "last_used_at"] {
+        assert!(
+            !properties.contains_key(absent),
+            "get_coach must not declare {absent}: it has no value to put there"
+        );
+    }
+    assert!(
+        properties.contains_key("system_prompt"),
+        "get_coach exists to return the full coach, prompt included"
+    );
+}
+
+#[test]
+fn the_coach_schemas_reject_payloads_missing_a_required_field() {
+    // Without this the conformance tests above would pass just as happily
+    // against a schema that describes nothing.
+    let search = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(SearchCoachesResult)).expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        !search.is_valid(&json!({
+            "query": "tempo",
+            "results": [{ "title": "Threshold Builder", "category": "training",
+                          "tags": [], "token_count": 12 }],
+            "returned_count": 1,
+            "offset": 0,
+            "limit": 20,
+            "has_more": false,
+        })),
+        "a search hit with no id is not something a client can act on"
+    );
+
+    let delete = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(DeleteCoachResult)).expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        !delete.is_valid(&json!({ "deleted": true })),
+        "delete_coach must say WHICH coach it deleted"
+    );
+
+    let envelope = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(Formatted<ListHiddenCoachesResult>))
+            .expect("derives"),
+    )
+    .expect("compiles");
+    assert!(
+        !envelope.is_valid(&json!({ "count": 0 })),
+        "the Formatted envelope must not accept an answer missing the coaches it counts"
+    );
+}
+
+#[test]
+fn the_narrow_coach_projections_accept_their_payloads() {
+    for (tool, derived, payload) in [
+        (
+            "search_coaches",
+            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachesResult>))
+                .expect("derives"),
+            serde_json::to_value(Formatted::Json(SearchCoachesResult {
+                query: "tempo".to_owned(),
+                results: vec![CoachSearchEntry {
+                    id: "6bd0b0f4-0000-4000-8000-000000000004".to_owned(),
+                    title: "Threshold Builder".to_owned(),
+                    description: None,
+                    category: "training".to_owned(),
+                    tags: vec!["tempo".to_owned()],
+                    token_count: 812,
+                }],
+                returned_count: 1,
+                offset: 0,
+                limit: 20,
+                has_more: false,
+            }))
+            .expect("serializes"),
+        ),
+        (
+            "list_hidden_coaches",
+            serde_json::to_value(schemars::schema_for!(Formatted<ListHiddenCoachesResult>))
+                .expect("derives"),
+            serde_json::to_value(Formatted::Json(ListHiddenCoachesResult {
+                coaches: vec![HiddenCoachEntry {
+                    id: "6bd0b0f4-0000-4000-8000-000000000005".to_owned(),
+                    title: "Nutrition Basics".to_owned(),
+                    description: Some("Shipped with the platform".to_owned()),
+                    category: "nutrition".to_owned(),
+                    is_system: true,
+                }],
+                count: 1,
+            }))
+            .expect("serializes"),
+        ),
+        (
+            "activate_coach",
+            serde_json::to_value(schemars::schema_for!(ActivateCoachResult)).expect("derives"),
+            serde_json::to_value(ActivateCoachResult {
+                id: "6bd0b0f4-0000-4000-8000-000000000006".to_owned(),
+                title: "Base Phase".to_owned(),
+                description: None,
+                system_prompt: "You coach aerobic base building.".to_owned(),
+                category: "training".to_owned(),
+                is_active: true,
+                token_count: 640,
+            })
+            .expect("serializes"),
+        ),
+        (
+            "deactivate_coach",
+            serde_json::to_value(schemars::schema_for!(DeactivateCoachResult)).expect("derives"),
+            serde_json::to_value(DeactivateCoachResult { deactivated: false }).expect("serializes"),
+        ),
+        (
+            "toggle_coach_favorite",
+            serde_json::to_value(schemars::schema_for!(ToggleCoachFavoriteResult))
+                .expect("derives"),
+            serde_json::to_value(ToggleCoachFavoriteResult {
+                coach_id: "6bd0b0f4-0000-4000-8000-000000000007".to_owned(),
+                is_favorite: true,
+            })
+            .expect("serializes"),
+        ),
+        (
+            "hide_coach",
+            serde_json::to_value(schemars::schema_for!(HideCoachResult)).expect("derives"),
+            serde_json::to_value(HideCoachResult {
+                coach_id: "6bd0b0f4-0000-4000-8000-000000000008".to_owned(),
+                is_hidden: true,
+            })
+            .expect("serializes"),
+        ),
+        (
+            "show_coach",
+            serde_json::to_value(schemars::schema_for!(ShowCoachResult)).expect("derives"),
+            serde_json::to_value(ShowCoachResult {
+                coach_id: "6bd0b0f4-0000-4000-8000-000000000009".to_owned(),
+                is_hidden: false,
+                removed_preference: true,
+            })
+            .expect("serializes"),
+        ),
+        (
+            "create_coach",
+            serde_json::to_value(schemars::schema_for!(CreateCoachResult)).expect("derives"),
+            serde_json::to_value(CreateCoachResult {
+                id: "6bd0b0f4-0000-4000-8000-00000000000a".to_owned(),
+                title: "Recovery Week".to_owned(),
+                description: Some("Deload guidance".to_owned()),
+                category: "recovery".to_owned(),
+                tags: vec![],
+                token_count: 210,
+                created_at: "2026-09-05T12:00:00+00:00".to_owned(),
+            })
+            .expect("serializes"),
+        ),
+        (
+            "update_coach",
+            serde_json::to_value(schemars::schema_for!(UpdateCoachResult)).expect("derives"),
+            serde_json::to_value(UpdateCoachResult {
+                id: "6bd0b0f4-0000-4000-8000-00000000000b".to_owned(),
+                title: "Recovery Week".to_owned(),
+                description: None,
+                system_prompt: "You guide deload weeks.".to_owned(),
+                category: "recovery".to_owned(),
+                tags: vec!["deload".to_owned()],
+                token_count: 232,
+                updated_at: "2026-09-05T13:00:00+00:00".to_owned(),
+            })
+            .expect("serializes"),
+        ),
+    ] {
+        let validator =
+            jsonschema::validator_for(&derived).unwrap_or_else(|e| panic!("{tool} schema: {e}"));
+        assert!(
+            validator.is_valid(&payload),
+            "{tool}: the declared schema rejected the payload the tool sends:\n{payload:#}"
+        );
+    }
 }

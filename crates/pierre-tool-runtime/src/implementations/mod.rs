@@ -59,6 +59,10 @@ pub mod analytics;
 #[cfg(feature = "tools-coaches")]
 pub mod coaches;
 
+/// Answer shapes for the coach tools, split out because `coaches` is at its
+/// size ceiling.
+pub mod coaches_output;
+
 /// Result envelope and annotation sets shared by the coach tools (`tools-coaches` feature).
 #[cfg(feature = "tools-coaches")]
 mod coaches_tool_shape;
