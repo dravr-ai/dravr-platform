@@ -27,6 +27,10 @@ pub(crate) const EMBEDDED_FLAVOURS: &[(&str, &str)] = &[
         include_str!("../../../training_catalogue/flavours/pyramidal-base.yaml"),
     ),
     (
+        "pyramidal-long-course",
+        include_str!("../../../training_catalogue/flavours/pyramidal-long-course.yaml"),
+    ),
+    (
         "pyramidal-to-polarized",
         include_str!("../../../training_catalogue/flavours/pyramidal-to-polarized.yaml"),
     ),
