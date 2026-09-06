@@ -383,20 +383,37 @@ jobs:
 
     steps:
       - name: Install git
-        # The lockbud image's Debian mirrors fail intermittently: apt exits 100
-        # before checkout, so the job reds main with no analysis run. Two
-        # shapes so far. A slow or refused mirror (2026-09-04/05): retry with
-        # backoff. A cached 404 on deb.debian.org's CDN edges (2026-09-05,
-        # c2964a0fd and its rerun): the perl deb11u5 files 404'd from every
-        # Fastly edge the runners hit, http and https alike, while
-        # security.debian.org — the same archive under another hostname, so
-        # another cache key — served them from those same edges. Retrying the
-        # same host cannot clear an edge's negative cache, so the later
-        # attempts move the security source to security.debian.org. apt's
-        # output is kept, so a real failure names the mirror and the file.
+        # The lockbud image's Debian mirrors fail intermittently: apt exits
+        # before checkout, so the job reds main with no analysis run — and
+        # because `publish-images.yml` gates on this workflow's conclusion, a
+        # red here also skips the dev deploy. Three shapes so far.
+        #
+        # A slow or refused mirror (2026-09-04/05): retry with backoff.
+        #
+        # A cached 404 on deb.debian.org's CDN edges (2026-09-05, c2964a0fd):
+        # the perl deb11u5 files 404'd from every Fastly edge, http and https
+        # alike, while security.debian.org — the same archive under another
+        # hostname, so another cache key — served them. Retrying the same host
+        # cannot clear an edge's negative cache, so attempt 3 moves the
+        # security source.
+        #
+        # An index naming files the pool no longer carries (2026-09-06,
+        # 7e5df744e onward): every E: came from the INSTALL stage, never from
+        # update, and switching hosts changed which package 404'd rather than
+        # fixing it — libperl5.32 deb11u5 on deb.debian.org, then libexpat1
+        # deb11u7 on security.debian.org. `apt-get update` exits 0 when only
+        # some sources fail, and its per-source failures are warnings that
+        # `-qq` hides, so a partial refresh leaves the image's baked-in index
+        # in place and install then asks for versions that are gone. Hence:
+        # drop the cached lists so the index is genuinely rebuilt, make a
+        # partial refresh a hard failure with Error-Mode=any, and keep update's
+        # output. `--fix-missing` is apt's own suggestion and is the last
+        # resort before erroring.
         run: |
           install_git() {
-            apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+            rm -rf /var/lib/apt/lists/*
+            apt-get update -o APT::Update::Error-Mode=any \
+              && apt-get install -y -qq --no-install-recommends git
           }
           for attempt in 1 2; do
             install_git && exit 0
@@ -411,7 +428,11 @@ jobs:
           echo "apt attempt 3 on security.debian.org failed; retrying in 30s"
           sleep 30
           install_git && exit 0
-          echo "::error::git could not be installed in the lockbud container: deb.debian.org (2 attempts) and security.debian.org (2 attempts) both failed"
+          echo "both mirrors failed; trying --fix-missing, which apt itself suggests"
+          rm -rf /var/lib/apt/lists/*
+          apt-get update -o APT::Update::Error-Mode=any || true
+          apt-get install -y -qq --no-install-recommends --fix-missing git && exit 0
+          echo "::error::git could not be installed in the lockbud container: deb.debian.org (2 attempts), security.debian.org (2 attempts) and --fix-missing all failed"
           exit 1
 
       - name: Checkout code
