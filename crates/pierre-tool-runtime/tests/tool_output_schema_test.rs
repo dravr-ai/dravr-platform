@@ -32,14 +32,15 @@ use pierre_tool_runtime::implementations::admin_output::{
     AdminUnassignCoachResult, AdminUpdateSystemCoachResult, CoachAssignmentEntry, SystemCoachEntry,
 };
 use pierre_tool_runtime::implementations::analytics::output::{
-    ActivityMetricsResult, BestPerformance, DayFrequency, HardEasyPatternResult,
-    InsufficientPatternData, IntensityDistribution, MetricsInputSummary, NoRacePrediction,
-    OvertrainingResult, PatternsResult, PerformanceTrendsResult, RacePrediction,
-    RacePredictionDetail, RacePredictionResult, TrendStatistics, VolumeProgressionResult,
-    WeeklySchedulePatternResult,
+    ActivityMetricsResult, BestPerformance, CompareActivitiesResult, DayFrequency,
+    HardEasyPatternResult, InsufficientPatternData, IntensityDistribution, MetricComparison,
+    MetricsInputSummary, NoRacePrediction, OvertrainingResult, PatternsResult,
+    PerformanceTrendsResult, PersonalRecordComparison, RacePrediction, RacePredictionDetail,
+    RacePredictionResult, TrendStatistics, VolumeProgressionResult, WeeklySchedulePatternResult,
 };
 use pierre_tool_runtime::implementations::analytics::{
-    AnalyzePerformanceTrendsTool, CalculateMetricsTool, DetectPatternsTool, PredictPerformanceTool,
+    AnalyzePerformanceTrendsTool, CalculateMetricsTool, CompareActivitiesTool, DetectPatternsTool,
+    PredictPerformanceTool,
 };
 use pierre_tool_runtime::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use pierre_tool_runtime::implementations::coaches::{
@@ -3159,5 +3160,160 @@ fn an_unmatched_ingredient_reports_a_null_match_and_no_id() {
     assert!(
         unmatched.get("fdc_id").is_none(),
         "and omits fdc_id, because there is no identifier to give"
+    );
+}
+
+// ============================================================================
+// compare_activities
+// ============================================================================
+
+#[test]
+fn compare_activities_declares_a_schema_that_accepts_all_three_modes() {
+    // Three modes, one shape, discriminated by comparison_type. As separate
+    // untagged variants this could not work: the empty pr_comparison answer
+    // requires only keys every other mode also carries, so it would match
+    // several arms and a client could not tell which it held.
+    let derived = serde_json::to_value(schemars::schema_for!(Formatted<CompareActivitiesResult>))
+        .expect("derives");
+    assert_eq!(
+        <CompareActivitiesTool as McpTool<dyn ToolRuntime>>::definition(&CompareActivitiesTool)
+            .output_schema
+            .expect("compare_activities must declare an outputSchema"),
+        derived,
+        "compare_activities declares a schema derived from a DIFFERENT result type"
+    );
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+
+    let similar = CompareActivitiesResult {
+        activity_id: "strava-1".to_owned(),
+        comparison_type: "similar_activities".to_owned(),
+        comparison_count: Some(4),
+        sport_type: Some("Run".to_owned()),
+        comparison_activity_id: None,
+        comparison_activity_name: None,
+        comparisons: Some(vec![MetricComparison {
+            metric: "pace".to_owned(),
+            current: 5.1,
+            average: Some(5.4),
+            comparison: None,
+            difference_percent: -5.6,
+            improved: Some(true),
+        }]),
+        pr_comparisons: None,
+        error: None,
+        insights: vec!["Pace improved by 5.6% compared to similar activities".to_owned()],
+    };
+    let records = CompareActivitiesResult {
+        activity_id: "strava-1".to_owned(),
+        comparison_type: "pr_comparison".to_owned(),
+        comparison_count: None,
+        sport_type: Some("Run".to_owned()),
+        comparison_activity_id: None,
+        comparison_activity_name: None,
+        comparisons: None,
+        pr_comparisons: Some(vec![PersonalRecordComparison {
+            metric: "distance".to_owned(),
+            current: 21_100.0,
+            personal_record: 21_100.0,
+            is_record: true,
+            percent_of_pr: Some(100.0),
+        }]),
+        error: None,
+        insights: vec!["New distance PR! 🎉".to_owned()],
+    };
+    let specific = CompareActivitiesResult {
+        activity_id: "strava-1".to_owned(),
+        comparison_type: "specific_activity".to_owned(),
+        comparison_count: None,
+        sport_type: Some("Run".to_owned()),
+        comparison_activity_id: Some("strava-2".to_owned()),
+        comparison_activity_name: Some("Last week's tempo".to_owned()),
+        comparisons: Some(vec![MetricComparison {
+            metric: "average_power".to_owned(),
+            current: 265.0,
+            average: None,
+            comparison: Some(250.0),
+            difference_percent: 6.0,
+            improved: Some(true),
+        }]),
+        pr_comparisons: None,
+        error: None,
+        insights: vec!["Power was 6.0% higher".to_owned()],
+    };
+    // The named activity did not exist. Reported, not raised: the athlete
+    // gave an id and deserves to be told it is wrong.
+    let missing = CompareActivitiesResult {
+        activity_id: "strava-1".to_owned(),
+        comparison_type: "specific_activity".to_owned(),
+        comparison_count: None,
+        sport_type: None,
+        comparison_activity_id: None,
+        comparison_activity_name: None,
+        comparisons: None,
+        pr_comparisons: None,
+        error: Some("Activity with ID 'nope' not found".to_owned()),
+        insights: vec!["Could not find activity 'nope' for comparison".to_owned()],
+    };
+
+    for (label, payload) in [
+        ("similar", &similar),
+        ("records", &records),
+        ("specific", &specific),
+        ("missing", &missing),
+    ] {
+        let value = serde_json::to_value(Formatted::Json(payload)).expect("serializes");
+        assert!(
+            validator.is_valid(&value),
+            "compare_activities' {label} answer must satisfy its declared schema:\n{value:#}"
+        );
+        assert!(
+            value["comparison_type"].is_string(),
+            "{label}: comparison_type is the discriminator and is always present"
+        );
+    }
+}
+
+#[test]
+fn a_comparison_row_carries_one_baseline_not_both() {
+    // `average` is the mean across similar activities; `comparison` is the
+    // single activity compared against. A row carries exactly one, and which
+    // follows from the mode — a row with both would mean the tool compared
+    // against two different baselines at once.
+    let similar = serde_json::to_value(MetricComparison {
+        metric: "heart_rate".to_owned(),
+        current: 158.0,
+        average: Some(162.0),
+        comparison: None,
+        difference_percent: -2.5,
+        improved: Some(true),
+    })
+    .expect("serializes");
+    let specific = serde_json::to_value(MetricComparison {
+        metric: "heart_rate".to_owned(),
+        current: 158.0,
+        average: None,
+        comparison: Some(164.0),
+        difference_percent: -3.7,
+        improved: Some(true),
+    })
+    .expect("serializes");
+
+    assert!(similar.get("average").is_some() && similar.get("comparison").is_none());
+    assert!(specific.get("comparison").is_some() && specific.get("average").is_none());
+
+    // Distance and elevation are what the route was, not how well it went,
+    // so they carry no verdict.
+    let neutral = serde_json::to_value(MetricComparison {
+        metric: "elevation_gain".to_owned(),
+        current: 240.0,
+        average: Some(180.0),
+        comparison: None,
+        difference_percent: 33.3,
+        improved: None,
+    })
+    .expect("serializes");
+    assert!(
+        neutral.get("improved").is_none(),
+        "a metric with no better direction must omit `improved`, not guess one"
     );
 }

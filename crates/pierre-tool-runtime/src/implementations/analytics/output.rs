@@ -437,3 +437,101 @@ pub struct FitnessInterpretation {
     /// What the performance component measures.
     pub performance: String,
 }
+
+// ----------------------------------------------------------------------------
+// compare_activities
+// ----------------------------------------------------------------------------
+
+/// What `compare_activities` answers with.
+///
+/// One shape rather than three, discriminated by `comparison_type`. The three
+/// modes overlap heavily and, worse, their required keys nest — a
+/// `pr_comparison` with no history requires only what every other mode also
+/// carries — so as separate untagged variants no client could tell them
+/// apart. `comparison_type` is always present and says which mode ran; the
+/// fields that mode does not fill are absent.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct CompareActivitiesResult {
+    /// The activity that was compared.
+    pub activity_id: String,
+    /// Which comparison ran: `similar_activities`, `pr_comparison` or
+    /// `specific_activity`. Read this before anything else.
+    pub comparison_type: String,
+    /// How many similar activities were found. Only `similar_activities`
+    /// reports it, and it reports zero when there were none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparison_count: Option<usize>,
+    /// The sport, when there was a comparison to make. Absent on the empty
+    /// answers, where nothing was compared.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sport_type: Option<String>,
+    /// The activity compared against. Only `specific_activity`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparison_activity_id: Option<String>,
+    /// Its title, so the answer reads without a second call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparison_activity_name: Option<String>,
+    /// Metric-by-metric comparison, for `similar_activities` and
+    /// `specific_activity`. Which of `average` or `comparison` each row
+    /// carries follows from the mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparisons: Option<Vec<MetricComparison>>,
+    /// Personal-record comparison, for `pr_comparison` only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr_comparisons: Option<Vec<PersonalRecordComparison>>,
+    /// Why the comparison could not run — a named activity that does not
+    /// exist, for instance. Absent when it ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Plain-language readings, always at least one.
+    pub insights: Vec<String>,
+}
+
+/// One metric compared against a baseline.
+///
+/// Every number is `f64`, including power and duration, which the untyped
+/// payload sent as integers. Uniform rows are the point of typing them: a
+/// client charting `current` should not have to handle two JSON number
+/// shapes depending on which metric it landed on.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct MetricComparison {
+    /// Which metric: `pace`, `heart_rate`, `distance`, `duration`,
+    /// `elevation_gain` or `average_power`.
+    pub metric: String,
+    /// The value on the activity being compared.
+    pub current: f64,
+    /// The mean across the similar activities. Present for
+    /// `similar_activities`; absent for `specific_activity`, which has a
+    /// single `comparison` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average: Option<f64>,
+    /// The value on the one activity compared against. Present for
+    /// `specific_activity`; absent for `similar_activities`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparison: Option<f64>,
+    /// Difference as a percentage of the baseline.
+    pub difference_percent: f64,
+    /// Whether the difference is an improvement. Absent for metrics where
+    /// better has no direction — distance and elevation are what the route
+    /// was, not how well it went.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub improved: Option<bool>,
+}
+
+/// One metric measured against the athlete's own best.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PersonalRecordComparison {
+    /// Which metric: `distance`, `pace` or `average_power`.
+    pub metric: String,
+    /// The value on this activity.
+    pub current: f64,
+    /// The athlete's best for this metric in this sport.
+    pub personal_record: f64,
+    /// Whether this activity set it.
+    pub is_record: bool,
+    /// How close it came, as a percentage of the record. Only distance
+    /// reports it — for pace, lower is better, so a percentage of the record
+    /// would read backwards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percent_of_pr: Option<f64>,
+}

@@ -45,7 +45,8 @@ use crate::conversions::{
     tool_result_to_response, Formatted,
 };
 use crate::implementations::analytics::output::{
-    ActivityMetricsResult, PatternsResult, PerformanceTrendsResult, RacePredictionResult,
+    ActivityMetricsResult, CompareActivitiesResult, PatternsResult, PerformanceTrendsResult,
+    RacePredictionResult,
 };
 use crate::implementations::fitness_support::process_activity_analysis;
 use crate::implementations::handler_bridge;
@@ -905,12 +906,12 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<CompareActivitiesResult>>(task_capable(tool_definition(
             "compare_activities",
             "Compare an activity against similar activities, personal bests, or a specific other activity",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

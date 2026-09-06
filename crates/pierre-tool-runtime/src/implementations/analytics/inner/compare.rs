@@ -4,7 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{
+    CompareActivitiesResult, MetricComparison, PersonalRecordComparison,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -12,6 +15,7 @@ use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_providers::core::FitnessProvider;
 use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
@@ -19,6 +23,28 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+
+/// The fields a comparison mode does not fill.
+///
+/// `..empty_comparison()` at each construction site keeps every builder to
+/// the fields its own mode actually sets, which is what makes the modes
+/// legible side by side. `insights` is deliberately not defaulted: every
+/// answer carries at least one, so a builder that forgot it should not
+/// compile.
+fn empty_comparison() -> CompareActivitiesResult {
+    CompareActivitiesResult {
+        activity_id: String::new(),
+        comparison_type: String::new(),
+        comparison_count: None,
+        sport_type: None,
+        comparison_activity_id: None,
+        comparison_activity_name: None,
+        comparisons: None,
+        pr_comparisons: None,
+        error: None,
+        insights: Vec::new(),
+    }
+}
 
 /// Execute activity comparison with authenticated provider
 async fn execute_activity_comparison(
@@ -28,7 +54,8 @@ async fn execute_activity_comparison(
     compare_activity_id: Option<&str>,
     user_uuid: uuid::Uuid,
     request: &UniversalRequest,
-) -> UniversalResponse {
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
     use DEFAULT_ACTIVITY_LIMIT;
 
     match provider.get_activity(activity_id).await {
@@ -68,19 +95,23 @@ async fn execute_activity_comparison(
                 );
             }
 
-            UniversalResponse {
-                success: true,
-                result: Some(comparison),
-                error: None,
-                metadata: Some({
-                    let mut map = HashMap::new();
-                    map.insert(
-                        "user_id".to_owned(),
-                        serde_json::Value::String(user_uuid.to_string()),
-                    );
-                    map
-                }),
-            }
+            apply_format_typed(
+                UniversalResponse {
+                    success: true,
+                    result: None,
+                    error: None,
+                    metadata: Some({
+                        let mut map = HashMap::new();
+                        map.insert(
+                            "user_id".to_owned(),
+                            serde_json::Value::String(user_uuid.to_string()),
+                        );
+                        map
+                    }),
+                },
+                comparison,
+                output_format,
+            )
         }
         Err(e) => {
             let error_message = if e.code == ErrorCode::ResourceNotFound {
@@ -91,12 +122,12 @@ async fn execute_activity_comparison(
                 format!("Failed to fetch activity {activity_id}: {e}")
             };
 
-            UniversalResponse {
+            Ok(UniversalResponse {
                 success: false,
                 result: None,
                 error: Some(error_message),
                 metadata: None,
-            }
+            })
         }
     }
 }
@@ -107,7 +138,7 @@ fn compare_activity_logic(
     all_activities: &[Activity],
     comparison_type: &str,
     compare_activity_id: Option<&str>,
-) -> serde_json::Value {
+) -> CompareActivitiesResult {
     match comparison_type {
         "pr_comparison" => compare_with_personal_records(target, all_activities),
         "specific_activity" => compare_activity_id.map_or_else(
@@ -122,7 +153,7 @@ fn compare_activity_logic(
 fn compare_with_similar_activities(
     target: &Activity,
     all_activities: &[Activity],
-) -> serde_json::Value {
+) -> CompareActivitiesResult {
     // Find similar activities (same sport, similar distance/duration)
     let similar: Vec<&Activity> = all_activities
         .iter()
@@ -135,12 +166,13 @@ fn compare_with_similar_activities(
         .collect();
 
     if similar.is_empty() {
-        return serde_json::json!({
-            "activity_id": target.id(),
-            "comparison_type": "similar_activities",
-            "comparison_count": 0,
-            "insights": ["No similar activities found for comparison"],
-        });
+        return CompareActivitiesResult {
+            activity_id: target.id().to_owned(),
+            comparison_type: "similar_activities".to_owned(),
+            comparison_count: Some(0),
+            insights: vec!["No similar activities found for comparison".to_owned()],
+            ..empty_comparison()
+        };
     }
 
     // Calculate average metrics from similar activities
@@ -159,13 +191,15 @@ fn compare_with_similar_activities(
     if let (Some(target_p), Some(avg_p)) = (target_pace, avg_pace) {
         if avg_p > 0.0 {
             let pace_diff_pct = ((target_p - avg_p) / avg_p) * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "pace",
-                "current": target_p,
-                "average": avg_p,
-                "difference_percent": pace_diff_pct,
-                "improved": pace_diff_pct < 0.0, // faster pace = lower value
-            }));
+            // faster pace = lower value
+            comparisons.push(MetricComparison {
+                metric: "pace".to_owned(),
+                current: target_p,
+                average: Some(avg_p),
+                comparison: None,
+                difference_percent: pace_diff_pct,
+                improved: Some(pace_diff_pct < 0.0),
+            });
 
             if pace_diff_pct < -5.0 {
                 insights.push(format!(
@@ -183,13 +217,15 @@ fn compare_with_similar_activities(
     if let (Some(target_h), Some(avg_h)) = (target_hr, avg_hr) {
         if avg_h > 0.0 {
             let hr_diff_pct = ((target_h - avg_h) / avg_h) * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "heart_rate",
-                "current": target_h,
-                "average": avg_h,
-                "difference_percent": hr_diff_pct,
-                "improved": hr_diff_pct < 0.0, // lower HR = better efficiency
-            }));
+            // lower HR = better efficiency
+            comparisons.push(MetricComparison {
+                metric: "heart_rate".to_owned(),
+                current: target_h,
+                average: Some(avg_h),
+                comparison: None,
+                difference_percent: hr_diff_pct,
+                improved: Some(hr_diff_pct < 0.0),
+            });
 
             if hr_diff_pct < -5.0 {
                 insights
@@ -203,12 +239,14 @@ fn compare_with_similar_activities(
     if let (Some(target_elev), Some(avg_elev)) = (target.elevation_gain(), avg_elevation) {
         if avg_elev > 0.0 {
             let elev_diff_pct = ((target_elev - avg_elev) / avg_elev) * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "elevation_gain",
-                "current": target_elev,
-                "average": avg_elev,
-                "difference_percent": elev_diff_pct,
-            }));
+            comparisons.push(MetricComparison {
+                metric: "elevation_gain".to_owned(),
+                current: target_elev,
+                average: Some(avg_elev),
+                comparison: None,
+                difference_percent: elev_diff_pct,
+                improved: None,
+            });
         }
     }
 
@@ -219,21 +257,22 @@ fn compare_with_similar_activities(
         ));
     }
 
-    serde_json::json!({
-        "activity_id": target.id(),
-        "comparison_type": "similar_activities",
-        "comparison_count": similar.len(),
-        "sport_type": format!("{:?}", target.sport_type()),
-        "comparisons": comparisons,
-        "insights": insights,
-    })
+    CompareActivitiesResult {
+        activity_id: target.id().to_owned(),
+        comparison_type: "similar_activities".to_owned(),
+        comparison_count: Some(similar.len()),
+        sport_type: Some(format!("{:?}", target.sport_type())),
+        comparisons: Some(comparisons),
+        insights,
+        ..empty_comparison()
+    }
 }
 
 /// Compare activity with personal records
 fn compare_with_personal_records(
     target: &Activity,
     all_activities: &[Activity],
-) -> serde_json::Value {
+) -> CompareActivitiesResult {
     // Find same sport activities
     let same_sport: Vec<&Activity> = all_activities
         .iter()
@@ -241,11 +280,12 @@ fn compare_with_personal_records(
         .collect();
 
     if same_sport.is_empty() {
-        return serde_json::json!({
-            "activity_id": target.id(),
-            "comparison_type": "pr_comparison",
-            "insights": ["No other activities of this sport type found"],
-        });
+        return CompareActivitiesResult {
+            activity_id: target.id().to_owned(),
+            comparison_type: "pr_comparison".to_owned(),
+            insights: vec!["No other activities of this sport type found".to_owned()],
+            ..empty_comparison()
+        };
     }
 
     let mut pr_comparisons = Vec::new();
@@ -260,13 +300,13 @@ fn compare_with_personal_records(
 
         if let Some(max_d) = max_distance {
             let is_pr = distance >= max_d;
-            pr_comparisons.push(serde_json::json!({
-                "metric": "distance",
-                "current": distance,
-                "personal_record": max_d,
-                "is_record": is_pr,
-                "percent_of_pr": (distance / max_d) * 100.0,
-            }));
+            pr_comparisons.push(PersonalRecordComparison {
+                metric: "distance".to_owned(),
+                current: distance,
+                personal_record: max_d,
+                is_record: is_pr,
+                percent_of_pr: Some((distance / max_d) * 100.0),
+            });
 
             if is_pr && (distance - max_d).abs() > 100.0 {
                 insights.push("New distance PR! 🎉".to_owned());
@@ -283,12 +323,13 @@ fn compare_with_personal_records(
 
     if let (Some(tp), Some(bp)) = (target_pace, best_pace) {
         let is_pr = tp <= bp;
-        pr_comparisons.push(serde_json::json!({
-            "metric": "pace",
-            "current": tp,
-            "personal_record": bp,
-            "is_record": is_pr,
-        }));
+        pr_comparisons.push(PersonalRecordComparison {
+            metric: "pace".to_owned(),
+            current: tp,
+            personal_record: bp,
+            is_record: is_pr,
+            percent_of_pr: None,
+        });
 
         if is_pr && (bp - tp).abs() > 0.1 {
             insights.push("New pace PR! 🚀".to_owned());
@@ -301,12 +342,13 @@ fn compare_with_personal_records(
 
         if let Some(max_p) = max_power {
             let is_pr = power >= max_p;
-            pr_comparisons.push(serde_json::json!({
-                "metric": "average_power",
-                "current": power,
-                "personal_record": max_p,
-                "is_record": is_pr,
-            }));
+            pr_comparisons.push(PersonalRecordComparison {
+                metric: "average_power".to_owned(),
+                current: f64::from(power),
+                personal_record: f64::from(max_p),
+                is_record: is_pr,
+                percent_of_pr: None,
+            });
 
             if is_pr && power > max_p {
                 insights.push("New power PR! 💪".to_owned());
@@ -321,13 +363,14 @@ fn compare_with_personal_records(
         ));
     }
 
-    serde_json::json!({
-        "activity_id": target.id(),
-        "comparison_type": "pr_comparison",
-        "sport_type": format!("{:?}", target.sport_type()),
-        "pr_comparisons": pr_comparisons,
-        "insights": insights,
-    })
+    CompareActivitiesResult {
+        activity_id: target.id().to_owned(),
+        comparison_type: "pr_comparison".to_owned(),
+        sport_type: Some(format!("{:?}", target.sport_type())),
+        pr_comparisons: Some(pr_comparisons),
+        insights,
+        ..empty_comparison()
+    }
 }
 
 /// Compare activity with a specific activity by ID
@@ -335,17 +378,20 @@ fn compare_with_specific_activity(
     target: &Activity,
     all_activities: &[Activity],
     compare_id: &str,
-) -> serde_json::Value {
+) -> CompareActivitiesResult {
     // Find the specific activity to compare with
     let compare_activity = all_activities.iter().find(|a| a.id() == compare_id);
 
     let Some(compare) = compare_activity else {
-        return serde_json::json!({
-            "activity_id": target.id(),
-            "comparison_type": "specific_activity",
-            "error": format!("Activity with ID '{compare_id}' not found"),
-            "insights": [format!("Could not find activity '{compare_id}' for comparison")],
-        });
+        return CompareActivitiesResult {
+            activity_id: target.id().to_owned(),
+            comparison_type: "specific_activity".to_owned(),
+            error: Some(format!("Activity with ID '{compare_id}' not found")),
+            insights: vec![format!(
+                "Could not find activity '{compare_id}' for comparison"
+            )],
+            ..empty_comparison()
+        };
     };
 
     // Calculate metrics for both activities
@@ -363,12 +409,14 @@ fn compare_with_specific_activity(
     {
         if compare_dist > 0.0 {
             let dist_diff_pct = ((target_dist - compare_dist) / compare_dist) * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "distance",
-                "current": target_dist,
-                "comparison": compare_dist,
-                "difference_percent": dist_diff_pct,
-            }));
+            comparisons.push(MetricComparison {
+                metric: "distance".to_owned(),
+                current: target_dist,
+                average: None,
+                comparison: Some(compare_dist),
+                difference_percent: dist_diff_pct,
+                improved: None,
+            });
         }
     }
 
@@ -376,13 +424,15 @@ fn compare_with_specific_activity(
     if let (Some(target_p), Some(compare_p)) = (target_pace, compare_pace) {
         if compare_p > 0.0 {
             let pace_diff_pct = ((target_p - compare_p) / compare_p) * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "pace",
-                "current": target_p,
-                "comparison": compare_p,
-                "difference_percent": pace_diff_pct,
-                "improved": pace_diff_pct < 0.0, // faster pace = lower value
-            }));
+            // faster pace = lower value
+            comparisons.push(MetricComparison {
+                metric: "pace".to_owned(),
+                current: target_p,
+                average: None,
+                comparison: Some(compare_p),
+                difference_percent: pace_diff_pct,
+                improved: Some(pace_diff_pct < 0.0),
+            });
             add_pace_insights(pace_diff_pct, &mut insights);
         }
     }
@@ -391,13 +441,15 @@ fn compare_with_specific_activity(
     if let (Some(target_h), Some(compare_h)) = (target_hr, compare_hr) {
         if compare_h > 0.0 {
             let hr_diff_pct = ((target_h - compare_h) / compare_h) * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "heart_rate",
-                "current": target_h,
-                "comparison": compare_h,
-                "difference_percent": hr_diff_pct,
-                "improved": hr_diff_pct < 0.0, // lower HR = better efficiency
-            }));
+            // lower HR = better efficiency
+            comparisons.push(MetricComparison {
+                metric: "heart_rate".to_owned(),
+                current: target_h,
+                average: None,
+                comparison: Some(compare_h),
+                difference_percent: hr_diff_pct,
+                improved: Some(hr_diff_pct < 0.0),
+            });
             add_heart_rate_insights(hr_diff_pct, &mut insights);
         }
     }
@@ -409,12 +461,15 @@ fn compare_with_specific_activity(
             - compare.duration_seconds() as f64)
             / compare.duration_seconds() as f64)
             * 100.0;
-        comparisons.push(serde_json::json!({
-            "metric": "duration",
-            "current": target.duration_seconds(),
-            "comparison": compare.duration_seconds(),
-            "difference_percent": duration_diff_pct,
-        }));
+        #[allow(clippy::cast_precision_loss)]
+        comparisons.push(MetricComparison {
+            metric: "duration".to_owned(),
+            current: target.duration_seconds() as f64,
+            average: None,
+            comparison: Some(compare.duration_seconds() as f64),
+            difference_percent: duration_diff_pct,
+            improved: None,
+        });
     }
 
     // Elevation comparison
@@ -423,12 +478,14 @@ fn compare_with_specific_activity(
     {
         if compare_elev > 0.0 {
             let elev_diff_pct = ((target_elev - compare_elev) / compare_elev) * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "elevation_gain",
-                "current": target_elev,
-                "comparison": compare_elev,
-                "difference_percent": elev_diff_pct,
-            }));
+            comparisons.push(MetricComparison {
+                metric: "elevation_gain".to_owned(),
+                current: target_elev,
+                average: None,
+                comparison: Some(compare_elev),
+                difference_percent: elev_diff_pct,
+                improved: None,
+            });
         }
     }
 
@@ -440,13 +497,15 @@ fn compare_with_specific_activity(
             let power_diff_pct = ((f64::from(target_power) - f64::from(compare_power))
                 / f64::from(compare_power))
                 * 100.0;
-            comparisons.push(serde_json::json!({
-                "metric": "average_power",
-                "current": target_power,
-                "comparison": compare_power,
-                "difference_percent": power_diff_pct,
-                "improved": power_diff_pct > 0.0, // higher power = better
-            }));
+            // higher power = better
+            comparisons.push(MetricComparison {
+                metric: "average_power".to_owned(),
+                current: f64::from(target_power),
+                average: None,
+                comparison: Some(f64::from(compare_power)),
+                difference_percent: power_diff_pct,
+                improved: Some(power_diff_pct > 0.0),
+            });
             add_power_insights(power_diff_pct, &mut insights);
         }
     }
@@ -455,15 +514,16 @@ fn compare_with_specific_activity(
         insights.push("Metrics are similar to the comparison activity".to_owned());
     }
 
-    serde_json::json!({
-        "activity_id": target.id(),
-        "comparison_type": "specific_activity",
-        "comparison_activity_id": compare_id,
-        "comparison_activity_name": compare.name(),
-        "sport_type": format!("{:?}", target.sport_type()),
-        "comparisons": comparisons,
-        "insights": insights,
-    })
+    CompareActivitiesResult {
+        activity_id: target.id().to_owned(),
+        comparison_type: "specific_activity".to_owned(),
+        comparison_activity_id: Some(compare_id.to_owned()),
+        comparison_activity_name: Some(compare.name().to_owned()),
+        sport_type: Some(format!("{:?}", target.sport_type())),
+        comparisons: Some(comparisons),
+        insights,
+        ..empty_comparison()
+    }
 }
 
 /// Helper to generate pace comparison insights
@@ -638,15 +698,11 @@ pub fn handle_compare_activities(
                     compare_activity_id,
                     user_uuid,
                     &request,
-                )
-                .await;
-
-                // Apply format transformation
-                Ok(apply_format_to_response(
-                    result,
-                    "comparison",
                     output_format,
-                ))
+                )
+                .await?;
+
+                Ok(result)
             }
             Err(response) => Ok(response),
         }
