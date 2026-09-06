@@ -89,6 +89,7 @@ jobs:
           STALE_AFTER = dt.timedelta(days=int(os.environ["STALE_AFTER_DAYS"]))
           NOW = dt.datetime.now(dt.timezone.utc)
           HEALTHY = {"success", "skipped", "neutral"}
+          DEFAULT_BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
 
           def api(path):
               out = subprocess.run(
@@ -126,44 +127,75 @@ jobs:
                   rows.append((name, f, f"({state})", "not alarmed"))
                   continue
               wf = os.path.basename(f)
-              # Per event, because the API takes one `event` at a time — and
-              # because "latest completed run" unfiltered would be a push run
-              # on any lane that also builds on push, which is the reader this
-              # monitor must not duplicate.
-              candidates = []
-              for event in ("schedule", "workflow_dispatch"):
-                  candidates += api(
+              # One read per event, on the DEFAULT BRANCH only.
+              #
+              # `branch` is not optional here. A dispatch run carries whatever
+              # ref it was fired on, and CLAUDE.md actively instructs sessions
+              # to dispatch ci-postgres on a feature branch for a full verdict.
+              # Without the filter, that branch run — failing, which is often
+              # the point of firing it — becomes this lane's "latest" and opens
+              # an issue asserting main is red when main is green.
+              #
+              # `repository_dispatch` is read because the bump lanes run on it
+              # and nothing else reads those verdicts.
+              latest = {}
+              for event in ("schedule", "workflow_dispatch", "repository_dispatch"):
+                  got = api(
                       f"repos/{REPO}/actions/workflows/{wf}/runs"
-                      f"?status=completed&event={event}&per_page=1"
+                      f"?status=completed&event={event}"
+                      f"&branch={DEFAULT_BRANCH}&per_page=1"
                   )["workflow_runs"]
-              if not candidates:
+                  if got:
+                      latest[event] = got[0]
+              if not latest:
                   rows.append((name, f, "never completed a cron run", "not alarmed"))
                   continue
-              run = max(candidates, key=lambda r: r["run_started_at"])
-              started = dt.datetime.fromisoformat(
-                  run["run_started_at"].replace("Z", "+00:00")
-              )
-              conclusion = run["conclusion"]
+
+              # Each event is judged on its own, never collapsed to the newest.
+              # The events are not equivalent coverage: contremaitre-bump
+              # dispatches messaging-eval with asserters_only=true, which skips
+              # the live Slack job the 04:00 cron runs, and chat-conversation-
+              # eval's live-llm job only runs on `schedule` or an explicit
+              # mode input. Taking whichever run started last would let that
+              # strict subset conclude success and bury the cron's red — the
+              # exact verdict this monitor exists to read.
               verdicts = []
-              if conclusion not in HEALTHY:
-                  verdicts.append("red")
-              age = NOW - started
-              if age > STALE_AFTER:
-                  verdicts.append(f"stale ({age.days}d since last completed run)")
-              rows.append((name, f, conclusion, ", ".join(verdicts) or "ok"))
+              for event, run in latest.items():
+                  if run["conclusion"] not in HEALTHY:
+                      verdicts.append(f"red on {event} ({run['conclusion']})")
+
+              # Staleness is a question about the CRON specifically: has it
+              # stopped firing? A dispatch cannot answer that, so it does not
+              # reset the clock.
+              cron = latest.get("schedule")
+              if cron:
+                  age = NOW - dt.datetime.fromisoformat(
+                      cron["run_started_at"].replace("Z", "+00:00")
+                  )
+                  if age > STALE_AFTER:
+                      verdicts.append(f"stale ({age.days}d since the last cron run)")
+
+              shown = ", ".join(
+                  f"{event}: {run['conclusion']}" for event, run in latest.items()
+              )
+              rows.append((name, f, shown, ", ".join(verdicts) or "ok"))
               if verdicts:
+                  worst = next(
+                      (r for r in latest.values() if r["conclusion"] not in HEALTHY),
+                      cron or next(iter(latest.values())),
+                  )
                   reds.append({
                       "name": name,
                       "file": wf,
-                      "conclusion": conclusion,
-                      "html_url": run["html_url"],
-                      "run_started_at": run["run_started_at"],
-                      "event": run["event"],
+                      "conclusion": shown,
+                      "html_url": worst["html_url"],
+                      "run_started_at": worst["run_started_at"],
+                      "event": worst["event"],
                       "verdict": ", ".join(verdicts),
                   })
 
           summary = [
-              "## Scheduled-only lane health",
+              "## Cron lane health (scheduled and dispatched runs, default branch)",
               "",
               "| workflow | latest completed | verdict |",
               "| --- | --- | --- |",
