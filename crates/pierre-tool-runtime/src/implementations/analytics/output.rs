@@ -262,3 +262,178 @@ pub struct MetricsInputSummary {
     /// Mean heart rate; absent when the activity carried none.
     pub average_heart_rate: Option<u32>,
 }
+
+// ----------------------------------------------------------------------------
+// predict_performance
+// ----------------------------------------------------------------------------
+
+/// What `predict_performance` answers with.
+///
+/// Two shapes: a prediction, or a statement of why there isn't one. The
+/// no-prediction shape carries an optional `error` because there are two ways
+/// to reach it — no running history to predict from, and a VDOT computation
+/// that failed on the history there was — and they differ only in whether
+/// there is a fault to report. Modelling them as separate variants would put
+/// one variant's required keys inside the other's, and then no client could
+/// tell which it had been handed.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum RacePredictionResult {
+    /// A prediction was made.
+    Predicted(Box<RacePredictionDetail>),
+    /// No prediction could be made, and why.
+    Unavailable(NoRacePrediction),
+}
+
+/// The answer when no race prediction could be made.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct NoRacePrediction {
+    /// The sport requested, echoed back.
+    pub target_sport: String,
+    /// Why there is no prediction, in plain language.
+    pub message: String,
+    /// The fault, when a computation failed rather than there being nothing
+    /// to compute from. Absent when the athlete simply has no running history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Always empty here, and always an array.
+    ///
+    /// It used to be an empty OBJECT on the two no-history paths and an empty
+    /// ARRAY on the failure path — the same key, two JSON types, so a client
+    /// reading `predictions.length` got `undefined` for one of them. Typing
+    /// the answer is what surfaced it; an array is what the successful shape
+    /// sends, so an array is what the empty case sends now.
+    pub predictions: Vec<RacePrediction>,
+}
+
+/// A race prediction, with the evidence it rests on.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RacePredictionDetail {
+    /// The sport requested, echoed back.
+    pub target_sport: String,
+    /// VDOT, Jack Daniels' aerobic-capacity number, rounded.
+    pub vdot: f64,
+    /// The effort the prediction was derived from.
+    pub best_performance: BestPerformance,
+    /// One prediction per standard race distance.
+    pub predictions: Vec<RacePrediction>,
+    /// How much to trust it, as a band rather than a number — it comes from
+    /// the recency of the best effort and the volume behind it, neither of
+    /// which supports a false precision like 0.62.
+    pub confidence: String,
+    /// How many running activities were considered.
+    pub activities_analyzed: usize,
+    /// What the prediction assumes, so the athlete can judge it.
+    pub notes: Vec<String>,
+}
+
+/// The athlete's best recent effort, which sets the prediction.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct BestPerformance {
+    /// Distance covered, in metres.
+    pub distance_meters: f64,
+    /// Time taken, in seconds.
+    pub time_seconds: f64,
+    /// Pace as `m:ss`, for reading rather than arithmetic.
+    pub pace_min_km: String,
+    /// RFC 3339 timestamp of the effort.
+    pub date: String,
+}
+
+/// A predicted time at one race distance.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RacePrediction {
+    /// The race, by name: `5K`, `10K`, `Half Marathon`, `Marathon`.
+    pub distance: String,
+    /// That race in metres, so a client need not parse the name.
+    pub distance_meters: f64,
+    /// Predicted time in seconds, rounded.
+    pub predicted_time_seconds: f64,
+    /// The same time as `h:mm:ss`, for reading.
+    pub predicted_time_formatted: String,
+    /// The pace it implies, as `m:ss` per kilometre.
+    pub predicted_pace_min_km: String,
+}
+
+// ----------------------------------------------------------------------------
+// calculate_fitness_score
+// ----------------------------------------------------------------------------
+
+/// What `calculate_fitness_score` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum FitnessScoreResult {
+    /// A score, and the three components behind it.
+    Scored(Box<FitnessScoreDetail>),
+    /// No activities in the window, so no score.
+    NoData(NoFitnessScore),
+}
+
+/// The answer when there is nothing in the window to score.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct NoFitnessScore {
+    /// The window requested, echoed back.
+    pub timeframe: String,
+    /// Always zero: reported rather than omitted so a client charting the
+    /// score over time has a point rather than a gap.
+    pub fitness_score: i32,
+    /// Always `Beginner`, the level a zero score classifies to.
+    pub level: String,
+    /// Which of the two empty cases this is — no activities at all, or none
+    /// inside the window.
+    pub message: String,
+}
+
+/// A fitness score and what produced it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct FitnessScoreDetail {
+    /// The window requested, echoed back.
+    pub timeframe: String,
+    /// The score, 0 to 100, rounded to a whole number.
+    pub fitness_score: i32,
+    /// Beginner, Intermediate, Advanced, Elite or Very High.
+    pub level: String,
+    /// Whether the score is rising, flat or falling across the window.
+    pub trend: String,
+    /// The three weighted parts of the score.
+    pub components: FitnessComponents,
+    /// The training-load numbers the CTL component came from.
+    pub metrics: FitnessLoadMetrics,
+    /// How many activities were in the window.
+    pub activities_analyzed: usize,
+    /// What each component means, so the number is readable without docs.
+    pub interpretation: FitnessInterpretation,
+}
+
+/// The three components of a fitness score, each 0 to 100 and rounded.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct FitnessComponents {
+    /// Chronic training load, normalised. Weighted 40%.
+    pub ctl_score: f64,
+    /// Share of weeks with three or more sessions. Weighted 30%.
+    pub consistency_score: f64,
+    /// Pace improvement across the window. Weighted 30%.
+    pub performance_score: f64,
+}
+
+/// The training-load numbers behind the CTL component, rounded.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct FitnessLoadMetrics {
+    /// Chronic training load — long-run fitness.
+    pub ctl: f64,
+    /// Acute training load — recent fatigue.
+    pub atl: f64,
+    /// Training stress balance, `ctl - atl`.
+    pub tsb: f64,
+}
+
+/// Plain-language definitions of the three components.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct FitnessInterpretation {
+    /// What CTL measures.
+    pub ctl: String,
+    /// What the consistency component measures.
+    pub consistency: String,
+    /// What the performance component measures.
+    pub performance: String,
+}

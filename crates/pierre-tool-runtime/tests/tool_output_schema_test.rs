@@ -20,12 +20,14 @@
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::analytics::output::{
-    ActivityMetricsResult, DayFrequency, HardEasyPatternResult, InsufficientPatternData,
-    IntensityDistribution, MetricsInputSummary, OvertrainingResult, PatternsResult,
-    PerformanceTrendsResult, TrendStatistics, VolumeProgressionResult, WeeklySchedulePatternResult,
+    ActivityMetricsResult, BestPerformance, DayFrequency, HardEasyPatternResult,
+    InsufficientPatternData, IntensityDistribution, MetricsInputSummary, NoRacePrediction,
+    OvertrainingResult, PatternsResult, PerformanceTrendsResult, RacePrediction,
+    RacePredictionDetail, RacePredictionResult, TrendStatistics, VolumeProgressionResult,
+    WeeklySchedulePatternResult,
 };
 use pierre_tool_runtime::implementations::analytics::{
-    AnalyzePerformanceTrendsTool, CalculateMetricsTool, DetectPatternsTool,
+    AnalyzePerformanceTrendsTool, CalculateMetricsTool, DetectPatternsTool, PredictPerformanceTool,
 };
 use pierre_tool_runtime::implementations::coaches::{
     ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool, GetActiveCoachTool,
@@ -1808,4 +1810,144 @@ fn the_analytics_schemas_reject_payloads_missing_a_required_field() {
         })),
         "calculate_metrics must report the inputs its numbers came from"
     );
+}
+
+#[test]
+fn predict_performance_declares_a_schema_that_accepts_both_of_its_answers() {
+    let derived = serde_json::to_value(schemars::schema_for!(Formatted<RacePredictionResult>))
+        .expect("derives");
+    assert_eq!(
+        <PredictPerformanceTool as McpTool<dyn ToolRuntime>>::definition(&PredictPerformanceTool)
+            .output_schema
+            .expect("predict_performance must declare an outputSchema"),
+        derived,
+        "predict_performance declares a schema derived from a DIFFERENT result type"
+    );
+
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+    let predicted = Formatted::Json(RacePredictionResult::Predicted(Box::new(
+        RacePredictionDetail {
+            target_sport: "run".to_owned(),
+            vdot: 48.0,
+            best_performance: BestPerformance {
+                distance_meters: 10_000.0,
+                time_seconds: 2_580.0,
+                pace_min_km: "4:18".to_owned(),
+                date: "2026-08-30T09:12:00+00:00".to_owned(),
+            },
+            predictions: vec![RacePrediction {
+                distance: "Half Marathon".to_owned(),
+                distance_meters: 21_097.5,
+                predicted_time_seconds: 5_712.0,
+                predicted_time_formatted: "1:35:12".to_owned(),
+                predicted_pace_min_km: "4:31".to_owned(),
+            }],
+            confidence: "high".to_owned(),
+            activities_analyzed: 34,
+            notes: vec!["Based on VDOT methodology by Jack Daniels".to_owned()],
+        },
+    )));
+    // Two ways to reach the empty answer: nothing to predict from, and a
+    // computation that failed. Only the second carries an error.
+    let no_history = Formatted::Json(RacePredictionResult::Unavailable(NoRacePrediction {
+        target_sport: "run".to_owned(),
+        message: "No running activities found for prediction".to_owned(),
+        error: None,
+        predictions: vec![],
+    }));
+    let failed = Formatted::Json(RacePredictionResult::Unavailable(NoRacePrediction {
+        target_sport: "run".to_owned(),
+        message: "Unable to calculate race predictions from available data".to_owned(),
+        error: Some("Failed to generate predictions: no valid efforts".to_owned()),
+        predictions: vec![],
+    }));
+
+    for (label, payload) in [
+        ("predicted", &predicted),
+        ("no_history", &no_history),
+        ("failed", &failed),
+    ] {
+        let value = serde_json::to_value(payload).expect("serializes");
+        assert!(
+            validator.is_valid(&value),
+            "predict_performance's {label} answer must satisfy its declared schema:\n{value:#}"
+        );
+        assert!(
+            value["predictions"].is_array(),
+            "{label}: predictions must always be an array — it used to be an empty OBJECT on the \
+             no-history paths, so a client reading .length got undefined:\n{value:#}"
+        );
+    }
+}
+
+#[test]
+fn the_two_race_prediction_shapes_match_exactly_one_arm_each() {
+    // Same property the pattern shapes need, and the reason NoRacePrediction
+    // carries an optional `error` instead of being split in two: a variant
+    // whose required keys are a SUBSET of another's can never be told apart.
+    let schema =
+        serde_json::to_value(schemars::schema_for!(RacePredictionResult)).expect("derives");
+    let defs = schema.get("$defs").cloned().unwrap_or_else(|| json!({}));
+    let arm_validators: Vec<_> = schema["anyOf"]
+        .as_array()
+        .expect("an untagged enum derives a list of arms")
+        .iter()
+        .map(|arm| {
+            let mut arm = arm.clone();
+            arm.as_object_mut()
+                .expect("each arm is an object")
+                .insert("$defs".to_owned(), defs.clone());
+            jsonschema::validator_for(&arm).expect("each arm compiles")
+        })
+        .collect();
+    assert_eq!(
+        arm_validators.len(),
+        2,
+        "predict_performance answers two shapes"
+    );
+
+    for (label, value) in [
+        (
+            "unavailable",
+            serde_json::to_value(RacePredictionResult::Unavailable(NoRacePrediction {
+                target_sport: "run".to_owned(),
+                message: "No running activities found for prediction".to_owned(),
+                error: None,
+                predictions: vec![],
+            }))
+            .expect("serializes"),
+        ),
+        (
+            "predicted",
+            serde_json::to_value(RacePredictionResult::Predicted(Box::new(
+                RacePredictionDetail {
+                    target_sport: "run".to_owned(),
+                    vdot: 48.0,
+                    best_performance: BestPerformance {
+                        distance_meters: 10_000.0,
+                        time_seconds: 2_580.0,
+                        pace_min_km: "4:18".to_owned(),
+                        date: "2026-08-30T09:12:00+00:00".to_owned(),
+                    },
+                    predictions: vec![],
+                    confidence: "medium".to_owned(),
+                    activities_analyzed: 9,
+                    notes: vec![],
+                },
+            )))
+            .expect("serializes"),
+        ),
+    ] {
+        let matched: Vec<usize> = arm_validators
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_valid(&value))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            matched.len(),
+            1,
+            "the {label} answer matched arms {matched:?}; it must match exactly one:\n{value:#}"
+        );
+    }
 }

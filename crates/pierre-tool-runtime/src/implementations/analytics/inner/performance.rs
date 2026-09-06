@@ -4,7 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{
+    BestPerformance, NoRacePrediction, RacePrediction, RacePredictionDetail, RacePredictionResult,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -23,7 +26,7 @@ fn predict_race_performance(
     activities: &[Activity],
     target_sport: &str,
     algorithm_config: &AlgorithmConfig,
-) -> serde_json::Value {
+) -> RacePredictionResult {
     use PerformancePredictor;
 
     // Filter activities by sport type
@@ -33,20 +36,24 @@ fn predict_race_performance(
         .collect();
 
     if running_activities.is_empty() {
-        return serde_json::json!({
-            "target_sport": target_sport,
-            "message": "No running activities found for prediction",
-            "predictions": {},
+        return RacePredictionResult::Unavailable(NoRacePrediction {
+            target_sport: target_sport.to_owned(),
+            message: "No running activities found for prediction".to_owned(),
+            error: None,
+            predictions: vec![],
         });
     }
 
     // Find best recent performance using PerformancePredictor
     let owned_activities: Vec<_> = running_activities.iter().copied().cloned().collect();
     let Some(best_activity) = PerformancePredictor::find_best_performance(&owned_activities) else {
-        return serde_json::json!({
-            "target_sport": target_sport,
-            "message": "No suitable activities found for prediction (need distance > 3km with valid time)",
-            "predictions": {},
+        return RacePredictionResult::Unavailable(NoRacePrediction {
+            target_sport: target_sport.to_owned(),
+            message:
+                "No suitable activities found for prediction (need distance > 3km with valid time)"
+                    .to_owned(),
+            error: None,
+            predictions: vec![],
         });
     };
 
@@ -75,7 +82,7 @@ fn predict_race_performance(
             );
 
             // Convert predictions HashMap to JSON array format for consistency
-            let predictions_array: Vec<serde_json::Value> = race_predictions
+            let predictions_array: Vec<RacePrediction> = race_predictions
                 .predictions
                 .iter()
                 .map(|(name, time_seconds)| {
@@ -92,44 +99,44 @@ fn predict_race_performance(
                         "N/A".to_owned()
                     };
 
-                    serde_json::json!({
-                        "distance": name,
-                        "distance_meters": distance_meters,
-                        "predicted_time_seconds": time_seconds.round(),
-                        "predicted_time_formatted": PerformancePredictor::format_time(*time_seconds),
-                        "predicted_pace_min_km": pace_per_km,
-                    })
+                    RacePrediction {
+                        distance: name.clone(),
+                        distance_meters,
+                        predicted_time_seconds: time_seconds.round(),
+                        predicted_time_formatted: PerformancePredictor::format_time(*time_seconds),
+                        predicted_pace_min_km: pace_per_km,
+                    }
                 })
                 .collect();
 
-            serde_json::json!({
-                "target_sport": target_sport,
-                "vdot": race_predictions.vdot.round(),
-                "best_performance": {
-                    "distance_meters": best_distance,
-                    "time_seconds": best_time,
-                    "pace_min_km": PerformancePredictor::format_pace_per_km(best_distance / best_time),
-                    "date": best_activity.start_date().to_rfc3339(),
+            RacePredictionResult::Predicted(Box::new(RacePredictionDetail {
+                target_sport: target_sport.to_owned(),
+                vdot: race_predictions.vdot.round(),
+                best_performance: BestPerformance {
+                    distance_meters: best_distance,
+                    time_seconds: best_time,
+                    pace_min_km: PerformancePredictor::format_pace_per_km(
+                        best_distance / best_time,
+                    ),
+                    date: best_activity.start_date().to_rfc3339(),
                 },
-                "predictions": predictions_array,
-                "confidence": confidence,
-                "activities_analyzed": running_activities.len(),
-                "notes": [
-                    "Predictions assume proper race preparation and taper",
-                    "Based on VDOT methodology by Jack Daniels",
-                    "Actual performance may vary with conditions and training",
+                predictions: predictions_array,
+                confidence,
+                activities_analyzed: running_activities.len(),
+                notes: vec![
+                    "Predictions assume proper race preparation and taper".to_owned(),
+                    "Based on VDOT methodology by Jack Daniels".to_owned(),
+                    "Actual performance may vary with conditions and training".to_owned(),
                 ],
-            })
+            }))
         }
         // Error handling for generate_race_predictions failure
-        Err(e) => {
-            serde_json::json!({
-                "target_sport": target_sport,
-                "error": format!("Failed to generate predictions: {e}"),
-                "predictions": [],
-                "message": "Unable to calculate race predictions from available data",
-            })
-        }
+        Err(e) => RacePredictionResult::Unavailable(NoRacePrediction {
+            target_sport: target_sport.to_owned(),
+            message: "Unable to calculate race predictions from available data".to_owned(),
+            error: Some(format!("Failed to generate predictions: {e}")),
+            predictions: vec![],
+        }),
     }
 }
 
@@ -315,26 +322,23 @@ pub fn handle_predict_performance(
                             );
                         }
 
-                        let result = UniversalResponse {
-                            success: true,
-                            result: Some(prediction),
-                            error: None,
-                            metadata: Some({
-                                let mut map = HashMap::new();
-                                map.insert(
-                                    "user_id".to_owned(),
-                                    serde_json::Value::String(user_uuid.to_string()),
-                                );
-                                map
-                            }),
-                        };
-
-                        // Apply format transformation
-                        Ok(apply_format_to_response(
-                            result,
-                            "prediction",
+                        apply_format_typed(
+                            UniversalResponse {
+                                success: true,
+                                result: None,
+                                error: None,
+                                metadata: Some({
+                                    let mut map = HashMap::new();
+                                    map.insert(
+                                        "user_id".to_owned(),
+                                        serde_json::Value::String(user_uuid.to_string()),
+                                    );
+                                    map
+                                }),
+                            },
+                            prediction,
                             output_format,
-                        ))
+                        )
                     }
                     Err(e) => Ok(UniversalResponse {
                         success: false,

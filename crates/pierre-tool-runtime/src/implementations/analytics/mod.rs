@@ -45,7 +45,7 @@ use crate::conversions::{
     tool_result_to_response, Formatted,
 };
 use crate::implementations::analytics::output::{
-    ActivityMetricsResult, PatternsResult, PerformanceTrendsResult,
+    ActivityMetricsResult, PatternsResult, PerformanceTrendsResult, RacePredictionResult,
 };
 use crate::implementations::fitness_support::process_activity_analysis;
 use crate::implementations::handler_bridge;
@@ -1037,12 +1037,12 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<RacePredictionResult>>(task_capable(tool_definition(
             "predict_performance",
             "Predict future performance based on training",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
