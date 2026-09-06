@@ -7,7 +7,7 @@
 //! The registry is seeded from `training_catalogue/` at build time. A file
 //! that fails to parse is logged and left out rather than failing the boot,
 //! so the exact counts here are what stops a broken file from reaching a
-//! release: 8 flavours, 12 skeletons, 33 workouts, one selection table.
+//! release: 9 flavours, 12 skeletons, 33 workouts, one selection table.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -64,13 +64,14 @@ const WORKOUT_SLUGS: [&str; 33] = [
     "vo2max_varied",
 ];
 
-/// The eight flavour ids (spec §3.3).
-const FLAVOUR_IDS: [&str; 8] = [
+/// The nine flavour ids (spec §3.3).
+const FLAVOUR_IDS: [&str; 9] = [
     "hvlit-foundation",
     "norwegian-singles-subthreshold",
     "norwegian-threshold-density",
     "polarized-classic",
     "pyramidal-base",
+    "pyramidal-long-course",
     "pyramidal-to-polarized",
     "race-specific",
     "time-crunched-threshold",
@@ -92,8 +93,8 @@ const SKELETON_IDS: [&str; 12] = [
     "ultra",
 ];
 
-/// Files the seed carries: 8 + 12 + 33 + the selection table.
-const SEED_FILE_COUNT: usize = 54;
+/// Files the seed carries: 9 + 12 + 33 + the selection table.
+const SEED_FILE_COUNT: usize = 55;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -150,7 +151,7 @@ fn evidence_keys() -> HashSet<(String, String)> {
 fn the_seed_carries_the_whole_catalogue() {
     let registry = TrainingCatalogueRegistry::new();
     let stats = registry.stats();
-    assert_eq!(stats.flavours, 8, "{stats}");
+    assert_eq!(stats.flavours, 9, "{stats}");
     assert_eq!(stats.skeletons, 12, "{stats}");
     assert_eq!(stats.workouts, 33, "{stats}");
     assert!(stats.selection_rows >= 43, "{stats}");

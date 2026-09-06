@@ -214,12 +214,12 @@ async fn a_full_sync_overlays_every_changed_file_and_skips_the_unchanged_one() {
     let stats = registry.stats();
     assert_eq!(
         (stats.compiled_in_count, stats.contremaitre_count),
-        (50, 4),
+        (51, 4),
         "{stats}"
     );
     assert_eq!(
         (stats.flavours, stats.skeletons, stats.workouts),
-        (8, 12, 33),
+        (9, 12, 33),
         "{stats}"
     );
 
@@ -253,7 +253,7 @@ async fn a_webhook_push_applies_only_the_file_it_changed() {
     let stats = registry.stats();
     assert_eq!(
         (stats.compiled_in_count, stats.contremaitre_count),
-        (53, 1),
+        (54, 1),
         "{stats}"
     );
 
@@ -360,5 +360,5 @@ async fn a_manifest_without_training_parses_and_syncs_nothing() {
         .unwrap();
     assert_eq!(counts(&result), (0, 0, 0));
     assert_eq!(registry.stats(), before, "the seed is untouched");
-    assert_eq!(before.compiled_in_count, 54);
+    assert_eq!(before.compiled_in_count, 55);
 }
