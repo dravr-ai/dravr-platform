@@ -7,15 +7,15 @@
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_PLAN_BLOCK_LINE, KEY_PLAN_DAY_LINE, KEY_PLAN_EMPTY,
-    KEY_PLAN_GOAL_LINE, KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION, KEY_PLAN_REST, KEY_PLAN_RESUMES,
-    KEY_PLAN_SHARED_HEADER, KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY, KEY_PLAN_TOMORROW,
-    KEY_PLAN_WEEK_HEADER,
+    MessagingStringsRegistry, KEY_PLAN_DAY_LINE, KEY_PLAN_EMPTY, KEY_PLAN_GOAL_LINE,
+    KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION, KEY_PLAN_PHASE_LINE, KEY_PLAN_REST,
+    KEY_PLAN_RESUMES, KEY_PLAN_SHARED_HEADER, KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY,
+    KEY_PLAN_TOMORROW, KEY_PLAN_WEEK_HEADER,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::User;
 use pierre_memory::training_plans::{
-    parse_plan_date, PlanBlock, PlanWeek, PlannedDay, TrainingPlan,
+    parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
 };
 use pierre_messaging::commands::CommandResponse;
 use pierre_messaging::rich_text::escape_markdown;
@@ -105,20 +105,12 @@ fn day_status<'a>(weeks: &'a [SelectedWeek<'a>], date: NaiveDate) -> DayStatus<'
     )
 }
 
-/// The outline block whose span contains `date`, when the outline has one.
+/// The outline phase whose span contains `date`, when the outline has one.
 ///
-/// A block whose span runs past `NaiveDate::MAX` holds no calendar date, so it
-/// is passed over the same way an unparseable start is — `parse_plan_date` is a
-/// format check and `weeks` reaches 255, so the end is not always a date that
-/// exists.
-fn block_on(plan: &TrainingPlan, date: NaiveDate) -> Option<&PlanBlock> {
-    plan.blocks.iter().find(|b| {
-        parse_plan_date(&b.start).is_some_and(|start| {
-            start
-                .checked_add_days(chrono::Days::new(u64::from(b.weeks) * 7))
-                .is_some_and(|end| (start..end).contains(&date))
-        })
-    })
+/// A phase whose span runs past `NaiveDate::MAX` holds no calendar date, so it
+/// is passed over the same way an unparseable start is.
+fn phase_on(plan: &TrainingPlan, date: NaiveDate) -> Option<&PlanPhase> {
+    plan.phases.iter().find(|p| p.covers(date))
 }
 
 /// The first selected week that starts after `today`, i.e. where the plan picks
@@ -182,16 +174,16 @@ fn render_header(
     // dropping the line entirely is how the phase context went silently missing
     // whenever the plan resumed in the future.
     if let Some(block) =
-        block_on(plan, today).or_else(|| weeks.first().and_then(|w| block_on(plan, w.start)))
+        phase_on(plan, today).or_else(|| weeks.first().and_then(|w| phase_on(plan, w.start)))
     {
-        let phase = block.phase.as_str();
+        let phase = block.kind.as_str();
         let hours = block
             .target_hours
             .map_or_else(String::new, |h| format!(", ~{h}h/wk"));
         let _ = writeln!(
             out,
             "{}",
-            reg.render(KEY_PLAN_BLOCK_LINE, locale, &[phase, &hours])
+            reg.render(KEY_PLAN_PHASE_LINE, locale, &[phase, &hours])
         );
     }
     out

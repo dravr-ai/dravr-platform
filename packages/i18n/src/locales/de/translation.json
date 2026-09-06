@@ -1317,7 +1317,7 @@
       "start_failed": "Ich konnte das Profil in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal."
     },
     "plan": {
-      "block_line": "Block: {0}{1}",
+      "phase_line": "Phase: {0}{1}",
       "day_line": "{0}: {1}",
       "description": "Deinen Trainingsplan anzeigen — Countdown zum Ziel plus heute und morgen, die ganze Woche oder nur heute",
       "empty": "Noch kein Plan gespeichert — bitte deinen Coach, einen auf dein Ziel hin zu bauen.",

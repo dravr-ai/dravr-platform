@@ -9,6 +9,7 @@
 
 use anyhow::Result;
 use chrono::Utc;
+use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::{
     Activity, ActivityBuilder, GuidedFlow, OnboardingState, Pillar, SportType, TenantId,
 };
@@ -150,9 +151,9 @@ fn full_plan_payload() -> Value {
                 "priority": "A"
             },
             "strategy": "rest week done after Buckland; rebuild volume 2 weeks, race-specific tempo, taper into Aug 8",
-            "blocks": [
-                {"phase": "build", "start": "2026-07-13", "weeks": 3, "intent": "volume back up, one moderate day/week", "target_hours": 9.0},
-                {"phase": "taper", "start": "2026-08-03", "weeks": 1, "intent": "shorter, sharper, more rest"}
+            "phases": [
+                {"kind": "build", "start": "2026-07-13", "weeks": 3, "intent": "volume back up, one moderate day/week", "target_hours": 9.0},
+                {"kind": "taper", "start": "2026-08-03", "weeks": 1, "intent": "shorter, sharper, more rest"}
             ]
         },
         "weeks": [
@@ -461,7 +462,7 @@ async fn a_structured_day_shows_its_steps_in_the_prompt() -> Result<()> {
     // from what it sees there. Without the structure in the prompt, the
     // re-save would carry the prose and drop the steps — and the next push
     // would put the calendar back to a timed entry with no planned load.
-    use pierre_chat_pipeline::stages::memory::inject_training_plan;
+    use pierre_chat_pipeline::stages::memory::{inject_training_plan, PlanPromptSources};
 
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
@@ -492,7 +493,10 @@ async fn a_structured_day_shows_its_steps_in_the_prompt() -> Result<()> {
 
     let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
-        executor.resources.repos().training_plans.as_ref(),
+        PlanPromptSources {
+            plans: executor.resources.repos().training_plans.as_ref(),
+            catalogue: &TrainingCatalogueRegistry::new(),
+        },
         &tenant_id,
         &user_id.to_string(),
         Some("endurance-coach"),
@@ -569,7 +573,7 @@ async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<
     assert_eq!(fetched["plan"]["id"].as_str(), Some(plan_id.as_str()));
     assert_eq!(fetched["plan"]["goal_race"]["name"], "Big Red");
     assert_eq!(fetched["plan"]["goal_race"]["date"], "2026-08-08");
-    assert_eq!(fetched["plan"]["blocks"][0]["phase"], "build");
+    assert_eq!(fetched["plan"]["phases"][0]["kind"], "build");
     assert_eq!(
         fetched["plan"]["goal_fact_id"].as_str(),
         Some(goal_fact_id.as_str())
@@ -665,7 +669,7 @@ async fn float_shaped_numbers_from_the_llm_are_accepted() -> Result<()> {
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
     let mut payload = full_plan_payload();
-    payload["outline"]["blocks"][0]["weeks"] = json!(3.0);
+    payload["outline"]["phases"][0]["weeks"] = json!(3.0);
     payload["weeks"][0]["days"][1]["duration_min"] = json!(60.0);
     payload["weeks"][1]["days"][1]["duration_min"] = json!(150.0);
 
@@ -694,7 +698,7 @@ async fn float_shaped_numbers_from_the_llm_are_accepted() -> Result<()> {
         ))
         .await?;
     let fetched = get.result.expect("get result");
-    assert_eq!(fetched["plan"]["blocks"][0]["weeks"], 3);
+    assert_eq!(fetched["plan"]["phases"][0]["weeks"], 3);
     assert_eq!(fetched["weeks"][0]["days"][1]["duration_min"], 60);
     Ok(())
 }
@@ -740,7 +744,7 @@ async fn invalid_week_date_rejects_whole_save_with_no_partial_writes() -> Result
 
 #[tokio::test]
 async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
-    use pierre_chat_pipeline::stages::memory::inject_training_plan;
+    use pierre_chat_pipeline::stages::memory::{inject_training_plan, PlanPromptSources};
 
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
@@ -756,7 +760,10 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
 
     let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
-        executor.resources.repos().training_plans.as_ref(),
+        PlanPromptSources {
+            plans: executor.resources.repos().training_plans.as_ref(),
+            catalogue: &TrainingCatalogueRegistry::new(),
+        },
         &tenant_id,
         &user_id.to_string(),
         Some("endurance-coach"),
@@ -777,7 +784,10 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     // A user with no plan gets the prompt back untouched — no empty section.
     let other_user = Uuid::new_v4();
     let untouched = inject_training_plan(
-        executor.resources.repos().training_plans.as_ref(),
+        PlanPromptSources {
+            plans: executor.resources.repos().training_plans.as_ref(),
+            catalogue: &TrainingCatalogueRegistry::new(),
+        },
         &tenant_id,
         &other_user.to_string(),
         Some("endurance-coach"),
@@ -793,7 +803,10 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     // and a trailing plan block overriding it is exactly how the 2026-07-12
     // QA walk lost its remaining pillars.
     let during_walk = inject_training_plan(
-        executor.resources.repos().training_plans.as_ref(),
+        PlanPromptSources {
+            plans: executor.resources.repos().training_plans.as_ref(),
+            catalogue: &TrainingCatalogueRegistry::new(),
+        },
         &tenant_id,
         &user_id.to_string(),
         Some("endurance-coach"),
@@ -1342,7 +1355,7 @@ async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
         .expect("get result");
     assert_eq!(fetched["plan"]["goal_race"]["name"], "Big Red");
     assert_eq!(
-        fetched["plan"]["blocks"].as_array().map(Vec::len),
+        fetched["plan"]["phases"].as_array().map(Vec::len),
         Some(0),
         "no blocks were sent, so none are stored"
     );
@@ -1724,7 +1737,7 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
 
     for (pointer, value) in [
         ("/outline/goal_race/date", "+262142-12-31"),
-        ("/outline/blocks/0/start", "+262142-01-05"),
+        ("/outline/phases/0/start", "+262142-01-05"),
         ("/weeks/0/week_start", "+262142-07-13"),
         ("/weeks/0/days/0/date", "+262142-07-13"),
         ("/outline/goal_race/date", "0999-08-08"),
@@ -1996,7 +2009,10 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
         "workout",
         "duration_min",
         "intensity",
-        "phase",
+        "kind",
+        "flavour",
+        "phase_index",
+        "template_slug",
         "steps",
         "label",
         "duration_seconds",
@@ -2024,7 +2040,9 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
     // The format hints that make those names fillable.
     assert!(catalog.contains("YYYY-MM-DD"), "catalog:\n{catalog}");
     assert!(
-        catalog.contains("rest | base | build | peak | taper"),
+        catalog.contains(
+            "prep | base | build | specialty | peak | taper | race | transition | recovery"
+        ),
         "catalog:\n{catalog}"
     );
     // Arrays of objects announce themselves as such, and nesting is legible.
@@ -2073,8 +2091,8 @@ fn outline_with(block_offset: i64, weeks: u32) -> Value {
             "priority": "A"
         },
         "strategy": "rebuild volume, then sharpen into the goal race",
-        "blocks": [
-            {"phase": "build", "start": day_offset(block_offset), "weeks": weeks, "intent": "volume up", "target_hours": 9.0}
+        "phases": [
+            {"kind": "build", "start": day_offset(block_offset), "weeks": weeks, "intent": "volume up", "target_hours": 9.0}
         ]
     })
 }
@@ -2316,4 +2334,253 @@ async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Re
         "a plan covering today and reaching its block's last day owes no gap: {gaps:?}"
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// The vision: flavour with provenance, season window, phase targets, and the
+// week and day references that make template use measurable.
+// ---------------------------------------------------------------------------
+
+/// The full plan payload with the vision stated: a coach-chosen flavour, a
+/// season window, a build phase carrying its targets, the first week naming
+/// that phase, and a day built from a catalogue template with its values.
+fn vision_payload() -> Value {
+    let mut payload = full_plan_payload();
+    payload["outline"]["flavour"] = json!({
+        "id": "polarized-classic",
+        "selected_by": "coach",
+        "override_reason": "she thrives on two hard days and hates tempo"
+    });
+    payload["outline"]["season_start"] = json!("2026-07-13");
+    payload["outline"]["season_end"] = json!("2026-08-09");
+    payload["outline"]["phases"][0]["purpose"] = json!("Race-specific intensity on a held base.");
+    payload["outline"]["phases"][0]["tid_target"] = json!({
+        "z1": {"min": 0.75, "max": 0.85},
+        "z2": {"min": 0.0, "max": 0.05},
+        "z3": {"min": 0.15, "max": 0.20}
+    });
+    payload["outline"]["phases"][0]["hard_sessions_max"] = json!(2);
+    payload["outline"]["phases"][0]["session_mix"] = json!({"vo2max_long": 2, "endurance": 4});
+    payload["outline"]["phases"][0]["loading_pattern"] = json!("3:1");
+    payload["outline"]["phases"][0]["volume_share_of_peak"] = json!({"min": 0.8, "max": 1.0});
+    payload["weeks"][0]["phase_index"] = json!(0);
+    payload["weeks"][0]["days"][1]["template_slug"] = json!("threshold_4x8");
+    payload["weeks"][0]["days"][1]["template_params"] =
+        json!({"reps": 4, "work_seconds": 480, "rest_seconds": 120});
+    payload
+}
+
+#[tokio::test]
+async fn a_vision_saves_with_its_flavour_and_reads_back() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            vision_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(saved.success, "save failed: {:?}", saved.error);
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let fetched = get.result.expect("get result");
+    let plan = &fetched["plan"];
+    assert_eq!(plan["flavour"]["id"], "polarized-classic");
+    assert_eq!(
+        plan["flavour"]["family"], "polarized",
+        "family is copied from the catalogue, never trusted from the payload"
+    );
+    assert_eq!(plan["flavour"]["sequencing"], "linear");
+    assert_eq!(plan["flavour"]["selected_by"], "coach");
+    assert_eq!(
+        plan["flavour"]["override_reason"],
+        "she thrives on two hard days and hates tempo"
+    );
+    assert_eq!(plan["season_start"], "2026-07-13");
+    assert_eq!(plan["season_end"], "2026-08-09");
+    assert_eq!(plan["phases"][0]["kind"], "build");
+    assert_eq!(
+        plan["phases"][0]["purpose"],
+        "Race-specific intensity on a held base."
+    );
+    let z3_max = plan["phases"][0]["tid_target"]["z3"]["max"]
+        .as_f64()
+        .unwrap_or_default();
+    assert!(
+        (z3_max - 0.2).abs() < 1e-6,
+        "the share round-trips as a float: {z3_max}"
+    );
+    assert_eq!(plan["phases"][0]["hard_sessions_max"], 2);
+    assert_eq!(plan["phases"][0]["session_mix"]["vo2max_long"], 2);
+    assert_eq!(plan["phases"][0]["loading_pattern"], "3:1");
+    assert_eq!(plan["phases"][1]["kind"], "taper");
+    assert!(
+        plan["phases"][1].get("tid_target").is_none(),
+        "a phase stating no target stores none"
+    );
+    let weeks = fetched["weeks"].as_array().expect("weeks");
+    assert_eq!(weeks[0]["phase_index"], 0);
+    assert!(weeks[1].get("phase_index").is_none());
+    assert_eq!(weeks[0]["days"][1]["template_slug"], "threshold_4x8");
+    assert_eq!(weeks[0]["days"][1]["template_params"]["work_seconds"], 480);
+    assert!(weeks[0]["days"][0].get("template_slug").is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unknown_flavour_is_refused_and_the_catalogue_is_named() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = vision_payload();
+    payload["outline"]["flavour"]["id"] = json!("keto-max");
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("flavour 'keto-max' is not in the training catalogue; one of:"),
+        "got: {message}"
+    );
+    assert!(
+        message.contains("polarized-classic") && message.contains("hvlit-foundation"),
+        "the refusal names the catalogue's flavours: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn a_coach_choice_needs_its_reason() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = vision_payload();
+    payload["outline"]["flavour"] = json!({"id": "polarized-classic", "selected_by": "coach"});
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("flavour.override_reason is required when selected_by is coach"),
+        "got: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn a_rule_selection_carries_no_override_reason() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = vision_payload();
+    payload["outline"]["flavour"] = json!({
+        "id": "polarized-classic",
+        "selected_by": "rule",
+        "override_reason": "because"
+    });
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("flavour.override_reason is only for a coach or athlete choice"),
+        "got: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn a_week_cannot_name_a_phase_the_plan_lacks() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = vision_payload();
+    payload["weeks"][0]["phase_index"] = json!(5);
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("week 2026-07-13 names phase_index 5 but the plan has 2 phase(s)"),
+        "got: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn a_day_cannot_name_a_template_nobody_can_read() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = vision_payload();
+    payload["weeks"][0]["days"][1]["template_slug"] = json!("hill_repeats_9x9");
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains(
+            "day 2026-07-14 names template 'hill_repeats_9x9', which is neither in the \
+             catalogue nor among this athlete's saved sessions"
+        ),
+        "got: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn a_rest_day_cannot_name_a_template() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = vision_payload();
+    payload["weeks"][0]["days"][0]["template_slug"] = json!("recovery_30min");
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("day 2026-07-13 is a rest day and names template recovery_30min"),
+        "got: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn an_infeasible_time_in_zone_target_is_refused() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = vision_payload();
+    payload["outline"]["phases"][0]["tid_target"] = json!({
+        "z1": {"min": 0.7, "max": 0.8},
+        "z2": {"min": 0.3, "max": 0.4},
+        "z3": {"min": 0.2, "max": 0.3}
+    });
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("phase.tid_target cannot be met: the three minimums sum to 1.2"),
+        "got: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
 }

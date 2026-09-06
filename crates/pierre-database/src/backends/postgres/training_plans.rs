@@ -21,12 +21,12 @@ use crate::repositories::training_plans::{
 
 /// Column list shared by every outline read so row mapping stays aligned.
 const PLAN_COLUMNS: &str = "id, tenant_id, user_id, coach_slug, goal_fact_id, goal_race_json, \
-     races_json, strategy, blocks_json, status, supersedes_id, source_conversation_id, \
-     created_at, updated_at";
+     races_json, strategy, phases_json, status, supersedes_id, source_conversation_id, \
+     created_at, updated_at, flavour_json, season_start, season_end";
 
 /// Column list shared by every week read.
 const WEEK_COLUMNS: &str = "id, tenant_id, user_id, plan_id, week_start, focus, days_json, \
-     status, supersedes_id, adjustment_reason, created_at, updated_at";
+     status, supersedes_id, adjustment_reason, created_at, updated_at, phase_index";
 
 fn plan_row(row: &PgRow) -> AppResult<TrainingPlanRow> {
     Ok(TrainingPlanRow {
@@ -42,7 +42,14 @@ fn plan_row(row: &PgRow) -> AppResult<TrainingPlanRow> {
             .map_err(map_col("goal_race_json"))?,
         races_json: row.try_get("races_json").map_err(map_col("races_json"))?,
         strategy: row.try_get("strategy").map_err(map_col("strategy"))?,
-        blocks_json: row.try_get("blocks_json").map_err(map_col("blocks_json"))?,
+        phases_json: row.try_get("phases_json").map_err(map_col("phases_json"))?,
+        flavour_json: row
+            .try_get("flavour_json")
+            .map_err(map_col("flavour_json"))?,
+        season_start: row
+            .try_get("season_start")
+            .map_err(map_col("season_start"))?,
+        season_end: row.try_get("season_end").map_err(map_col("season_end"))?,
         status: row.try_get("status").map_err(map_col("status"))?,
         supersedes_id: row
             .try_get("supersedes_id")
@@ -73,6 +80,10 @@ fn week_row(row: &PgRow) -> AppResult<PlanWeekRow> {
             .map_err(map_col("adjustment_reason"))?,
         created_at: row.try_get("created_at").map_err(map_col("created_at"))?,
         updated_at: row.try_get("updated_at").map_err(map_col("updated_at"))?,
+        phase_index: row
+            .try_get::<Option<i32>, _>("phase_index")
+            .map_err(map_col("phase_index"))?
+            .map(i64::from),
     })
 }
 
@@ -88,9 +99,10 @@ const SUPERSEDE_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans SET status = 'sup
      AND status = 'active' RETURNING id";
 
 const INSERT_PLAN_SQL: &str = "INSERT INTO training_plans (id, tenant_id, user_id, coach_slug, \
-     goal_fact_id, goal_race_json, races_json, strategy, blocks_json, status, supersedes_id, \
-     source_conversation_id, created_at, updated_at) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12)";
+     goal_fact_id, goal_race_json, races_json, strategy, phases_json, status, supersedes_id, \
+     source_conversation_id, created_at, updated_at, flavour_json, season_start, season_end) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12, \
+     $13, $14, $15)";
 
 const SUPERSEDE_ACTIVE_WEEK_SQL: &str = "UPDATE training_plan_weeks SET status = 'superseded', \
      updated_at = $1 WHERE tenant_id = $2 AND user_id = $3 AND plan_id = $4 AND week_start = $5 \
@@ -98,7 +110,8 @@ const SUPERSEDE_ACTIVE_WEEK_SQL: &str = "UPDATE training_plan_weeks SET status =
 
 const INSERT_WEEK_SQL: &str = "INSERT INTO training_plan_weeks (id, tenant_id, user_id, plan_id, \
      week_start, focus, days_json, status, supersedes_id, adjustment_reason, created_at, \
-     updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $10)";
+     updated_at, phase_index) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $10, $11)";
 
 /// Re-parent a superseded outline's surviving weeks onto the outline that
 /// replaced it: every active week is flipped to `'superseded'` and re-inserted
@@ -142,6 +155,14 @@ async fn carry_forward_active_weeks(
             .bind(&old.id)
             .bind(&old.adjustment_reason)
             .bind(now)
+            .bind(
+                old.phase_index
+                    .map(i32::try_from)
+                    .transpose()
+                    .map_err(|_| {
+                        AppError::database("carried phase_index out of range".to_owned())
+                    })?,
+            )
             .execute(&mut *conn)
             .await
             .map_err(|e| AppError::database(format!("carry forward plan week: {e}")))?;
@@ -173,10 +194,13 @@ async fn supersede_and_insert_plan(
         .bind(&v.goal_race_json)
         .bind(&v.races_json)
         .bind(params.strategy)
-        .bind(&v.blocks_json)
+        .bind(&v.phases_json)
         .bind(superseded.as_deref())
         .bind(params.source_conversation_id)
         .bind(v.now)
+        .bind(v.flavour_json.as_deref())
+        .bind(params.season_start)
+        .bind(params.season_end)
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("insert training plan: {e}")))?;
@@ -203,7 +227,10 @@ async fn supersede_and_insert_plan(
         goal_race: params.goal_race,
         races: params.races,
         strategy: params.strategy,
-        blocks: params.blocks,
+        flavour: params.flavour,
+        season_start: params.season_start,
+        season_end: params.season_end,
+        phases: params.phases,
         superseded,
         source_conversation_id: params.source_conversation_id,
         now: v.now,
@@ -242,6 +269,12 @@ async fn supersede_and_insert_week(
         .bind(superseded.as_deref())
         .bind(week.adjustment_reason)
         .bind(v.now)
+        .bind(
+            week.phase_index
+                .map(i32::try_from)
+                .transpose()
+                .map_err(|_| AppError::invalid_input("phase_index out of range"))?,
+        )
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("insert plan week: {e}")))?;
@@ -255,6 +288,7 @@ async fn supersede_and_insert_week(
         days: week.days,
         superseded,
         adjustment_reason: week.adjustment_reason,
+        phase_index: week.phase_index,
         now: v.now,
     })
 }
@@ -327,7 +361,10 @@ impl TrainingPlanRepository for PostgresDatabase {
                 goal_race: o.goal_race,
                 races: o.races,
                 strategy: o.strategy,
-                blocks: o.blocks,
+                flavour: o.flavour,
+                season_start: o.season_start,
+                season_end: o.season_end,
+                phases: o.phases,
                 source_conversation_id: o.source_conversation_id,
             };
             let plan = supersede_and_insert_plan(&mut tx, &stp).await?;

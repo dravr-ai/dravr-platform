@@ -859,7 +859,7 @@ pub(crate) async fn assemble_prompt_and_messages(
             |tz| chrono::Utc::now().with_timezone(&tz).date_naive(),
         );
     let base_prompt = inject_training_plan(
-        ctx.repos.training_plans.as_ref(),
+        ctx.plan_prompt_sources(),
         &input.tool_tenant_id.to_string(),
         &input.user_id,
         turn_coach_id,

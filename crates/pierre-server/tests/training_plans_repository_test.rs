@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
@@ -15,8 +16,9 @@ use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, SaveTrainingPlanParams,
 };
 use pierre_memory::training_plans::{
-    BlockPhase, GoalRace, PlanBlock, PlanStatus, PlannedDay, RacePriority, WeekStatus,
+    GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, WeekStatus,
 };
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// Open the backend under test.
@@ -38,21 +40,37 @@ fn big_red() -> GoalRace {
     }
 }
 
-fn blocks() -> Vec<PlanBlock> {
+fn phases() -> Vec<PlanPhase> {
     vec![
-        PlanBlock {
-            phase: BlockPhase::Build,
+        PlanPhase {
+            kind: PhaseKind::Build,
             start: "2026-07-13".to_owned(),
             weeks: 3,
             intent: "volume back up, one moderate day per week".to_owned(),
             target_hours: Some(9.0),
+            purpose: String::new(),
+            volume_share_of_peak: None,
+            tid_target: None,
+            hard_sessions_max: None,
+            session_mix: BTreeMap::new(),
+            flavour_override: None,
+            loading_pattern: None,
+            skeleton_id: None,
         },
-        PlanBlock {
-            phase: BlockPhase::Taper,
+        PlanPhase {
+            kind: PhaseKind::Taper,
             start: "2026-08-03".to_owned(),
             weeks: 1,
             intent: "shorter, sharper, more rest".to_owned(),
             target_hours: Some(5.0),
+            purpose: String::new(),
+            volume_share_of_peak: None,
+            tid_target: None,
+            hard_sessions_max: None,
+            session_mix: BTreeMap::new(),
+            flavour_override: None,
+            loading_pattern: None,
+            skeleton_id: None,
         },
     ]
 }
@@ -68,6 +86,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             intensity: String::new(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         },
         PlannedDay {
             date: "2026-07-14".to_owned(),
@@ -77,6 +97,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             intensity: "3x8min @ 88-93% FTP".to_owned(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         },
         PlannedDay {
             date: "2026-07-15".to_owned(),
@@ -86,6 +108,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             intensity: "Z2".to_owned(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         },
     ]
 }
@@ -94,7 +118,7 @@ fn plan_params<'a>(
     tenant: &'a str,
     user: &'a str,
     race: &'a GoalRace,
-    blocks: &'a [PlanBlock],
+    phases: &'a [PlanPhase],
 ) -> SaveTrainingPlanParams<'a> {
     SaveTrainingPlanParams {
         tenant_id: tenant,
@@ -104,7 +128,10 @@ fn plan_params<'a>(
         goal_race: race,
         races: &[],
         strategy: "rest week done; rebuild volume, then race-specific tempo, taper into Aug 8",
-        blocks,
+        flavour: None,
+        season_start: None,
+        season_end: None,
+        phases,
         source_conversation_id: Some("conv-1"),
     }
 }
@@ -117,7 +144,7 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
     let user = Uuid::new_v4().to_string();
 
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let plan = repos
         .training_plans
         .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
@@ -137,6 +164,7 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
                 focus: "volume back up",
                 days: &days,
                 adjustment_reason: "",
+                phase_index: None,
             }],
         })
         .await?;
@@ -154,10 +182,10 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
     assert_eq!(fetched.goal_race.name, "Big Red");
     assert_eq!(fetched.goal_race.date, "2026-08-08");
     assert_eq!(fetched.goal_race.priority, RacePriority::A);
-    assert_eq!(fetched.blocks.len(), 2);
-    assert_eq!(fetched.blocks[0].phase, BlockPhase::Build);
-    assert_eq!(fetched.blocks[1].phase, BlockPhase::Taper);
-    assert_eq!(fetched.blocks[0].target_hours, Some(9.0));
+    assert_eq!(fetched.phases.len(), 2);
+    assert_eq!(fetched.phases[0].kind, PhaseKind::Build);
+    assert_eq!(fetched.phases[1].kind, PhaseKind::Taper);
+    assert_eq!(fetched.phases[0].target_hours, Some(9.0));
     assert!(fetched.strategy.contains("taper into Aug 8"));
     assert_eq!(fetched.goal_fact_id.as_deref(), Some("fact-goal-1"));
     assert_eq!(fetched.status, PlanStatus::Active);
@@ -182,7 +210,7 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let plan = repos
         .training_plans
         .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
@@ -220,6 +248,7 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
                 focus: "volume back up",
                 days: &days,
                 adjustment_reason: "",
+                phase_index: None,
             }],
         })
         .await?;
@@ -256,7 +285,7 @@ async fn outline_resave_supersedes_previous() -> Result<()> {
     let user = Uuid::new_v4().to_string();
 
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let first = repos
         .training_plans
         .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
@@ -291,7 +320,7 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
     let user = Uuid::new_v4().to_string();
 
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let plan = repos
         .training_plans
         .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
@@ -313,12 +342,14 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
                     focus: "volume",
                     days: &days1,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-07-20",
                     focus: "tempo",
                     days: &days2,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })
@@ -343,6 +374,7 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
                 focus: "volume",
                 days: &adjusted,
                 adjustment_reason: "tempo moved to Wednesday — legs heavy Tuesday",
+                phase_index: None,
             }],
         })
         .await?;
@@ -385,7 +417,7 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
     let user = Uuid::new_v4().to_string();
 
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let plan = repos
         .training_plans
         .save_training_plan(&plan_params(&tenant_a, &user, &race, &blks))
@@ -414,6 +446,7 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
                 focus: "volume",
                 days: &days,
                 adjustment_reason: "",
+                phase_index: None,
             }],
         })
         .await;
@@ -442,7 +475,7 @@ async fn coach_scoped_plan_prefers_specific_over_agnostic() -> Result<()> {
     let user = Uuid::new_v4().to_string();
 
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let mut agnostic = plan_params(&tenant, &user, &race, &blks);
     agnostic.coach_slug = None;
     repos.training_plans.save_training_plan(&agnostic).await?;
@@ -484,7 +517,7 @@ async fn a_coach_bound_plan_is_invisible_to_a_coachless_lookup() -> Result<()> {
     let user = Uuid::new_v4().to_string();
 
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let coach_bound = repos
         .training_plans
         .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
@@ -510,12 +543,15 @@ async fn a_coach_bound_plan_is_invisible_to_a_coachless_lookup() -> Result<()> {
     Ok(())
 }
 
-fn outline_input<'a>(race: &'a GoalRace, blocks: &'a [PlanBlock]) -> PlanOutlineInput<'a> {
+fn outline_input<'a>(race: &'a GoalRace, phases: &'a [PlanPhase]) -> PlanOutlineInput<'a> {
     PlanOutlineInput {
         goal_race: race,
         races: &[],
         strategy: "rebuild volume, race-specific tempo, taper into Aug 8",
-        blocks,
+        flavour: None,
+        season_start: None,
+        season_end: None,
+        phases,
         source_conversation_id: Some("conv-1"),
     }
 }
@@ -527,7 +563,7 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
     let days = week_days("2026-07-13");
 
     let saved = repos
@@ -543,6 +579,7 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
                 focus: "volume back up",
                 days: &days,
                 adjustment_reason: "",
+                phase_index: None,
             }],
         })
         .await?;
@@ -573,7 +610,7 @@ async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
 
     let plan = repos
         .training_plans
@@ -594,6 +631,7 @@ async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
                 focus: "volume",
                 days: &days,
                 adjustment_reason: "",
+                phase_index: None,
             }],
         })
         .await?;
@@ -623,6 +661,7 @@ async fn bundle_weeks_only_with_no_plan_errors_and_writes_nothing() -> Result<()
                 focus: "volume",
                 days: &days,
                 adjustment_reason: "",
+                phase_index: None,
             }],
         })
         .await;
@@ -644,7 +683,7 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
 
     let d1 = week_days("2026-07-13");
     let d2 = week_days("2026-07-20");
@@ -663,18 +702,21 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
                     focus: "volume back up",
                     days: &d1,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-07-20",
                     focus: "race-specific tempo",
                     days: &d2,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-07-27",
                     focus: "peak then unload",
                     days: &d3,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })
@@ -764,7 +806,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
-    let blks = blocks();
+    let blks = phases();
 
     // Plan A — the first goal, with the two weeks around it.
     let a1 = week_days("2026-07-28");
@@ -784,12 +826,14 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
                     focus: "race week",
                     days: &a1,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-08-04",
                     focus: "post-race easy",
                     days: &a2,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })
@@ -812,6 +856,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             intensity: String::new(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         },
         PlannedDay {
             date: "2026-08-26".to_owned(),
@@ -821,6 +867,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             intensity: "6x3min @ 95-100%".to_owned(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         },
         PlannedDay {
             date: "2026-08-29".to_owned(),
@@ -830,6 +878,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             intensity: "race effort".to_owned(),
             steps: Vec::new(),
             fueling: None,
+            template_slug: None,
+            template_params: None,
         },
     ];
     let race_b = GoalRace {
@@ -851,18 +901,21 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
                     focus: "reintroduction",
                     days: &b1,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-08-17",
                     focus: "build",
                     days: &b2,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-08-24",
                     focus: "peak",
                     days: &b3,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })
@@ -887,12 +940,14 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
                     focus: "reintroduction, revised",
                     days: &c1,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-08-17",
                     focus: "build, revised",
                     days: &c2,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })
@@ -978,7 +1033,7 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
 
     let d1 = week_days("2026-07-13");
     let d2 = week_days("2026-07-20");
@@ -996,12 +1051,14 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
                     focus: "volume back up",
                     days: &d1,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: "2026-07-20",
                     focus: "race-specific tempo",
                     days: &d2,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })
@@ -1023,6 +1080,7 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
                 focus: "volume back up",
                 days: &rewritten,
                 adjustment_reason: "illness — intervals pulled",
+                phase_index: None,
             }],
         })
         .await?;
@@ -1046,7 +1104,7 @@ async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
     let race = big_red();
-    let blks = blocks();
+    let blks = phases();
 
     let first = repos
         .training_plans

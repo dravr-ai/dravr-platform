@@ -23,12 +23,14 @@ use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemC
 use pierre_core::models::groups::{
     CoachingGroup, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
 };
+use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_memory::training_plans::{BlockPhase, GoalRace, PlanBlock, PlannedDay, RacePriority};
+use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
 use pierre_runtime_context::CoachesCtx;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -67,6 +69,8 @@ fn day(
         intensity: intensity.to_owned(),
         steps: Vec::new(),
         fueling: None,
+        template_slug: None,
+        template_params: None,
     }
 }
 
@@ -129,7 +133,7 @@ async fn seed_plan_with(
     user_id: Uuid,
     tenant: TenantId,
     coach_slug: Option<&str>,
-    leading_blocks: &[PlanBlock],
+    leading_blocks: &[PlanPhase],
     extra_weeks: &[(String, Vec<PlannedDay>)],
 ) -> Result<()> {
     let goal = GoalRace {
@@ -140,12 +144,20 @@ async fn seed_plan_with(
     };
     let (start, dates) = week_dates();
     let mut blocks = leading_blocks.to_vec();
-    blocks.push(PlanBlock {
-        phase: BlockPhase::Build,
+    blocks.push(PlanPhase {
+        kind: PhaseKind::Build,
         start: start.format("%Y-%m-%d").to_string(),
         weeks: 4,
         intent: "volume up, one moderate day".to_owned(),
         target_hours: Some(14.0),
+        purpose: String::new(),
+        volume_share_of_peak: None,
+        tid_target: None,
+        hard_sessions_max: None,
+        session_mix: BTreeMap::new(),
+        flavour_override: None,
+        loading_pattern: None,
+        skeleton_id: None,
     });
     // Index 2 is today, index 3 tomorrow — the compact view must show those two.
     let days = vec![
@@ -169,6 +181,7 @@ async fn seed_plan_with(
         focus: "build volume",
         days: &days,
         adjustment_reason: "",
+        phase_index: None,
     }];
     for (extra_start, extra_days) in extra_weeks {
         weeks.push(PlanWeekInput {
@@ -176,6 +189,7 @@ async fn seed_plan_with(
             focus: "off the calendar",
             days: extra_days,
             adjustment_reason: "",
+            phase_index: None,
         });
     }
     resources
@@ -191,8 +205,11 @@ async fn seed_plan_with(
                 goal_race: &goal,
                 races: &[],
                 strategy: "rebuild volume then sharpen",
-                blocks: &blocks,
+                phases: &blocks,
                 source_conversation_id: None,
+                flavour: None,
+                season_start: None,
+                season_end: None,
             }),
             weeks: &weeks,
         })
@@ -558,12 +575,20 @@ async fn plan_today_renders_a_single_day() -> Result<()> {
 #[tokio::test]
 async fn plan_survives_a_stored_date_at_the_calendar_edge() -> Result<()> {
     let (resources, user_id, tenant, conversation_id) = setup().await?;
-    let edge_block = PlanBlock {
-        phase: BlockPhase::Base,
+    let edge_block = PlanPhase {
+        kind: PhaseKind::Base,
         start: "+262142-01-01".to_owned(),
         weeks: 255,
         intent: "far side of the calendar".to_owned(),
         target_hours: None,
+        purpose: String::new(),
+        volume_share_of_peak: None,
+        tid_target: None,
+        hard_sessions_max: None,
+        session_mix: BTreeMap::new(),
+        flavour_override: None,
+        loading_pattern: None,
+        skeleton_id: None,
     };
     let edge_week = (
         "+262142-12-31".to_owned(),
@@ -610,7 +635,7 @@ async fn plan_survives_a_stored_date_at_the_calendar_edge() -> Result<()> {
         .execute(&ctx(&resources, user_id, tenant, &conversation_id, vec![]))
         .await?;
     assert!(
-        response.text.contains("Block: build, ~14h/wk"),
+        response.text.contains("Phase: build, ~14h/wk"),
         "current block phase missing: {}",
         response.text
     );
@@ -649,12 +674,20 @@ async fn seed_future_only_plan(
     let second_start = (resume + chrono::Days::new(7))
         .format("%Y-%m-%d")
         .to_string();
-    let blocks = vec![PlanBlock {
-        phase: BlockPhase::Base,
+    let phases = vec![PlanPhase {
+        kind: PhaseKind::Base,
         start: resume_start.clone(),
         weeks: 4,
         intent: "reintroduce structure after the break".to_owned(),
         target_hours: Some(9.0),
+        purpose: String::new(),
+        volume_share_of_peak: None,
+        tid_target: None,
+        hard_sessions_max: None,
+        session_mix: BTreeMap::new(),
+        flavour_override: None,
+        loading_pattern: None,
+        skeleton_id: None,
     }];
     let first_days: Vec<PlannedDay> = (0..7)
         .map(|i| {
@@ -685,8 +718,11 @@ async fn seed_future_only_plan(
                 goal_race: &goal,
                 races: &[],
                 strategy: "rest, then rebuild toward the A race",
-                blocks: &blocks,
+                phases: &phases,
                 source_conversation_id: None,
+                flavour: None,
+                season_start: None,
+                season_end: None,
             }),
             weeks: &[
                 PlanWeekInput {
@@ -694,12 +730,14 @@ async fn seed_future_only_plan(
                     focus: "reintroduction",
                     days: &first_days,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: &second_start,
                     focus: "build",
                     days: &second_days,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })
@@ -724,12 +762,20 @@ async fn seed_week_missing_today(
         discipline: "gravel".to_owned(),
         priority: RacePriority::A,
     };
-    let blocks = vec![PlanBlock {
-        phase: BlockPhase::Build,
+    let phases = vec![PlanPhase {
+        kind: PhaseKind::Build,
         start: start.format("%Y-%m-%d").to_string(),
         weeks: 4,
         intent: "volume up".to_owned(),
         target_hours: Some(14.0),
+        purpose: String::new(),
+        volume_share_of_peak: None,
+        tid_target: None,
+        hard_sessions_max: None,
+        session_mix: BTreeMap::new(),
+        flavour_override: None,
+        loading_pattern: None,
+        skeleton_id: None,
     }];
     // Index 2 is today — every other day of the week is listed, today is not.
     let days: Vec<PlannedDay> = dates
@@ -752,14 +798,18 @@ async fn seed_week_missing_today(
                 goal_race: &goal,
                 races: &[],
                 strategy: "build volume",
-                blocks: &blocks,
+                phases: &phases,
                 source_conversation_id: None,
+                flavour: None,
+                season_start: None,
+                season_end: None,
             }),
             weeks: &[PlanWeekInput {
                 week_start: &week_start,
                 focus: "build volume",
                 days: &days,
                 adjustment_reason: "",
+                phase_index: None,
             }],
         })
         .await?;
@@ -829,7 +879,7 @@ async fn a_gap_still_names_the_phase_of_the_week_shown() -> Result<()> {
         .execute(&ctx(&resources, user_id, tenant, &conversation_id, vec![]))
         .await?;
     assert!(
-        response.text.contains("Block: base, ~9h/wk"),
+        response.text.contains("Phase: base, ~9h/wk"),
         "header must name the phase of the week it is about to show: {}",
         response.text
     );
@@ -854,12 +904,20 @@ async fn seed_expired_plan(
         discipline: "gravel".to_owned(),
         priority: RacePriority::A,
     };
-    let blocks = vec![PlanBlock {
-        phase: BlockPhase::Taper,
+    let phases = vec![PlanPhase {
+        kind: PhaseKind::Taper,
         start: first.format("%Y-%m-%d").to_string(),
         weeks: 2,
         intent: "sharpen into the race".to_owned(),
         target_hours: Some(8.0),
+        purpose: String::new(),
+        volume_share_of_peak: None,
+        tid_target: None,
+        hard_sessions_max: None,
+        session_mix: BTreeMap::new(),
+        flavour_override: None,
+        loading_pattern: None,
+        skeleton_id: None,
     }];
     let first_start = first.format("%Y-%m-%d").to_string();
     let second_start = second.format("%Y-%m-%d").to_string();
@@ -892,8 +950,11 @@ async fn seed_expired_plan(
                 goal_race: &goal,
                 races: &[],
                 strategy: "taper and race",
-                blocks: &blocks,
+                phases: &phases,
                 source_conversation_id: None,
+                flavour: None,
+                season_start: None,
+                season_end: None,
             }),
             weeks: &[
                 PlanWeekInput {
@@ -901,12 +962,14 @@ async fn seed_expired_plan(
                     focus: "taper",
                     days: &first_days,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
                 PlanWeekInput {
                     week_start: &second_start,
                     focus: "race week",
                     days: &second_days,
                     adjustment_reason: "",
+                    phase_index: None,
                 },
             ],
         })

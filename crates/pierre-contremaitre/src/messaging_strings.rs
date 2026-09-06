@@ -655,8 +655,8 @@ pub const KEY_CALIBRATE_TOPIC_RECOVERY: &str = "commands.calibrate.topic_recover
 
 /// Key: `/plan` goal header. `{0}` = race name, `{1}` = race date, `{2}` = days out.
 pub const KEY_PLAN_GOAL_LINE: &str = "commands.plan.goal_line";
-/// Key: `/plan` block/phase line. `{0}` = phase, `{1}` = weekly hours note.
-pub const KEY_PLAN_BLOCK_LINE: &str = "commands.plan.block_line";
+/// Key: `/plan` current-phase line. `{0}` = the phase kind, `{1}` = the hours suffix.
+pub const KEY_PLAN_PHASE_LINE: &str = "commands.plan.phase_line";
 /// Key: `/plan` single-day line. `{0}` = day label, `{1}` = the session.
 pub const KEY_PLAN_DAY_LINE: &str = "commands.plan.day_line";
 /// Key: `/plan` rest-day session text.

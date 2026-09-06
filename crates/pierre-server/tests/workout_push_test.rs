@@ -23,6 +23,7 @@
 mod common;
 
 use pierre_core::permissions::scopes::OAuthScope;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -30,12 +31,13 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc, Weekday};
 use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
     CalendarEventSource, CalendarKey, ConnectionType, PrescribedWorkout, SportType, TenantId,
     UserOAuthToken, WorkoutStep,
 };
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
-use pierre_memory::training_plans::{BlockPhase, GoalRace, PlanBlock, PlannedDay, RacePriority};
+use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -402,19 +404,30 @@ impl Fixture {
             discipline: "gravel".to_owned(),
             priority: RacePriority::A,
         };
-        let blocks = vec![PlanBlock {
-            phase: BlockPhase::Base,
+        let phases = vec![PlanPhase {
+            kind: PhaseKind::Base,
             start: weeks[0].0.format("%Y-%m-%d").to_string(),
             weeks: 10,
             intent: "rebuild volume".to_owned(),
             target_hours: None,
+            purpose: String::new(),
+            volume_share_of_peak: None,
+            tid_target: None,
+            hard_sessions_max: None,
+            session_mix: BTreeMap::new(),
+            flavour_override: None,
+            loading_pattern: None,
+            skeleton_id: None,
         }];
         let outline = with_outline.then(|| PlanOutlineInput {
             goal_race: &goal,
             races: &[],
             strategy: "steady base, then sharpen",
-            blocks: &blocks,
+            phases: &phases,
             source_conversation_id: None,
+            flavour: None,
+            season_start: None,
+            season_end: None,
         });
         let starts: Vec<String> = weeks
             .iter()
@@ -428,6 +441,7 @@ impl Fixture {
                 focus,
                 days,
                 adjustment_reason: "",
+                phase_index: None,
             })
             .collect();
         self.executor
@@ -564,6 +578,8 @@ fn planned(
         intensity: intensity.to_owned(),
         steps: Vec::new(),
         fueling: None,
+        template_slug: None,
+        template_params: None,
     }
 }
 

@@ -21,6 +21,7 @@ use chrono::{Duration, Utc};
 use serde_json::Value;
 use uuid::Uuid;
 
+use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::{SportType, TenantId};
 use pierre_database::repositories::{
     ActivityCacheRepository, DossierRepository, PlaybookRepository, TrainingPlanRepository,
@@ -30,6 +31,28 @@ use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
 use pierre_services::training_plan_render::render_training_plan_block;
+
+use crate::ChatPipelineContext;
+
+/// What the plan block is rendered from: the stored plan and the catalogue
+/// whose templates the phase header names.
+#[derive(Clone, Copy)]
+pub struct PlanPromptSources<'a> {
+    /// The athlete's stored plans.
+    pub plans: &'a dyn TrainingPlanRepository,
+    /// The live training catalogue.
+    pub catalogue: &'a TrainingCatalogueRegistry,
+}
+
+impl ChatPipelineContext {
+    /// The plan block's sources: the plan repository and the live catalogue.
+    pub(crate) fn plan_prompt_sources(&self) -> PlanPromptSources<'_> {
+        PlanPromptSources {
+            plans: self.repos.training_plans.as_ref(),
+            catalogue: self.training_catalogue_registry.as_ref(),
+        }
+    }
+}
 
 /// Append the per-user OKF context bundle to the system prompt.
 ///
@@ -72,7 +95,7 @@ pub async fn inject_okf_bundle(
 /// pillars were never probed). The block returns once coverage completes and
 /// onboarding mode clears.
 pub async fn inject_training_plan(
-    plan_repo: &dyn TrainingPlanRepository,
+    sources: PlanPromptSources<'_>,
     tenant_id: &str,
     user_id: &str,
     coach_slug: Option<&str>,
@@ -83,10 +106,8 @@ pub async fn inject_training_plan(
     if onboarding_active {
         return base_prompt;
     }
-    let plan = match plan_repo
-        .get_active_plan(tenant_id, user_id, coach_slug)
-        .await
-    {
+    let PlanPromptSources { plans, catalogue } = sources;
+    let plan = match plans.get_active_plan(tenant_id, user_id, coach_slug).await {
         Ok(Some(plan)) => plan,
         Ok(None) => return base_prompt,
         Err(e) => {
@@ -94,7 +115,7 @@ pub async fn inject_training_plan(
             return base_prompt;
         }
     };
-    let weeks = match plan_repo
+    let weeks = match plans
         .list_plan_weeks(tenant_id, user_id, &plan.id, false)
         .await
     {
@@ -104,7 +125,7 @@ pub async fn inject_training_plan(
             return base_prompt;
         }
     };
-    match render_training_plan_block(&plan, &weeks, today) {
+    match render_training_plan_block(&plan, &weeks, today, catalogue) {
         Some(block) => format!("{base_prompt}{block}"),
         None => base_prompt,
     }

@@ -22,13 +22,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
+use pierre_core::models::periodization::serde_num::whole_u32_opt;
 use pierre_core::models::{ConversationRecord, Pillar, TenantId, WorkoutStep};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanBlock, PlanWeek, PlannedDay, RacePriority, WeekStatus,
+    parse_plan_date, GoalRace, PlanPhase, PlanWeek, PlannedDay, RacePriority, WeekStatus,
     MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
@@ -46,6 +47,10 @@ use super::training_plan_schema::{
 };
 use super::training_plan_telemetry::{
     athlete_today, emit_coverage_check, emit_plan_saved, emit_ramp_verdict, ramp_baseline,
+};
+use super::training_plan_vision::{
+    check_phase_indexes, check_template_slugs, resolve_flavour, validate_day_template,
+    validate_flavour, validate_phase, validate_season_window, FlavourPayload,
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -108,18 +113,27 @@ struct OutlinePayload {
     /// mesocycle structure to describe, and requiring one made every such plan
     /// unsaveable until the coach invented phase/start/weeks/intent for it.
     #[serde(default)]
-    blocks: Vec<PlanBlock>,
+    phases: Vec<PlanPhase>,
+    /// The flavour the season runs on, when the coach states one.
+    #[serde(default)]
+    flavour: Option<FlavourPayload>,
+    #[serde(default)]
+    season_start: Option<String>,
+    #[serde(default)]
+    season_end: Option<String>,
 }
 
 /// One week entry of the save payload.
 #[derive(Deserialize)]
-struct WeekPayload {
-    week_start: String,
+pub(super) struct WeekPayload {
+    pub(super) week_start: String,
     #[serde(default)]
-    focus: String,
-    days: Vec<PlannedDay>,
+    pub(super) focus: String,
+    pub(super) days: Vec<PlannedDay>,
     #[serde(default)]
-    adjustment_reason: String,
+    pub(super) adjustment_reason: String,
+    #[serde(default, deserialize_with = "whole_u32_opt")]
+    pub(super) phase_index: Option<u32>,
 }
 
 /// Upper bounds on free-text and collection sizes in a save payload. A plan is
@@ -128,16 +142,16 @@ struct WeekPayload {
 /// single degenerate save from doing that. Generous enough that no real coach
 /// plan hits them.
 const MAX_STRATEGY_LEN: usize = 4_000;
-const MAX_TEXT_LEN: usize = 1_000;
+pub(super) const MAX_TEXT_LEN: usize = 1_000;
 const MAX_RACES: usize = 12;
-const MAX_BLOCKS: usize = 24;
+const MAX_PHASES: usize = 24;
 /// Two full seasons. The longest real single-payload plan is one season (52
-/// weeks to a late-year A race), and `MAX_BLOCKS` mesocycles of the usual three
+/// weeks to a late-year A race), and `MAX_PHASES` mesocycles of the usual three
 /// to four weeks describe roughly 96 weeks — so the two caps agree, and one
 /// save can still span a season boundary. Above this the payload is a
 /// hallucination, and each week costs two statements in the save transaction.
 const MAX_WEEKS: usize = 104;
-const MAX_TARGET_HOURS: f32 = 60.0;
+pub(super) const MAX_TARGET_HOURS: f32 = 60.0;
 const MAX_DURATION_MIN: u32 = 24 * 60;
 /// Fuelling ceilings, mirroring `$defs.FuelingProtocol` in the
 /// structured-workout schema. The schema bounds what a coach may emit; nothing
@@ -166,7 +180,7 @@ const MAX_PLAN_YEAR: i32 = 9999;
 ///
 /// `field` names the payload field in the rejection so the model's next
 /// iteration knows which date to fix.
-fn plan_date(field: &str, raw: &str) -> AppResult<NaiveDate> {
+pub(super) fn plan_date(field: &str, raw: &str) -> AppResult<NaiveDate> {
     let Some(date) = parse_plan_date(raw) else {
         return Err(AppError::invalid_input(format!(
             "{field} must be YYYY-MM-DD, got '{raw}'"
@@ -212,29 +226,25 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
         ));
     }
     bounded("outline.strategy", &outline.strategy, MAX_STRATEGY_LEN)?;
-    // No minimum on blocks: a plan can legitimately have no mesocycle
+    // No minimum on phases: a plan can legitimately have no mesocycle
     // structure ("hold form for two weeks, then taper"), and the previous
     // at-least-one rule made such a plan unsaveable until the coach invented
     // one. The upper bound stays — it is the token-cost guard, not a demand.
-    if outline.blocks.len() > MAX_BLOCKS {
+    if outline.phases.len() > MAX_PHASES {
         return Err(AppError::invalid_input(format!(
-            "too many blocks ({}; max {MAX_BLOCKS})",
-            outline.blocks.len()
+            "too many phases ({}; max {MAX_PHASES})",
+            outline.phases.len()
         )));
     }
-    for block in &outline.blocks {
-        plan_date("block start", &block.start)?;
-        if block.weeks == 0 {
-            return Err(AppError::invalid_input("block weeks must be >= 1"));
-        }
-        bounded("block.intent", &block.intent, MAX_TEXT_LEN)?;
-        if let Some(hours) = block.target_hours {
-            if !(0.0..=MAX_TARGET_HOURS).contains(&hours) {
-                return Err(AppError::invalid_input(format!(
-                    "block target_hours must be between 0 and {MAX_TARGET_HOURS}, got {hours}"
-                )));
-            }
-        }
+    for phase in &outline.phases {
+        validate_phase(phase)?;
+    }
+    validate_season_window(
+        outline.season_start.as_deref(),
+        outline.season_end.as_deref(),
+    )?;
+    if let Some(flavour) = outline.flavour.as_ref() {
+        validate_flavour(flavour)?;
     }
     Ok(())
 }
@@ -325,6 +335,7 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
                 )));
             }
         }
+        validate_day_template(day)?;
         if day.steps.is_empty() {
             continue;
         }
@@ -578,7 +589,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         let schema = object_schema(properties, None);
         tool_definition(
             "get_training_plan",
-            "Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
+            "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
             schema,
             Some(read_annotations()),
         )
@@ -711,7 +722,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         tool_definition(
             "save_training_plan",
-            "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",
+            "Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",
             schema,
             Some(write_annotations()),
         )
@@ -840,6 +851,34 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
 
             let coach = scope.coach_slug.clone();
 
+            // The vision's catalogue references are checked against the live
+            // registry before anything is written: a flavour id names a
+            // catalogue flavour (its family, sequencing and modifiers are
+            // copied from it — provenance, never trusted from the payload), a
+            // week's phase_index names a phase the plan will have, and a day's
+            // template_slug names a template the coach can actually see.
+            let flavour_selection = match outline.as_ref().and_then(|o| o.flavour.as_ref()) {
+                Some(payload) => Some(resolve_flavour(state.training_catalogue(), payload)?),
+                None => None,
+            };
+            let phase_count = match outline.as_ref() {
+                Some(o) => o.phases.len(),
+                None => repos
+                    .training_plans
+                    .get_active_plan(&tenant_id, &user_id, coach.as_deref())
+                    .await?
+                    .map_or(0, |plan| plan.phases.len()),
+            };
+            check_phase_indexes(&weeks, phase_count)?;
+            check_template_slugs(
+                state.training_catalogue(),
+                repos,
+                tenant,
+                scope.user_id,
+                &weeks,
+            )
+            .await?;
+
             // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
             // this athlete — drop it and let the outline path mint/reuse one.
             if let Some(fid) = goal_fact_id.clone() {
@@ -879,13 +918,17 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     focus: &w.focus,
                     days: &w.days,
                     adjustment_reason: &w.adjustment_reason,
+                    phase_index: w.phase_index,
                 })
                 .collect();
             let outline_input = outline.as_ref().map(|o| PlanOutlineInput {
                 goal_race: &o.goal_race,
                 races: &o.races,
                 strategy: &o.strategy,
-                blocks: &o.blocks,
+                flavour: flavour_selection.as_ref(),
+                season_start: o.season_start.as_deref(),
+                season_end: o.season_end.as_deref(),
+                phases: &o.phases,
                 source_conversation_id: conversation_id.as_deref(),
             });
             let bundle = repos
@@ -934,7 +977,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 &tenant_id,
                 &user_id,
                 &bundle.plan.id,
-                &bundle.plan.blocks,
+                &bundle.plan.phases,
             )
             .await;
 

@@ -1317,7 +1317,7 @@
       "start_failed": "I couldn't start the profile walk on this conversation. Try again in a moment."
     },
     "plan": {
-      "block_line": "Block: {0}{1}",
+      "phase_line": "Phase: {0}{1}",
       "day_line": "{0}: {1}",
       "description": "Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone",
       "empty": "No plan saved yet — ask your coach to build one toward your goal.",

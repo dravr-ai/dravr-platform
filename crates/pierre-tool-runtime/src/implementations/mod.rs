@@ -146,6 +146,8 @@ pub mod training_plan_push;
 pub mod training_plan_schema;
 /// Notify telemetry for training-plan writes: what was saved, and what it leaves uncovered.
 pub mod training_plan_telemetry;
+/// The vision half of a save payload — flavour provenance, phase targets, template references.
+pub mod training_plan_vision;
 pub mod training_plans;
 
 /// Mobility / stretching / yoga tools (`tools-mobility` feature).
