@@ -98,8 +98,10 @@ use pierre_tool_runtime::implementations::playbooks::{
     ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
 };
 use pierre_tool_runtime::implementations::recipes::{
-    GetRecipeTool, ListRecipesResult, ListRecipesTool, RecipeDetail, RecipeSearchMatch,
-    RecipeSummary, SearchRecipesResult, SearchRecipesTool,
+    DeleteRecipeResult, DeleteRecipeTool, GetRecipeConstraintsTool, GetRecipeTool,
+    ListRecipesResult, ListRecipesTool, RecipeConstraintsResult, RecipeDetail, RecipeSearchMatch,
+    RecipeSummary, SaveRecipeResult, SaveRecipeTool, SearchRecipesResult, SearchRecipesTool,
+    ServingNutrition, ValidateRecipeResult, ValidateRecipeTool, ValidatedIngredient,
 };
 use pierre_tool_runtime::implementations::routes::{
     DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
@@ -2992,5 +2994,170 @@ fn the_toon_envelope_key_is_fixed_rather_than_named_after_the_tool() {
     assert!(
         keys.iter().any(|k| k == "toon"),
         "and it must carry the fixed toon key: {keys:?}"
+    );
+}
+
+// ============================================================================
+// the four remaining recipe tools
+// ============================================================================
+
+#[test]
+fn each_remaining_recipe_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "get_recipe_constraints",
+            <GetRecipeConstraintsTool as McpTool<dyn ToolRuntime>>::definition(
+                &GetRecipeConstraintsTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(RecipeConstraintsResult)).expect("derives"),
+        ),
+        (
+            "validate_recipe",
+            <ValidateRecipeTool as McpTool<dyn ToolRuntime>>::definition(&ValidateRecipeTool),
+            serde_json::to_value(schemars::schema_for!(ValidateRecipeResult)).expect("derives"),
+        ),
+        (
+            "save_recipe",
+            <SaveRecipeTool as McpTool<dyn ToolRuntime>>::definition(&SaveRecipeTool),
+            serde_json::to_value(schemars::schema_for!(SaveRecipeResult)).expect("derives"),
+        ),
+        (
+            "delete_recipe",
+            <DeleteRecipeTool as McpTool<dyn ToolRuntime>>::definition(&DeleteRecipeTool),
+            serde_json::to_value(schemars::schema_for!(DeleteRecipeResult)).expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+#[test]
+fn the_two_tdee_fields_travel_together() {
+    // Both come off the athlete's stored energy expenditure, so either both
+    // are there or neither is. `tdee_based` is always present and says which
+    // case it is, so a client reads one field instead of probing for a key.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(RecipeConstraintsResult)).expect("derives"),
+    )
+    .expect("compiles");
+
+    let with_tdee = serde_json::to_value(RecipeConstraintsResult {
+        calories: 720.0,
+        protein_g: Some(45.0),
+        carbs_g: Some(80.0),
+        fat_g: Some(22.0),
+        meal_timing: "postworkout".to_owned(),
+        meal_timing_description: "Refuelling after a session".to_owned(),
+        prompt_hint: "A 720 kcal recovery meal".to_owned(),
+        max_prep_time_mins: Some(20),
+        max_cook_time_mins: None,
+        tdee_based: true,
+        tdee: Some(2_880.0),
+        tdee_proportion: Some(0.25),
+    })
+    .expect("serializes");
+    // No stored TDEE: generic targets, and both fields gone. A meal can also
+    // be specified by calories alone, which is why the macros are optional.
+    let without = serde_json::to_value(RecipeConstraintsResult {
+        calories: 600.0,
+        protein_g: None,
+        carbs_g: None,
+        fat_g: None,
+        meal_timing: "dinner".to_owned(),
+        meal_timing_description: "Evening meal".to_owned(),
+        prompt_hint: "A 600 kcal dinner".to_owned(),
+        max_prep_time_mins: None,
+        max_cook_time_mins: None,
+        tdee_based: false,
+        tdee: None,
+        tdee_proportion: None,
+    })
+    .expect("serializes");
+
+    assert!(validator.is_valid(&with_tdee), "TDEE-based:\n{with_tdee:#}");
+    assert!(validator.is_valid(&without), "generic:\n{without:#}");
+    assert_eq!(
+        with_tdee.get("tdee").is_some(),
+        with_tdee.get("tdee_proportion").is_some(),
+        "the two TDEE fields must appear together"
+    );
+    assert_eq!(
+        without.get("tdee").is_some(),
+        without.get("tdee_proportion").is_some(),
+        "and be absent together"
+    );
+    assert_eq!(without["tdee_based"], false);
+}
+
+#[test]
+fn an_unmatched_ingredient_reports_a_null_match_and_no_id() {
+    // "Checked, no USDA match" is a different answer from "not checked", so
+    // usda_match is an explicit null. There is no id to give in that case, so
+    // fdc_id is omitted entirely — and validation_completeness is how the
+    // athlete knows the nutrition totals are understated because of it.
+    let validator = jsonschema::validator_for(
+        &serde_json::to_value(schemars::schema_for!(ValidateRecipeResult)).expect("derives"),
+    )
+    .expect("compiles");
+    let value = serde_json::to_value(ValidateRecipeResult {
+        validated: true,
+        servings: 4,
+        nutrition_per_serving: ServingNutrition {
+            calories: 512.0,
+            protein_g: 31.5,
+            carbs_g: 48.2,
+            fat_g: 19.4,
+            fiber_g: 6.1,
+            sodium_mg: 480.0,
+            sugar_g: 7.3,
+        },
+        ingredients: vec![
+            ValidatedIngredient {
+                name: "chicken breast".to_owned(),
+                amount: 400.0,
+                unit: "g".to_owned(),
+                grams: 400.0,
+                fdc_id: Some(171_077),
+                usda_match: Some("Chicken, broilers or fryers, breast".to_owned()),
+            },
+            ValidatedIngredient {
+                name: "grandma's spice mix".to_owned(),
+                amount: 2.0,
+                unit: "tbsp".to_owned(),
+                grams: 14.0,
+                fdc_id: None,
+                usda_match: None,
+            },
+        ],
+        warnings: vec!["No USDA match found for: grandma's spice mix".to_owned()],
+        validated_at: "2026-09-06T18:00:00+00:00".to_owned(),
+        validation_completeness: 50.0,
+        usda_matched_count: 1,
+        total_ingredients: 2,
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "a partly-matched recipe:\n{value:#}"
+    );
+    let unmatched = &value["ingredients"][1];
+    assert!(
+        unmatched["usda_match"].is_null(),
+        "an unmatched ingredient reports a null match, not an absent key"
+    );
+    assert!(
+        unmatched.get("fdc_id").is_none(),
+        "and omits fdc_id, because there is no identifier to give"
     );
 }

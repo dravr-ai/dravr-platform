@@ -22,6 +22,142 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_formatters::OutputFormat;
 use pierre_tools_core::ToolResult;
 
+/// What `get_recipe_constraints` answers with.
+///
+/// The two TDEE fields travel together: both present when the athlete has a
+/// stored total daily energy expenditure, both absent when they do not.
+/// `tdee_based` says which case this is without the client having to probe
+/// for a key, and it is always present.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecipeConstraintsResult {
+    /// Energy target for this meal, in kilocalories.
+    pub calories: f64,
+    /// Protein target in grams. Absent when the constraint set does not
+    /// pin one — a meal can be specified by calories alone.
+    pub protein_g: Option<f64>,
+    /// Carbohydrate target in grams; absent for the same reason.
+    pub carbs_g: Option<f64>,
+    /// Fat target in grams; absent for the same reason.
+    pub fat_g: Option<f64>,
+    /// Which meal this is for, lowercased.
+    pub meal_timing: String,
+    /// What that timing is for, in words the athlete reads.
+    pub meal_timing_description: String,
+    /// A ready-made instruction for a recipe generator, so the caller does
+    /// not have to compose the numbers into a prompt itself.
+    pub prompt_hint: String,
+    /// Preparation time ceiling in minutes, when the caller set one.
+    pub max_prep_time_mins: Option<u16>,
+    /// Cooking time ceiling in minutes, when the caller set one.
+    pub max_cook_time_mins: Option<u16>,
+    /// Whether these targets came from the athlete's own TDEE or from
+    /// defaults. False means the numbers are generic, which is worth saying.
+    pub tdee_based: bool,
+    /// The athlete's total daily energy expenditure. Absent when unknown, in
+    /// which case `tdee_based` is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tdee: Option<f64>,
+    /// The share of that TDEE this meal is meant to be. Absent whenever
+    /// `tdee` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tdee_proportion: Option<f64>,
+}
+
+/// One ingredient after USDA validation, as `validate_recipe` reports it.
+///
+/// `usda_match` is null rather than absent when the lookup found nothing:
+/// the athlete asked for this ingredient to be checked and "checked, no
+/// match" is a different answer from "not checked". `fdc_id` is omitted
+/// entirely in that case, because there is no identifier to give.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ValidatedIngredient {
+    /// The ingredient as the recipe names it.
+    pub name: String,
+    /// How much of it, in the recipe's own unit.
+    pub amount: f64,
+    /// That unit.
+    pub unit: String,
+    /// The amount converted to grams, which is what the nutrition maths uses.
+    pub grams: f64,
+    /// The USDA `FoodData` Central id the match resolved to. Absent when
+    /// nothing matched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fdc_id: Option<u64>,
+    /// The USDA description that matched; null when the lookup found nothing
+    /// or failed.
+    pub usda_match: Option<String>,
+}
+
+/// Nutrition for one serving, as `validate_recipe` computes it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ServingNutrition {
+    /// Energy in kilocalories, rounded to a whole number.
+    pub calories: f64,
+    /// Protein in grams, to one decimal.
+    pub protein_g: f64,
+    /// Carbohydrate in grams, to one decimal.
+    pub carbs_g: f64,
+    /// Fat in grams, to one decimal.
+    pub fat_g: f64,
+    /// Fibre in grams, to one decimal.
+    pub fiber_g: f64,
+    /// Sodium in milligrams, rounded to a whole number.
+    pub sodium_mg: f64,
+    /// Sugar in grams, to one decimal.
+    pub sugar_g: f64,
+}
+
+/// What `validate_recipe` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ValidateRecipeResult {
+    /// Always true: the tool errors rather than reporting a failed run.
+    pub validated: bool,
+    /// How many servings the numbers are divided across.
+    pub servings: u8,
+    /// Nutrition for one serving.
+    pub nutrition_per_serving: ServingNutrition,
+    /// Every ingredient, matched or not.
+    pub ingredients: Vec<ValidatedIngredient>,
+    /// What went wrong per ingredient, in plain language. An empty list
+    /// means every lookup succeeded.
+    pub warnings: Vec<String>,
+    /// RFC 3339 timestamp of the validation.
+    pub validated_at: String,
+    /// Share of ingredients that matched USDA, 0 to 100. This is how much to
+    /// trust the nutrition above — an unmatched ingredient contributes
+    /// nothing to the totals, so a low number means they are understated.
+    pub validation_completeness: f64,
+    /// How many ingredients matched.
+    pub usda_matched_count: u32,
+    /// How many there were.
+    pub total_ingredients: usize,
+}
+
+/// What `save_recipe` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SaveRecipeResult {
+    /// The stored recipe's identifier.
+    pub recipe_id: String,
+    /// Its name, echoed back.
+    pub name: String,
+    /// How many servings it makes.
+    pub servings: u8,
+    /// When it is meant to be eaten, lowercased.
+    pub meal_timing: String,
+    /// RFC 3339 creation timestamp.
+    pub created_at: String,
+}
+
+/// What `delete_recipe` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DeleteRecipeResult {
+    /// Always true: a recipe that was not there is an error, because the
+    /// athlete asked to remove something specific.
+    pub deleted: bool,
+    /// The recipe that was removed.
+    pub recipe_id: String,
+}
+
 /// TDEE context for calorie calculation.
 struct TdeeContext<'a> {
     tdee_based: bool,
@@ -216,7 +352,10 @@ pub struct SearchRecipesResult {
 // get_recipe_constraints
 // ---------------------------------------------------------------------------
 
-pub fn handle_get_recipe_constraints(ctx: &ToolExecutionContext, args: &Value) -> ToolResult {
+pub fn handle_get_recipe_constraints(
+    ctx: &ToolExecutionContext,
+    args: &Value,
+) -> AppResult<ToolResult> {
     let cageux_config = ctx.cageux_config();
 
     let meal_timing = args
@@ -262,7 +401,7 @@ pub fn handle_get_recipe_constraints(ctx: &ToolExecutionContext, args: &Value) -
     let result =
         build_constraints_response(&constraints, calories, meal_timing, &prompt_hint, &tdee_ctx);
 
-    ToolResult::ok(result)
+    ok_typed("get_recipe_constraints", result)
 }
 
 fn build_recipe_prompt_hint(
@@ -335,26 +474,23 @@ fn build_constraints_response(
     meal_timing: MealTiming,
     prompt_hint: &str,
     tdee_ctx: &TdeeContext<'_>,
-) -> Value {
-    let mut result = json!({
-        "calories": calories,
-        "protein_g": constraints.macro_targets.protein_g,
-        "carbs_g": constraints.macro_targets.carbs_g,
-        "fat_g": constraints.macro_targets.fat_g,
-        "meal_timing": format!("{meal_timing:?}").to_lowercase(),
-        "meal_timing_description": meal_timing.description(),
-        "prompt_hint": prompt_hint,
-        "max_prep_time_mins": constraints.max_prep_time_mins,
-        "max_cook_time_mins": constraints.max_cook_time_mins,
-        "tdee_based": tdee_ctx.tdee_based,
-    });
-
-    if let Some(user_tdee) = tdee_ctx.tdee {
-        result["tdee"] = json!(user_tdee);
-        result["tdee_proportion"] = json!(tdee_ctx.proportions.proportion_for_timing(meal_timing));
+) -> RecipeConstraintsResult {
+    RecipeConstraintsResult {
+        calories,
+        protein_g: constraints.macro_targets.protein_g,
+        carbs_g: constraints.macro_targets.carbs_g,
+        fat_g: constraints.macro_targets.fat_g,
+        meal_timing: format!("{meal_timing:?}").to_lowercase(),
+        meal_timing_description: meal_timing.description().to_owned(),
+        prompt_hint: prompt_hint.to_owned(),
+        max_prep_time_mins: constraints.max_prep_time_mins,
+        max_cook_time_mins: constraints.max_cook_time_mins,
+        tdee_based: tdee_ctx.tdee_based,
+        tdee: tdee_ctx.tdee,
+        tdee_proportion: tdee_ctx
+            .tdee
+            .map(|_| tdee_ctx.proportions.proportion_for_timing(meal_timing)),
     }
-
-    result
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +551,7 @@ pub async fn handle_validate_recipe(
     let mut total_sodium = 0.0;
     let mut total_sugar = 0.0;
     let mut warnings: Vec<String> = Vec::new();
-    let mut validated_ingredients: Vec<Value> = Vec::new();
+    let mut validated_ingredients: Vec<ValidatedIngredient> = Vec::new();
     let mut usda_matched_count: u32 = 0;
 
     for ingredient_value in ingredients_json {
@@ -488,61 +624,64 @@ pub async fn handle_validate_recipe(
                                 _ => {}
                             }
                         }
-                        validated_ingredients.push(json!({
-                            "name": name,
-                            "amount": amount,
-                            "unit": unit_str,
-                            "grams": grams,
-                            "fdc_id": food.fdc_id,
-                            "usda_match": food.description,
-                        }));
+                        validated_ingredients.push(ValidatedIngredient {
+                            name: (*name).to_owned(),
+                            amount,
+                            unit: unit_str.to_owned(),
+                            grams,
+                            fdc_id: Some(food.fdc_id),
+                            usda_match: Some(food.description.clone()),
+                        });
                         usda_matched_count += 1;
                     }
                     Err(e) => {
                         warnings.push(format!("USDA lookup failed for {name}: {e}"));
-                        validated_ingredients.push(json!({
-                            "name": name,
-                            "amount": amount,
-                            "unit": unit_str,
-                            "grams": grams,
-                            "usda_match": null,
-                        }));
+                        validated_ingredients.push(ValidatedIngredient {
+                            name: (*name).to_owned(),
+                            amount,
+                            unit: unit_str.to_owned(),
+                            grams,
+                            fdc_id: None,
+                            usda_match: None,
+                        });
                     }
                 }
             }
             Ok(_) => {
                 warnings.push(format!("No USDA match found for: {name}"));
-                validated_ingredients.push(json!({
-                    "name": name,
-                    "amount": amount,
-                    "unit": unit_str,
-                    "grams": grams,
-                    "usda_match": null,
-                }));
+                validated_ingredients.push(ValidatedIngredient {
+                    name: (*name).to_owned(),
+                    amount,
+                    unit: unit_str.to_owned(),
+                    grams,
+                    fdc_id: None,
+                    usda_match: None,
+                });
             }
             Err(e) => {
                 warnings.push(format!("USDA search failed for {name}: {e}"));
-                validated_ingredients.push(json!({
-                    "name": name,
-                    "amount": amount,
-                    "unit": unit_str,
-                    "grams": grams,
-                    "usda_match": null,
-                }));
+                validated_ingredients.push(ValidatedIngredient {
+                    name: (*name).to_owned(),
+                    amount,
+                    unit: unit_str.to_owned(),
+                    grams,
+                    fdc_id: None,
+                    usda_match: None,
+                });
             }
         }
     }
 
     let servings_f64 = f64::from(servings);
-    let nutrition_per_serving = json!({
-        "calories": (total_calories / servings_f64).round(),
-        "protein_g": (total_protein / servings_f64 * 10.0).round() / 10.0,
-        "carbs_g": (total_carbs / servings_f64 * 10.0).round() / 10.0,
-        "fat_g": (total_fat / servings_f64 * 10.0).round() / 10.0,
-        "fiber_g": (total_fiber / servings_f64 * 10.0).round() / 10.0,
-        "sodium_mg": (total_sodium / servings_f64).round(),
-        "sugar_g": (total_sugar / servings_f64 * 10.0).round() / 10.0,
-    });
+    let nutrition_per_serving = ServingNutrition {
+        calories: (total_calories / servings_f64).round(),
+        protein_g: (total_protein / servings_f64 * 10.0).round() / 10.0,
+        carbs_g: (total_carbs / servings_f64 * 10.0).round() / 10.0,
+        fat_g: (total_fat / servings_f64 * 10.0).round() / 10.0,
+        fiber_g: (total_fiber / servings_f64 * 10.0).round() / 10.0,
+        sodium_mg: (total_sodium / servings_f64).round(),
+        sugar_g: (total_sugar / servings_f64 * 10.0).round() / 10.0,
+    };
 
     #[allow(clippy::cast_precision_loss)]
     let total_ingredients = validated_ingredients.len() as f64;
@@ -552,17 +691,20 @@ pub async fn handle_validate_recipe(
         0.0
     };
 
-    Ok(ToolResult::ok(json!({
-        "validated": true,
-        "servings": servings,
-        "nutrition_per_serving": nutrition_per_serving,
-        "ingredients": validated_ingredients,
-        "warnings": warnings,
-        "validated_at": Utc::now().to_rfc3339(),
-        "validation_completeness": validation_completeness,
-        "usda_matched_count": usda_matched_count,
-        "total_ingredients": validated_ingredients.len(),
-    })))
+    ok_typed(
+        "validate_recipe",
+        ValidateRecipeResult {
+            validated: true,
+            servings,
+            nutrition_per_serving,
+            warnings,
+            validated_at: Utc::now().to_rfc3339(),
+            validation_completeness,
+            usda_matched_count,
+            total_ingredients: validated_ingredients.len(),
+            ingredients: validated_ingredients,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -622,13 +764,16 @@ pub async fn handle_save_recipe(ctx: &ToolExecutionContext, args: Value) -> AppR
         .await
         .map_err(|e| AppError::internal(format!("save_recipe: Failed to save recipe: {e}")))?;
 
-    Ok(ToolResult::ok(json!({
-        "recipe_id": recipe_id,
-        "name": params.name,
-        "servings": params.servings,
-        "meal_timing": format!("{meal_timing:?}").to_lowercase(),
-        "created_at": Utc::now().to_rfc3339(),
-    })))
+    ok_typed(
+        "save_recipe",
+        SaveRecipeResult {
+            recipe_id,
+            name: params.name.clone(),
+            servings: params.servings,
+            meal_timing: format!("{meal_timing:?}").to_lowercase(),
+            created_at: Utc::now().to_rfc3339(),
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -792,10 +937,13 @@ pub async fn handle_delete_recipe(
         .map_err(|e| AppError::internal(format!("delete_recipe: Failed to delete recipe: {e}")))?;
 
     if deleted {
-        Ok(ToolResult::ok(json!({
-            "deleted": true,
-            "recipe_id": recipe_id,
-        })))
+        ok_typed(
+            "delete_recipe",
+            DeleteRecipeResult {
+                deleted: true,
+                recipe_id: recipe_id.to_owned(),
+            },
+        )
     } else {
         Ok(ToolResult::error(json!({
             "error": format!("Recipe not found: {recipe_id}"),

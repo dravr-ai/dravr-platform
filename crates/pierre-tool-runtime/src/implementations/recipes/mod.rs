@@ -43,8 +43,10 @@ mod inner;
 /// conformance tests both name them — while `inner` itself stays private: the
 /// handlers behind them are not part of this family's surface.
 pub use inner::{
-    ListRecipesResult, RecipeDetail, RecipeIngredientEntry, RecipeNutritionPerServing,
-    RecipeSearchMatch, RecipeSummary, SearchRecipesResult,
+    DeleteRecipeResult, ListRecipesResult, RecipeConstraintsResult, RecipeDetail,
+    RecipeIngredientEntry, RecipeNutritionPerServing, RecipeSearchMatch, RecipeSummary,
+    SaveRecipeResult, SearchRecipesResult, ServingNutrition, ValidateRecipeResult,
+    ValidatedIngredient,
 };
 
 // ============================================================================
@@ -112,12 +114,12 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<RecipeConstraintsResult>(tool_definition(
             "get_recipe_constraints",
             "Get macro targets and constraints for LLM recipe generation",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -132,7 +134,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> =
-            async move { Ok(inner::handle_get_recipe_constraints(&context, &args)) }.await;
+            async move { inner::handle_get_recipe_constraints(&context, &args) }.await;
         tool_result_to_response(result)
     }
 }
@@ -211,12 +213,12 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
             properties,
             Some(vec!["servings".to_owned(), "ingredients".to_owned()]),
         );
-        tool_definition(
+        answers_with::<ValidateRecipeResult>(tool_definition(
             "validate_recipe",
             "Validate recipe nutrition using USDA FoodData Central",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -357,12 +359,12 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
                 "ingredients".to_owned(),
             ]),
         );
-        tool_definition(
+        answers_with::<SaveRecipeResult>(tool_definition(
             "save_recipe",
             "Save a validated recipe to your collection",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -508,12 +510,12 @@ impl McpTool<dyn ToolRuntime> for DeleteRecipeTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["recipe_id".to_owned()]));
-        tool_definition(
+        answers_with::<DeleteRecipeResult>(tool_definition(
             "delete_recipe",
             "Delete a recipe from your collection",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
