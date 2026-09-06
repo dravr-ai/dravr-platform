@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for CoachReviewQueue component
-// ABOUTME: Tests pending coaches list, empty state, loading, and drawer opening
+// ABOUTME: Tests pending agents list, empty state, loading, and drawer opening
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -97,7 +97,7 @@ describe('CoachReviewQueue', () => {
     expect(document.querySelector('.pierre-spinner')).toBeInTheDocument();
   });
 
-  it('renders coaches in the queue', async () => {
+  it('renders agents in the queue', async () => {
     renderCoachReviewQueue();
 
     await waitFor(() => {
@@ -147,12 +147,12 @@ describe('CoachReviewQueue', () => {
     renderCoachReviewQueue();
 
     await waitFor(() => {
-      // Coach 2 has 5 tags, should show 4 + overflow
+      // Agent 2 has 5 tags, should show 4 + overflow
       expect(screen.getByText('+1')).toBeInTheDocument();
     });
   });
 
-  it('shows empty state when no coaches pending', async () => {
+  it('shows empty state when no agents pending', async () => {
     vi.mocked(adminApi.getStoreReviewQueue).mockResolvedValue({
       coaches: [],
       total: 0,
@@ -164,7 +164,7 @@ describe('CoachReviewQueue', () => {
     await waitFor(() => {
       expect(screen.getByText('All Caught Up!')).toBeInTheDocument();
       expect(
-        screen.getByText('There are no coaches pending review at this time.')
+        screen.getByText('There are no agents pending review at this time.')
       ).toBeInTheDocument();
     });
   });
@@ -181,7 +181,7 @@ describe('CoachReviewQueue', () => {
     });
   });
 
-  it('opens review drawer when coach is clicked', async () => {
+  it('opens review drawer when an agent is clicked', async () => {
     const user = userEvent.setup();
     renderCoachReviewQueue();
 
@@ -189,7 +189,7 @@ describe('CoachReviewQueue', () => {
       expect(screen.getByText('Marathon Training Coach')).toBeInTheDocument();
     });
 
-    // Click on the first coach
+    // Click on the first agent
     const coachButton = screen.getByText('Marathon Training Coach').closest('button');
     expect(coachButton).toBeInTheDocument();
 
@@ -198,7 +198,7 @@ describe('CoachReviewQueue', () => {
 
       // Drawer should open - look for drawer header
       await waitFor(() => {
-        expect(screen.getByText('Review Coach')).toBeInTheDocument();
+        expect(screen.getByText('Review Agent')).toBeInTheDocument();
       });
     }
   });

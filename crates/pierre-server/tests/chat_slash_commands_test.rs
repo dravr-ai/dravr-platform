@@ -553,7 +553,7 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
         &resources,
         user_id,
         tenant_id,
-        "Activity Analysis Coach",
+        "Activity Analysis Agent",
         "Analyzes training data. What *not* to overlook.",
     )
     .await;
@@ -588,8 +588,8 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
     assert_eq!(actions[0].action_type, "postback");
     assert_eq!(
         actions[0].value,
-        format!("/coach add {coach}"),
-        "a coach without a handle is added by id"
+        format!("/agent add {coach}"),
+        "an agent without a handle is added by id"
     );
     // Markdown emphasis stripped uniformly (same behaviour as messaging channels).
     assert!(
@@ -656,11 +656,11 @@ async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_syst
         .map(|a| a.value.as_str())
         .collect();
     assert!(
-        values.contains(&"/coach add @recovery-coach"),
+        values.contains(&"/agent add @recovery-coach"),
         "got {values:?}"
     );
     assert!(
-        values.contains(&format!("/coach add {own}").as_str()),
+        values.contains(&format!("/agent add {own}").as_str()),
         "got {values:?}"
     );
     assert!(
@@ -670,7 +670,7 @@ async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_syst
         "no button for a coach that is not on the shelf: {values:?}"
     );
     assert!(
-        !values.contains(&format!("/coach add {installed}").as_str()),
+        !values.contains(&format!("/agent add {installed}").as_str()),
         "a coach with a handle is added by handle, never by id: {values:?}"
     );
     for value in &values {
@@ -681,7 +681,7 @@ async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_syst
     }
 }
 
-/// `/coach add <id>` — the form the list card sends for a coach without a
+/// `/agent add <id>` — the form the list card sends for an agent without a
 /// handle — moves the selection pointer and binds the conversation, and says
 /// so without any "group" wording: an unbound thread is personal.
 #[tokio::test]
@@ -994,10 +994,10 @@ async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
     assert_eq!(actions.len(), 2, "create and discard");
     let confirm = actions[0].value.clone();
     let deny = actions[1].value.clone();
-    assert!(confirm.starts_with("/coach create confirm "), "{confirm}");
+    assert!(confirm.starts_with("/agent create confirm "), "{confirm}");
     assert!(deny.starts_with("/deny "), "{deny}");
     let token = confirm
-        .trim_start_matches("/coach create confirm ")
+        .trim_start_matches("/agent create confirm ")
         .to_owned();
     assert_eq!(
         deny,
@@ -1467,7 +1467,7 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
         "/group status",
         "/group members",
         "/group leave",
-        "/coach assign",
+        "/agent assign",
     ] {
         assert!(
             text.contains(shown),
@@ -1543,7 +1543,7 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
         "/group status",
         "/group leave",
         "/group coach",
-        "/coach assign",
+        "/agent assign",
     ] {
         assert!(
             !text.contains(hidden),
@@ -1570,7 +1570,7 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
         "only `/group`, `/group create` and `/group join` survive for a groupless athlete:\n{text}"
     );
     // Everything that does not need a group is untouched.
-    for shown in ["/status", "/plan", "/coach ", "/pillars", "/timezone"] {
+    for shown in ["/status", "/plan", "/agent ", "/pillars", "/timezone"] {
         assert!(
             text.contains(shown),
             "`{shown}` must still be listed:\n{text}"
@@ -1614,7 +1614,7 @@ async fn help_hides_admin_only_commands_from_a_plain_group_member() {
         "/group invite",
         "/group coach",
         "/group respond",
-        "/coach assign",
+        "/agent assign",
     ] {
         assert!(
             !text.contains(hidden),
@@ -1644,9 +1644,9 @@ async fn help_shows_admin_only_commands_to_a_group_owner() {
 
     for shown in [
         "/group invite",
-        "/group coach coach-name",
+        "/group coach agent-name",
         "/group respond mentions|all",
-        "/coach assign coach-id group-id",
+        "/agent assign agent-id group-id",
         "/group consent yes|no",
     ] {
         assert!(
@@ -1684,15 +1684,15 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
     for signature in [
         "/group consent yes|no",
         "/group respond mentions|all",
-        "/group coach coach-name",
+        "/group coach agent-name",
         "/plan [week|today]",
         // Named, not a `pillar` placeholder: the athlete must be able to type
         // one of these without knowing the internal DB slugs.
         "/pillars [full|training|fuelling|sleep|mental|community|substances]",
         "/timezone area/city",
-        "/coach add @handle",
-        "/coach create [confirm token]",
-        "/coach assign coach-id group-id",
+        "/agent add @handle",
+        "/agent create [confirm token]",
+        "/agent assign agent-id group-id",
         "/confirm action-id",
         "/deny action-id",
     ] {
@@ -1750,7 +1750,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
     );
 }
 
-/// `/coach assign` names its own group in the arguments, so an owner of *any*
+/// `/agent assign` names its own group in the arguments, so an owner of *any*
 /// group can run it — even from a room where they are only a plain member.
 ///
 /// `/group invite`, `/group coach` and `/group respond` resolve the
@@ -1791,8 +1791,8 @@ async fn help_shows_coach_assign_to_an_owner_who_is_a_member_of_the_ambient_grou
     let text = help_in_conversation(router, &auth, &conv_id).await;
 
     assert!(
-        text.contains("/coach assign coach-id group-id"),
-        "an owner of another group can run `/coach assign`, so it must be listed:\n{text}"
+        text.contains("/agent assign agent-id group-id"),
+        "an owner of another group can run `/agent assign`, so it must be listed:\n{text}"
     );
     // The ambient-group commands are still filtered on the ambient role — this
     // is what proves the conversation resolved to the member group, and that
@@ -1812,7 +1812,7 @@ async fn help_shows_coach_assign_to_an_owner_who_is_a_member_of_the_ambient_grou
 /// Deciding them on the conversation's group hid all three from someone
 /// sitting in a room bound to a group they are not a member of, even though
 /// the commands would have answered about their own group. This is the same
-/// defect class as `/coach assign`, in three more commands, and it is why
+/// defect class as `/agent assign`, in three more commands, and it is why
 /// `/help` asks each handler instead of applying one shared rule to all of
 /// them.
 #[tokio::test]

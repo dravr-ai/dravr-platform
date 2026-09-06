@@ -70,7 +70,7 @@ describe('CoachNotesAuditTab', () => {
     });
     renderTab();
     await waitFor(() => {
-      expect(screen.getByText(/No coach notes match these filters/i)).toBeInTheDocument();
+      expect(screen.getByText(/No agent notes match these filters/i)).toBeInTheDocument();
     });
   });
 
@@ -95,8 +95,8 @@ describe('CoachNotesAuditTab', () => {
       ).toBeInTheDocument();
     });
     expect(screen.getByText(/Mentioned achilles pain last session/)).toBeInTheDocument();
-    expect(screen.getByText(/coach coach-strength/)).toBeInTheDocument();
-    expect(screen.getByText(/coach coach-endurance/)).toBeInTheDocument();
+    expect(screen.getByText(/agent coach-strength/)).toBeInTheDocument();
+    expect(screen.getByText(/agent coach-endurance/)).toBeInTheDocument();
   });
 
   it('filters notes by content search', async () => {

@@ -425,7 +425,7 @@ mod discover_over_messaging {
         );
         let (title, values) = persisted_actions(hint_row);
         assert_eq!(title.as_deref(), Some("Recovery Coach"));
-        assert_eq!(values, vec!["/coach add @recovery-coach".to_owned()]);
+        assert_eq!(values, vec!["/agent add @recovery-coach".to_owned()]);
 
         // What the athlete reads back, for the second coach.
         let (events, _guard) = capture_notify();
@@ -440,7 +440,7 @@ mod discover_over_messaging {
             )
         );
         assert_eq!(hint.actions.len(), 1);
-        assert_eq!(hint.actions[0].value, "/coach add @tempo-coach");
+        assert_eq!(hint.actions[0].value, "/agent add @tempo-coach");
         let installed = only(&events, "coach.installed");
         assert_eq!(installed.field("user_id"), athlete.user_id.to_string());
 

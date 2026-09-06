@@ -7,7 +7,7 @@ dispatch pipeline into a production-grade AI coaching platform. It
 adds long-term memory, conversation compaction, cross-channel
 sessions, Tier 5 evaluation infrastructure, a "bullshit
 detector" for factual claims, text guardrails, prompt-injection
-defenses, per-coach content grading, and a full admin GUI for
+defenses, per-agent content grading, and a full admin GUI for
 operators.
 
 This document gives you the mental model. For implementation details
@@ -21,7 +21,7 @@ Pierre's pre-harness chat pipeline was single-turn: the LLM saw every
 message in the current conversation up to the context window, with no
 mechanism to remember the user across sessions, summarize old history,
 verify the model's own factual claims, or let operators audit what the
-coach was saying. Shipping coaches at scale required closing all of
+agent was saying. Shipping agents at scale required closing all of
 those gaps at once.
 
 The harness architecture is a **seven-tier stack** layered on top of
@@ -32,11 +32,11 @@ is independently shippable and observable.
 
 | Tier | Name | What it does | Where it hooks |
 |---|---|---|---|
-| 0 | Memory foundations | `pierre-memory` crate + DB schema for compaction blocks, user facts, coach notes, coach followups, coach sessions, claim verdicts | `pierre-database::HarnessMemoryRepository`, migrations under `migrations/20260413000002_harness_memory_foundations.sql` |
+| 0 | Memory foundations | `pierre-memory` crate + DB schema for compaction blocks, user facts, agent notes, agent followups, agent sessions, claim verdicts | `pierre-database::HarnessMemoryRepository`, migrations under `migrations/20260413000002_harness_memory_foundations.sql` |
 | 1 | Conversation compaction | Summarize older turns when the context window fills | `chat_orchestration::apply_tier1_compaction`, `services::conversation_compaction` |
 | 2 | Semantic user memory | Background extraction of `UserFact` rows from turns; recall at prompt build time | `services::memory_extraction`, `services::memory_recall` |
-| 3 | Coach-authored memory tools | `coach_note_add`, `coach_followup_schedule`, `remember_fact`, `recall_user_memory` MCP tools the coach can call to write its own memory | `tools/implementations/memory.rs`, `tools-memory` feature flag |
-| 4 | Cross-channel coach sessions | One logical session per (user, coach) pair, spanning conversations and messaging channels | `services::chat_orchestration::ensure_coach_session_attached`, `coach_sessions` table |
+| 3 | Agent-authored memory tools | `coach_note_add`, `coach_followup_schedule`, `remember_fact`, `recall_user_memory` MCP tools the agent can call to write its own memory | `tools/implementations/memory.rs`, `tools-memory` feature flag |
+| 4 | Cross-channel agent sessions | One logical session per (user, agent) pair, spanning conversations and messaging channels | `services::chat_orchestration::ensure_coach_session_attached`, `coach_sessions` table |
 | 5 | Evaluation harness | `pierre-evals` crate with deterministic + LLM-judge + multi-turn evaluators, golden fixtures in JSONL | `crates/pierre-evals/`, `fixtures/injury_triage.jsonl` |
 | 5.5 | Bullshit detector | Post-LLM claim verification pipeline: rhetoric → deterministic → evidence → consistency → judge. Writes `claim_verdicts` rows. | `services::claim_verification::apply_claim_verification`, `EvidenceRegistry`, `contremaitre` sync |
 | 6 | Text guardrails | Post-LLM length/topic/disclaimer checks | `services::chat_orchestration::apply_text_guardrails` |
@@ -50,9 +50,9 @@ On top of the tiers, the platform ships three cross-cutting phases:
   [Harness Config](coaching-harness-ops.md#harness-config-tab-sprint-c3),
   [Memory Panel](coaching-harness-ops.md#memory-panel-sprint-c5),
   [Memory Worker](coaching-harness-ops.md#memory-worker-tab-sprint-c6),
-  [Coach Followups](coaching-harness-ops.md#coach-followups-tab-sprint-c7),
-  [Coach Notes Audit](coaching-harness-ops.md#coach-notes-audit-tab-sprint-c8),
-  [Coach Grades](coaching-harness-ops.md#coach-grading-tab-sprint-c14),
+  [Agent Followups](coaching-harness-ops.md#agent-followups-tab-sprint-c7),
+  [Agent Notes Audit](coaching-harness-ops.md#agent-notes-audit-tab-sprint-c8),
+  [Agent Grades](coaching-harness-ops.md#agent-grades-tab-sprint-c14),
   [Myth Busting](coaching-harness-ops.md#myth-busting-tab-sprint-c13),
   [Eval Harness](coaching-harness-ops.md#eval-harness-tab-sprint-c16),
   and the session-hierarchy refactor of the chat sidebar.
@@ -61,12 +61,12 @@ On top of the tiers, the platform ships three cross-cutting phases:
   post-LLM tool allowlist enforcement, canary tokens with layered leak
   detection.
 - **Phase D — Proactive workers.** Myth-busting summary over the
-  `claim_verdicts` table and per-coach content grading that feeds
+  `claim_verdicts` table and per-agent content grading that feeds
   store ranking.
 
 ## Dispatch pipeline
 
-Here is the full dispatch pipeline for a coach-driven conversation
+Here is the full dispatch pipeline for an agent-driven conversation
 turn, top to bottom, after the harness is wired in. Every numbered
 step is an actual function call, not a conceptual phase.
 
@@ -87,8 +87,8 @@ step is an actual function call, not a conceptual phase.
            │  1. resolve tenant + coach_id           │
            │  2. get_conversation_history()          │
            │  3. ensure_coach_session_attached()  ◄──┼── Tier 4
-           │  4. resolve coach runtime context       │
-           │  5. build base_prompt from coach prompt │
+           │  4. resolve agent runtime context       │
+           │  5. build base_prompt from agent prompt │
            │  6. inject_group_context()              │
            │  7. inject_refresh_context()            │
            │  8. inject_memory_recall()           ◄──┼── Tier 2
@@ -123,9 +123,9 @@ Seven new tables land with the harness. All are tenant-scoped.
 
 - `compaction_blocks` — Tier 1 summaries replacing older conversation turns
 - `user_facts` — Tier 2 extracted semantic memory
-- `coach_notes` — Tier 3 coach-authored notes about users
+- `coach_notes` — Tier 3 agent-authored notes about users
 - `coach_followups` — Tier 3 promised future check-ins
-- `coach_sessions` — Tier 4 long-lived (user, coach) containers above conversations
+- `coach_sessions` — Tier 4 long-lived (user, agent) containers above conversations
 - `claim_verdicts` — claim-verification detector output (claim text, category, verdict, layer)
 - `system_settings` — Sprint C3 harness config JSON (compaction + guardrails tunables)
 

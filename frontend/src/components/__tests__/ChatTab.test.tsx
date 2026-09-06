@@ -533,7 +533,7 @@ describe('ChatTab header info drawer', () => {
     expect(onNavigate).toHaveBeenCalledWith('discover/coach-1');
   });
 
-  it('sends /coach remove as a turn when the coach is removed from the chat', async () => {
+  it('sends /agent remove as a turn when the agent is removed from the chat', async () => {
     sendTurn.mockResolvedValue(undefined);
     const user = userEvent.setup();
     renderChatTab();
@@ -542,16 +542,16 @@ describe('ChatTab header info drawer', () => {
     await user.click(await screen.findByTestId('coach-info-remove'));
 
     await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
-    expect(sendTurn.mock.calls[0][1]).toBe('/coach remove');
+    expect(sendTurn.mock.calls[0][1]).toBe('/agent remove');
   });
 
-  it('offers no coach creation or coach form anywhere in the chat surface', async () => {
+  it('offers no agent creation or agent form anywhere in the chat surface', async () => {
     renderChatTab();
 
     await screen.findByTestId('conversation-header-title');
-    expect(screen.queryByRole('button', { name: /Create Coach/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Create Agent/i })).toBeNull();
     expect(screen.queryByTestId('prompt-suggestions')).toBeNull();
-    expect(screen.queryByLabelText('Coach title')).toBeNull();
+    expect(screen.queryByLabelText('Agent Name')).toBeNull();
   });
 });
 

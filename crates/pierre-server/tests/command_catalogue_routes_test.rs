@@ -262,18 +262,18 @@ async fn catalogue_entries_carry_the_frontmatter_verbatim() {
     assert_eq!(help.args, None);
 
     // The palette shows the argument hint the standard calls for: the athlete
-    // learns `/coach add @handle` from the entry itself.
+    // learns `/agent add @handle` from the entry itself.
     let coach_add = entries
         .iter()
-        .find(|e| e.command == "/coach add")
-        .expect("/coach add has no precondition and must always be listed");
+        .find(|e| e.command == "/agent add")
+        .expect("/agent add has no precondition and must always be listed");
     assert_eq!(coach_add.name, "coach-add");
     assert_eq!(coach_add.domain, "coach");
     assert_eq!(coach_add.args.as_deref(), Some("@handle"));
     let coach_list = entries
         .iter()
-        .find(|e| e.command == "/coach")
-        .expect("/coach is the list and must always be listed");
+        .find(|e| e.command == "/agent")
+        .expect("/agent is the list and must always be listed");
     assert_eq!(coach_list.name, "coach-list");
 }
 

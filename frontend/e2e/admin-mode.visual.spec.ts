@@ -175,7 +175,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
       await loginAsUser(page, 'admin');
     });
 
-    test('engagement - displays coach leaderboard', async ({ page }) => {
+    test('engagement - displays the agent leaderboard', async ({ page }) => {
       await navigateToTab(page, 'Engagement');
       await waitForNetworkIdle(page);
 
@@ -260,15 +260,15 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Coaches Tab
+  // Agents Tab
   // ========================================
-  test.describe('Coaches Tab', () => {
+  test.describe('Agents Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'admin');
     });
 
-    test('coaches - displays coach list', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+    test('agents - displays the agent list', async ({ page }) => {
+      await navigateToTab(page, 'Agents');
       await waitForNetworkIdle(page);
 
       const mainContent = page.locator('main');
@@ -277,8 +277,8 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
       await takeVisualScreenshot(page, 'admin-coaches', 'list');
     });
 
-    test('coaches - create coach button opens wizard', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+    test('agents - the create agent button opens the form', async ({ page }) => {
+      await navigateToTab(page, 'Agents');
       await waitForNetworkIdle(page);
 
       const createButton = page.getByRole('button', { name: /create|new|add/i });
@@ -298,15 +298,15 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Coach Store Tab
+  // Agent Store Tab
   // ========================================
-  test.describe('Coach Store Tab', () => {
+  test.describe('Agent Store Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'admin');
     });
 
-    test('store - displays store coach list', async ({ page }) => {
-      await navigateToTab(page, 'Coach Store');
+    test('store - displays the store agent list', async ({ page }) => {
+      await navigateToTab(page, 'Agent Store');
       await waitForNetworkIdle(page);
 
       const mainContent = page.locator('main');
@@ -316,7 +316,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('store - category filter works', async ({ page }) => {
-      await navigateToTab(page, 'Coach Store');
+      await navigateToTab(page, 'Agent Store');
       await waitForNetworkIdle(page);
 
       // Look for category tabs or filter
@@ -330,7 +330,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('store - search coaches works', async ({ page }) => {
-      await navigateToTab(page, 'Coach Store');
+      await navigateToTab(page, 'Agent Store');
       await waitForNetworkIdle(page);
 
       const searchInput = page.locator('input[type="search"], input[placeholder*="Search"]');

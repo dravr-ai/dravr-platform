@@ -1,4 +1,4 @@
-# ABOUTME: Test coach uninstall flow from the store
+# ABOUTME: Test agent uninstall flow from the store
 # ABOUTME: Converted from store.test.js "install/uninstall flow" tests
 
 appId: ai.dravr.app
@@ -14,7 +14,7 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Navigate to a coach detail
+# Navigate to an agent detail
 - runFlow:
     when:
       visible:
@@ -38,7 +38,7 @@ appId: ai.dravr.app
             # Confirm uninstall in alert
             - extendedWaitUntil:
                 visible:
-                  text: "Uninstall Coach?"
+                  text: "Uninstall Agent?"
                 timeout: 3000
 
             # Tap the Uninstall button in the dialog
@@ -56,7 +56,7 @@ appId: ai.dravr.app
             # Should now show Install button
             - extendedWaitUntil:
                 visible:
-                  text: "Install Coach"
+                  text: "Install Agent"
                 timeout: 5000
 
       # Navigate back

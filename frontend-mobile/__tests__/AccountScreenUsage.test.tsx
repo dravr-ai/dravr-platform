@@ -118,11 +118,11 @@ describe('AccountScreen', () => {
     });
   });
 
-  it('should display resource counts for coaches and conversations', async () => {
+  it('should display resource counts for agents and conversations', async () => {
     const { getByText } = render(<AccountScreen />);
 
     await waitFor(() => {
-      expect(getByText('Coaches')).toBeTruthy();
+      expect(getByText('Agents')).toBeTruthy();
       expect(getByText('2 / 3')).toBeTruthy();
       expect(getByText('Conversations')).toBeTruthy();
       expect(getByText('5 / 10')).toBeTruthy();

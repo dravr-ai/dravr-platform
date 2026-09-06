@@ -249,13 +249,13 @@ describe('UserSettings Component', () => {
 
       // The switcher shipped on both clients and was reachable from neither.
       // This asserts it has a home: remove the mount and the language a user
-      // reads the app in — and the language their coach answers in — becomes
+      // reads the app in — and the language their agent answers in — becomes
       // unchangeable again.
       const select = screen.getByLabelText('Choisir la langue');
       expect(select).toBeInTheDocument();
       expect(select).toHaveValue('fr');
       expect(
-        screen.getByText("L’interface et les réponses de ton coach suivent toutes deux ce réglage."),
+        screen.getByText("L’interface et les réponses de ton agent suivent toutes deux ce réglage."),
       ).toBeInTheDocument();
       expect(screen.getByRole('option', { name: '🇩🇪 Deutsch' })).toBeInTheDocument();
       expect(screen.getByRole('option', { name: '🇵🇹 Português' })).toBeInTheDocument();
@@ -537,7 +537,7 @@ describe('UserSettings Component', () => {
       });
     });
 
-    it('should display resource counts for coaches and conversations', async () => {
+    it('should display resource counts for agents and conversations', async () => {
       const user = userEvent.setup();
 
       await act(async () => {
@@ -547,7 +547,7 @@ describe('UserSettings Component', () => {
       await user.click(screen.getByText('Account'));
 
       await waitFor(() => {
-        expect(screen.getByText('Coaches')).toBeInTheDocument();
+        expect(screen.getByText('Agents')).toBeInTheDocument();
         expect(screen.getByText('2 / 3')).toBeInTheDocument();
         expect(screen.getByText('Conversations')).toBeInTheDocument();
         expect(screen.getByText('5 / 10')).toBeInTheDocument();

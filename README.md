@@ -1,7 +1,7 @@
 <div align="center">
   <img src="templates/dravr-logo.svg" width="150" height="150" alt="Dravr Logo">
   <h1>Dravr Platform</h1>
-  <p><em>Multi-tenant fitness coaching platform — same coach, every surface (web, mobile, MCP, messaging), with sports-science guardrails on every claim.</em></p>
+  <p><em>Multi-tenant fitness coaching platform — same agent, every surface (web, mobile, MCP, messaging), with sports-science guardrails on every claim.</em></p>
 </div>
 
 [![CI: Backend (Rust)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml)
@@ -16,14 +16,14 @@
 
 ## What this is
 
-Dravr is the platform behind [dravr.ai](https://dravr.ai). It runs an AI fitness coach that lives wherever the user already is — chat apps, a mobile app, a web dashboard, or any AI assistant that speaks the [Model Context Protocol](https://modelcontextprotocol.io/).
+Dravr is the platform behind [dravr.ai](https://dravr.ai). It runs an AI fitness agent that lives wherever the user already is — chat apps, a mobile app, a web dashboard, or any AI assistant that speaks the [Model Context Protocol](https://modelcontextprotocol.io/).
 
 The interesting bit isn't "an LLM that talks fitness." It's the architecture that turns a chat turn into a verifiable, tenant-scoped, provider-grounded coaching answer:
 
-- A **coach** is a tenant-scoped persona — a system prompt plus a category, plus tier-specific behaviour rules — not a free-form chat session.
-- Every coach turn is **decomposed into atomic claims** and run through a layered verifier (heuristic + LLM-as-judge) before it reaches the user. False or unsupported physiological / nutrition / training-prescription claims are flagged, scored, and stored against the conversation turn.
-- Every coach turn is **grounded in real provider data** — Strava activities, WHOOP sleep, Garmin HRV — fetched through tool calls, not hallucinated from an activity title.
-- Every coach turn **reaches every surface through one envelope** — a single ordered block list that web, mobile and the five chat channels all render from, with each surface receiving the blocks its capabilities permit. Progressive token-by-token deltas are narrower than that: `TurnEvent::ProseDelta` has one producer, the Copilot ACP branch, so on a function-calling provider an in-app turn arrives as the terminal frame rather than streaming (ledgered as `progressive-text-deltas-acp-only`).
+- An **agent** is a tenant-scoped persona — a system prompt plus a category, plus tier-specific behaviour rules — not a free-form chat session.
+- Every agent turn is **decomposed into atomic claims** and run through a layered verifier (heuristic + LLM-as-judge) before it reaches the user. False or unsupported physiological / nutrition / training-prescription claims are flagged, scored, and stored against the conversation turn.
+- Every agent turn is **grounded in real provider data** — Strava activities, WHOOP sleep, Garmin HRV — fetched through tool calls, not hallucinated from an activity title.
+- Every agent turn **reaches every surface through one envelope** — a single ordered block list that web, mobile and the five chat channels all render from, with each surface receiving the blocks its capabilities permit. Progressive token-by-token deltas are narrower than that: `TurnEvent::ProseDelta` has one producer, the Copilot ACP branch, so on a function-calling provider an in-app turn arrives as the terminal frame rather than streaming (ledgered as `progressive-text-deltas-acp-only`).
 
 ## The system, end to end
 
@@ -41,14 +41,14 @@ The interesting bit isn't "an LLM that talks fitness." It's the architecture tha
             ┌─────────────────────────────────────┐
             │   Chat orchestration (one path)     │
             │  ┌────────────────────────────────┐ │
-            │  │ Coach harness pipeline:        │ │
+            │  │ Coaching harness pipeline:     │ │
             │  │  1. memory recall + compaction │ │
-            │  │  2. persona + coach prompt     │ │
+            │  │  2. persona + agent prompt     │ │
             │  │  3. tool registry dispatch     │ │
             │  │  4. LLM tool-loop              │ │
             │  │  5. claim extraction           │ │
             │  │  6. claim verification         │ │
-            │  │  7. coach notes + followups    │ │
+            │  │  7. agent notes + followups    │ │
             │  └────────────────────────────────┘ │
             │   AG-UI events fan out at every step│
             └─────────────────────────────────────┘
@@ -77,22 +77,22 @@ The web app, mobile app, MCP clients, and messaging adapters all hit the same or
 - **Rendering** — markdown blocks for chat surfaces, AG-UI step events for streaming surfaces, plain-text fallbacks for SMS-grade channels.
 - **Latency budget** — chat surfaces tolerate streaming with progressive AG-UI events; webhook channels render a "thinking…" message that gets edited in place as `STEP_FINISHED` events arrive.
 
-A coach exists once. Its behaviour is identical on every surface.
+An agent exists once. Its behaviour is identical on every surface.
 
-### The coach harness pipeline
+### The coaching harness pipeline
 
-A "coach turn" is a deterministic state machine, not a single LLM call. Each tier is independently observable and independently testable.
+An "agent turn" is a deterministic state machine, not a single LLM call. Each tier is independently observable and independently testable.
 
 | Tier | Responsibility | What it produces |
 |---|---|---|
 | 0 — Persona | Render base persona (casual / professional / supportive / direct) | System prompt header |
-| 1 — Coach | Inject tenant-scoped coach prompt from a hot-reload registry | Coach domain expertise |
-| 2 — Memory | Recall extracted user facts (goals, equipment, injuries) + coach-authored notes | User context |
+| 1 — Agent | Inject tenant-scoped agent prompt from a hot-reload registry | Agent domain expertise |
+| 2 — Memory | Recall extracted user facts (goals, equipment, injuries) + agent-authored notes | User context |
 | 3 — Compaction | Summarise oldest N turns when window crosses warning threshold | Bounded context window |
 | 4 — Tool dispatch | Capability-filtered MCP tool registry runs the LLM tool-loop | Tool calls + provider data |
 | 5 — Guardrails | Token caps, blocked-topic filtering, disclaimer injection | Bounded output |
 | 5.5 — Claim verifier | Decompose response → atomic claims → heuristic + judge verdict | Verdict store, audit trail |
-| 6 — Memory write-back | Extract new facts from the turn, persist coach notes / follow-ups | Updated user model |
+| 6 — Memory write-back | Extract new facts from the turn, persist agent notes / follow-ups | Updated user model |
 
 Every tier emits AG-UI `STEP_STARTED` / `STEP_FINISHED` events so subscribers can show real-time progress instead of a spinner. Every tier is reconfigurable at runtime via the admin "Harness Config" panel — no redeploy.
 
@@ -107,7 +107,7 @@ Fitness providers are behind a single `Provider` trait. Adding a provider means 
 | Sync | `dravr-enforme` runs scheduled background sync per provider per tenant. |
 | Restricted jurisdictions | Sciotte (`dravr-sciotte`) ships a Strava mirror via headless Chrome where Strava's OAuth API isn't an option. |
 
-Coaches see a `&dyn Provider`. They never know whether the data came from Strava OAuth, a Garmin webhook, or a Sciotte scrape.
+Agents see a `&dyn Provider`. They never know whether the data came from Strava OAuth, a Garmin webhook, or a Sciotte scrape.
 
 ### LLM abstraction
 
@@ -125,7 +125,7 @@ Tenant isolation is a CI-enforced invariant, not a runtime convention.
 
 - Every database query includes `tenant_id` in the `WHERE` clause. An architectural-validation script fails CI on missing scoping.
 - OAuth tokens, API keys, LLM credentials, cache keys are all per-tenant. There is no global / shared store.
-- Admin operations that touch a coach or a user must verify the target's tenant matches the caller's, including system coaches (which are pinned to the seed tenant but accepted unconditionally for read/use, only).
+- Admin operations that touch an agent or a user must verify the target's tenant matches the caller's, including system agents (which are pinned to the seed tenant but accepted unconditionally for read/use, only).
 - The frontend admin console runs under super-admin impersonation, but every route still goes through the same tenant resolver — there's no impersonation-only data path.
 
 ### External `dravr-*` modules — embedded today, extractable as services
@@ -144,7 +144,7 @@ The platform is composed against a set of independently versioned `dravr-*` modu
 | `dravr-tronc` | MCP protocol engine — tool/schema/transport/host traits the stdio and HTTP servers are built on; the notify layer is one small part of it | Static link | No — protocol plumbing the server links directly |
 | `dravr-meteo` | Weather lookups | In-process HTTP client | Yes — small caching service |
 | `dravr-sciotte` | Headless-Chrome Strava mirror scraper | **Already a service** — separate Cloud Run | (already extracted) |
-| `dravr-contremaitre` | System prompts + coach definitions | **Already external** — separate GitHub repo, hot-reloaded over webhook | (already extracted) |
+| `dravr-contremaitre` | System prompts + agent definitions | **Already external** — separate GitHub repo, hot-reloaded over webhook | (already extracted) |
 
 **Today — embedded composition:**
 
@@ -238,7 +238,7 @@ Adding a service for any of the extractable modules is: ship a thin binary that 
 
 ### Hot-reloadable prompts
 
-System prompts and coach personas don't ship in the binary. They live in [`dravr-contremaitre`](https://github.com/dravr-ai/dravr-contremaitre) under `prompts/coaches/<category>/<slug>/<locale>.md`, and the server hot-reloads them on startup and on webhook from the contremaitre repo. Editing a coach prompt is a content change, not a deploy.
+System prompts and agent personas don't ship in the binary. They live in [`dravr-contremaitre`](https://github.com/dravr-ai/dravr-contremaitre) under `prompts/coaches/<category>/<slug>/<locale>.md`, and the server hot-reloads them on startup and on webhook from the contremaitre repo. Editing an agent prompt is a content change, not a deploy.
 
 ### Streaming via AG-UI
 
@@ -281,7 +281,7 @@ The deployed dev environment seeds a different admin — `admin@dravr.ai`, set i
 against dev, and vice versa. Conflating the two costs an afternoon; they are
 separate databases with separate seeders.
 
-For exercising the coach on either environment, sign in as a regular user
+For exercising the agent on either environment, sign in as a regular user
 (`webtest@pierre.dev`) rather than the admin: the admin account has no provider
 connections and the onboarding gate rejects its chat requests.
 
@@ -384,14 +384,14 @@ Production runs on Google Cloud Run with Cloud SQL (PostgreSQL), Memorystore (Re
 
 The frontend and backend ship in the same Cloud Run service, joined by an nginx sidecar that proxies `/__/` to the Firebase auth handler and everything else to the Rust backend. The browser sees one origin — no CORS gymnastics.
 
-A separate `Contremaitre: Sync Prompts` workflow pushes prompt edits from `dravr-contremaitre` into the running Cloud Run instances by triggering the in-process hot-reloader. Coach prompt edits are zero-redeploy.
+A separate `Contremaitre: Sync Prompts` workflow pushes prompt edits from `dravr-contremaitre` into the running Cloud Run instances by triggering the in-process hot-reloader. Agent prompt edits are zero-redeploy.
 
 ## Documentation
 
 mdBook source in [`book/`](book/). Architectural reading order:
 
 - [`architecture.md`](book/src/architecture.md) — request lifecycle, repository pattern, tenant resolution.
-- [`coaching-harness-overview.md`](book/src/coaching-harness-overview.md) → [`-tiers.md`](book/src/coaching-harness-tiers.md) → [`-ops.md`](book/src/coaching-harness-ops.md) — the coach pipeline tiers, memory model, claim verifier wiring.
+- [`coaching-harness-overview.md`](book/src/coaching-harness-overview.md) → [`-tiers.md`](book/src/coaching-harness-tiers.md) → [`-ops.md`](book/src/coaching-harness-ops.md) — the agent pipeline tiers, memory model, claim verifier wiring.
 - [`messaging-gateway.md`](book/src/messaging-gateway.md) — channel adapter design, AG-UI consumer, signed webhooks.
 - [`llm-providers.md`](book/src/llm-providers.md) — provider trait, three-way tool-loop dispatch.
 - [`protocols.md`](book/src/protocols.md), [`oauth2-server.md`](book/src/oauth2-server.md), [`authentication.md`](book/src/authentication.md) — protocol surface.

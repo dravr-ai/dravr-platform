@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests the chat header's info sheet — the three shapes a thread can have and the rows each shows
-// ABOUTME: A group thread gets Group info, a coach thread gets Coach info, a plain thread gets rename/participants/delete
+// ABOUTME: A group thread gets Group info, an agent thread gets Agent info, a plain thread gets rename/participants/delete
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -78,12 +78,12 @@ describe('ConversationInfoSheet', () => {
     expect(handlers.onRename).toHaveBeenCalledTimes(1);
     expect(handlers.onParticipants).toHaveBeenCalledTimes(1);
     expect(handlers.onDelete).toHaveBeenCalledTimes(1);
-    // A thread with no coach and no group has neither of the other shapes.
+    // A thread with no agent and no group has neither of the other shapes.
     expect(queryByTestId('coach-info-sheet')).toBeNull();
     expect(queryByTestId('group-info-sheet')).toBeNull();
   });
 
-  it('shows Coach info for a coach-bound thread', () => {
+  it('shows Agent info for an agent-bound thread', () => {
     const { getByTestId, queryByTestId } = renderSheet(
       conversation({ id: 'c2', coach_id: 'coach-1', coach_title: 'Coach Tempo' }),
     );
@@ -93,9 +93,9 @@ describe('ConversationInfoSheet', () => {
     expect(queryByTestId('conversation-info-plain')).toBeNull();
   });
 
-  // A group thread bound to a coach is still a group row and still gets Group
+  // A group thread bound to an agent is still a group row and still gets Group
   // info: the group is what the thread is about.
-  it('shows Group info for a group thread even when a coach is attached', async () => {
+  it('shows Group info for a group thread even when an agent is attached', async () => {
     const { findByTestId, queryByTestId } = renderSheet(
       conversation({ id: 'c3', group_id: 'group-1', group_name: 'Harricana', coach_id: 'coach-1' }),
     );

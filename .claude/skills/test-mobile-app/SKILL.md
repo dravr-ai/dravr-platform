@@ -53,7 +53,7 @@ gh run list --branch main --limit 5 --json workflowName,conclusion
 - Anything is already listening on 8081 / 8082 / 5173 → someone may be mid-session. The setup
   script **kills all services and resets the dev database**. That is destructive; confirm.
 
-Confirm the coach source exists — the setup script hard-exits without it:
+Confirm the agent source exists — the setup script hard-exits without it:
 
 ```bash
 ls ../dravr-contremaitre/prompts/coaches >/dev/null && echo "coaches ok"
@@ -303,7 +303,7 @@ is a P0-adjacent regression of a shipped behaviour (`__tests__/SettingsScreenAdm
 is its unit-level pin).
 
 Sweep the rest of the tabs as the admin too. An operator account has no seeded provider data, so
-"empty" is the *expected* state on activity-backed surfaces — an empty chat coach list or empty
+"empty" is the *expected* state on activity-backed surfaces — an empty chat agent list or empty
 insights feed for the admin is not automatically a defect. Verify against the API before filing.
 
 ## Phase 5 — Cross-cutting passes
@@ -325,7 +325,7 @@ Run these as the user unless noted.
 5. **Keyboard and safe area.** Every text-entry screen: keyboard must not cover the input or the
    submit control. The floating tab bar is `COLLAPSED_HEIGHT + 40` tall
    (`TAB_BAR_BOTTOM_OFFSET`); content clipped beneath it is a finding.
-6. **Orientation.** `mobile_set_orientation` landscape on the heaviest screens (chat, coach
+6. **Orientation.** `mobile_set_orientation` landscape on the heaviest screens (chat, agent
    library, store). The app declares `orientation: 'portrait'` — a screen that reflows badly
    under a forced rotation is lower severity than one that crashes.
 7. **Accessibility.** `ui_describe_all` is the tree. Interactive elements need an
@@ -509,7 +509,7 @@ Flow rules learned the hard way in this repo — the existing flows encode them,
   the fix.
 - New area directory → register it in `.maestro/config.yaml` `flows:` **and** in the CI critical
   list if it must run in CI.
-- Anything you create (a coach, a group) gets a cleanup flow — `coaches/09-cleanup-delete-coach`
+- Anything you create (an agent, a group) gets a cleanup flow — `coaches/09-cleanup-delete-coach`
   and `coach-wizard/10-cleanup-wizard-coach` are the pattern. The dev DB persists across runs.
 
 ### Template — integration spec (`integration/specs/`)

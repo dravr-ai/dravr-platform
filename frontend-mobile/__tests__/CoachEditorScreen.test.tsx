@@ -71,14 +71,17 @@ describe('CoachEditorScreen', () => {
     mockDelete.mockResolvedValue(undefined);
   });
 
-  it('loads the coach by id and hydrates the form as an edit sheet', async () => {
+  it('loads the agent by id and hydrates the form as an edit sheet', async () => {
     const { findByTestId, getByText, queryByTestId, queryByText } = render(<CoachEditorScreen />);
 
     expect(await findByTestId('coach-editor-screen')).toBeTruthy();
     expect(mockGet).toHaveBeenCalledWith('coach-1');
     expect((await findByTestId('coach-title-input')).props.value).toBe('Coach Tempo');
-    expect(getByText('Edit Coach')).toBeTruthy();
-    // No create mode, no version history, no fork wording.
+    expect(getByText('Edit Agent')).toBeTruthy();
+    // No create mode, no version history, no fork wording. The two strings are
+    // the retired wizard's own, as it spelled them before b460057d3 deleted it;
+    // neither is in the catalogue now, so the new vocabulary would name text no
+    // build can render.
     expect(queryByText('Create Coach')).toBeNull();
     expect(queryByTestId('version-history-button')).toBeNull();
     expect(queryByTestId('forked-from-banner')).toBeNull();
@@ -109,7 +112,7 @@ describe('CoachEditorScreen', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('deletes the coach after confirmation and goes back', async () => {
+  it('deletes the agent after confirmation and goes back', async () => {
     (Alert.alert as jest.Mock).mockImplementation((_title, _message, buttons) => {
       const destructive = buttons?.find((b: { text: string }) => b.text === 'Delete');
       destructive?.onPress?.();
@@ -120,8 +123,8 @@ describe('CoachEditorScreen', () => {
     fireEvent.press(getByTestId('delete-coach-button'));
 
     expect(Alert.alert).toHaveBeenCalledWith(
-      'Delete Coach?',
-      'Delete coach "Coach Tempo"? This cannot be undone.',
+      'Delete Agent?',
+      'Delete agent "Coach Tempo"? This cannot be undone.',
       expect.any(Array),
     );
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('coach-1'));
@@ -129,7 +132,7 @@ describe('CoachEditorScreen', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it('keeps the coach when the deletion is cancelled', async () => {
+  it('keeps the agent when the deletion is cancelled', async () => {
     (Alert.alert as jest.Mock).mockImplementation((_title, _message, buttons) => {
       const cancel = buttons?.find((b: { text: string }) => b.text === 'Cancel');
       cancel?.onPress?.();
@@ -154,16 +157,16 @@ describe('CoachEditorScreen', () => {
 
     fireEvent.press(getByTestId('delete-coach-button'));
 
-    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('Error', 'Failed to delete coach'));
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('Error', 'Failed to delete agent'));
     expect(mockRouter.back).not.toHaveBeenCalled();
   });
 
-  it('shows the not-found state when the route carries no coach id', async () => {
+  it('shows the not-found state when the route carries no agent id', async () => {
     mockParams = {};
     const { getByTestId, getByText } = render(<CoachEditorScreen />);
 
     expect(getByTestId('coach-editor-missing')).toBeTruthy();
-    expect(getByText('Coach not found')).toBeTruthy();
+    expect(getByText('Agent not found')).toBeTruthy();
     expect(mockGet).not.toHaveBeenCalled();
   });
 });

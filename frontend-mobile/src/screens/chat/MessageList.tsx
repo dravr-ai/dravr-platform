@@ -813,8 +813,8 @@ export function MessageList({
    * An empty thread.
    *
    * One line and the two ways in: `/` for the command palette, `@handle` to
-   * bring a coach in for a turn. No coach grid, no picker — a coach is chosen
-   * with `/coach add @handle`, exactly as it is on web and in messaging.
+   * bring an agent in for a turn. No agent grid, no picker — an agent is chosen
+   * with `/agent add @handle`, exactly as it is on web and in messaging.
    */
   const renderEmptyChat = () => (
     <ScrollView

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The card shown after a coach is installed from Discover — teaches /coach add @handle and @handle
-// ABOUTME: Dismissible; t('app.openChat') hands the /coach add draft to the caller and starts a conversation
+// ABOUTME: The card shown after an agent is installed from Discover — teaches /agent add @handle and @handle
+// ABOUTME: Dismissible; t('app.openChat') hands the /agent add draft to the caller and starts a conversation
 
 import React from 'react';
 import { View, Text } from 'react-native';
@@ -16,7 +16,7 @@ export interface PostInstallHintProps {
   /** The catalogue handle the copy inherited from its listing. */
   handle: string | undefined;
   /**
-   * Receives the `/coach add @handle` command so the caller can start a
+   * Receives the `/agent add @handle` command so the caller can start a
    * conversation and seed its composer with it.
    */
   onOpenChat: (draft: string) => void;
@@ -32,7 +32,7 @@ export function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: P
     <View testID="post-install-hint" accessibilityRole="summary" accessibilityLiveRegion="polite">
       <Card variant="elevated">
         <Text className="text-base font-semibold text-text-primary mb-1" testID="post-install-title">
-          {'“'}{coachTitle}{'”'} is in your coaches
+          {'“'}{coachTitle}{'”'} is in your agents
         </Text>
         <Text className="text-sm text-text-secondary leading-5" testID="post-install-body">
           {t('app.useItInAnyChat')}{' '}

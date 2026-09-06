@@ -40,13 +40,13 @@ async function takeTurn(content: string): Promise<TurnEnvelope> {
   return turn;
 }
 
-const COACH_PICKER_PROSE = 'Choisis ton coach :';
+const COACH_PICKER_PROSE = 'Choisis ton agent :';
 // The postback is the command an athlete could type, spelled by the shared
 // drafts — `/coach select <uuid>` is gone from the tree.
 const ADD_TEMPO = COMMAND_DRAFTS.coachAdd('coach-tempo');
 const ADD_RECUP = COMMAND_DRAFTS.coachAdd('coach-recup');
 
-/** What `/coach list` answers with: prose plus one button per coach. */
+/** What `/agent list` answers with: prose plus one button per agent. */
 const commandTurn = () =>
   assistantTurn({
     content: COACH_PICKER_PROSE,
@@ -55,7 +55,7 @@ const commandTurn = () =>
       { type: 'prose', text: COACH_PICKER_PROSE },
       {
         type: 'actions',
-        title: 'Tes coachs',
+        title: 'Tes agents',
         actions: [
           { label: 'Coach Tempo', action_type: 'postback', value: ADD_TEMPO },
           { label: 'Coach Recup', action_type: 'postback', value: ADD_RECUP },
@@ -102,13 +102,13 @@ describe('PHASE 2 — slash-command turns', () => {
     stub = installHttpStub({
       [`POST ${MESSAGES_URL}`]: (request) => ({
         data:
-          (request.body as { content: string }).content === '/coach list'
+          (request.body as { content: string }).content === '/agent list'
             ? commandTurn()
             : assistantTurn(),
       }),
     });
 
-    const command = await takeTurn('/coach list');
+    const command = await takeTurn('/agent list');
     const llm = await takeTurn('Comment se presente ma semaine ?');
 
     expect(command.assistant.finish_reason).toBe('command');
@@ -124,7 +124,7 @@ describe('PHASE 2 — slash-command turns', () => {
     const actions = command.assistant.blocks.find((block) => block.type === 'actions');
     expect(actions).toEqual({
       type: 'actions',
-      title: 'Tes coachs',
+      title: 'Tes agents',
       actions: [
         { label: 'Coach Tempo', action_type: 'postback', value: ADD_TEMPO },
         { label: 'Coach Recup', action_type: 'postback', value: ADD_RECUP },
@@ -138,7 +138,7 @@ describe('PHASE 2 — slash-command turns', () => {
     stub = installHttpStub({
       [`POST ${MESSAGES_URL}`]: (request) => ({
         data:
-          (request.body as { content: string }).content === '/coach list'
+          (request.body as { content: string }).content === '/agent list'
             ? commandTurn()
             : assistantTurn({ content: 'Coach Tempo est actif.' }),
       }),
@@ -146,7 +146,7 @@ describe('PHASE 2 — slash-command turns', () => {
 
     const { result } = renderHook(() => useMessages());
     await act(async () => {
-      await result.current.sendTurn(CONVERSATION_ID, '/coach list');
+      await result.current.sendTurn(CONVERSATION_ID, '/agent list');
     });
 
     // The actions block reached the renderer as one of the turn's own blocks.
@@ -155,7 +155,7 @@ describe('PHASE 2 — slash-command turns', () => {
     );
     expect(actions).toEqual({
       type: 'actions',
-      title: 'Tes coachs',
+      title: 'Tes agents',
       actions: [
         { label: 'Coach Tempo', action_type: 'postback', value: ADD_TEMPO },
         { label: 'Coach Recup', action_type: 'postback', value: ADD_RECUP },
@@ -175,7 +175,7 @@ describe('PHASE 2 — slash-command turns', () => {
     });
 
     const posted = stub.requestsFor('POST').map((request) => (request.body as { content: string }).content);
-    expect(posted).toEqual(['/coach list', ADD_TEMPO]);
+    expect(posted).toEqual(['/agent list', ADD_TEMPO]);
   });
 
   it('leaves an LLM turn without any action buttons', async () => {

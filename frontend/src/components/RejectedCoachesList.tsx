@@ -1,5 +1,5 @@
 // ABOUTME: Component displaying rejected coach submissions with rejection details
-// ABOUTME: Lists rejected coaches with reason, date, and option to re-review
+// ABOUTME: Lists rejected agents with reason, date, and option to re-review
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -38,7 +38,7 @@ function getReasonLabel(reason: string): string {
 }
 
 export default function RejectedCoachesList() {
-  // Fetch rejected coaches
+  // Fetch rejected agents
   const { data, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminStore.rejected(),
     queryFn: () => adminApi.getRejectedStoreCoaches(),
@@ -65,8 +65,8 @@ export default function RejectedCoachesList() {
   if (error) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Rejected Coaches</h3>
-        <p className="mt-0.5 text-xs text-outline">Unable to fetch rejected coaches. Please try again.</p>
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Rejected Agents</h3>
+        <p className="mt-0.5 text-xs text-outline">Unable to fetch rejected agents. Please try again.</p>
       </div>
     );
   }
@@ -76,8 +76,8 @@ export default function RejectedCoachesList() {
   if (coaches.length === 0) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Rejected Coaches</h3>
-        <p className="mt-0.5 text-xs text-outline">Rejected coach submissions will appear here.</p>
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Rejected Agents</h3>
+        <p className="mt-0.5 text-xs text-outline">Rejected agent submissions will appear here.</p>
       </div>
     );
   }

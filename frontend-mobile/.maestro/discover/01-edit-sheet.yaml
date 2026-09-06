@@ -1,5 +1,5 @@
-# ABOUTME: Test the edit sheet reached from an installed listing on Discover — the only coach editor in the app
-# ABOUTME: Edit-only: a title, Save, Delete coach, and no version history or create mode
+# ABOUTME: Test the edit sheet reached from an installed listing on Discover — the only agent editor in the app
+# ABOUTME: Edit-only: a title, Save, Delete agent, and no version history or create mode
 
 appId: ai.dravr.app
 
@@ -14,7 +14,7 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Open a coach detail
+# Open an agent detail
 - runFlow:
     when:
       visible:
@@ -32,7 +32,7 @@ appId: ai.dravr.app
           visible: "Install.*"
           timeout: 15000
 
-      # An installed listing is the athlete's own copy, so it offers Edit coach
+      # An installed listing is the athlete's own copy, so it offers Edit agent
       - runFlow:
           when:
             visible:
@@ -46,7 +46,10 @@ appId: ai.dravr.app
                 visible:
                   id: "coach-editor-screen"
                 timeout: 10000
-            - assertVisible: "Edit Coach"
+            - assertVisible: "Edit Agent"
+            # The wizard's own words, as the wizard wrote them before b460057d3
+            # removed it. Neither string exists in the catalogue any more, so
+            # the new spelling would guard text nothing can render.
             - assertNotVisible: "Create Coach"
             - assertNotVisible:
                 id: "version-history-button"

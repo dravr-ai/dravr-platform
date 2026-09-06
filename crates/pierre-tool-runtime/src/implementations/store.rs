@@ -356,7 +356,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 .filter(|c| !c.is_empty())
             else {
                 return Ok(ToolResult::error(json!({
-                    "error": "Missing required 'coach_id' argument (the store coach's UUID)."
+                    "error": "Missing required 'coach_id' argument (the store agent's UUID)."
                 })));
             };
 
@@ -378,7 +378,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 "installed": true,
                 "coach": project(&installed),
                 "message": format!(
-                    "'{}' is now in your coach library. Activate it to start using it.",
+                    "'{}' is now in your agent library. Activate it to start using it.",
                     installed.title
                 ),
             });

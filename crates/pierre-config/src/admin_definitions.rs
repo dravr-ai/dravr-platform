@@ -1811,8 +1811,8 @@ pub fn register_usage_quotas<S: BuildHasher>(defs: &mut HashMap<String, Paramete
         defs,
         ParameterDefinition {
             key: "usage_quotas.max_coaches_per_user".to_owned(),
-            display_name: "Max Coaches Per User".to_owned(),
-            description: "Maximum number of coaches a single user can subscribe to".to_owned(),
+            display_name: "Max Agents Per User".to_owned(),
+            description: "Maximum number of agents a single user can subscribe to".to_owned(),
             category: "usage_quotas".to_owned(),
             data_type: ConfigDataType::Integer,
             default_value: serde_json::json!(3),
@@ -1822,7 +1822,7 @@ pub fn register_usage_quotas<S: BuildHasher>(defs: &mut HashMap<String, Paramete
                 step: Some(1.0),
             }),
             enum_options: None,
-            units: Some("coaches".to_owned()),
+            units: Some("agents".to_owned()),
             scientific_basis: None,
             env: config_env("QUOTA_MAX_COACHES_PER_USER"),
             is_runtime_configurable: true,
@@ -2054,7 +2054,7 @@ pub fn register_activity_access_quotas<S: BuildHasher>(
         ParameterDefinition {
             key: "usage_quotas.daily_activity_summary_limit".to_owned(),
             display_name: "Daily Activity Summary Limit".to_owned(),
-            description: "Maximum activity summary requests per coach per day".to_owned(),
+            description: "Maximum activity summary requests per agent per day".to_owned(),
             category: "usage_quotas".to_owned(),
             data_type: ConfigDataType::Integer,
             default_value: serde_json::json!(100),
@@ -2077,7 +2077,7 @@ pub fn register_activity_access_quotas<S: BuildHasher>(
         ParameterDefinition {
             key: "usage_quotas.weekly_activity_summary_limit".to_owned(),
             display_name: "Weekly Activity Summary Limit".to_owned(),
-            description: "Maximum activity summary requests per coach per week".to_owned(),
+            description: "Maximum activity summary requests per agent per week".to_owned(),
             category: "usage_quotas".to_owned(),
             data_type: ConfigDataType::Integer,
             default_value: serde_json::json!(500),
@@ -2100,7 +2100,7 @@ pub fn register_activity_access_quotas<S: BuildHasher>(
         ParameterDefinition {
             key: "usage_quotas.daily_activity_detailed_limit".to_owned(),
             display_name: "Daily Activity Detailed Limit".to_owned(),
-            description: "Maximum detailed activity requests per coach per day (higher token cost)"
+            description: "Maximum detailed activity requests per agent per day (higher token cost)"
                 .to_owned(),
             category: "usage_quotas".to_owned(),
             data_type: ConfigDataType::Integer,
@@ -2125,7 +2125,7 @@ pub fn register_activity_access_quotas<S: BuildHasher>(
             key: "usage_quotas.weekly_activity_detailed_limit".to_owned(),
             display_name: "Weekly Activity Detailed Limit".to_owned(),
             description:
-                "Maximum detailed activity requests per coach per week (higher token cost)"
+                "Maximum detailed activity requests per agent per week (higher token cost)"
                     .to_owned(),
             category: "usage_quotas".to_owned(),
             data_type: ConfigDataType::Integer,

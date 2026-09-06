@@ -572,7 +572,7 @@ async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
     let buttons = actions(&installed);
     assert_eq!(buttons.len(), 1);
     assert_eq!(buttons[0].action_type, "postback");
-    assert_eq!(buttons[0].value, "/coach add @recovery-coach");
+    assert_eq!(buttons[0].value, "/agent add @recovery-coach");
     assert_eq!(
         buttons[0].label,
         rendered(&resources, KEY_DISCOVER_ADD_LABEL, &[])
@@ -604,7 +604,7 @@ async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
             &["Recovery Coach", "recovery-coach"]
         )
     );
-    assert_eq!(actions(&again)[0].value, "/coach add @recovery-coach");
+    assert_eq!(actions(&again)[0].value, "/agent add @recovery-coach");
     let library = resources
         .common
         .repos

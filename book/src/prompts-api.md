@@ -230,14 +230,14 @@ Authorization: Bearer <admin_jwt_token>
 Content-Type: application/json
 
 {
-  "prompt_text": "Hello! I'm Dravr, your personal fitness coach. How can I help you today?"
+  "prompt_text": "Hello! I'm Dravr. How can I help with your training today?"
 }
 ```
 
 **Response** `200 OK`:
 ```json
 {
-  "prompt_text": "Hello! I'm Dravr, your personal fitness coach. How can I help you today?"
+  "prompt_text": "Hello! I'm Dravr. How can I help with your training today?"
 }
 ```
 

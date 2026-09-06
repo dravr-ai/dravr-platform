@@ -140,17 +140,32 @@ fn registry_exposes_coach_scope_carve_outs_for_every_locale() {
         );
     }
     // Canonical anchor words that must survive any re-translation so the
-    // carve-out keeps counteracting the exact phrase in the scope list.
+    // carve-out keeps counteracting the exact phrase in the scope list. The
+    // role sentence names the speciality, never a self-noun: a prompt that
+    // says "as a nutrition coach" or "as an agent" primes the identity leak
+    // the anchor suppresses.
     let fr_nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, "fr");
     assert!(
-        fr_nutrition.contains("coach nutrition") && fr_nutrition.contains("dîners"),
+        fr_nutrition.contains("spécialisé en nutrition") && fr_nutrition.contains("dîners"),
         "FR nutrition carve-out lost its anchor terms"
     );
     let en_nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, "en");
     assert!(
-        en_nutrition.contains("nutrition coach") && en_nutrition.contains("dinner"),
+        en_nutrition.contains("specialise in nutrition") && en_nutrition.contains("dinner"),
         "EN nutrition carve-out lost its anchor terms"
     );
+    for locale in ["fr", "en", "es", "de", "pt"] {
+        for key in [
+            KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+            KEY_COACH_SCOPE_CARVE_OUT_RECIPES,
+        ] {
+            let text = reg.get(key, locale).to_lowercase();
+            assert!(
+                !text.contains("coach") && !text.contains("agent"),
+                "{locale} {key} names the model's role with a noun"
+            );
+        }
+    }
 }
 
 /// The turn service's `detect_turn_locale` picks the message-content language

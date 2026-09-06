@@ -590,7 +590,7 @@ pub const KEY_MEMORY_PREDICATE_STATES: &str = "messaging.memory.predicate.states
 /// Key: intake opener — sent with the first question after a channel is linked.
 pub const KEY_INTAKE_OPENER: &str = "messaging.intake.opener";
 /// Key: intake profile-type question (athlete vs coach), numbered 1/2.
-pub const KEY_INTAKE_PERSONA: &str = "messaging.intake.persona";
+pub const KEY_INTAKE_PERSONA: &str = "humanCoach.intake_persona";
 /// Key: framing sent with the first PAR-Q+ question — a "yes" blocks nothing.
 pub const KEY_INTAKE_PARQ_INTRO: &str = "messaging.intake.parq.intro";
 /// Key: PAR-Q+ Q1 — diagnosed heart condition.
@@ -722,7 +722,7 @@ pub const KEY_GROUP_INVITE_UNAVAILABLE: &str = "commands.group.invite_unavailabl
 /// Key: coach-invite success body, shared by `/coach invite` and
 /// `/group invite coach`. `{0}` = group name, `{1}` = invite code (URL),
 /// `{2}` = invite code (display).
-pub const KEY_COACH_INVITE_BODY: &str = "commands.coach.invite_body";
+pub const KEY_COACH_INVITE_BODY: &str = "humanCoach.invite_body";
 /// Key: `/group leave` confirmation prompt. `{0}` = group name.
 pub const KEY_GROUP_LEAVE_PROMPT: &str = "commands.group.leave_prompt";
 /// Key: `/group consent` usage hint when the argument is missing or invalid.
@@ -740,7 +740,7 @@ pub const KEY_GROUP_RESPOND_ALL: &str = "commands.group.respond_all";
 pub const KEY_GROUP_RESPOND_STATUS_MENTIONS: &str = "commands.group.respond_status_mentions";
 /// Key: `/group coach detach` confirmation — the group's human coach was
 /// cleared. `{0}` = group name.
-pub const KEY_GROUP_COACH_DETACHED: &str = "commands.group.coach_detached";
+pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";
 /// Key: `/group create` usage hint when no name was typed.
 pub const KEY_GROUP_CREATE_USAGE: &str = "commands.group.create_usage";
 /// Key: `/group create` refusal when neither the conversation nor the
@@ -766,7 +766,7 @@ pub const KEY_GROUP_JOIN_FULL: &str = "commands.group.join_full";
 /// Key: `/group join` member success. `{0}` = group name.
 pub const KEY_GROUP_JOINED: &str = "commands.group.joined";
 /// Key: `/group join` success for a coach-kind invite. `{0}` = group name.
-pub const KEY_GROUP_JOINED_AS_COACH: &str = "commands.group.joined_as_coach";
+pub const KEY_GROUP_JOINED_AS_COACH: &str = "humanCoach.joined_group";
 
 // ── /discover command keys ────────────────────────────────────────────────
 
@@ -883,7 +883,7 @@ pub const KEY_PERSONA_SUMMARY_ENTHUSIAST: &str = "persona.summary.enthusiast";
 pub const KEY_PERSONA_SUMMARY_POWER_ATHLETE: &str = "persona.summary.power_athlete";
 
 /// Key: one-line summary of the Coach persona.
-pub const KEY_PERSONA_SUMMARY_COACH: &str = "persona.summary.coach";
+pub const KEY_PERSONA_SUMMARY_COACH: &str = "humanCoach.persona_summary";
 
 /// Key: contract rule — reply word cap. `{0}` = the cap.
 pub const KEY_PERSONA_RULE_MAX_WORDS: &str = "persona.rule.max_words";

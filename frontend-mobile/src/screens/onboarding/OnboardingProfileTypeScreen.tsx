@@ -17,7 +17,7 @@ import { useTranslation } from '@pierre/i18n';
  * Athlete-vs-coach onboarding step (mobile).
  *
  * Reached via RootLayoutNav for a fresh account before the connect-provider step.
- * Picking t('app.iCoachOthers') persists `coaching_persona=coach`; either choice marks
+ * Picking t('humanCoach.iCoachOthers') persists `coaching_persona=coach`; either choice marks
  * the profile-type step done (locally + on the server) and flips the shared
  * `useProfileTypeChosen` cache, which routes the user on.
  */
@@ -59,8 +59,8 @@ export function OnboardingProfileTypeScreen() {
           onSelect={() => void finish('athlete')}
         />
         <ChoiceCard
-          title={t('app.iCoachOthers')}
-          description={t('onboarding.coachCardDescription')}
+          title={t('humanCoach.iCoachOthers')}
+          description={t('humanCoach.cardDescription')}
           busy={choosing === 'coach'}
           disabled={choosing !== null}
           onSelect={() => void finish('coach')}

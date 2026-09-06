@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for StoreScreen component
-// ABOUTME: Tests browsing, filtering, searching, install → hint → Open chat, and the edit sheet on an installed coach
+// ABOUTME: Tests browsing, filtering, searching, install → hint → Open chat, and the edit sheet on an installed agent
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -183,7 +183,7 @@ describe('StoreScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // clearAllMocks keeps implementations, so re-establish the default of "no
-    // coach installed" that the installed-state tests override.
+    // agent installed" that the installed-state tests override.
     vi.mocked(coachesApi.list).mockResolvedValue({
       coaches: [],
       total: 0,
@@ -195,12 +195,12 @@ describe('StoreScreen', () => {
   describe('rendering', () => {
     it('should render the header with subtitle', async () => {
       renderStoreScreen();
-      expect(screen.getByText('Find AI coaching assistants')).toBeInTheDocument();
+      expect(screen.getByText('Find AI agents')).toBeInTheDocument();
     });
 
     it('should render the search input', async () => {
       renderStoreScreen();
-      expect(screen.getByPlaceholderText('Search coaches...')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
     });
 
     it('should render category filter buttons', async () => {
@@ -218,7 +218,7 @@ describe('StoreScreen', () => {
       expect(screen.getByText('A-Z')).toBeInTheDocument();
     });
 
-    it('should render coach cards after loading', async () => {
+    it('should render agent cards after loading', async () => {
       renderStoreScreen();
 
       await waitFor(() => {
@@ -228,7 +228,7 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should display coach user counts', async () => {
+    it('should display agent user counts', async () => {
       renderStoreScreen();
 
       await waitFor(() => {
@@ -238,7 +238,7 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should display coach categories as badges', async () => {
+    it('should display agent categories as badges', async () => {
       renderStoreScreen();
 
       await waitFor(() => {
@@ -248,7 +248,7 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should display coach tags', async () => {
+    it('should display agent tags', async () => {
       renderStoreScreen();
 
       await waitFor(() => {
@@ -312,11 +312,11 @@ describe('StoreScreen', () => {
   });
 
   describe('search', () => {
-    it('should search coaches when text is entered', async () => {
+    it('should search agents when text is entered', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
 
-      const searchInput = screen.getByPlaceholderText('Search coaches...');
+      const searchInput = screen.getByPlaceholderText('Search agents...');
       await user.type(searchInput, 'marathon');
 
       await waitFor(
@@ -331,7 +331,7 @@ describe('StoreScreen', () => {
       const user = userEvent.setup();
       renderStoreScreen();
 
-      const searchInput = screen.getByPlaceholderText('Search coaches...');
+      const searchInput = screen.getByPlaceholderText('Search agents...');
       await user.type(searchInput, 'marathon');
 
       await waitFor(() => {
@@ -353,7 +353,7 @@ describe('StoreScreen', () => {
   });
 
   describe('navigation', () => {
-    it('should open detail view when coach card is clicked', async () => {
+    it('should open detail view when an agent card is clicked', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
 
@@ -363,15 +363,15 @@ describe('StoreScreen', () => {
 
       await user.click(screen.getByText('Marathon Training Coach'));
 
-      // Detail view should show Add Coach button and System Prompt section
+      // Detail view should show the Add Agent button and System Prompt section
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Add Coach' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Add Agent' })).toBeInTheDocument();
       });
     });
   });
 
   describe('empty state', () => {
-    it('should show empty state when no coaches', async () => {
+    it('should show empty state when no agents', async () => {
       vi.mocked(storeApi.browse).mockResolvedValueOnce({
         coaches: [],
         total: 0,
@@ -395,12 +395,12 @@ describe('StoreScreen', () => {
       const user = userEvent.setup();
       renderStoreScreen();
 
-      const searchInput = screen.getByPlaceholderText('Search coaches...');
+      const searchInput = screen.getByPlaceholderText('Search agents...');
       await user.type(searchInput, 'nonexistent');
 
       await waitFor(
         () => {
-          expect(screen.getByText('No coaches found')).toBeInTheDocument();
+          expect(screen.getByText('No agents found')).toBeInTheDocument();
         },
         { timeout: 1000 }
       );
@@ -419,12 +419,12 @@ describe('StoreScreen', () => {
 
       // The confident-but-wrong empty state must not be shown for a failure.
       expect(screen.queryByText('Store is empty')).not.toBeInTheDocument();
-      expect(screen.queryByText('No published coaches available yet')).not.toBeInTheDocument();
+      expect(screen.queryByText('No published agents available yet')).not.toBeInTheDocument();
       expect(screen.getByText('Network Error')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Try Again' })).toBeInTheDocument();
     });
 
-    it('should reload the coach grid when Try Again is clicked', async () => {
+    it('should reload the agent grid when Try Again is clicked', async () => {
       vi.mocked(storeApi.browse).mockRejectedValueOnce(new Error('Network Error'));
 
       const user = userEvent.setup();
@@ -444,8 +444,8 @@ describe('StoreScreen', () => {
     });
   });
 
-  describe('no coach list of its own', () => {
-    it('renders the catalogue straight under the search box, with no pinned coaches', async () => {
+  describe('no agent list of its own', () => {
+    it('renders the catalogue straight under the search box, with no pinned agents', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
         coaches: [installedCopyOfCoach1],
         total: 1,
@@ -455,32 +455,32 @@ describe('StoreScreen', () => {
       renderStoreScreen();
 
       expect(await screen.findByText('Nutrition Expert')).toBeInTheDocument();
-      expect(screen.queryByRole('region', { name: /Your coaches/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Create Coach' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Import Coach' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: /Your agents/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Create Agent' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Import Agent' })).not.toBeInTheDocument();
     });
   });
 
   describe('post-install hint', () => {
-    it('replaces the success banner with the hint that teaches /coach add @handle', async () => {
+    it('replaces the success banner with the hint that teaches /agent add @handle', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
-      await user.click(await screen.findByRole('button', { name: 'Add Coach' }));
+      await user.click(await screen.findByRole('button', { name: 'Add Agent' }));
 
       const hint = await screen.findByTestId('post-install-hint');
       expect(hint).toHaveTextContent(
-        'Use it in any chat: /coach add @marathon-training-coach — or mention @marathon-training-coach for one turn',
+        'Use it in any chat: /agent add @marathon-training-coach — or mention @marathon-training-coach for one turn',
       );
       expect(storeApi.install).toHaveBeenCalledWith('coach-1');
-      expect(screen.queryByText(/has been added to your coaches/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/has been added to your agents/)).not.toBeInTheDocument();
     });
 
     it('Open chat starts a conversation and routes to it', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
-      await user.click(await screen.findByRole('button', { name: 'Add Coach' }));
+      await user.click(await screen.findByRole('button', { name: 'Add Agent' }));
       await screen.findByTestId('post-install-hint');
 
       await user.click(screen.getByRole('button', { name: 'Open chat' }));
@@ -496,11 +496,11 @@ describe('StoreScreen', () => {
       expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
     });
 
-    it('Dismiss hides the hint and leaves the coach installed', async () => {
+    it('Dismiss hides the hint and leaves the agent installed', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
-      await user.click(await screen.findByRole('button', { name: 'Add Coach' }));
+      await user.click(await screen.findByRole('button', { name: 'Add Agent' }));
       await screen.findByTestId('post-install-hint');
 
       await user.click(screen.getByRole('button', { name: 'Dismiss' }));
@@ -522,28 +522,28 @@ describe('StoreScreen', () => {
       renderStoreScreen();
       await openMarathonListing(user);
 
-      await user.click(await screen.findByRole('button', { name: 'Edit coach' }));
+      await user.click(await screen.findByRole('button', { name: 'Edit agent' }));
 
-      expect(await screen.findByRole('heading', { name: 'Edit Coach' })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
       // The copy, never the store listing: the listing is not the athlete's to edit.
       expect(coachesApi.get).toHaveBeenCalledWith('installed-copy-1');
-      expect(screen.getByRole('button', { name: 'Delete this coach' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Delete this agent' })).toBeInTheDocument();
     });
 
-    it('offers no Edit coach on a listing the athlete has not installed', async () => {
+    it('offers no Edit agent on a listing the athlete has not installed', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
 
-      await screen.findByRole('button', { name: 'Add Coach' });
-      expect(screen.queryByRole('button', { name: 'Edit coach' })).not.toBeInTheDocument();
+      await screen.findByRole('button', { name: 'Add Agent' });
+      expect(screen.queryByRole('button', { name: 'Edit agent' })).not.toBeInTheDocument();
     });
 
     it('mounts the sheet for the ownCoachId route and hands the route back on close', async () => {
       const user = userEvent.setup();
       renderStoreScreen({ ownCoachId: 'installed-copy-1' });
 
-      expect(await screen.findByRole('heading', { name: 'Edit Coach' })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
       expect(coachesApi.get).toHaveBeenCalledWith('installed-copy-1');
 
       await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -553,7 +553,7 @@ describe('StoreScreen', () => {
   });
 
   describe('installed state', () => {
-    it('should show Remove for a store coach the user already installed', async () => {
+    it('should show Remove for a store agent the user already installed', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
         coaches: [installedCopyOfCoach1],
         total: 1,
@@ -568,7 +568,7 @@ describe('StoreScreen', () => {
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
       });
-      expect(screen.queryByRole('button', { name: 'Add Coach' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add Agent' })).not.toBeInTheDocument();
     });
 
     it('should uninstall the personal copy id, not the store listing id', async () => {
@@ -597,7 +597,7 @@ describe('StoreScreen', () => {
       confirmSpy.mockRestore();
     });
 
-    it('should show Add Coach when no personal copy points at the listing', async () => {
+    it('should show Add Agent when no personal copy points at the listing', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
 
@@ -607,7 +607,7 @@ describe('StoreScreen', () => {
       await user.click(screen.getByText('Marathon Training Coach'));
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Add Coach' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Add Agent' })).toBeInTheDocument();
       });
       expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
     });
@@ -628,9 +628,9 @@ describe('StoreScreen', () => {
       await user.click(screen.getByText('Marathon Training Coach'));
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Add Coach' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Add Agent' })).toBeInTheDocument();
       });
-      await user.click(screen.getByRole('button', { name: 'Add Coach' }));
+      await user.click(screen.getByRole('button', { name: 'Add Agent' }));
 
       await waitFor(() => {
         expect(

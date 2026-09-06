@@ -1,8 +1,8 @@
 ---
 name: coach-assign
-command: /coach assign
-aliases: []
-description: Assign a coach to a specific group
+command: /agent assign
+aliases: ["/coach assign"]
+description: Assign an agent to a specific group
 domain: coach
-arguments: "coach-id group-id"
+arguments: "agent-id group-id"
 ---

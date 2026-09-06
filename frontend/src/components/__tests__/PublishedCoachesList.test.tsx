@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for PublishedCoachesList component
-// ABOUTME: Tests published coaches grid, sorting, and unpublish functionality
+// ABOUTME: Tests published agents grid, sorting, and unpublish functionality
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -97,7 +97,7 @@ describe('PublishedCoachesList', () => {
     expect(document.querySelector('.pierre-spinner')).toBeInTheDocument();
   });
 
-  it('renders coaches in grid', async () => {
+  it('renders agents in grid', async () => {
     renderPublishedCoachesList();
 
     await waitFor(() => {
@@ -107,11 +107,11 @@ describe('PublishedCoachesList', () => {
     expect(screen.getByText('Nutrition Advisor')).toBeInTheDocument();
   });
 
-  it('shows coach count', async () => {
+  it('shows the agent count', async () => {
     renderPublishedCoachesList();
 
     await waitFor(() => {
-      expect(screen.getByText('2 published coaches')).toBeInTheDocument();
+      expect(screen.getByText('2 published agents')).toBeInTheDocument();
     });
   });
 
@@ -171,7 +171,7 @@ describe('PublishedCoachesList', () => {
     });
   });
 
-  it('shows empty state when no coaches', async () => {
+  it('shows empty state when no agents', async () => {
     vi.mocked(adminApi.getPublishedStoreCoaches).mockResolvedValue({
       coaches: [],
       total: 0,
@@ -181,9 +181,9 @@ describe('PublishedCoachesList', () => {
     renderPublishedCoachesList();
 
     await waitFor(() => {
-      expect(screen.getByText('No Published Coaches')).toBeInTheDocument();
+      expect(screen.getByText('No Published Agents')).toBeInTheDocument();
       expect(
-        screen.getByText(/Coaches will appear here once they are approved/)
+        screen.getByText(/Agents will appear here once they are approved/)
       ).toBeInTheDocument();
     });
   });
@@ -196,11 +196,11 @@ describe('PublishedCoachesList', () => {
     renderPublishedCoachesList();
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to Load Published Coaches')).toBeInTheDocument();
+      expect(screen.getByText('Failed to Load Published Agents')).toBeInTheDocument();
     });
   });
 
-  it('has View and Unpublish buttons for each coach', async () => {
+  it('has View and Unpublish buttons for each agent', async () => {
     renderPublishedCoachesList();
 
     await waitFor(() => {
@@ -224,7 +224,7 @@ describe('PublishedCoachesList', () => {
     await user.click(unpublishButtons[0]);
 
     await waitFor(() => {
-      expect(screen.getByText('Unpublish Coach')).toBeInTheDocument();
+      expect(screen.getByText('Unpublish Agent')).toBeInTheDocument();
       expect(screen.getByText(/Are you sure you want to unpublish/)).toBeInTheDocument();
     });
   });
@@ -243,7 +243,7 @@ describe('PublishedCoachesList', () => {
 
     // Confirm in dialog
     await waitFor(() => {
-      expect(screen.getByText('Unpublish Coach')).toBeInTheDocument();
+      expect(screen.getByText('Unpublish Agent')).toBeInTheDocument();
     });
 
     // Find the confirm button in the dialog (it has btn-danger class)
@@ -257,11 +257,11 @@ describe('PublishedCoachesList', () => {
     });
   });
 
-  it('displays coach initial when no icon', async () => {
+  it('displays the agent initial when no icon', async () => {
     renderPublishedCoachesList();
 
     await waitFor(() => {
-      // Marathon coach has no icon, should show 'M'
+      // The Marathon agent has no icon, should show 'M'
       expect(screen.getByText('M')).toBeInTheDocument();
     });
   });

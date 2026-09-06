@@ -1,4 +1,4 @@
-// ABOUTME: Modal component for rejecting coach submissions with reason selection
+// ABOUTME: Modal component for rejecting agent submissions with reason selection
 // ABOUTME: Provides dropdown for rejection reason and optional notes textarea
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -85,7 +85,7 @@ export default function CoachRejectionModal({
           {/* Header */}
           <div className="flex justify-between items-start mb-4">
             <div>
-              <h2 className="text-xl font-semibold text-on-surface">Reject Coach</h2>
+              <h2 className="text-xl font-semibold text-on-surface">Reject Agent</h2>
               <p className="text-sm text-on-surface-variant mt-1">
                 "{coach.title}" by {coach.author_email || 'Unknown'}
               </p>
@@ -108,7 +108,7 @@ export default function CoachRejectionModal({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <p className="text-sm text-error">
-                This action will reject the coach submission. The author will be notified of the rejection reason.
+                This action will reject the agent submission. The author will be notified of the rejection reason.
               </p>
             </div>
           </Card>
@@ -161,7 +161,7 @@ export default function CoachRejectionModal({
                   Rejecting...
                 </span>
               ) : (
-                'Reject Coach'
+                'Reject Agent'
               )}
             </Button>
           </div>
@@ -170,7 +170,7 @@ export default function CoachRejectionModal({
           {rejectMutation.isError && (
             <div className="mt-4 p-3 bg-error/15 border border-error/30 rounded-md">
               <p className="text-sm text-error">
-                Failed to reject coach. Please try again.
+                Failed to reject agent. Please try again.
               </p>
             </div>
           )}

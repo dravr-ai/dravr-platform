@@ -72,7 +72,7 @@ is green is the `primary-container` tint or `primary` ink.
 | Token | Hex | Role |
 |---|---|---|
 | `surface` | `#f7f6f2` | **The one ground**: rail, list column, thread canvas, every page |
-| `surface-container-lowest` | `#ffffff` | Cards, coach bubbles, popovers, table bodies |
+| `surface-container-lowest` | `#ffffff` | Cards, agent bubbles, popovers, table bodies |
 | `surface-container-low` | `#ebeae5` | Composer and search fields, row hover, the day pill, the login aside **in dark** (§5 gives light the tint) |
 | `surface-container` | `#e0dfda` | Pressed states |
 | `surface-container-high` | `#d7d6d1` | Reserved |
@@ -244,7 +244,7 @@ Mobile-first responsive variants: `text-h1-mobile`, `text-h2-mobile`,
 
 ## 4. Elevation
 
-**Hairlines lift; shadows float.** A resting card, a coach bubble, a table, a
+**Hairlines lift; shadows float.** A resting card, an agent bubble, a table, a
 popover at rest — every one of them is a white sheet with a 1px ghost-border
 hairline and no shadow. The one shadow in the system belongs to what floats
 over the page:
@@ -305,7 +305,7 @@ rare: auth, the one page action, the composer's send when there is text;
 the list's `+` and every row action are ink.
 
 Buttons are `rounded-lg` (8px). Pills (`rounded-full`) are reserved for inline
-action shortcuts within cards — see the Coach card "Chat" button.
+action shortcuts within cards — see the Agent card "Chat" button.
 
 **Forbidden:**
 - `bg-pierre-violet` (or any dark surface) paired with `text-on-surface` /
@@ -336,7 +336,7 @@ callouts over photographic boreal imagery. Do not use over flat surfaces.
 match feedback states: `.badge-success`, `.badge-warning`, `.badge-error`,
 `.badge-info`. Pillar-tinted variants live alongside (`.badge-mobility`, etc.).
 
-System-coach tag: `bg-primary/10 text-primary border border-primary/20`. Reads
+System-agent tag: `bg-primary/10 text-primary border border-primary/20`. Reads
 on the light card surface at AA contrast.
 
 ### Form fields
@@ -472,7 +472,7 @@ plate of its own.
 | Plan card | `WorkoutPlanCard` | The one hairline card in the thread: a data object inside the agent's turn, white on the paper, radius 10, mono dates, 13px. |
 | Verdict chip | `data-testid="verdict-chip"` | Always a button; the label is the localized count and the worst status word, and it opens every verdict of that reply. |
 
-Command replies (`finish_reason === "command"`) are coach bubbles too, with
+Command replies (`finish_reason === "command"`) are agent bubbles too, with
 only the copy action. Prose in bubbles runs through `@tailwindcss/typography`
 with every `--tw-prose-*` variable mapped to Boreal tokens in
 `tailwind.config.cjs`, so headings, bold, code and table borders follow the
@@ -619,7 +619,7 @@ under `Design/` and landed in seven commits on `feature/boreal-v2`, changed:
 | Filters | pill chips | **text tabs** with a primary underline |
 | Page header | three idioms | one (`TabHeader`: title, line, actions) |
 | Mark | Momentum ribbon badge (web) vs Boreal Ripple (phone) | **Boreal Ripple everywhere** |
-| Coach avatar | the brand icon | the coach's initials |
+| Agent avatar | the brand icon | the agent's initials |
 | Status | tinted chips | dot + word |
 | Empty states | emoji and a sad face | one sentence, one action |
 

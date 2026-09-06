@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for StoreCoachDetailScreen component
-// ABOUTME: Tests coach detail display, install → hint → Open chat, uninstall by copy id, and Edit coach
+// ABOUTME: Tests agent detail display, install → hint → Open chat, uninstall by copy id, and Edit agent
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -53,7 +53,7 @@ const COACH_HANDLE = 'marathon-training-coach';
 
 const createMockStoreCoachDetail = (overrides: Partial<StoreCoachDetail> = {}): StoreCoachDetail => ({
   id: 'test-coach-id',
-  title: 'Marathon Training Coach',
+  title: 'Marathon Training Agent',
   description: 'A comprehensive marathon training program',
   category: 'training' as CoachCategory,
   tags: ['marathon', 'running', 'endurance'],
@@ -78,7 +78,7 @@ const createMockStoreCoachDetail = (overrides: Partial<StoreCoachDetail> = {}): 
 // handle. Both the install response and the installations list return copies.
 const installedCopy: StoreCoach = {
   id: 'installed-copy-1',
-  title: 'Marathon Training Coach',
+  title: 'Marathon Training Agent',
   description: 'A comprehensive marathon training program',
   category: 'training' as CoachCategory,
   tags: ['marathon', 'running', 'endurance'],
@@ -117,21 +117,21 @@ describe('StoreCoachDetailScreen', () => {
         <StoreCoachDetailScreen />
       );
 
-      expect(getByText('Loading coach details...')).toBeTruthy();
+      expect(getByText('Loading agent details...')).toBeTruthy();
 
       // Cleanup
       resolvePromise!(createMockStoreCoachDetail());
       await waitFor(() => {});
     });
 
-    it('should render coach title', async () => {
+    it('should render agent title', async () => {
       const { getAllByText } = render(
         <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
         // Title appears in both header and content area
-        expect(getAllByText('Marathon Training Coach').length).toBeGreaterThan(0);
+        expect(getAllByText('Marathon Training Agent').length).toBeGreaterThan(0);
       });
     });
 
@@ -149,7 +149,7 @@ describe('StoreCoachDetailScreen', () => {
       expect(flat.bottom).toBe(tabBarBottomOffset(34));
     });
 
-    it('should render coach description', async () => {
+    it('should render agent description', async () => {
       const { getByText } = render(
         <StoreCoachDetailScreen />
       );
@@ -223,7 +223,7 @@ describe('StoreCoachDetailScreen', () => {
       });
     });
 
-    it('should show error state when coach not found', async () => {
+    it('should show error state when agent not found', async () => {
       mockGet.mockResolvedValue(null);
 
       const { getByText } = render(
@@ -231,13 +231,13 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('Coach not found')).toBeTruthy();
+        expect(getByText('Agent not found')).toBeTruthy();
       });
     });
   });
 
   describe('install functionality', () => {
-    it('should show Install button when coach is not installed', async () => {
+    it('should show Install button when agent is not installed', async () => {
       mockGetInstallations.mockResolvedValue({ coaches: [] });
 
       const { getByText, queryByTestId } = render(
@@ -245,7 +245,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
       expect(queryByTestId('edit-coach-button')).toBeNull();
     });
@@ -258,31 +258,31 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
 
-      fireEvent.press(getByText('Install Coach'));
+      fireEvent.press(getByText('Install Agent'));
 
       await waitFor(() => {
         expect(mockInstall).toHaveBeenCalledWith('test-coach-id');
       });
     });
 
-    it('shows the post-install hint that teaches /coach add @handle, not an alert', async () => {
+    it('shows the post-install hint that teaches /agent add @handle, not an alert', async () => {
       const { getByText, findByTestId, getByTestId } = render(
         <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
 
-      fireEvent.press(getByText('Install Coach'));
+      fireEvent.press(getByText('Install Agent'));
 
       expect(await findByTestId('post-install-hint')).toBeTruthy();
-      expect(getByTestId('post-install-title')).toHaveTextContent('“Marathon Training Coach” is in your coaches');
+      expect(getByTestId('post-install-title')).toHaveTextContent('“Marathon Training Agent” is in your agents');
       expect(getByTestId('post-install-body')).toHaveTextContent(
-        `Use it in any chat: /coach add @${COACH_HANDLE} — or mention @${COACH_HANDLE} for one turn`,
+        `Use it in any chat: /agent add @${COACH_HANDLE} — or mention @${COACH_HANDLE} for one turn`,
       );
       expect(Alert.alert).not.toHaveBeenCalled();
       // The install is what the funnel counts.
@@ -298,9 +298,9 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
-      fireEvent.press(getByText('Install Coach'));
+      fireEvent.press(getByText('Install Agent'));
       await findByTestId('post-install-hint');
 
       fireEvent.press(getByTestId('post-install-open-chat'));
@@ -312,15 +312,15 @@ describe('StoreCoachDetailScreen', () => {
       expect(queryByTestId('post-install-hint')).toBeNull();
     });
 
-    it('Dismiss hides the hint and leaves the coach installed', async () => {
+    it('Dismiss hides the hint and leaves the agent installed', async () => {
       const { getByText, findByTestId, getByTestId, queryByTestId } = render(
         <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
-      fireEvent.press(getByText('Install Coach'));
+      fireEvent.press(getByText('Install Agent'));
       await findByTestId('post-install-hint');
 
       fireEvent.press(getByTestId('post-install-dismiss'));
@@ -339,15 +339,15 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
 
-      fireEvent.press(getByText('Install Coach'));
+      fireEvent.press(getByText('Install Agent'));
 
       await waitFor(() => {
         expect(Alert.alert).toHaveBeenCalledWith(
           'Error',
-          'Failed to install coach. Please try again.'
+          'Failed to install agent. Please try again.'
         );
       });
     });
@@ -368,11 +368,11 @@ describe('StoreCoachDetailScreen', () => {
       await waitFor(() => {
         expect(getByText('Installed')).toBeTruthy();
       });
-      expect(queryByText('Install Coach')).toBeNull();
+      expect(queryByText('Install Agent')).toBeNull();
       expect(getByTestId('edit-coach-button')).toBeTruthy();
     });
 
-    it('Edit coach opens the edit sheet on the copy, not the listing', async () => {
+    it('Edit agent opens the edit sheet on the copy, not the listing', async () => {
       const { getByTestId } = render(
         <StoreCoachDetailScreen />
       );
@@ -403,8 +403,8 @@ describe('StoreCoachDetailScreen', () => {
 
       await waitFor(() => {
         expect(Alert.alert).toHaveBeenCalledWith(
-          'Uninstall Coach?',
-          expect.stringContaining('Marathon Training Coach'),
+          'Uninstall Agent?',
+          expect.stringContaining('Marathon Training Agent'),
           expect.any(Array)
         );
       });
@@ -440,7 +440,7 @@ describe('StoreCoachDetailScreen', () => {
         expect(mockUninstall).toHaveBeenCalledWith('installed-copy-1');
       });
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
     });
 
@@ -452,7 +452,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
+        expect(getByText('Install Agent')).toBeTruthy();
       });
     });
   });
@@ -465,7 +465,7 @@ describe('StoreCoachDetailScreen', () => {
 
       await waitFor(() => {
         // Title appears in both header and content area
-        expect(getAllByText('Marathon Training Coach').length).toBeGreaterThan(0);
+        expect(getAllByText('Marathon Training Agent').length).toBeGreaterThan(0);
       });
 
       // Find and press back button via testID
@@ -476,7 +476,7 @@ describe('StoreCoachDetailScreen', () => {
   });
 
   describe('edge cases', () => {
-    it('should handle coach with no tags', async () => {
+    it('should handle agent with no tags', async () => {
       mockGet.mockResolvedValue(
         createMockStoreCoachDetail({ tags: [] })
       );
@@ -487,13 +487,13 @@ describe('StoreCoachDetailScreen', () => {
 
       await waitFor(() => {
         // Title appears in both header and content area
-        expect(getAllByText('Marathon Training Coach').length).toBeGreaterThan(0);
+        expect(getAllByText('Marathon Training Agent').length).toBeGreaterThan(0);
         // Tags section should not show empty tags
         expect(queryByText('marathon')).toBeNull();
       });
     });
 
-    it('should handle coach with no sample prompts', async () => {
+    it('should handle agent with no sample prompts', async () => {
       mockGet.mockResolvedValue(
         createMockStoreCoachDetail({ sample_prompts: [] })
       );
@@ -504,7 +504,7 @@ describe('StoreCoachDetailScreen', () => {
 
       await waitFor(() => {
         // Title appears in both header and content area
-        expect(getAllByText('Marathon Training Coach').length).toBeGreaterThan(0);
+        expect(getAllByText('Marathon Training Agent').length).toBeGreaterThan(0);
         expect(queryByText('What should my weekly mileage be?')).toBeNull();
       });
     });
@@ -533,7 +533,7 @@ describe('StoreCoachDetailScreen', () => {
       await waitFor(() => {
         expect(Alert.alert).toHaveBeenCalledWith(
           'Error',
-          'Failed to load coach details'
+          'Failed to load agent details'
         );
       });
     });

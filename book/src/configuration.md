@@ -1023,7 +1023,7 @@ belongs to exactly one scope.
 
 ### Caps that no override can reach
 
-The per-conversation message cap and the per-coach daily cap have no catalogue
+The per-conversation message cap and the per-agent daily cap have no catalogue
 entry, so neither a pin nor an override moves them. They come from the tier
 matrix in `crates/pierre-core/src/models/tier_quota.rs`; change the user's tier
 instead:

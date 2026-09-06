@@ -46,7 +46,7 @@ function max_uses_options(t: (key: string) => string): SelectOption[] {
 function kind_options(t: (key: string) => string): SelectOption[] {
   return [
   { value: 'member', label: t('groups.inviteTypeMember') },
-  { value: 'coach', label: t('groups.coach') },
+  { value: 'coach', label: t('humanCoach.coach') },
 ];
 }
 
@@ -105,7 +105,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       await createInvite(request);
       const detail =
         inviteKind === 'coach'
-          ? t('groups.inviteCoachShare')
+          ? t('humanCoach.inviteShare')
           : t('groups.inviteReadyToShare');
       showSuccess(t('app.inviteCreated'), detail);
       setShowCreateForm(false);
@@ -188,7 +188,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
             />
             {inviteKind === 'coach' && (
               <p className="text-xs text-outline mt-1.5">
-                {t('groups.inviteCoachHint')}
+                {t('humanCoach.inviteHint')}
               </p>
             )}
           </div>
@@ -236,7 +236,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                     {invite.kind === 'coach' && (
                       <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
                         <UserCog className="w-3 h-3" />
-                        {t('groups.coach')}
+                        {t('humanCoach.coach')}
                       </span>
                     )}
                   </div>

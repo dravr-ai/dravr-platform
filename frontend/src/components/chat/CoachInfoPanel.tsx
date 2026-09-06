@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coach info for the open thread — title, @handle, category, description and the two coach actions
-// ABOUTME: Both actions are commands: removing sends /coach remove, editing opens the coach's Discover sheet
+// ABOUTME: Agent info for the open thread — title, @handle, category, description and the two agent actions
+// ABOUTME: Both actions are commands: removing sends /agent remove, editing opens the agent's Discover sheet
 
 import { AtSign, Pencil, UserMinus } from 'lucide-react';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
@@ -13,7 +13,7 @@ import { useTranslation } from '@pierre/i18n';
 interface CoachInfoPanelProps {
   /** The coach bound to the conversation. */
   coach: Coach;
-  /** Send a turn in the open conversation — how `/coach remove` is issued. */
+  /** Send a turn in the open conversation — how `/agent remove` is issued. */
   onSendCommand: (text: string) => void;
   /** Open this coach's Discover edit sheet, `discover/<coachId>`. */
   onEditCoach: (coachId: string) => void;
@@ -22,9 +22,9 @@ interface CoachInfoPanelProps {
 /**
  * Who this thread is talking to.
  *
- * The coach is not managed from chat: t('chat.removeFromChat') sends
- * `/coach remove` down the same command pipeline a typed command takes, and
- * editing leaves for the coach's Discover detail, which owns the edit sheet.
+ * The agent is not managed from chat: t('chat.removeFromChat') sends
+ * `/agent remove` down the same command pipeline a typed command takes, and
+ * editing leaves for the agent's Discover detail, which owns the edit sheet.
  * A system coach belongs to the catalogue, so it offers no edit.
  */
 export default function CoachInfoPanel({

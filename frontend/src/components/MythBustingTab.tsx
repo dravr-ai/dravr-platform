@@ -1,5 +1,5 @@
 // ABOUTME: Phase D Sprint C13 — admin myth-busting tab summarizing unsupported claims
-// ABOUTME: Top recurring claim texts, top offending coaches, top categories from claim_verdicts
+// ABOUTME: Top recurring claim texts, top offending agents, top categories from claim_verdicts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -51,7 +51,7 @@ export default function MythBustingTab() {
 
   const handlePromote = (claimText: string) => {
     const topic = window.prompt(
-      'Block topic — coach replies containing this substring will be rejected:',
+      'Block topic — agent replies containing this substring will be rejected:',
       claimText.slice(0, 200),
     );
     if (topic && topic.trim().length > 0) {
@@ -81,7 +81,7 @@ export default function MythBustingTab() {
               Pattern view over the latest{' '}
               <span className="font-medium">{data?.verdicts_scanned ?? '—'}</span>{' '}
               claim verdicts. Highlights the recurring unsupported and
-              contradicted claims, the coaches that emit them, and the
+              contradicted claims, the agents that emit them, and the
               categories most likely to need myth-busting.
             </p>
           </div>
@@ -137,7 +137,7 @@ export default function MythBustingTab() {
             No unsupported or contradicted claims in the latest scan window.
           </p>
           <p className="mt-1 text-xs text-outline">
-            Either coaches are well-behaved, or the claim verifier classified
+            Either agents are well-behaved, or the claim verifier classified
             everything as supported or rhetorical.
           </p>
         </Card>
@@ -159,7 +159,7 @@ export default function MythBustingTab() {
                       </p>
                       <p className="mt-1 text-xs text-on-surface-variant">
                         {claim.occurrences} occurrence{claim.occurrences === 1 ? '' : 's'} ·
-                        {claim.coach_count} coach{claim.coach_count === 1 ? '' : 'es'} · last seen{' '}
+                        {claim.coach_count} agent{claim.coach_count === 1 ? '' : 's'} · last seen{' '}
                         {formatTimestamp(claim.last_seen_at)}
                       </p>
                     </div>
@@ -197,7 +197,7 @@ export default function MythBustingTab() {
           <Card className="overflow-hidden">
             <div className="border-b border-outline-variant px-6 py-3">
               <h3 className="text-sm font-semibold text-on-surface">
-                Top offending coaches
+                Top offending agents
               </h3>
             </div>
             <ul className="divide-y divide-outline-variant">
@@ -235,8 +235,8 @@ export default function MythBustingTab() {
                     {humanizeCategory(cat.category)}
                   </div>
                   <div className="text-xs text-on-surface-variant">
-                    {cat.flagged_total} flagged · {cat.coach_count} coach
-                    {cat.coach_count === 1 ? '' : 'es'}
+                    {cat.flagged_total} flagged · {cat.coach_count} agent
+                    {cat.coach_count === 1 ? '' : 's'}
                   </div>
                 </li>
               ))}

@@ -134,7 +134,7 @@ impl GroupContextStrategy for GroupOverviewContext {
         let _ = writeln!(text, "\n--- Group Coaching Context (Admin View) ---");
         let _ = writeln!(
             text,
-            "You are the AI coach for \"{}\" ({} members, {} active).",
+            "You are Dravr, working with \"{}\" ({} members, {} active).",
             group.group.name, group.member_count, group.active_count
         );
         let _ = writeln!(

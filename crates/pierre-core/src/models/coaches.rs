@@ -398,7 +398,7 @@ impl CoachHandle {
         if candidate.is_empty() || candidate.len() > Self::MAX_LEN || !starts_alnum || !alphabet_ok
         {
             return Err(AppError::invalid_input(format!(
-                "Invalid coach handle '{raw}': lowercase letters, digits, '-' or '_', \
+                "Invalid agent handle '{raw}': lowercase letters, digits, '-' or '_', \
                  starting with a letter or digit, at most {} characters",
                 Self::MAX_LEN
             )));

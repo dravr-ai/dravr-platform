@@ -121,10 +121,10 @@ mod notification_event_locale_tests {
         // The stored text is the athlete's own language, because the push
         // carries it and a push cannot be re-read in another one. The test
         // user has the default locale, French.
-        assert_eq!(row.title, "Message de ton coach");
+        assert_eq!(row.title, "Message de ton agent");
         assert_eq!(row.body, "Coach Alice t'a envoyé un message");
         assert!(
-            !row.title.contains("Message from your coach"),
+            !row.title.contains("Message from your agent"),
             "the English sentence must not reach the database: {}",
             row.title
         );
@@ -153,7 +153,7 @@ mod notification_event_locale_tests {
 
         let rows = feed(&router, &token).await;
         let row = rows.first().expect("the feed returns the row");
-        assert_eq!(row["title"], "Message de ton coach");
+        assert_eq!(row["title"], "Message de ton agent");
         assert_eq!(row["body"], "Coach Alice t'a envoyé un message");
         assert_eq!(row["actions"][0]["id"], "reply");
         assert_eq!(row["actions"][0]["title"], "Répondre");
@@ -171,7 +171,7 @@ mod notification_event_locale_tests {
         let rows = feed(&router, &token).await;
         let row = rows.first().expect("the feed returns the same row");
         assert_eq!(row["id"].as_str().unwrap(), stored_id);
-        assert_eq!(row["title"], "Message from your coach");
+        assert_eq!(row["title"], "Message from your agent");
         assert_eq!(row["body"], "Coach Alice sent you a message");
         assert_eq!(row["actions"][0]["title"], "Reply");
     }
@@ -305,7 +305,7 @@ mod notification_event_locale_tests {
             ),
             (
                 "coach_feedback",
-                "Retour de ton coach",
+                "Retour de ton agent",
                 "Coach Alice a laissé une note sur ton sortie longue",
             ),
             (

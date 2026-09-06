@@ -86,7 +86,7 @@ describe('NotificationSettingsTab', () => {
     await waitFor(() => expect(screen.getByTestId('notification-pref-training')).toBeTruthy());
     expect(screen.getByTestId('notification-pref-coach')).toBeTruthy();
     expect(screen.getByText('Training')).toBeTruthy();
-    expect(screen.getByText('Coach')).toBeTruthy();
+    expect(screen.getByText('Agent')).toBeTruthy();
     expect(screen.getByTestId('notification-pref-switch-training').getAttribute('aria-checked')).toBe('true');
     expect(screen.getByTestId('notification-pref-switch-coach').getAttribute('aria-checked')).toBe('false');
   });

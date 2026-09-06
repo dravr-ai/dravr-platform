@@ -491,7 +491,7 @@ async fn an_invisible_coach_records_nothing_and_emits_nothing() {
     );
 }
 
-/// `/coach add` in a personal thread is the chat equivalent of picking a coach
+/// `/agent add` in a personal thread is the chat equivalent of picking an agent
 /// on Discover, and it was the one selection surface still emitting nothing
 /// after the events moved off the REST route — the surface most Dravr users
 /// have.
@@ -505,7 +505,7 @@ async fn slash_coach_add_emits_coach_selected() {
         tenant_id,
         channel_type: "telegram".to_owned(),
         args: vec![coach_id.clone()],
-        raw_text: format!("/coach add {coach_id}"),
+        raw_text: format!("/agent add {coach_id}"),
         ctx: Arc::<ServerContext>::clone(&res),
         locale: "en".to_owned(),
         is_direct_message: true,

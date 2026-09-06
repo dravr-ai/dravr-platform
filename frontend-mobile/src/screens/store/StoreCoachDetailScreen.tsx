@@ -1,5 +1,5 @@
-// ABOUTME: Coach Store detail screen showing full coach info with install/uninstall/edit actions
-// ABOUTME: Installing ends with the hint that teaches /coach add @handle; an installed copy can be edited from here
+// ABOUTME: Agent Store detail screen showing full agent info with install/uninstall/edit actions
+// ABOUTME: Installing ends with the hint that teaches /agent add @handle; an installed copy can be edited from here
 
 import React, { useState, useCallback, useEffect } from 'react';
 import {
@@ -108,7 +108,7 @@ export function StoreCoachDetailScreen() {
   };
 
   // t('app.openChat') on the post-install hint: a fresh thread. The hint hands over
-  // the `/coach add @handle` draft the athlete types there.
+  // the `/agent add @handle` draft the athlete types there.
   const handleOpenChat = () => {
     setPostInstall(null);
     router.push(threadHref());

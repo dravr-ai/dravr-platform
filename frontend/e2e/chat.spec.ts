@@ -285,8 +285,8 @@ test.describe('Chat - Empty pane', () => {
 
   test('offers no coach grid and no coach creation', async ({ page }) => {
     await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('h4', { hasText: 'System Coaches' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Create Coach/i })).toHaveCount(0);
+    await expect(page.locator('h4', { hasText: 'System Agents' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Create Agent/i })).toHaveCount(0);
     await expect(page.getByText('Training Coach')).toHaveCount(0);
   });
 });

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E tests for System Coaches admin functionality.
-// ABOUTME: Tests admin coaches management, CRUD operations, and user assignments.
+// ABOUTME: Playwright E2E tests for System Agents admin functionality.
+// ABOUTME: Tests admin agents management, CRUD operations, and user assignments.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
@@ -205,18 +205,18 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
   });
 }
 
-test.describe('System Coaches Tab Visibility', () => {
-  test('displays Coaches tab for admin users', async ({ page }) => {
+test.describe('System Agents Tab Visibility', () => {
+  test('displays the Agents tab for admin users', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Admin Coaches tab should be visible (exact match so nothing else named Coaches matches)
-    await expect(page.locator('nav button').filter({ hasText: /^Coaches$/ })).toBeVisible();
+    // The admin Agents tab should be visible (exact match so nothing else named Agents matches)
+    await expect(page.locator('nav button').filter({ hasText: /^Agents$/ })).toBeVisible();
   });
 
-  test('hides Coaches tab for non-admin users', async ({ page }) => {
+  test('hides the Agents tab for non-admin users', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: false });
     await loginToDashboard(page);
 
@@ -224,32 +224,32 @@ test.describe('System Coaches Tab Visibility', () => {
     await page.waitForSelector('main', { timeout: 10000 });
 
     // Admin-only tabs should NOT be visible for non-admin users
-    // User mode also has a "Coaches" button, so check for admin-specific tabs instead
-    await expect(page.locator('nav button').filter({ hasText: /^Coach Store$/ })).not.toBeVisible();
+    // User mode also has an "Agents" button, so check for admin-specific tabs instead
+    await expect(page.locator('nav button').filter({ hasText: /^Agent Store$/ })).not.toBeVisible();
     await expect(page.locator('nav button').filter({ hasText: /^Users$/ })).not.toBeVisible();
   });
 });
 
-test.describe('System Coaches List View', () => {
-  test('displays empty state when no coaches exist', async ({ page }) => {
+test.describe('System Agents List View', () => {
+  test('displays empty state when no agents exist', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true, emptyState: true });
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     // Should see empty state message
-    await expect(page.getByText('No System Coaches')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Create your first system coach')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Create Your First Coach' })).toBeVisible();
+    await expect(page.getByText('No system agents')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Create your first system agent')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create Your First Agent' })).toBeVisible();
   });
 
-  test('displays coach cards with correct information', async ({ page }) => {
+  test('displays agent cards with correct information', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     // Wait for content to load
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
@@ -272,33 +272,33 @@ test.describe('System Coaches List View', () => {
     await expect(page.getByText('endurance', { exact: true })).toBeVisible();
   });
 
-  test('Create Coach button navigates to form', async ({ page }) => {
+  test('the Create Agent button navigates to the form', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
-    // Click Create Coach button
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    // Click the Create Agent button
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
     // Should see form
-    await expect(page.getByText('Create System Coach')).toBeVisible();
+    await expect(page.getByText('Create System Agent')).toBeVisible();
     await expect(page.getByText('Title')).toBeVisible();
     await expect(page.getByText('System Prompt')).toBeVisible();
   });
 });
 
-test.describe('Create Coach Form', () => {
+test.describe('Create Agent Form', () => {
   test('displays form with all required fields', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await navigateToTab(page, 'Agents');
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
     // Check form fields by their labels (text labels, not htmlFor)
     await expect(page.getByText('Title').first()).toBeVisible();
@@ -308,8 +308,8 @@ test.describe('Create Coach Form', () => {
     await expect(page.getByText('Visibility')).toBeVisible();
     await expect(page.getByText('Tags')).toBeVisible();
     // Check that input fields are visible
-    await expect(page.getByPlaceholder('e.g., Marathon Training Coach')).toBeVisible();
-    await expect(page.getByPlaceholder('You are a professional marathon coach')).toBeVisible();
+    await expect(page.getByPlaceholder('e.g., Marathon Training Agent')).toBeVisible();
+    await expect(page.getByPlaceholder('You are Dravr, specializing in marathon training')).toBeVisible();
   });
 
   test('displays token count estimate for system prompt', async ({ page }) => {
@@ -317,8 +317,8 @@ test.describe('Create Coach Form', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await navigateToTab(page, 'Agents');
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
     // Enter system prompt
     const systemPromptField = page.locator('textarea').filter({ hasText: '' }).first();
@@ -328,7 +328,7 @@ test.describe('Create Coach Form', () => {
     await expect(page.getByText(/Estimated tokens:/)).toBeVisible();
   });
 
-  test('creates coach successfully', async ({ page }) => {
+  test('creates the agent successfully', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
 
     let createCalled = false;
@@ -364,18 +364,18 @@ test.describe('Create Coach Form', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await navigateToTab(page, 'Agents');
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
     // Fill form using placeholders and locators
-    await page.getByPlaceholder('e.g., Marathon Training Coach').fill('Recovery Coach');
+    await page.getByPlaceholder('e.g., Marathon Training Agent').fill('Recovery Coach');
     await page.locator('textarea').first().fill('Optional description');
     await page.locator('textarea').nth(1).fill('You are a recovery specialist...');
     await page.locator('select').first().selectOption('Recovery');
     await page.getByPlaceholder('marathon, endurance, beginner').fill('recovery, rest, sleep');
 
     // Submit
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
     await page.waitForTimeout(500);
     expect(createCalled).toBe(true);
@@ -388,13 +388,13 @@ test.describe('Create Coach Form', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await navigateToTab(page, 'Agents');
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
-    await expect(page.getByText('Create System Coach')).toBeVisible();
+    await expect(page.getByText('Create System Agent')).toBeVisible();
 
     // Click back
-    await page.getByText('Back to Coaches').click();
+    await page.getByText('Back to Agents').click();
 
     // Should return to list
     await expect(page.getByText('Marathon Training Coach')).toBeVisible();
@@ -405,10 +405,10 @@ test.describe('Create Coach Form', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await navigateToTab(page, 'Agents');
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
-    await expect(page.getByText('Create System Coach')).toBeVisible();
+    await expect(page.getByText('Create System Agent')).toBeVisible();
 
     // Click cancel
     await page.getByRole('button', { name: 'Cancel' }).click();
@@ -418,13 +418,13 @@ test.describe('Create Coach Form', () => {
   });
 });
 
-test.describe('Coach Detail View', () => {
-  test('clicking coach card opens detail view', async ({ page }) => {
+test.describe('Agent Detail View', () => {
+  test('clicking an agent card opens detail view', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
@@ -450,7 +450,7 @@ test.describe('Coach Detail View', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
 
@@ -464,7 +464,7 @@ test.describe('Coach Detail View', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
 
@@ -477,13 +477,13 @@ test.describe('Coach Detail View', () => {
   });
 });
 
-test.describe('Edit Coach Form', () => {
+test.describe('Edit Agent Form', () => {
   test('Edit button opens form with pre-populated data', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
     await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible({ timeout: 5000 });
@@ -494,11 +494,11 @@ test.describe('Edit Coach Form', () => {
     // Should see edit form with populated data
     await expect(page.getByText('Edit "Marathon Training Coach"')).toBeVisible();
     // Use placeholder selector since form doesn't use htmlFor
-    const titleInput = page.getByPlaceholder('e.g., Marathon Training Coach');
+    const titleInput = page.getByPlaceholder('e.g., Marathon Training Agent');
     await expect(titleInput).toHaveValue('Marathon Training Coach');
   });
 
-  test('updates coach successfully', async ({ page }) => {
+  test('updates the agent successfully', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
 
     let updateCalled = false;
@@ -534,7 +534,7 @@ test.describe('Edit Coach Form', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
     await page.getByRole('button', { name: 'Edit' }).click();
@@ -546,7 +546,7 @@ test.describe('Edit Coach Form', () => {
     await expect(page.getByText(/Estimated tokens: [1-9]/)).toBeVisible({ timeout: 5000 });
 
     // Modify title using placeholder selector
-    await page.getByPlaceholder('e.g., Marathon Training Coach').fill('Updated Marathon Coach');
+    await page.getByPlaceholder('e.g., Marathon Training Agent').fill('Updated Marathon Coach');
 
     // Save
     await page.getByRole('button', { name: 'Save Changes' }).click();
@@ -560,7 +560,7 @@ test.describe('Edit Coach Form', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
     await page.getByRole('button', { name: 'Edit' }).click();
@@ -575,7 +575,7 @@ test.describe('Edit Coach Form', () => {
   });
 });
 
-test.describe('Delete Coach', () => {
+test.describe('Delete Agent', () => {
   test('delete button triggers confirmation and deletes', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
 
@@ -603,14 +603,14 @@ test.describe('Delete Coach', () => {
 
     // Handle confirm dialog
     page.on('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('Delete coach');
+      expect(dialog.message()).toContain('Delete agent');
       await dialog.accept();
     });
 
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
     await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 5000 });
@@ -629,7 +629,7 @@ test.describe('User Assignments', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
 
@@ -643,7 +643,7 @@ test.describe('User Assignments', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
 
@@ -658,7 +658,7 @@ test.describe('User Assignments', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
     await expect(page.getByRole('button', { name: 'Assign Users' })).toBeVisible({ timeout: 5000 });
@@ -667,7 +667,7 @@ test.describe('User Assignments', () => {
     await page.getByRole('button', { name: 'Assign Users' }).click();
 
     // Should see modal
-    await expect(page.getByText('Assign Users to Coach')).toBeVisible();
+    await expect(page.getByText('Assign Users to Agent')).toBeVisible();
     await expect(page.getByText('Select users to give access')).toBeVisible();
   });
 
@@ -698,13 +698,13 @@ test.describe('User Assignments', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
     await page.getByRole('button', { name: 'Assign Users' }).click();
 
     // Wait for modal and users to load
-    await expect(page.getByText('Assign Users to Coach')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Assign Users to Agent')).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(500);
 
     // Select a user (bob is not already assigned)
@@ -753,17 +753,17 @@ test.describe('User Assignments', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await page.getByText('Marathon Training Coach').click();
 
     // Should show empty state message
-    await expect(page.getByText('No users assigned to this coach yet')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('No users assigned to this agent yet')).toBeVisible({ timeout: 5000 });
   });
 });
 
 test.describe('Error Handling', () => {
-  test('shows error when failing to load coaches', async ({ page }) => {
+  test('shows error when failing to load agents', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
     await page.route('**/api/admin/coaches', async (route) => {
@@ -776,7 +776,7 @@ test.describe('Error Handling', () => {
 
     await loginToDashboard(page);
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     // Should show loading spinner then error or empty state
     // React Query may retry, so we wait a bit
@@ -804,20 +804,20 @@ test.describe('Error Handling', () => {
 
     await loginToDashboard(page);
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
     // Fill minimal form using placeholder selectors
-    await page.getByPlaceholder('e.g., Marathon Training Coach').fill('Test Coach');
-    await page.getByPlaceholder('You are a professional marathon coach').fill('Test prompt');
+    await page.getByPlaceholder('e.g., Marathon Training Agent').fill('Test Coach');
+    await page.getByPlaceholder('You are Dravr, specializing in marathon training').fill('Test prompt');
 
     // Submit
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    await page.getByRole('button', { name: 'Create Agent' }).click();
 
     await page.waitForTimeout(500);
     // Form should still be visible (not submitted successfully)
-    await expect(page.getByText('Create System Coach')).toBeVisible();
+    await expect(page.getByText('Create System Agent')).toBeVisible();
   });
 });
 
@@ -827,7 +827,7 @@ test.describe('Category Colors', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
 
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 

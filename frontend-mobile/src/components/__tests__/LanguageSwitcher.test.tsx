@@ -91,7 +91,7 @@ describe('LanguageSwitcher — one tap, two locales', () => {
 
     const alert = await screen.findByTestId('language-sync-error');
     expect(alert).toHaveTextContent(
-      'El idioma de la interfaz cambió, pero no se pudo guardar el de las respuestas de tu coach. Inténtalo de nuevo.',
+      'El idioma de la interfaz cambió, pero no se pudo guardar el de las respuestas de tu agente. Inténtalo de nuevo.',
     );
   });
 });

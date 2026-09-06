@@ -20,7 +20,7 @@ describe('OnboardingProgress', () => {
     render(<OnboardingProgress steps={STEPS} />);
     expect(screen.getByText('About you')).toBeInTheDocument();
     expect(screen.getByText('Connect')).toBeInTheDocument();
-    expect(screen.getByText('Coach')).toBeInTheDocument();
+    expect(screen.getByText('Agent')).toBeInTheDocument();
   });
 
   it('announces the current step (1-indexed) to assistive tech', () => {

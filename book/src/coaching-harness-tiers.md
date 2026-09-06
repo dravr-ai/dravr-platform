@@ -44,7 +44,7 @@ persistence layer for everything the higher tiers need to store.
   "never implement SQLite-only; always add the Postgres backend in
   the same PR".
 - **Recall without vectors.** Memory carries no embedding column on
-  either backend. Recall filters by user, coach and kind, and the
+  either backend. Recall filters by user, agent and kind, and the
   extractor's own judgement decides whether two facts are the same
   one; a cosine threshold could not separate them, because two
   different race goals score closer together than one goal restated
@@ -107,7 +107,7 @@ and has 8 tests in `tests/harness_config_validation_test.rs`.
 
 ## Tier 2 — Semantic user memory
 
-**Purpose:** Remember what the user has told the coach across turns
+**Purpose:** Remember what the user has told the agent across turns
 and sessions, without stuffing the whole history into every prompt.
 
 **Key files**
@@ -121,7 +121,7 @@ and sessions, without stuffing the whole history into every prompt.
   at prompt build time and renders them as a system block.
 - `crates/pierre-server/src/services/chat_orchestration.rs` at
   `inject_memory_recall` — the hook that prepends recall context to
-  the coach system prompt.
+  the agent system prompt.
 
 **Admin observability**
 
@@ -140,9 +140,9 @@ its health is derived from the rows it has actually produced:
 A tenant with active conversations but `facts_last_24h == 0` is a
 stalled-worker signal operators should investigate.
 
-## Tier 3 — Coach-authored memory tools
+## Tier 3 — Agent-authored memory tools
 
-**Purpose:** Let the coach persona write its own long-term memory as
+**Purpose:** Let the agent persona write its own long-term memory as
 part of its tool loop, rather than leaving extraction as a purely
 LLM-external concern.
 
@@ -163,17 +163,17 @@ LLM-external concern.
 
 **Tool surface**
 
-| Tool | What it persists | When the coach calls it |
+| Tool | What it persists | When the agent calls it |
 |---|---|---|
 | `coach_note_add` | `CoachNote` rows | To record a private observation about the user |
 | `coach_followup_schedule` | `CoachFollowup` rows | To promise a future check-in ("ask about the achilles tomorrow") |
 | `remember_fact` | `UserFact` rows | To capture a durable user preference or constraint |
 | `recall_user_memory` | read-only fact lookup | To pull earlier facts into the current turn |
 
-## Tier 4 — Cross-channel coach sessions
+## Tier 4 — Cross-channel agent sessions
 
 **Purpose:** Introduce a logical container above `chat_conversation`
-so the coach can maintain a consistent relationship with a user
+so the agent can maintain a consistent relationship with a user
 across messaging channels, HTTP chat, and the mobile client.
 
 **Key files**
@@ -188,22 +188,22 @@ across messaging channels, HTTP chat, and the mobile client.
 - Migration: `20260413000001_reify_coach_id_on_conversations.sql`
   which reifies `coach_id` as a foreign key on `chat_conversations`
   and deletes the legacy `system_prompt` TEXT column. This was a
-  load-bearing prerequisite: before the reification, the coach
+  load-bearing prerequisite: before the reification, the agent
   identity was smeared into a string at conversation-create time, so
-  grouping conversations by coach was impossible.
+  grouping conversations by agent was impossible.
 
 **The session-hierarchy refactor (Sprint C15)**
 
 Tier 4 ships the backend `coach_sessions` table and dispatch wiring
 in commit `71b665eb`. Sprint C15 lifts that model into the frontend:
 `ConversationsPanel` now groups conversations by `coach_id` so the
-sidebar shows one expandable section per coach, plus a "Without a
-coach" bucket for unattached conversations. Collapsed state persists
+sidebar shows one expandable section per agent, plus a "Without an
+agent" bucket for unattached conversations. Collapsed state persists
 in `localStorage` under `dravr.conversations-panel.collapsed`.
 
 ## Tier 5 — Evaluation harness
 
-**Purpose:** Catch regressions in coach behavior before they ship by
+**Purpose:** Catch regressions in agent behavior before they ship by
 running golden-fixture dialogues through a three-layer scorer.
 
 **Key files**
@@ -242,7 +242,7 @@ release and what each case asserts".
 Sits between the Tier 5 eval harness and the Tier 6 text guardrails — it
 runs post-LLM, before the guardrails.
 
-**Purpose:** Verify the factual claims a coach emits post-LLM and
+**Purpose:** Verify the factual claims an agent emits post-LLM and
 block or flag unsupported / contradicted / dangerous claims before
 the user sees them.
 
@@ -266,7 +266,7 @@ the user sees them.
   stage: RAG over the curated sports-science corpus.
 - `crates/pierre-evals/src/verdict_engine.rs` — synthesizes the
   layers into a `VerdictOutcome` with evidence strength.
-- `crates/pierre-evals/src/verification_config.rs` — per-coach YAML
+- `crates/pierre-evals/src/verification_config.rs` — per-agent YAML
   frontmatter config (`enabled`, `categories`, `fallback_behavior`).
 - `crates/pierre-server/src/services/claim_verification.rs` — the
   `apply_claim_verification` hook + `resolve_corpus` that prefers
@@ -279,7 +279,7 @@ the user sees them.
 
 **The seven-step pipeline**
 
-1. **Claim extraction** — LLM decomposes the coach reply into
+1. **Claim extraction** — LLM decomposes the agent reply into
    atomic propositions tagged by category.
 2. **Rhetoric filter** — pure-Rust keyword + punctuation heuristics
    drop figures of speech before any LLM cost is incurred.
@@ -291,7 +291,7 @@ the user sees them.
 5. **Evidence retrieval** — RAG over the curated sports-science
    corpus, returns DOI/PMID-backed atomic propositions.
 6. **Consistency check** — cross-check the claim against the
-   coach's earlier turns in the same conversation.
+   agent's earlier turns in the same conversation.
 7. **LLM-as-judge** — only invoked when the earlier layers don't reach
    a confident verdict. This is the cost optimization: target <10% of
    turns reach the judge.
@@ -316,10 +316,10 @@ The snapshot (`AthleteMetrics`) is built caller-side by
 `build_athlete_metrics` (physiology profile + activity cache + cageux); the
 `pierre-evals` crate never reaches for the athlete's data itself. A snapshot
 backed by fewer than 14 days of activity history is treated as too thin to
-trust — the layer stays silent rather than contradict a coach off a noisy
+trust — the layer stays silent rather than contradict an agent off a noisy
 estimate.
 
-Two axes are pluggable per-coach via the YAML `verification_config`:
+Two axes are pluggable per-agent via the YAML `verification_config`:
 
 ```yaml
 verification_config:
@@ -335,11 +335,11 @@ verification_config:
   from this YAML; `conservative` applies a fixed non-overridable buffer;
   `tight` allows zero buffer (any out-of-range value is contradicted).
 - **`action`** (`ContradictionPolicy`) — what a personalized contradiction
-  does: `inherit` (default) reuses the coach's `fallback_behavior`;
+  does: `inherit` (default) reuses the agent's `fallback_behavior`;
   `audit_only` records the verdict for admin + the human coach without ever
   surfacing it to the athlete; `user_warn` always appends a banner.
 
-Both defaults read the coach YAML, so out of the box a personalized verdict
+Both defaults read the agent YAML, so out of the box a personalized verdict
 behaves exactly like any other claim verdict.
 
 ## Tier 6 — Text guardrails
@@ -422,16 +422,16 @@ Both Phase D sprints are pure-read aggregations over the
 `services::myth_busting::compute_summary` scans up to 500 recent
 verdicts for a tenant, filters to unsupported + contradicted, and
 rolls them up into three top-10 patterns: recurring claim texts,
-offending coaches, flagged categories. Admin route
+offending agents, flagged categories. Admin route
 `GET /admin/myth-busting/summary` exposes it to the
 `MythBustingTab`.
 
-### C14 — Coach content grading
+### C14 — Agent content grading
 
 `services::coach_grading::compute_coach_grades` scans up to 1000
-recent verdicts and produces a per-coach 0–1 quality score plus an
+recent verdicts and produces a per-agent 0–1 quality score plus an
 A–F letter grade. Weighting: `supported +1`, `unsupported +0.25`,
-`contradicted -1`. Coaches with fewer than 3 scored verdicts get a
+`contradicted -1`. Agents with fewer than 3 scored verdicts get a
 `Provisional` grade. Sorted worst-first so admins can review the
 bottom of the leaderboard. Admin route
 `GET /admin/coach-grading/summary` exposes it to the
@@ -440,7 +440,7 @@ follow-up integration sprint.
 
 ## Phase D Sprint C17 — ClaimVerdict backfill
 
-**Purpose:** Close the Sprint C14 cold-start gap — coaches in
+**Purpose:** Close the Sprint C14 cold-start gap — agents in
 tenants with existing chat history should not wait for new verdicts
 to accumulate before the grading tab becomes useful. The backfill
 walks historical assistant messages and runs the same verification
@@ -491,8 +491,8 @@ tells you exactly how many rows and of what categories would land.
 - **Live eval runs from the admin tab** — a full judge pass is
   expensive and needs its own execution queue. Sprint C16 ships the
   read-only fixture browser; live runs can be a follow-up sprint.
-- **Store ranking integration for coach grades** — Sprint C14 ships
-  the per-coach grading service and admin table. Wiring the score
+- **Store ranking integration for agent grades** — Sprint C14 ships
+  the per-agent grading service and admin table. Wiring the score
   into `StoreListingsRepository::browse` sort order is intentionally
   decoupled from the grading computation.
 - **PostgreSQL backfill path** — Sprint C17 ships the SQLite walker

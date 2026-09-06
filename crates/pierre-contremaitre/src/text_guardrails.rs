@@ -247,8 +247,8 @@ pub fn default_locales() -> HashMap<String, LocaleGuardrails> {
                 "prescription".to_owned(),
             ],
             disclaimer_text:
-                "**Medical disclaimer:** I'm a fitness coach, not a medical professional. \
-                 Please consult a qualified clinician for any injury, pain, or medication question."
+                "**Medical disclaimer:** I'm not a medical professional. Please consult a \
+                 qualified clinician for any injury, pain, or medication question."
                     .to_owned(),
         },
     );
@@ -264,9 +264,8 @@ pub fn default_locales() -> HashMap<String, LocaleGuardrails> {
                 "ordonnance".to_owned(),
             ],
             disclaimer_text:
-                "**Avis médical :** Je suis un coach sportif, pas un professionnel de santé. \
-                 Consulte un clinicien qualifié pour toute blessure, douleur ou question \
-                 médicamenteuse."
+                "**Avis médical :** Je ne suis pas un professionnel de santé. Consulte un \
+                 clinicien qualifié pour toute blessure, douleur ou question médicamenteuse."
                     .to_owned(),
         },
     );
@@ -282,9 +281,8 @@ pub fn default_locales() -> HashMap<String, LocaleGuardrails> {
                 "receta".to_owned(),
             ],
             disclaimer_text:
-                "**Aviso médico:** Soy un entrenador deportivo, no un profesional médico. \
-                 Consulta a un clínico cualificado para cualquier lesión, dolor o duda \
-                 sobre medicación."
+                "**Aviso médico:** No soy un profesional médico. Consulta a un clínico \
+                 cualificado para cualquier lesión, dolor o duda sobre medicación."
                     .to_owned(),
         },
     );
@@ -300,9 +298,8 @@ pub fn default_locales() -> HashMap<String, LocaleGuardrails> {
                 "rezept".to_owned(),
             ],
             disclaimer_text:
-                "**Medizinischer Hinweis:** Ich bin ein Fitness-Coach, kein Arzt. Bitte \
-                 konsultiere eine qualifizierte Fachkraft bei Verletzungen, Schmerzen oder \
-                 Medikamentenfragen."
+                "**Medizinischer Hinweis:** Ich bin kein Arzt. Bitte konsultiere eine \
+                 qualifizierte Fachkraft bei Verletzungen, Schmerzen oder Medikamentenfragen."
                     .to_owned(),
         },
     );
@@ -318,9 +315,8 @@ pub fn default_locales() -> HashMap<String, LocaleGuardrails> {
                 "receita".to_owned(),
             ],
             disclaimer_text:
-                "**Aviso médico:** Sou um treinador desportivo, não um profissional de saúde. \
-                 Consulta um clínico qualificado para qualquer lesão, dor ou questão de \
-                 medicação."
+                "**Aviso médico:** Não sou um profissional de saúde. Consulta um clínico \
+                 qualificado para qualquer lesão, dor ou questão de medicação."
                     .to_owned(),
         },
     );

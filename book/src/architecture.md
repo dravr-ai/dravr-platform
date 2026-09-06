@@ -382,7 +382,7 @@ Pierre is a Rust workspace under `crates/*`. The main binary lives in `pierre-se
 | `pierre-llm` | `crates/pierre-llm/` | LLM provider abstraction (Gemini, Groq, OpenAI-compatible, Ollama) |
 | `pierre-cache` | `crates/pierre-cache/` | Cache abstraction with tenant isolation (in-memory LRU + Redis) |
 | `pierre-memory` | `crates/pierre-memory/` | Coaching harness memory (facts, compaction, sessions, notes, followups) |
-| `pierre-evals` | `crates/pierre-evals/` | Coach evaluation harness (golden sets, LLM-as-judge, deterministic checks) |
+| `pierre-evals` | `crates/pierre-evals/` | Agent evaluation harness (golden sets, LLM-as-judge, deterministic checks) |
 | `pierre-groups` | `crates/pierre-groups/` | Group coaching business logic |
 | `pierre-messaging` | `crates/pierre-messaging/` | Bridge re-exporting `dravr-canot` multi-channel messaging |
 | `pierre-notifications` | `crates/pierre-notifications/` | Bridge re-exporting `dravr-commere` push notifications |
@@ -721,7 +721,7 @@ LOC counts are `src/**.rs` line totals and are approximate.
 | `pierre-jsonrpc` | 310 | JSON-RPC 2.0 envelope types | — |
 | `pierre-formatters` | 350 | Tool-output formatting helpers | — |
 | `pierre-tools-core` | 235 | Core tool primitives/IDs shared across the tool layers | `pierre-core` |
-| `pierre-coach-parser` | 746 | Coach markdown front-matter + section parser | `pierre-core` |
+| `pierre-coach-parser` | 746 | Agent markdown front-matter + section parser | `pierre-core` |
 | `pierre-email` | 394 | Transactional email sender | `pierre-core` |
 | `pierre-enforme` | 16 | Bridge re-exporting `dravr-enforme` (provider sync) | `dravr-enforme` |
 | `pierre-weather` | 16 | Bridge re-exporting `dravr-meteo` (weather) | `dravr-meteo` |
@@ -739,7 +739,7 @@ LOC counts are `src/**.rs` line totals and are approximate.
 | `pierre-providers` | 17,080 | Fitness provider integrations (Strava, Garmin, Fitbit, WHOOP, COROS, Terra, scraping) | `dravr-equilibre`, `dravr-sciotte`, `embacle`, `pierre-auth`, `pierre-cache`, `pierre-database` |
 | `pierre-groups` | 1,937 | Group-coaching business logic | `pierre-core`, `pierre-database` |
 | `pierre-health` | 892 | Health-data domain (sleep, recovery, snapshots, sources) | `pierre-config`, `pierre-core`, `pierre-database` |
-| `pierre-evals` | 3,201 | Coach evaluation harness (golden sets, LLM-as-judge) | `pierre-core`, `pierre-llm`, `pierre-memory` |
+| `pierre-evals` | 3,201 | Agent evaluation harness (golden sets, LLM-as-judge) | `pierre-core`, `pierre-llm`, `pierre-memory` |
 | `pierre-config` | 7,436 | Runtime server configuration assembly | `pierre-auth`, `pierre-cache`, `pierre-intelligence`, `pierre-llm`, `pierre-middleware` |
 | `pierre-contremaitre` | 6,821 | Prompt hot-reload + contremaitre integration | `dravr-tronc`, `pierre-database`, `pierre-evals`, `pierre-intelligence`, `pierre-llm`, `pierre-memory` |
 | `pierre-middleware` | 2,835 | HTTP middleware (auth, redaction, CSRF, tenant, request-id) | `pierre-auth`, `pierre-cache`, `pierre-database`, `pierre-runtime-context` |
@@ -758,7 +758,7 @@ LOC counts are `src/**.rs` line totals and are approximate.
 | `pierre-routes-admin` | 8,729 | Admin endpoints | `pierre-contremaitre`, `pierre-evals`, `pierre-services`, `pierre-tool-runtime` |
 | `pierre-routes-auth` | 3,473 | Auth / OAuth-client + provider-connect endpoints | `dravr-sciotte`, `embacle`, `pierre-providers`, `pierre-routes-admin`, `pierre-services` |
 | `pierre-routes-billing` | 428 | Billing endpoints | `pierre-database`, `pierre-middleware`, `pierre-runtime-context` |
-| `pierre-routes-coaches` | 3,269 | Coach-marketplace endpoints | `pierre-coach-parser`, `pierre-notifications`, `pierre-services` |
+| `pierre-routes-coaches` | 3,269 | Agent-marketplace endpoints | `pierre-coach-parser`, `pierre-notifications`, `pierre-services` |
 | `pierre-routes-dashboard` | 1,052 | Dashboard endpoints | `pierre-auth`, `pierre-database`, `pierre-middleware` |
 | `pierre-routes-identity` | 1,581 | Identity / profile endpoints | `pierre-auth`, `pierre-database`, `pierre-middleware` |
 | `pierre-routes-groups` | 2,618 | Group-coaching + push-notification endpoints (renamed from `pierre-routes-social` on 2026-08-26, once the Chat-First Cutover had deleted the social routes) | `pierre-groups`, `pierre-notifications`, `pierre-services`, `pierre-tool-runtime` |

@@ -23,7 +23,7 @@ were called out as blockers in the architecture analysis.
 
 The coach_id reification in `27b597a5` is load-bearing: it's what
 lets Tier 4 group conversations by `(user, coach)`. Before this
-commit, the coach identity was smeared into a string at
+commit, the agent identity was smeared into a string at
 conversation-create time and there was nothing to join on.
 
 ## Tier 0 — Memory foundations
@@ -49,13 +49,13 @@ on either database backend.
 |---|---|
 | `56d1b898` | Gemini `text-embedding-004` provider (768 dims), extraction worker via `tokio::spawn`, `memory_extraction.md` prompt, recall injection |
 
-## Tier 3 — Coach-authored memory tools
+## Tier 3 — Agent-authored memory tools
 
 | Commit | Subject |
 |---|---|
 | `ffe16571` | `coach_note_add`, `coach_followup_schedule`, `remember_fact`, `recall_user_memory` registered via the existing `McpTool` pattern with zero trait edits |
 
-## Tier 4 — Cross-channel coach sessions
+## Tier 4 — Cross-channel agent sessions
 
 | Commit | Subject |
 |---|---|
@@ -78,7 +78,7 @@ on either database backend.
 | Commit | Subject |
 |---|---|
 | `e8a9dfb9` | bullshit detector backend (Phase A) |
-| `c1f56363` | claim-verification CI red + Phase B per-coach verification wiring |
+| `c1f56363` | claim-verification CI red + Phase B per-agent verification wiring |
 | `1f0b2c0f` | corpus to markdown with YAML frontmatter |
 | `1af8b0b0` | Tool count drift guard for Tier 3 + claim-verification tools |
 | `1303ee2e` | `EvidenceRegistry` + contremaitre sync |
@@ -105,7 +105,7 @@ commit on `feature/harness-prep`.
 
 Backend: `crates/pierre-server/src/routes/admin/claim_verdicts.rs`
 with two handlers (list recent, list by conversation). Frontend:
-`ClaimVerdictsTab` with status/category/coach filters, drilling into
+`ClaimVerdictsTab` with status/category/agent filters, drilling into
 the shared `chat/VerdictDrawer`.
 
 ### Sprint C3 — HarnessConfigTab + GuardrailsTab merged
@@ -142,7 +142,7 @@ verdict, and a "Ask me about this claim" CTA that opens
 
 | Commit | Subject |
 |---|---|
-| `5e0b51ce` | Phase B Sprint C5 — user-facing `MemoryPanel` ("what the coach remembers") |
+| `5e0b51ce` | Phase B Sprint C5 — user-facing `MemoryPanel` ("what the agent remembers") |
 
 Backend: `services::memory_facts` with `get_facts_handler` +
 `forget_fact_handler`, tenant-scoped via `resolve_tenant_id`. Route:
@@ -173,7 +173,7 @@ Backend: new repository methods
 `list_pending_followups_for_tenant` + `cancel_followup`. Admin
 routes `GET /admin/coach-followups/pending` (ViewConfiguration) and
 `POST /admin/coach-followups/{id}/cancel` (ManageConfiguration).
-Frontend: overdue counter, coach/user filters, `ConfirmDialog`-
+Frontend: overdue counter, agent/user filters, `ConfirmDialog`-
 guarded cancel.
 
 ### Sprint C8 — CoachNotesAuditTab
@@ -185,8 +185,8 @@ guarded cancel.
 Backend: `list_coach_notes_for_tenant` + admin route
 `GET /admin/coach-notes/audit` gated on
 `AdminPermission::ViewAuditLogs` (stronger than `ViewConfiguration`
-because coach notes contain personal data the coach derived).
-Frontend: content search, scope/coach/user filters, per-scope
+because agent notes contain personal data the agent derived).
+Frontend: content search, scope/agent/user filters, per-scope
 counters. 3 SQLite tests + 4 frontend tests.
 
 ### Sprint C12 — Mobile MemoryScreen (stretch)
@@ -207,8 +207,8 @@ expo-router route at `app/(app)/memory.tsx`. 3 Jest tests.
 | `e519295c` | Phase B Sprints C15 + C16 — session hierarchy + eval browser |
 
 Frontend-only refactor of `ConversationsPanel` to group conversations
-by `coach_id`, with collapsible per-coach sections and a "Without a
-coach" bucket for unattached conversations. State persists in
+by `coach_id`, with collapsible per-agent sections and a "Without an
+agent" bucket for unattached conversations. State persists in
 `localStorage` under `dravr.conversations-panel.collapsed`. 4
 frontend tests.
 
@@ -275,7 +275,7 @@ exfiltration evidence.
 | Commit | Subject |
 |---|---|
 | `57cd322f` | Phase D Sprint C13 — myth-busting summary over claim verdicts |
-| `9e68f61d` | Phase D Sprint C14 — coach content grading from claim verdicts |
+| `9e68f61d` | Phase D Sprint C14 — agent content grading from claim verdicts |
 
 Both ship as pure-read aggregations over `claim_verdicts`. Neither
 adds new storage or runs as a background worker — "proactive worker"
@@ -367,10 +367,10 @@ into log files and log aggregation pipelines.
 `--dry-run` doesn't persist, limit clamping to the `1..=MAX` range,
 resume cursor skips previously-processed messages.
 
-Sprint C17 unblocks Sprint C14 (coach grading) for tenants with
-existing history — without backfill, every coach starts as
+Sprint C17 unblocks Sprint C14 (agent grading) for tenants with
+existing history — without backfill, every agent starts as
 `Provisional` until the live verdict stream accumulates 3+ scored
-verdicts per coach.
+verdicts per agent.
 
 ### Sprint C18 — Documentation
 

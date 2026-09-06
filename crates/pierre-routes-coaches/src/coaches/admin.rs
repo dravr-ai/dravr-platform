@@ -409,7 +409,7 @@ pub(super) async fn handle_admin_approve<C: CoachesCtx + MiddlewareCtx>(
 
     let response = StoreActionResponse {
         success: true,
-        message: "Coach approved and published".to_owned(),
+        message: "Agent approved and published".to_owned(),
         coach_id: id,
     };
 
@@ -437,7 +437,7 @@ pub(super) async fn handle_admin_reject<C: CoachesCtx + MiddlewareCtx>(
 
     let response = StoreActionResponse {
         success: true,
-        message: "Coach rejected".to_owned(),
+        message: "Agent rejected".to_owned(),
         coach_id: id,
     };
 
@@ -459,7 +459,7 @@ pub(super) async fn handle_admin_unpublish<C: CoachesCtx + MiddlewareCtx>(
 
     let response = StoreActionResponse {
         success: true,
-        message: "Coach unpublished".to_owned(),
+        message: "Agent unpublished".to_owned(),
         coach_id: id,
     };
 

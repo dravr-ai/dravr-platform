@@ -1,5 +1,5 @@
-// ABOUTME: Admin Coach Store management main container component
-// ABOUTME: Provides stats dashboard, tab navigation for review queue, published, and rejected coaches
+// ABOUTME: Admin Agent Store management main container component
+// ABOUTME: Provides stats dashboard, tab navigation for review queue, published, and rejected agents
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -63,8 +63,8 @@ export default function CoachStoreManagement() {
     staleTime: 30_000,
   });
 
-  // Total system coaches (includes unpublished/draft) — published_count alone
-  // misled admins into thinking the Coach Store and Coaches pages disagreed.
+  // Total system agents (includes unpublished/draft) — published_count alone
+  // misled admins into thinking the Agent Store and Agents pages disagreed.
   const { data: systemCoaches } = useQuery({
     queryKey: QUERY_KEYS.adminCoaches.system(),
     queryFn: () => adminApi.getSystemCoaches(),
@@ -118,7 +118,7 @@ export default function CoachStoreManagement() {
           <div className="text-sm text-on-surface-variant">Pending Reviews</div>
         </button>
 
-        {/* Published Coaches */}
+        {/* Published Agents */}
         <button
           onClick={() => setActiveTab('published')}
           className={clsx(
@@ -149,8 +149,8 @@ export default function CoachStoreManagement() {
           </div>
           <div className="text-sm text-on-surface-variant">
             {totalCoaches !== undefined && totalCoaches !== stats?.published_count
-              ? 'Published / Total Coaches'
-              : 'Published Coaches'}
+              ? 'Published / Total Agents'
+              : 'Published Agents'}
           </div>
         </button>
 

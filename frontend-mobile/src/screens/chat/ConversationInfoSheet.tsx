@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The bottom sheet behind the chat header's title — group info, coach info, or the plain thread rows
+// ABOUTME: The bottom sheet behind the chat header's title — group info, agent info, or the plain thread rows
 // ABOUTME: One host for the three shapes a thread can have, so tapping the title always opens the same place
 
 import React from 'react';
@@ -20,7 +20,7 @@ export interface ConversationInfoSheetProps {
   /** The open thread; the sheet renders nothing without one. */
   conversation: Conversation | null;
   onClose: () => void;
-  /** Send a command as the next turn — how Coach info detaches its coach. */
+  /** Send a command as the next turn — how Agent info detaches its agent. */
   onSendCommand: (command: string) => void;
   onRename: () => void;
   onParticipants: () => void;
@@ -33,8 +33,8 @@ export interface ConversationInfoSheetProps {
  * What tapping a thread's title opens.
  *
  * Three shapes, decided by what the conversation *is* rather than by which
- * screen opened it: a group thread gets Group info, a coach-bound thread gets
- * Coach info, and a plain thread gets the rename / participants / delete rows
+ * screen opened it: a group thread gets Group info, an agent-bound thread gets
+ * Agent info, and a plain thread gets the rename / participants / delete rows
  * that used to live in the header popover.
  */
 export function ConversationInfoSheet({

@@ -26,8 +26,8 @@ const AMBIENT_TRANSCRIPT_MAX_LINE_CHARS: usize = 240;
 /// the same surface-neutral read model web and mobile members read — through
 /// the consent-gated visibility query, with the requesting member as the
 /// viewer: an unconsented peer's content never enters this member's prompt.
-/// Member rows are labeled with the sender's display name, coach rows
-/// "Coach". The triggering message is not yet in the transcript (the turn
+/// Member rows are labeled with the sender's display name, assistant rows
+/// "Dravr". The triggering message is not yet in the transcript (the turn
 /// pipeline fans it out at persistence), so nothing is excluded here.
 /// Returns `None` when the room has no other recent messages, so DM-shaped
 /// groups cost no prompt tokens.
@@ -76,7 +76,7 @@ pub(super) async fn build_group_ambient_context(dispatch: &PendingDispatch) -> O
         // denial replayed to the peer it named, after he had consented).
         let (label, content) = match entry.speaker {
             TranscriptSpeaker::Coach => (
-                "Coach".to_owned(),
+                "Dravr".to_owned(),
                 scrub_replayed_narration(&entry.content).cleaned,
             ),
             TranscriptSpeaker::Member => {

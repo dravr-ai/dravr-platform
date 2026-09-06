@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for the Engagement tab (previously Tool Usage).
-// ABOUTME: Tests coach leaderboard, user engagement tiers, time range selector, and empty states.
+// ABOUTME: Tests agent leaderboard, user engagement tiers, time range selector, and empty states.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
@@ -19,7 +19,7 @@ async function setupEngagementMocks(
   // Set up base dashboard mocks (includes login mock)
   await setupDashboardMocks(page, { role: 'admin' });
 
-  // Mock system coaches endpoint (used by coach leaderboard)
+  // Mock system coaches endpoint (used by the agent leaderboard)
   await page.route('**/api/admin/coaches', async (route) => {
     if (!hasData) {
       await route.fulfill({
@@ -153,15 +153,15 @@ test.describe('Engagement Tab - User Engagement Tiers', () => {
   });
 });
 
-test.describe('Engagement Tab - Coach Leaderboard', () => {
-  test('displays Coach Leaderboard section', async ({ page }) => {
+test.describe('Engagement Tab - Agent Leaderboard', () => {
+  test('displays the Agent Leaderboard section', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Coach Leaderboard')).toBeVisible();
+    await expect(page.getByText('Agent Leaderboard')).toBeVisible();
   });
 
-  test('displays coach names in leaderboard', async ({ page }) => {
+  test('displays agent names in the leaderboard', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
@@ -174,7 +174,7 @@ test.describe('Engagement Tab - Coach Leaderboard', () => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    // Use exact matching to target the category badge text, not coach names
+    // Use exact matching to target the category badge text, not agent names
     // that contain the category as a substring (e.g., "Recovery Advisor" vs "recovery" badge)
     const leaderboard = page.locator('table');
     await expect(leaderboard.getByText('running', { exact: true })).toBeVisible();
@@ -191,7 +191,7 @@ test.describe('Engagement Tab - Coach Leaderboard', () => {
     await expect(page.getByText('8,500')).toBeVisible();
   });
 
-  test('coaches are ranked by token usage', async ({ page }) => {
+  test('agents are ranked by token usage', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
@@ -218,18 +218,18 @@ test.describe('Engagement Tab - Platform Stats', () => {
     await expect(page.getByText('Total Users')).toBeVisible();
   });
 
-  test('displays Total Coaches count', async ({ page }) => {
+  test('displays the Total Agents count', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Total Coaches')).toBeVisible();
+    await expect(page.getByText('Total Agents')).toBeVisible();
   });
 
-  test('displays Published Coaches count', async ({ page }) => {
+  test('displays the Published Agents count', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Published Coaches')).toBeVisible();
+    await expect(page.getByText('Published Agents')).toBeVisible();
   });
 });
 
@@ -239,8 +239,8 @@ test.describe('Engagement Tab - Empty State', () => {
     await loginAndNavigateToEngagement(page);
 
     // Matches the EngagementTab empty state text
-    await expect(page.getByText('No coach activity yet')).toBeVisible();
-    await expect(page.getByText('Create system coaches to get started.')).toBeVisible();
+    await expect(page.getByText('No agent activity yet')).toBeVisible();
+    await expect(page.getByText('Create system agents to get started.')).toBeVisible();
   });
 });
 

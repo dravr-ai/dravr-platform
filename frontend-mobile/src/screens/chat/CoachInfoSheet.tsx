@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coach info for a coach-bound thread — title, @handle, description, detach, and edit for own coaches
-// ABOUTME: t('app.removeFromChat') sends /coach remove; the command is the only implementation of detaching
+// ABOUTME: Agent info for an agent-bound thread — title, @handle, description, detach, and edit for own agents
+// ABOUTME: t('app.removeFromChat') sends /agent remove; the command is the only implementation of detaching
 
 import React, { useCallback } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
@@ -15,9 +15,9 @@ import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useTranslation } from '@pierre/i18n';
 
 export interface CoachInfoSheetProps {
-  /** The coach the open thread is bound to. */
+  /** The agent the open thread is bound to. */
   coachId: string;
-  /** The coach's title as the conversation row spells it, until the list loads. */
+  /** The agent's title as the conversation row spells it, until the list loads. */
   fallbackTitle: string | null;
   /** Send a command as the next turn of this thread. */
   onSendCommand: (command: string) => void;
@@ -26,10 +26,10 @@ export interface CoachInfoSheetProps {
 }
 
 /**
- * What a coach-bound thread says about its coach.
+ * What an agent-bound thread says about its agent.
  *
- * The handle is the point: it is how the athlete brings this coach into any
- * other conversation. Detaching is `/coach remove`, sent as a turn, so the
+ * The handle is the point: it is how the athlete brings this agent into any
+ * other conversation. Detaching is `/agent remove`, sent as a turn, so the
  * app has no private path to a state the command cannot reach.
  */
 export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose }: CoachInfoSheetProps) {
@@ -72,7 +72,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
       {coach?.handle && (
         <Text className="text-xs text-text-tertiary mt-3">
           {t('app.mention')} {MENTION_PREFIX}
-          {coach.handle} in any chat to bring this coach in for one turn.
+          {coach.handle} in any chat to bring this agent in for one turn.
         </Text>
       )}
 
@@ -87,7 +87,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
           <Text className="text-base text-text-primary ml-3">{t('app.removeFromChat')}</Text>
         </TouchableOpacity>
 
-        {/* Only the athlete's own coaches are editable; a system coach is
+        {/* Only the athlete's own agents are editable; a system agent is
             shared by every tenant and the server refuses the write. */}
         {coach && !coach.is_system && (
           <TouchableOpacity

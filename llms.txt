@@ -36,7 +36,7 @@ src/
 ├── bin/                            # executable binaries
 │   ├── pierre-mcp-server.rs        # main mcp server binary
 │   ├── pierre_cli/                 # pierre cli tool (user/token management)
-│   ├── seed_coaches.rs             # coach data seeder
+│   ├── seed_coaches.rs             # agent data seeder
 │   ├── seed_demo_data.rs           # demo data seeder
 │   ├── seed_mobility.rs            # mobility data seeder
 │   ├── seed_social.rs              # social data seeder

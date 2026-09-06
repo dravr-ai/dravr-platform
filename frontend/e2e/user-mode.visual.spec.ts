@@ -133,9 +133,9 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Coach Store Tab
+  // Agent Store Tab
   // ========================================
-  test.describe('Coach Store Tab', () => {
+  test.describe('Agent Store Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'webtest');
     });
@@ -168,7 +168,7 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       await takeVisualScreenshot(page, 'user-store', 'category-tabs');
     });
 
-    test('store - search coaches works', async ({ page }) => {
+    test('store - search agents works', async ({ page }) => {
       await navigateToTab(page, 'Discover');
       await waitForNetworkIdle(page);
 
@@ -181,7 +181,7 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       }
     });
 
-    test('store - coach card shows install button', async ({ page }) => {
+    test('store - the agent card shows install button', async ({ page }) => {
       await navigateToTab(page, 'Discover');
       await waitForNetworkIdle(page);
 
@@ -191,11 +191,11 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       await takeVisualScreenshot(page, 'user-store', 'install-button');
     });
 
-    test('store - clicking coach opens detail', async ({ page }) => {
+    test('store - clicking an agent opens detail', async ({ page }) => {
       await navigateToTab(page, 'Discover');
       await waitForNetworkIdle(page);
 
-      // Click on a coach card (not the install button)
+      // Click on an agent card (not the install button)
       const coachCard = page.locator('[data-testid="coach-card"], .coach-card, article').first();
       if (await coachCard.isVisible().catch(() => false)) {
         await coachCard.click();

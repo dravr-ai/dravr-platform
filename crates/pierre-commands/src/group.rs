@@ -668,7 +668,7 @@ impl CommandHandler for GroupCoachHandler {
             });
         let Some(found) = matched else {
             return Ok(CommandResponse::text(format!(
-                "No coach matching \"{name}\" found. Use /coach to see the coaches available to you."
+                "No agent matching \"{name}\" found. Use /agent to see the agents available to you."
             )));
         };
 
@@ -698,7 +698,7 @@ impl CommandHandler for GroupCoachHandler {
         );
 
         Ok(CommandResponse::text(format!(
-            "{}'s coach is now {}.",
+            "{}'s agent is now {}.",
             updated.name, found.coach.title
         )))
     }

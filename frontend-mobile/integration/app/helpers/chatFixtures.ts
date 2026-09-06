@@ -9,7 +9,7 @@ export const CONVERSATION_ID = 'conv-e2e-1';
 export const ASSISTANT_MESSAGE_ID = 'msg-assistant-1';
 export const USER_MESSAGE_ID = 'msg-user-1';
 
-/** The coach's opening sentence, the reply's `prose` block. */
+/** The agent's opening sentence, the reply's `prose` block. */
 export const PROSE_OPENING = 'Ta charge monte depuis trois semaines.';
 /** The sentence after the chart marker, in the same prose block. */
 export const PROSE_CLOSING = 'On garde le jeudi facile.';

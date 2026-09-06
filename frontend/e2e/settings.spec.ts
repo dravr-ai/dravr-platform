@@ -655,7 +655,7 @@ test.describe('Settings Page - User Mode', () => {
     await expect(page.getByText(/Daily limits reset at/)).toBeVisible({ timeout: 5000 });
   });
 
-  test('account tab displays resource counters for coaches and conversations', async ({ page }) => {
+  test('account tab displays resource counters for agents and conversations', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
     await page.getByRole('button', { name: 'Account' }).click();
@@ -663,7 +663,7 @@ test.describe('Settings Page - User Mode', () => {
 
     // Should show resource counters (scope to main to avoid matching sidebar nav elements)
     const main = page.getByRole('main');
-    await expect(main.getByText('Coaches')).toBeVisible({ timeout: 5000 });
+    await expect(main.getByText('Agents')).toBeVisible({ timeout: 5000 });
     await expect(main.getByText('1 / 3')).toBeVisible();
     await expect(main.getByText('Conversations')).toBeVisible();
     await expect(main.getByText('2 / 20')).toBeVisible();

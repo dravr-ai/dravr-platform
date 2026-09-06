@@ -109,7 +109,7 @@ That is the finding; silencing it deletes the coverage.
 | `distance_mentioned` | `value_km`, optional `tolerance_km` (default 0.5) | Numeric km claim mismatch (handles `33.10 km`, `33,10 km` FR decimal, `33 kilometers`) |
 | `activity_count_mentioned` | `value`, optional `tolerance` (default 0) | Numeric count mismatch across `activités/sorties/runs/séances` |
 | `tool_called` | `name`, optional `min_calls` (default 1) | LLM claimed a tool-derived answer without invoking the tool |
-| `vocabulary_contract` | `coach_id` | Reply from coach `coach_id` honoured no terms from its declared vocabulary contract (see `vocabulary_contract.rs`) |
+| `vocabulary_contract` | `coach_id` | Reply from agent `coach_id` honoured no terms from its declared vocabulary contract (see `vocabulary_contract.rs`) |
 | `any_of` | `values: [...]` | Reply matched none of the OR-list (use for "expected phrasing varies by locale or LLM") |
 | `reply_language` | `locale` (**required**) | Reply written in a language other than the named one. This is the *override*: the run locale is already checked automatically, so write this only for a code-switch turn expecting a reply in something else. A bare `reply_language` with no `locale` restates the default and is rejected by the structural invariant test |
 
@@ -192,11 +192,11 @@ without requiring an explicit assertion per scenario.
 
 ## Vocabulary contracts
 
-Each coach personality declares a list of domain-vocabulary terms
-the coach commits to use in every reply, regardless of question
+Each agent personality declares a list of domain-vocabulary terms
+the agent commits to use in every reply, regardless of question
 topic. Both:
 
-- The coach prompt in `dravr-contremaitre` instructs the LLM to use
+- The agent prompt in `dravr-contremaitre` instructs the LLM to use
   the terms.
 - The `vocabulary_contract` asserter loads the same list and
   asserts the reply uses ≥1 term.
@@ -208,7 +208,7 @@ share one source of truth.
 Compile-time defaults ship in
 `helpers/chat_scenario/vocabulary_contract.rs::with_defaults`. When
 the contremaitre manifest grows a `vocabulary_contract` field per
-coach (P4 follow-up), the registry will load from there instead.
+agent (P4 follow-up), the registry will load from there instead.
 
 ## Adding a scenario from a Telegram bug report
 
@@ -221,7 +221,7 @@ coach (P4 follow-up), the registry will load from there instead.
    that would have caught the bug — favour `no_substring` for
    leaks, `tool_called` for missing tool invocations,
    `distance_mentioned`/`activity_count_mentioned` for numeric
-   claims, and `vocabulary_contract` for coach-steering regressions.
+   claims, and `vocabulary_contract` for agent-steering regressions.
 4. Run `cargo test --test chat_scenario_test`. If a scenario file
    doesn't parse, the structural test surfaces the error with a
    path-and-message.

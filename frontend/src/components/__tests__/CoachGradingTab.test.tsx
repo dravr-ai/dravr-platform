@@ -80,17 +80,17 @@ describe('CoachGradingTab', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the empty state when no coaches have grades yet', async () => {
+  it('renders the empty state when no agents have grades yet', async () => {
     vi.mocked(adminApi.getCoachGradingSummary).mockResolvedValueOnce(
       sampleSummary({ grades: [] }),
     );
     renderTab();
     await waitFor(() => {
-      expect(screen.getByText(/No coach grades available yet/i)).toBeInTheDocument();
+      expect(screen.getByText(/No agent grades available yet/i)).toBeInTheDocument();
     });
   });
 
-  it('renders coach grades with badges and scores', async () => {
+  it('renders agent grades with badges and scores', async () => {
     vi.mocked(adminApi.getCoachGradingSummary).mockResolvedValueOnce(sampleSummary());
     renderTab();
     await waitFor(() => {
@@ -107,7 +107,7 @@ describe('CoachGradingTab', () => {
   it('counts failing grades in the header card', async () => {
     vi.mocked(adminApi.getCoachGradingSummary).mockResolvedValueOnce(sampleSummary());
     renderTab();
-    // Wait for the table to actually mount (with the F-graded coach row)
+    // Wait for the table to actually mount (with the F-graded agent row)
     // so we know the query data has propagated, then assert the metric card.
     await waitFor(() => {
       expect(screen.getByText('coach-broscience')).toBeInTheDocument();

@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for StoreScreen component
-// ABOUTME: Tests coach store browsing, filtering, search, navigation, and that Discover keeps no coach list of its own
+// ABOUTME: Tests agent store browsing, filtering, search, navigation, and that Discover keeps no agent list of its own
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -102,25 +102,25 @@ describe('StoreScreen', () => {
         <StoreScreen />
       );
       await waitFor(() => {
-        expect(getByPlaceholderText('Search coaches...')).toBeTruthy();
+        expect(getByPlaceholderText('Search agents...')).toBeTruthy();
       });
     });
 
-    it('should render empty state when no coaches', async () => {
+    it('should render empty state when no agents', async () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
       const { getByText } = render(
         <StoreScreen />
       );
       await waitFor(() => {
-        expect(getByText('No coaches available')).toBeTruthy();
+        expect(getByText('No agents available')).toBeTruthy();
       });
     });
   });
 
-  describe('coach list', () => {
-    it('should render coach cards', async () => {
+  describe('agent list', () => {
+    it('should render agent cards', async () => {
       const coaches = [
-        createMockStoreCoach({ id: '1', title: 'Marathon Training Coach' }),
+        createMockStoreCoach({ id: '1', title: 'Marathon Training Agent' }),
         createMockStoreCoach({ id: '2', title: 'Nutrition Guide', category: 'nutrition' as CoachCategory }),
       ];
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 2 });
@@ -130,12 +130,12 @@ describe('StoreScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByText('Marathon Training Coach')).toBeTruthy();
+        expect(getByText('Marathon Training Agent')).toBeTruthy();
         expect(getByText('Nutrition Guide')).toBeTruthy();
       });
     });
 
-    it('should show install count on coach cards', async () => {
+    it('should show install count on agent cards', async () => {
       const coaches = [
         createMockStoreCoach({ id: '1', title: 'Popular Coach', install_count: 150 }),
       ];
@@ -150,7 +150,7 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should show category badge on coach cards', async () => {
+    it('should show category badge on agent cards', async () => {
       const coaches = [
         createMockStoreCoach({ id: '1', title: 'Training Coach', category: 'training' as CoachCategory }),
       ];
@@ -165,7 +165,7 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should show tags on coach cards', async () => {
+    it('should show tags on agent cards', async () => {
       const coaches = [
         createMockStoreCoach({ id: '1', title: 'Tagged Coach', tags: ['beginner', 'cardio'] }),
       ];
@@ -278,7 +278,7 @@ describe('StoreScreen', () => {
   });
 
   describe('search', () => {
-    it('should search coaches when text is entered', async () => {
+    it('should search agents when text is entered', async () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
       mockSearchStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
 
@@ -287,10 +287,10 @@ describe('StoreScreen', () => {
       );
 
       await waitFor(() => {
-        expect(getByPlaceholderText('Search coaches...')).toBeTruthy();
+        expect(getByPlaceholderText('Search agents...')).toBeTruthy();
       });
 
-      const searchInput = getByPlaceholderText('Search coaches...');
+      const searchInput = getByPlaceholderText('Search agents...');
       fireEvent.changeText(searchInput, 'marathon');
 
       // Search is debounced, so wait for it
@@ -326,7 +326,7 @@ describe('StoreScreen', () => {
   });
 
   describe('loading states', () => {
-    it('should show loading indicator while fetching coaches', async () => {
+    it('should show loading indicator while fetching agents', async () => {
       // Create a promise that doesn't resolve immediately
       let resolvePromise: (value: unknown) => void;
       const pendingPromise = new Promise((resolve) => {
@@ -351,7 +351,7 @@ describe('StoreScreen', () => {
   });
 
   describe('pull to refresh', () => {
-    it('should refresh coaches on pull down', async () => {
+    it('should refresh agents on pull down', async () => {
       const coaches = [
         createMockStoreCoach({ id: '1', title: 'Initial Coach' }),
       ];
@@ -381,17 +381,17 @@ describe('StoreScreen', () => {
     });
   });
 
-  describe('no coach list of its own', () => {
-    // Discover is the catalogue. The athlete's coaches are reached from chat
-    // (`/coach list`, `@handle`), and editing lives on the store detail of an
+  describe('no agent list of its own', () => {
+    // Discover is the catalogue. The athlete's agents are reached from chat
+    // (`/agent list`, `@handle`), and editing lives on the store detail of an
     // installed listing — no strip, no library, no create button here.
-    it('renders the catalogue with no pinned coaches, library link or create button', async () => {
-      const coaches = [createMockStoreCoach({ id: '1', title: 'Marathon Training Coach' })];
+    it('renders the catalogue with no pinned agents, library link or create button', async () => {
+      const coaches = [createMockStoreCoach({ id: '1', title: 'Marathon Training Agent' })];
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
       const { findByText, queryByTestId } = render(<StoreScreen />);
 
-      expect(await findByText('Marathon Training Coach')).toBeTruthy();
+      expect(await findByText('Marathon Training Agent')).toBeTruthy();
       expect(queryByTestId('installed-coaches-strip')).toBeNull();
       expect(queryByTestId('manage-coaches-button')).toBeNull();
       expect(queryByTestId('discover-create-coach-button')).toBeNull();

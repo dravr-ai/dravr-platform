@@ -119,7 +119,7 @@ fn the_actions_block_round_trips_through_content_blocks() {
         TurnAction {
             label: "Recovery Coach".to_owned(),
             kind: ActionKind::Postback,
-            value: "/coach add @recovery-coach".to_owned(),
+            value: "/agent add @recovery-coach".to_owned(),
         },
         TurnAction {
             label: "Open Discover".to_owned(),
@@ -146,7 +146,7 @@ fn the_actions_block_round_trips_through_content_blocks() {
                 PersistedAction {
                     label: "Recovery Coach".to_owned(),
                     action_type: "postback".to_owned(),
-                    value: "/coach add @recovery-coach".to_owned(),
+                    value: "/agent add @recovery-coach".to_owned(),
                 },
                 PersistedAction {
                     label: "Open Discover".to_owned(),

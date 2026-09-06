@@ -174,8 +174,20 @@ describe('client locale corpus', () => {
     // silently desynced it; the phone now reads the shared key. And
     // `auth.taglinePersona` is the other half of the retired brand line, an
     // orphan on exactly the grounds `heroPersona` was deleted for. -2.
+    //
+    // 2381 until the coach→agent rename (carnet#346). Sixty-eight keys that
+    // still spelled the old vocabulary had no caller on any surface — the
+    // retired `chat.*` coach-list chrome, the `discover.*` import dialog, the
+    // `convPanel.*` grouping the conversation list dropped, the `groups.*`
+    // landing copy — and were deleted rather than translated. Two pairs said
+    // the same thing under two keys and became one: the human-coach "Remove
+    // Coach" title (`app.*` on the phone, `groups.*` on the web) and the "I
+    // coach others" onboarding card. Every remaining sense-B key — the human
+    // professional, never the AI persona — now lives under `humanCoach.*`.
+    // The count is read off the tree, never carried: it was 2383, 2384 and
+    // 2381 on three different afternoons, each correct when taken. -68.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2381);
+    expect(reference).toHaveLength(2313);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

@@ -18,7 +18,7 @@ require stronger permissions as noted.
 **Permission:** `ViewConfiguration`
 
 Triage surface for claim verdicts. Lists the most recent rows in
-`claim_verdicts` with status / category / coach / limit filters.
+`claim_verdicts` with status / category / agent / limit filters.
 
 **Filter reference**
 
@@ -38,9 +38,9 @@ verdict.
 1. Read the explanation. Is the layer classification obviously wrong?
    (e.g. rhetorical flagged as physiological.)
 2. Cross-check against [Myth Busting tab](#myth-busting-tab-sprint-c13)
-   — is this a recurring pattern across coaches or a one-off?
-3. If the coach is shipping bad content at scale, check
-   [Coach Grades tab](#coach-grading-tab-sprint-c14) to see if the
+   — is this a recurring pattern across agents or a one-off?
+3. If the agent is shipping bad content at scale, check
+   [Agent Grades tab](#agent-grades-tab-sprint-c14) to see if the
    letter grade justifies unpublishing.
 4. If the layer itself is wrong, file an issue for
    `crates/pierre-evals/` tuning.
@@ -83,9 +83,9 @@ vs "you're editing operator overrides".
 **Route:** `GET /api/memory/facts?kind=...`, `DELETE /api/memory/facts/{fact_id}`
 **Permission:** none — this is user-facing
 
-Users see what the coach has stored about them and can forget
+Users see what the agent has stored about them and can forget
 individual facts. Forgetting is GDPR-grade: the row is removed and
-the coach will stop referencing it on the next turn.
+the agent will stop referencing it on the next turn.
 
 Accessible from the user settings page. Grouped by kind
 (preference / physiology / injury / goal / schedule / equipment /
@@ -112,43 +112,43 @@ derived from the rows it has actually produced in `user_facts`.
 The per-kind breakdown is useful for spotting extractor prompt
 drift: a tenant with 90% `other` facts has a prompt problem.
 
-### Coach Followups tab (Sprint C7)
+### Agent Followups tab (Sprint C7)
 
 **Route:** `GET /admin/coach-followups/pending?tenant_id=...`,
 `POST /admin/coach-followups/{id}/cancel?tenant_id=...`
 **Permissions:** `ViewConfiguration` (list), `ManageConfiguration` (cancel)
 
-Tenant-wide pending followup queue. Each row is a promise the coach
+Tenant-wide pending followup queue. Each row is a promise the agent
 made that has not yet been injected into a next-turn system prompt.
 
 **Columns**
 
-- **Content** — the promise the coach wrote
+- **Content** — the promise the agent wrote
 - **Due** — relative ("in 2h", "3d ago") + absolute timestamp; overdue rows in red
-- **Coach** / **User** — FK identifiers
+- **Agent** / **User** — FK identifiers
 - **Action** — Cancel button (opens confirm dialog)
 
 Cancel is idempotent: transitioning `pending → cancelled` returns
 `{"cancelled": true}`; any other starting state returns `{"cancelled": false}`
 with HTTP 200 (the post-condition "this followup will not be
-injected into a coach prompt" holds either way).
+injected into an agent prompt" holds either way).
 
-### Coach Notes Audit tab (Sprint C8)
+### Agent Notes Audit tab (Sprint C8)
 
 **Route:** `GET /admin/coach-notes/audit?tenant_id=...`
 **Permission:** `ViewAuditLogs` (**stronger** than `ViewConfiguration`)
 
-Flat tenant-wide feed of every note a coach persona wrote about a
+Flat tenant-wide feed of every note an agent persona wrote about a
 user. This is the GDPR/compliance audit surface, not a triage tab —
 you're not expected to act on individual rows, you're expected to
 review the aggregate for drift.
 
 The permission is intentionally escalated to `ViewAuditLogs` because
-coach notes contain personal data the coach has derived from
+agent notes contain personal data the agent has derived from
 conversations. They are **not** user-visible (unlike Memory Panel
 facts, which are user-visible + forgettable).
 
-**Filters:** substring search, coach id, user id, scope
+**Filters:** substring search, agent id, user id, scope
 (`conversation` / `user` / `tenant`).
 
 ### Myth Busting tab (Sprint C13)
@@ -161,19 +161,19 @@ filters to unsupported + contradicted, rolls up into three top-10
 lists:
 
 - **Top claims** — recurring claim texts ranked by occurrence count
-- **Top coaches** — offending coaches ranked by unsupported total
+- **Top agents** — offending agents ranked by unsupported total
 - **Top categories** — flagged categories ranked by frequency
 
 Use this when you see a handful of flagged verdicts in
 [Claim Verdicts tab](#claim-verdicts-tab-sprint-c1) and want to know
 if they're a pattern or noise.
 
-### Coach Grades tab (Sprint C14)
+### Agent Grades tab (Sprint C14)
 
 **Route:** `GET /admin/coach-grading/summary?tenant_id=...&limit=500`
 **Permission:** `ViewConfiguration`
 
-Per-coach A–F letter grade derived from the verdict history.
+Per-agent A–F letter grade derived from the verdict history.
 
 **Scoring formula**
 
@@ -203,8 +203,8 @@ score = (raw / scored_total).clamp(0.0, 1.0)
 
 Table is sorted worst-first so operators see the bottom of the
 leaderboard, and a "Failing (D/F)" counter card at the top shows
-how many coaches need attention. Store ranking integration (so a
-low grade pushes a coach down in search results) is a planned
+how many agents need attention. Store ranking integration (so a
+low grade pushes an agent down in search results) is a planned
 follow-up.
 
 ### Eval Harness tab (Sprint C16)
@@ -249,7 +249,7 @@ follow-up sprint.
 
 | Flag | Default | Gates |
 |---|---|---|
-| `tools-memory` | on | Tier 3 coach memory MCP tools + `MemoryPanel` backend |
+| `tools-memory` | on | Tier 3 agent memory MCP tools + `MemoryPanel` backend |
 | `tools-verification` | on | claim verification pipeline + `EvalHarnessTab` |
 | `tools-groups` | on | Group coaching context injection |
 
@@ -260,9 +260,9 @@ access:
 
 | Permission | Grants |
 |---|---|
-| `ViewConfiguration` | Read-only admin tabs: claim verdicts, memory worker, followups list, myth busting, coach grades, harness config (GET), eval browser |
+| `ViewConfiguration` | Read-only admin tabs: claim verdicts, memory worker, followups list, myth busting, agent grades, harness config (GET), eval browser |
 | `ManageConfiguration` | Write actions: harness config PUT, cancel followup |
-| `ViewAuditLogs` | Coach notes audit log (personal data the coach derived) |
+| `ViewAuditLogs` | Agent notes audit log (personal data the agent derived) |
 
 Generate admin tokens with specific permissions via
 `pierre-cli token generate --service X --permissions ViewConfiguration,ManageConfiguration`.
@@ -284,19 +284,19 @@ days despite having prior rows in the tenant. Most likely causes:
 
 ### "Claim verdict log is empty"
 
-- Verify the coach's `verification_config` has `enabled: true`.
+- Verify the agent's `verification_config` has `enabled: true`.
 - Verify the `tools-verification` feature flag is on at compile time.
 - Check server logs for `claim_verification::apply_claim_verification`
   spans.
 
-### "Coach grade is Provisional for a coach with many conversations"
+### "Agent grade is Provisional for an agent with many conversations"
 
 The `Provisional` grade is computed on the **scored** verdict count
 (supported + unsupported + contradicted), not the raw `total_verdicts`
-count. If all the coach's verdicts are `rhetorical` or `unverifiable`
+count. If all the agent's verdicts are `rhetorical` or `unverifiable`
 they don't count toward the threshold. This usually means the
 rhetoric filter is catching everything before the
-deterministic layer fires — normal for coaches whose content is
+deterministic layer fires — normal for agents whose content is
 mostly motivational rather than factual.
 
 ### "Harness Config PUT rejected with 400"
@@ -311,14 +311,14 @@ Validation rules (all enforced by `validate_document` in
 
 The error body contains the specific invariant that failed.
 
-### "ChatSidebar shows a coach title I don't recognize"
+### "ChatSidebar shows an agent title I don't recognize"
 
-`ConversationsPanel` loads coach metadata via
-`coachesApi.list()` with a 5-minute stale-time. If a coach was
+`ConversationsPanel` loads agent metadata via
+`coachesApi.list()` with a 5-minute stale-time. If an agent was
 renamed recently, force a refresh with the browser Refresh button or
 wait out the cache. Conversations whose `coach_id` is not in the
-user's `coaches.list()` response render under "Unknown coach" — this
-happens when the coach was deleted but the conversation survived.
+user's `coaches.list()` response render under "Unknown agent" — this
+happens when the agent was deleted but the conversation survived.
 
 ### "Canary leak detected in server logs — is it a real attack?"
 
@@ -329,9 +329,9 @@ a real leak. Act:
 
 1. Redact the offending conversation message via the DB if it's
    already persisted.
-2. Rotate the coach's system prompt via the coach editor.
+2. Rotate the agent's system prompt via the agent editor.
 3. File an issue with the full conversation log so we can tune the
-   coach's response template.
+   agent's response template.
 
 ### "Backend Rust CI keeps failing clippy"
 

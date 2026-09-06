@@ -134,7 +134,7 @@ describe('CoachFollowupsTab', () => {
     await waitFor(() => {
       expect(screen.getByText(/Check on Achilles/)).toBeInTheDocument();
     });
-    const coachInput = screen.getByPlaceholderText(/filter by coach id/i);
+    const coachInput = screen.getByPlaceholderText(/filter by agent id/i);
     fireEvent.change(coachInput, { target: { value: 'endurance' } });
     await waitFor(() => {
       expect(screen.queryByText(/Check on Achilles/)).not.toBeInTheDocument();

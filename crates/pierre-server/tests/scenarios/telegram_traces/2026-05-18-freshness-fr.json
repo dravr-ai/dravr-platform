@@ -24,7 +24,7 @@
       "trigger_sync_before_turn": true,
       "assistant_reply_seen": "**Medical disclaimer:** I'm a fitness coach, not a medical professional. ... Dîner: bol de riz ou patates ... Souper: pâtes avec parmesan, pain, salade ...",
       "assertions": [
-        { "kind": "no_substring", "values": ["Medical disclaimer", "I'm a fitness coach"] }
+        { "kind": "no_substring", "values": ["Medical disclaimer", "I'm not a medical professional"] }
       ]
     },
     {

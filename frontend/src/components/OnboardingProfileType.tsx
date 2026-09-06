@@ -88,8 +88,8 @@ export default function OnboardingProfileType({
           onSelect={handleAthlete}
         />
         <ChoiceCard
-          title={t('onboarding.iCoachOthers')}
-          description={t('onboarding.coachCardDescription')}
+          title={t('humanCoach.iCoachOthers')}
+          description={t('humanCoach.cardDescription')}
           busy={choosing === 'coach'}
           disabled={choosing !== null}
           onSelect={() => void handleCoach()}

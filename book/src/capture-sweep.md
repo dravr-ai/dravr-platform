@@ -2,7 +2,7 @@
 
 A provider capture can stop without failing. On 2026-08-28 an athlete's sciotte
 capture stopped; it was still stopped two days later. Three real activities never
-landed, the coach kept answering confidently from a training log that had frozen,
+landed, the agent kept answering confidently from a training log that had frozen,
 and nothing anywhere said so. It was found by hand (carnet#149).
 
 Two fields an operator would have watched were recording something other than

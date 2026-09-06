@@ -1,4 +1,4 @@
-# ABOUTME: Test navigation to coach detail from Discover
+# ABOUTME: Test navigation to agent detail from Discover
 # ABOUTME: Converted from store.test.js "coach detail navigation" tests
 
 appId: ai.dravr.app
@@ -14,14 +14,14 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Ensure coaches are loaded
+# Ensure agents are loaded
 - extendedWaitUntil:
     visible:
       id: "coach-list"
     timeout: 5000
 
-# Try to find any coach card and tap it
-# Note: This requires at least one coach in the store
+# Try to find any agent card and tap it
+# Note: This requires at least one agent in the store
 - runFlow:
     when:
       visible:
@@ -30,17 +30,17 @@ appId: ai.dravr.app
       - tapOn:
           id: "coach-card-0"
 
-      # Should see coach detail screen
+      # Should see agent detail screen
       - extendedWaitUntil:
           visible:
             id: "store-coach-detail-screen"
           timeout: 5000
 
-      # Wait for coach detail data to load. The screen testID appears on
+      # Wait for agent detail data to load. The screen testID appears on
       # mount, but the Install button renders only after async fetch of
-      # coach detail and installation status completes.
+      # agent detail and installation status completes.
       - extendedWaitUntil:
-          visible: "Install Coach"
+          visible: "Install Agent"
           timeout: 15000
 
       # Navigate back

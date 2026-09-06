@@ -14,7 +14,7 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Test: should search for coaches
+# Test: should search for agents
 - tapOn:
     id: "search-input"
 - eraseText
@@ -31,7 +31,7 @@ appId: ai.dravr.app
     id: "search-input"
 - eraseText
 
-# Should show all coaches again
+# Should show all agents again
 - extendedWaitUntil:
     visible:
       id: "coach-list"

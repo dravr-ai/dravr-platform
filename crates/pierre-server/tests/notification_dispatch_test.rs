@@ -865,7 +865,7 @@ mod dispatch_tests {
             "Coach message trigger should create notification"
         );
         assert_eq!(notifications[0].notification_type, "coach_message");
-        assert_eq!(notifications[0].title, "Message de ton coach");
+        assert_eq!(notifications[0].title, "Message de ton agent");
         assert!(notifications[0].body.contains("Running Coach"));
     }
 
@@ -890,7 +890,7 @@ mod dispatch_tests {
             &service,
             user.id,
             tenant_id,
-            "Endurance Coach",
+            "Endurance Agent",
         );
 
         sleep(Duration::from_millis(200)).await;
@@ -906,7 +906,7 @@ mod dispatch_tests {
         );
         assert_eq!(notifications[0].notification_type, "plan_updated");
         assert_eq!(notifications[0].title, "Plan d'entraînement mis à jour");
-        assert!(notifications[0].body.contains("Endurance Coach"));
+        assert!(notifications[0].body.contains("Endurance Agent"));
     }
 
     #[tokio::test]
@@ -947,7 +947,7 @@ mod dispatch_tests {
             "Coach feedback trigger should create notification"
         );
         assert_eq!(notifications[0].notification_type, "coach_feedback");
-        assert_eq!(notifications[0].title, "Retour de ton coach");
+        assert_eq!(notifications[0].title, "Retour de ton agent");
         assert!(notifications[0].body.contains("Speed Coach"));
         assert!(notifications[0].body.contains("interval session"));
     }

@@ -1,4 +1,4 @@
-# ABOUTME: Test coach detail screen elements
+# ABOUTME: Test agent detail screen elements
 # ABOUTME: Converted from store.test.js "coach detail screen" tests
 
 appId: ai.dravr.app
@@ -14,7 +14,7 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Navigate to a coach detail if possible
+# Navigate to an agent detail if possible
 - runFlow:
     when:
       visible:
@@ -27,7 +27,7 @@ appId: ai.dravr.app
             id: "store-coach-detail-screen"
           timeout: 5000
 
-      # Test: should show coach title
+      # Test: should show agent title
       - assertVisible:
           id: "coach-title"
 

@@ -59,18 +59,18 @@ describe('CoachRejectionModal', () => {
 
   it('renders nothing when not open', () => {
     renderCoachRejectionModal(mockCoach, false);
-    expect(screen.queryByRole('heading', { name: 'Reject Coach' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Reject Agent' })).not.toBeInTheDocument();
   });
 
-  it('renders nothing when coach is null', () => {
+  it('renders nothing when the agent is null', () => {
     renderCoachRejectionModal(null, true);
-    expect(screen.queryByRole('heading', { name: 'Reject Coach' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Reject Agent' })).not.toBeInTheDocument();
   });
 
-  it('displays modal with coach info when open', () => {
+  it('displays modal with agent info when open', () => {
     renderCoachRejectionModal();
 
-    expect(screen.getByRole('heading', { name: 'Reject Coach' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Reject Agent' })).toBeInTheDocument();
     expect(screen.getByText(/"Marathon Training Coach" by coach@example.com/)).toBeInTheDocument();
   });
 
@@ -78,7 +78,7 @@ describe('CoachRejectionModal', () => {
     renderCoachRejectionModal();
 
     expect(
-      screen.getByText(/This action will reject the coach submission/)
+      screen.getByText(/This action will reject the agent submission/)
     ).toBeInTheDocument();
   });
 
@@ -109,7 +109,7 @@ describe('CoachRejectionModal', () => {
   it('reject button is disabled when no reason selected', () => {
     renderCoachRejectionModal();
 
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     expect(rejectButton).toBeDisabled();
   });
 
@@ -120,7 +120,7 @@ describe('CoachRejectionModal', () => {
     const select = screen.getByRole('combobox');
     await user.selectOptions(select, 'quality_standards');
 
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     expect(rejectButton).not.toBeDisabled();
   });
 
@@ -153,7 +153,7 @@ describe('CoachRejectionModal', () => {
     await user.selectOptions(select, 'quality_standards');
 
     // Click reject
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     await user.click(rejectButton);
 
     await waitFor(() => {
@@ -180,7 +180,7 @@ describe('CoachRejectionModal', () => {
     await user.type(textarea, 'This coach needs more detail');
 
     // Click reject
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     await user.click(rejectButton);
 
     await waitFor(() => {
@@ -199,7 +199,7 @@ describe('CoachRejectionModal', () => {
     const select = screen.getByRole('combobox');
     await user.selectOptions(select, 'inappropriate_content');
 
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     await user.click(rejectButton);
 
     await waitFor(() => {
@@ -218,7 +218,7 @@ describe('CoachRejectionModal', () => {
     const select = screen.getByRole('combobox');
     await user.selectOptions(select, 'quality_standards');
 
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     await user.click(rejectButton);
 
     await waitFor(() => {
@@ -235,11 +235,11 @@ describe('CoachRejectionModal', () => {
     const select = screen.getByRole('combobox');
     await user.selectOptions(select, 'quality_standards');
 
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     await user.click(rejectButton);
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to reject coach. Please try again.')).toBeInTheDocument();
+      expect(screen.getByText('Failed to reject agent. Please try again.')).toBeInTheDocument();
     });
   });
 
@@ -255,7 +255,7 @@ describe('CoachRejectionModal', () => {
     );
     await user.type(textarea, '   trimmed note   ');
 
-    const rejectButton = screen.getByRole('button', { name: /Reject Coach/i });
+    const rejectButton = screen.getByRole('button', { name: /Reject Agent/i });
     await user.click(rejectButton);
 
     await waitFor(() => {

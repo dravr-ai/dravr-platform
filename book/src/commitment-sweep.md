@@ -1,6 +1,6 @@
 # Commitment Sweep
 
-An athlete says "three easy runs this week". The coach confirms it. A week later
+An athlete says "three easy runs this week". The agent confirms it. A week later
 the platform counts what they actually recorded and tells them.
 
 That last step is the part most coaching products skip. Dravr already had the
@@ -16,8 +16,8 @@ sport), and a **window**. It is deliberately distinct from its three siblings in
 
 | Entity | Whose | Verified against data? | Has a due date? |
 |---|---|---|---|
-| `TrainingPlan` | the coach's prescription | no | per-week structure |
-| `CoachFollowup` | the coach's promise to check in | no | yes |
+| `TrainingPlan` | the agent's prescription | no | per-week structure |
+| `CoachFollowup` | the agent's promise to check in | no | yes |
 | `Playbook` | a learned trigger → intervention pattern | yes, in aggregate | no |
 | **`Commitment`** | **the athlete's own** | **yes, per row** | **yes** |
 
@@ -25,7 +25,7 @@ It is the only one of the four counted against what actually happened.
 
 ## It is never inferred
 
-The sibling advice-capture path extracts coach recommendations from a turn with
+The sibling advice-capture path extracts agent recommendations from a turn with
 an LLM. A commitment is not captured that way, and the reason is the whole
 entity: post-hoc extraction cannot tell
 
@@ -35,14 +35,14 @@ from a bare
 
 > "ok"
 
-said to the coach's suggestion — and only the first is something the athlete
+said to the agent's suggestion — and only the first is something the athlete
 would recognise as a promise. Reporting on the second is presumptuous, and being
 told you failed at something you never agreed to is the fastest way to lose an
-athlete's trust in the coach.
+athlete's trust in the agent.
 
 So the row is written by an explicit tool call, `commitment_create`, whose
 description requires the athlete to have named both a count and a deadline. If
-they only assented, the coach's instruction is to ask them to confirm both and
+they only assented, the agent's instruction is to ask them to confirm both and
 call the tool on that answer. Requiring the athlete to restate the *when* is also
 the mechanism the implementation-intentions literature credits for the adherence
 effect in the first place — the confirming turn is not overhead, it is the
@@ -103,7 +103,7 @@ commitment whose data never arrives expires unlabeled — see
 `LIMITATION(registre#32)`.)
 
 **Cadence.** At most one verdict per athlete per 24 hours, and at most one per
-tick. A message for every missed commitment is a reason to mute the coach; the
+tick. A message for every missed commitment is a reason to mute the agent; the
 accountability value is in being noticed, not in being scolded. A verdict held by
 the cap stays `labeled` and goes out on a later tick.
 

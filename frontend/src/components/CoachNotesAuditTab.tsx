@@ -1,5 +1,5 @@
 // ABOUTME: Phase B Sprint C8 — admin compliance audit log for coach-authored notes
-// ABOUTME: Flat tenant-wide feed of every coach note with coach/user filters and scope badge
+// ABOUTME: Flat tenant-wide feed of every agent note with coach/user filters and scope badge
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -104,10 +104,10 @@ export default function CoachNotesAuditTab() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-on-surface">
-              Coach notes — compliance audit
+              Agent notes — compliance audit
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Flat tenant-wide audit of every note a coach persona wrote about
+              Flat tenant-wide audit of every note an agent persona wrote about
               a user. Compliance reviewers can search, filter, and export
               without stitching together (user, coach) pairs.
             </p>
@@ -145,7 +145,7 @@ export default function CoachNotesAuditTab() {
       <Card className="p-6">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <div className="md:col-span-2"><Input label="Search content" type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="substring search in note body" /></div>
-          <Input label="Coach ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)} placeholder="filter by coach id" />
+          <Input label="Agent ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)} placeholder="filter by agent id" />
           <Input label="User ID" type="text" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="filter by user id" />
           <Select
             label="Scope"
@@ -174,16 +174,16 @@ export default function CoachNotesAuditTab() {
           </div>
         ) : isError ? (
           <div className="p-6 text-sm text-error">
-            Failed to load coach notes audit:{' '}
+            Failed to load agent notes audit:{' '}
             {error instanceof Error ? error.message : String(error)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <p className="text-on-surface-variant">
-              No coach notes match these filters.
+              No agent notes match these filters.
             </p>
             <p className="mt-1 text-xs text-outline">
-              Coach personas write notes about a user via the
+              Agent personas write notes about a user via the
               <code className="mx-1 rounded bg-surface-container px-1">
                 coach_note_add
               </code>
@@ -208,7 +208,7 @@ export default function CoachNotesAuditTab() {
                         Suppressed
                       </Badge>
                     ) : null}
-                    <span className="font-mono">coach {note.coach_id}</span>
+                    <span className="font-mono">agent {note.coach_id}</span>
                     <span className="text-outline">·</span>
                     <span className="font-mono">user {note.user_id}</span>
                     {note.conversation_id ? (

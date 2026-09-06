@@ -16,8 +16,8 @@ test.describe('Mobile admin layout', () => {
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(nav).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Users' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Coaches' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Coach Store' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Agents' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Agent Store' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Open menu' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Groups' })).toHaveCount(0);
   });

@@ -131,7 +131,7 @@ describe('Dashboard Component', () => {
       renderDashboard();
     });
 
-    // Admin sidebar tabs: Users, Coaches, Coach Store, Groups,
+    // Admin sidebar tabs: Users, Agents, Agent Store, Groups,
     // Tool Management, Prompts, Activity, Engagement, Notifications,
     // Service Tokens, Analytics (Overview was removed)
     expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
@@ -139,7 +139,7 @@ describe('Dashboard Component', () => {
     expect(screen.getAllByText('Analytics').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Engagement').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Coaches').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Agents').length).toBeGreaterThan(0);
   });
 
   it('should not expose personal provider surfaces to admins (pure-operator model)', async () => {

@@ -203,25 +203,25 @@ async function setupAdminStoreMocks(page: Page) {
 }
 
 test.describe('Admin Store Management Access', () => {
-  test('displays Coach Store tab in admin sidebar', async ({ page }) => {
+  test('displays the Agent Store tab in admin sidebar', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
 
     // Should see Coach Store tab in sidebar
-    await expect(page.locator('nav').getByRole('button', { name: /Coach Store/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('nav').getByRole('button', { name: /Agent Store/i })).toBeVisible({ timeout: 5000 });
   });
 
-  test('navigates to Coach Store Management when tab is clicked', async ({ page }) => {
+  test('navigates to Agent Store Management when tab is clicked', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
     // Should see store management header
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -231,13 +231,13 @@ test.describe('Admin Store Stats Dashboard', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
 
     // Should display stats cards (use specific selectors to avoid matching description text)
     await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Pending Reviews' })).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Published Coaches' })).toBeVisible();
+    await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Published Agents' })).toBeVisible();
     await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Total Installs' })).toBeVisible();
     await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Rejection Rate' })).toBeVisible();
   });
@@ -247,14 +247,14 @@ test.describe('Admin Store Stats Dashboard', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
 
     // Locate each stat card via its label, go up to the card container, check value
     const publishedCard = page
       .locator('.text-sm.text-on-surface-variant')
-      .filter({ hasText: 'Published Coaches' })
+      .filter({ hasText: 'Published Agents' })
       .locator('xpath=..');
     await expect(publishedCard.locator('.text-2xl')).toHaveText('12', { timeout: 10000 });
 
@@ -273,14 +273,14 @@ test.describe('Admin Store Stats Dashboard', () => {
 });
 
 test.describe('Admin Review Queue', () => {
-  test('displays pending coaches in review queue', async ({ page }) => {
+  test('displays pending agents in review queue', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
 
     // Review Queue should be the default tab
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
@@ -292,9 +292,9 @@ test.describe('Admin Review Queue', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Should display author emails
@@ -307,9 +307,9 @@ test.describe('Admin Review Queue', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Should display token counts
@@ -317,21 +317,21 @@ test.describe('Admin Review Queue', () => {
     await expect(page.getByText('800 tokens')).toBeVisible();
   });
 
-  test('opens review drawer when coach is clicked', async ({ page }) => {
+  test('opens review drawer when an agent is clicked', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Click on the coach
     await page.getByText('Marathon Training Coach').click();
 
     // Should see review drawer
-    await expect(page.getByRole('heading', { name: 'Review Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Review Agent' })).toBeVisible({ timeout: 5000 });
   });
 
   test('displays approve and reject buttons in drawer', async ({ page }) => {
@@ -339,22 +339,22 @@ test.describe('Admin Review Queue', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Click on the coach
     await page.getByText('Marathon Training Coach').click();
 
-    await expect(page.getByRole('heading', { name: 'Review Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Review Agent' })).toBeVisible({ timeout: 5000 });
 
     // Should see approve and reject buttons
     await expect(page.getByRole('button', { name: /Approve/i })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeVisible();
   });
 
-  test('shows empty state when no pending coaches', async ({ page }) => {
+  test('shows empty state when no pending agents', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
     // Override with empty queue
@@ -397,17 +397,17 @@ test.describe('Admin Review Queue', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
 
     // Should show empty state
     await expect(page.getByText('All Caught Up!')).toBeVisible({ timeout: 10000 });
   });
 });
 
-test.describe('Admin Coach Approval', () => {
-  test('approves coach when Approve button is clicked', async ({ page }) => {
+test.describe('Admin Agent Approval', () => {
+  test('approves the agent when Approve is clicked', async ({ page }) => {
     await setupAdminStoreMocks(page);
 
     let approveCalled = false;
@@ -427,15 +427,15 @@ test.describe('Admin Coach Approval', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Click on the coach to open drawer
     await page.getByText('Marathon Training Coach').click();
 
-    await expect(page.getByRole('heading', { name: 'Review Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Review Agent' })).toBeVisible({ timeout: 5000 });
 
     // Click Approve
     await page.getByRole('button', { name: /Approve/i }).click();
@@ -445,27 +445,27 @@ test.describe('Admin Coach Approval', () => {
   });
 });
 
-test.describe('Admin Coach Rejection', () => {
+test.describe('Admin Agent Rejection', () => {
   test('opens rejection modal when Reject button is clicked', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Click on the coach to open drawer
     await page.getByText('Marathon Training Coach').click();
 
-    await expect(page.getByRole('heading', { name: 'Review Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Review Agent' })).toBeVisible({ timeout: 5000 });
 
     // Click Reject
     await page.getByRole('button', { name: 'Reject', exact: true }).click();
 
     // Should see rejection modal
-    await expect(page.getByRole('heading', { name: 'Reject Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Reject Agent' })).toBeVisible({ timeout: 5000 });
   });
 
   test('shows rejection reason dropdown', async ({ page }) => {
@@ -473,15 +473,15 @@ test.describe('Admin Coach Rejection', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
     await page.getByText('Marathon Training Coach').click();
 
-    await expect(page.getByRole('heading', { name: 'Review Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Review Agent' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: 'Reject', exact: true }).click();
 
-    await expect(page.getByRole('heading', { name: 'Reject Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Reject Agent' })).toBeVisible({ timeout: 5000 });
 
     // Should see reason dropdown with placeholder
     const combobox = page.getByRole('combobox');
@@ -490,7 +490,7 @@ test.describe('Admin Coach Rejection', () => {
     await expect(combobox).toHaveValue('');
   });
 
-  test('rejects coach when reason selected and confirmed', async ({ page }) => {
+  test('rejects the agent when reason selected and confirmed', async ({ page }) => {
     await setupAdminStoreMocks(page);
 
     let rejectCalled = false;
@@ -510,21 +510,21 @@ test.describe('Admin Coach Rejection', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
     await page.getByText('Marathon Training Coach').click();
 
-    await expect(page.getByRole('heading', { name: 'Review Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Review Agent' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: 'Reject', exact: true }).click();
 
-    await expect(page.getByRole('heading', { name: 'Reject Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Reject Agent' })).toBeVisible({ timeout: 5000 });
 
     // Select a reason
     await page.getByRole('combobox').selectOption('quality_standards');
 
-    // Click Reject Coach button (find the one with btn-primary class in the modal)
-    const rejectButtons = await page.getByRole('button', { name: /Reject Coach/i }).all();
+    // Click the Reject Agent button (find the one with btn-primary class in the modal)
+    const rejectButtons = await page.getByRole('button', { name: /Reject Agent/i }).all();
     const confirmButton = rejectButtons.find(async (btn) => {
       const className = await btn.getAttribute('class');
       return className?.includes('btn-primary');
@@ -532,7 +532,7 @@ test.describe('Admin Coach Rejection', () => {
     if (confirmButton) {
       await confirmButton.click();
     } else {
-      // Fallback: click the last Reject Coach button (the one in the modal)
+      // Fallback: click the last Reject Agent button (the one in the modal)
       await rejectButtons[rejectButtons.length - 1].click();
     }
 
@@ -541,15 +541,15 @@ test.describe('Admin Coach Rejection', () => {
   });
 });
 
-test.describe('Admin Published Coaches Tab', () => {
+test.describe('Admin Published Agents Tab', () => {
   test('switches to Published tab when clicked', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
 
     // Click Published tab
     await page.getByRole('button', { name: /Published$/i }).click();
@@ -560,14 +560,14 @@ test.describe('Admin Published Coaches Tab', () => {
     await expect(page.getByText('Recovery Expert')).toBeVisible({ timeout: 10000 });
   });
 
-  test('displays install counts for published coaches', async ({ page }) => {
+  test('displays install counts for published agents', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: /Published$/i }).click();
 
     await expect(page.getByText('Recovery Expert')).toBeVisible({ timeout: 10000 });
@@ -576,14 +576,14 @@ test.describe('Admin Published Coaches Tab', () => {
     await expect(page.getByText('75 installs')).toBeVisible();
   });
 
-  test('has Unpublish button for published coaches', async ({ page }) => {
+  test('has Unpublish button for published agents', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: /Published$/i }).click();
 
     await expect(page.getByText('Recovery Expert')).toBeVisible({ timeout: 10000 });
@@ -593,15 +593,15 @@ test.describe('Admin Published Coaches Tab', () => {
   });
 });
 
-test.describe('Admin Rejected Coaches Tab', () => {
+test.describe('Admin Rejected Agents Tab', () => {
   test('switches to Rejected tab when clicked', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
 
     // Click Rejected tab
     await page.getByRole('button', { name: /Rejected$/i }).click();
@@ -612,14 +612,14 @@ test.describe('Admin Rejected Coaches Tab', () => {
     await expect(page.getByText('Low Quality Coach')).toBeVisible({ timeout: 10000 });
   });
 
-  test('displays rejection reason for rejected coaches', async ({ page }) => {
+  test('displays rejection reason for rejected agents', async ({ page }) => {
     await setupAdminStoreMocks(page);
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: /Rejected$/i }).click();
 
     await expect(page.getByText('Low Quality Coach')).toBeVisible({ timeout: 10000 });
@@ -633,9 +633,9 @@ test.describe('Admin Rejected Coaches Tab', () => {
     await loginToDashboard(page);
 
     await page.waitForSelector('main', { timeout: 10000 });
-    await navigateToTab(page, 'Coach Store');
+    await navigateToTab(page, 'Agent Store');
 
-    await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h1').filter({ hasText: 'Agent Store' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: /Rejected$/i }).click();
 
     await expect(page.getByText('Low Quality Coach')).toBeVisible({ timeout: 10000 });

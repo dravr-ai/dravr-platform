@@ -92,7 +92,7 @@ export default function CoachReviewQueue() {
     return (
       <div className="py-3">
         <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Review Queue</h3>
-        <p className="mt-0.5 text-xs text-outline">Unable to fetch pending coach submissions. Please try again.</p>
+        <p className="mt-0.5 text-xs text-outline">Unable to fetch pending agent submissions. Please try again.</p>
       </div>
     );
   }
@@ -103,7 +103,7 @@ export default function CoachReviewQueue() {
     return (
       <div className="py-3">
         <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">All Caught Up!</h3>
-        <p className="mt-0.5 text-xs text-outline">There are no coaches pending review at this time.</p>
+        <p className="mt-0.5 text-xs text-outline">There are no agents pending review at this time.</p>
       </div>
     );
   }

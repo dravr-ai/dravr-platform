@@ -33,8 +33,8 @@ keys use i18next's `{{name}}`. Tier 1b rejects a key that mixes them.
 The second thing this package joins is the *language*: `initI18n` takes a
 **required** `persistLocale` writer, and every language change made through
 `useLanguageSwitcher` / `useLanguageSwitcherNative` writes both halves —
-i18next for what the user reads, `PUT /api/user/locale` for what the coach
-answers in — so the chrome and the coach never disagree.
+i18next for what the user reads, `PUT /api/user/locale` for what the agent
+answers in — so the chrome and the agent never disagree.
 
 `SUPPORTED_LANGUAGES` is therefore exactly the server's `SUPPORTED_LOCALES`
 (`pierre_core::models`), and `DEFAULT_LANGUAGE` is exactly `DEFAULT_LOCALE`:
@@ -145,7 +145,7 @@ language section.
 
 ## Adding a locale
 
-Adding one here without adding it to the server ships a language the coach cannot
+Adding one here without adding it to the server ships a language the agent cannot
 answer in. The order is:
 
 1. add the locale to `SUPPORTED_LOCALES` in `crates/pierre-core/src/models/user.rs`

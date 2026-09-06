@@ -46,7 +46,7 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── settings/                # Settings screen tests
 ├── chat/                    # Chat functionality tests
 ├── store/                   # Discover/Store tests (browse, install → hint, uninstall)
-├── discover/                # The edit sheet on an installed coach (the only coach editor)
+├── discover/                # The edit sheet on an installed agent (the only agent editor)
 ├── voice-input/             # Voice input tests
 ├── synthetic-provider/      # Synthetic data provider tests
 └── visual/                  # Visual regression tests

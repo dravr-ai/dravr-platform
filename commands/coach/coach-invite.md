@@ -1,7 +1,7 @@
 ---
 name: coach-invite
-command: /coach invite
-aliases: []
+command: /agent invite
+aliases: ["/coach invite"]
 description: Issue this group's human-coach invite code
 domain: coach
 ---

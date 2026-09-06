@@ -1,5 +1,5 @@
 // ABOUTME: Phase D Sprint C14 — admin tab listing per-coach claim-verification content grades
-// ABOUTME: Worst grades first so admins can review coaches at the bottom of the leaderboard
+// ABOUTME: Worst grades first so admins can review agents at the bottom of the leaderboard
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -57,11 +57,11 @@ export default function CoachGradingTab() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-on-surface">
-              Coach content grades
+              Agent content grades
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Per-coach quality scores derived from claim-verdict history.
-              Higher scores rank higher in the store. Worst-graded coaches
+              Per-agent quality scores derived from claim-verdict history.
+              Higher scores rank higher in the store. Worst-graded agents
               appear first so admins can review or unpublish them.
             </p>
           </div>
@@ -85,7 +85,7 @@ export default function CoachGradingTab() {
           </div>
           <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
             <div className="text-xs text-on-surface-variant">
-              Coaches graded
+              Agents graded
             </div>
             <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.grades.length ?? 0}
@@ -109,16 +109,16 @@ export default function CoachGradingTab() {
           </div>
         ) : isError ? (
           <div className="p-6 text-sm text-error">
-            Failed to load coach grading summary:{' '}
+            Failed to load agent grading summary:{' '}
             {error instanceof Error ? error.message : String(error)}
           </div>
         ) : !data || data.grades.length === 0 ? (
           <div className="p-12 text-center">
             <p className="text-on-surface-variant">
-              No coach grades available yet.
+              No agent grades available yet.
             </p>
             <p className="mt-1 text-xs text-outline">
-              Coaches need at least a few claim verdicts before they can be
+              Agents need at least a few claim verdicts before they can be
               graded.
             </p>
           </div>
@@ -131,7 +131,7 @@ export default function CoachGradingTab() {
                     Grade
                   </th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
-                    Coach
+                    Agent
                   </th>
                   <th className="px-4 py-2 text-right text-xs font-medium text-on-surface-variant">
                     Score

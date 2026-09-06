@@ -32,12 +32,12 @@ describe('SettingsMenu', () => {
     const rows = within(nav).getAllByRole('listitem');
     expect(rows).toHaveLength(SETTINGS_TABS.length);
     expect(within(nav).getByText('Data providers')).toBeInTheDocument();
-    expect(within(nav).getByText('Strava, Garmin and the data your coach reads')).toBeInTheDocument();
+    expect(within(nav).getByText('Strava, Garmin and the data your agent reads')).toBeInTheDocument();
     // The row is named by its label alone; the hint is its description, so a
     // name lookup for one section never resolves to another whose hint mentions it.
     const connections = screen.getByTestId('settings-menu-connections');
     expect(connections).toHaveAccessibleName('Data providers');
-    expect(connections).toHaveAccessibleDescription('Strava, Garmin and the data your coach reads');
+    expect(connections).toHaveAccessibleDescription('Strava, Garmin and the data your agent reads');
     expect(within(nav).getByRole('button', { name: 'About' })).toBe(screen.getByTestId('settings-menu-about'));
 
     const memory = screen.getByTestId('settings-menu-memory');

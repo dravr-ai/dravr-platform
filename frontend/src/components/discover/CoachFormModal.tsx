@@ -94,7 +94,7 @@ export default function CoachFormModal({
               </label>
               <input
                 type="text"
-                placeholder="e.g., Marathon Training Coach"
+                placeholder="e.g., Marathon Training Agent"
                 value={formData.title}
                 onChange={(e) => onFormDataChange({ ...formData, title: e.target.value })}
                 className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"

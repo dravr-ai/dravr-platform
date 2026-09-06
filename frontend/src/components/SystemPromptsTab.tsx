@@ -141,9 +141,9 @@ export default function SystemPromptsTab() {
                 )}
                 <span
                   className="text-xs"
-                  title="contremaitre_count counts both system prompts AND per-coach prompts; the list below shows system prompts only"
+                  title="contremaitre_count counts both system prompts AND per-agent prompts; the list below shows system prompts only"
                 >
-                  {status.system_prompt_count} system / {status.coach_prompt_count} coach (
+                  {status.system_prompt_count} system / {status.coach_prompt_count} agent (
                   {status.contremaitre_count} from contremaitre, {status.compiled_in_count}{' '}
                   compiled-in)
                 </span>
@@ -177,8 +177,8 @@ export default function SystemPromptsTab() {
             </h4>
             {status && status.coach_prompt_count > 0 && (
               <p className="mt-1 text-xs text-on-surface-variant/70">
-                {status.coach_prompt_count} per-coach prompt
-                {status.coach_prompt_count === 1 ? '' : 's'} live in the Coaches tab.
+                {status.coach_prompt_count} per-agent prompt
+                {status.coach_prompt_count === 1 ? '' : 's'} live in the Agents tab.
               </p>
             )}
           </div>

@@ -222,7 +222,7 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
     }
     if outline.strategy.trim().is_empty() {
         return Err(AppError::invalid_input(
-            "outline.strategy must state the coach's plan in prose",
+            "outline.strategy must state the plan in prose",
         ));
     }
     bounded("outline.strategy", &outline.strategy, MAX_STRATEGY_LEN)?;

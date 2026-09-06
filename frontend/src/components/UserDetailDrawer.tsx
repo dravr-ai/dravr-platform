@@ -322,7 +322,7 @@ export default function UserDetailDrawer({
               )}
               {adminProfile?.default_coach_id && (
                 <div>
-                  <span className="text-on-surface-variant">Default Coach</span>
+                  <span className="text-on-surface-variant">Default Agent</span>
                   <p className="font-medium text-on-surface truncate" title={adminProfile.default_coach_id}>
                     {adminProfile.default_coach_id}
                   </p>
@@ -618,13 +618,13 @@ export default function UserDetailDrawer({
             )}
           </Card>
 
-          {/* Installed Coaches Card */}
+          {/* Installed Agents Card */}
           <Card variant="dark" className="p-4">
             <h4 className="text-sm font-semibold text-on-surface mb-4 flex items-center">
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
-              Installed Coaches
+              Installed Agents
             </h4>
             {adminProfileLoading ? (
               <div className="space-y-3 animate-pulse">
@@ -646,7 +646,7 @@ export default function UserDetailDrawer({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-on-surface-variant">No coaches installed</p>
+              <p className="text-sm text-on-surface-variant">No agents installed</p>
             )}
           </Card>
 

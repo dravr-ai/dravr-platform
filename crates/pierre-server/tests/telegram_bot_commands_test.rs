@@ -105,7 +105,7 @@ mod telegram_menu_tests {
             .collect();
 
         for expected in [
-            "help", "status", "group", "coach", "plan", "privacy", "discover",
+            "help", "status", "group", "agent", "plan", "privacy", "discover",
         ] {
             assert!(
                 names.iter().any(|n| n == expected),

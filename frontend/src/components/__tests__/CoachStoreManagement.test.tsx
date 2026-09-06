@@ -127,7 +127,7 @@ describe('CoachStoreManagement', () => {
     const user = userEvent.setup();
     renderCoachStoreManagement();
 
-    // Click Published tab (ends with "Published" to avoid matching "Published Coaches" stat card)
+    // Click Published tab (ends with "Published" to avoid matching "Published Agents" stat card)
     const publishedTabs = screen.getAllByRole('button', { name: /Published$/i });
     const publishedTab = publishedTabs.find(btn => btn.textContent?.trim() === 'Published');
     expect(publishedTab).toBeInTheDocument();
@@ -147,8 +147,8 @@ describe('CoachStoreManagement', () => {
       expect(screen.getByText('Pending Reviews')).toBeInTheDocument();
     });
 
-    // Find and click the Published Coaches stat card
-    const publishedCard = screen.getByText('Published Coaches').closest('button');
+    // Find and click the Published Agents stat card
+    const publishedCard = screen.getByText('Published Agents').closest('button');
     expect(publishedCard).toBeInTheDocument();
 
     if (publishedCard) {

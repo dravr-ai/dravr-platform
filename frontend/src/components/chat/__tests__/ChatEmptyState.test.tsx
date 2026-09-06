@@ -37,7 +37,7 @@ describe('ChatEmptyState', () => {
   it('teaches the "/" and "@" grammar with the shared hint', () => {
     renderEmptyState();
     expect(
-      screen.getByText('Type / for commands · @handle brings a coach in for one turn'),
+      screen.getByText('Type / for commands · @handle brings an agent in for one turn'),
     ).toBeInTheDocument();
   });
 
@@ -55,7 +55,7 @@ describe('ChatEmptyState', () => {
     expect(screen.getByTestId('chat-empty-commands')).toBeDisabled();
   });
 
-  it('names what the coach can see in the footer, and stays quiet until that is known', () => {
+  it('names what the agent can see in the footer, and stays quiet until that is known', () => {
     const { unmount } = render(
       <ChatEmptyState
         compose={<button type="button">Compose</button>}

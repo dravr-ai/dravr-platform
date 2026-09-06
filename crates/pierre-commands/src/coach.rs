@@ -1,5 +1,5 @@
-// ABOUTME: Handlers for the /coach command tree — list installed coaches, add one to a conversation, remove it, assign to a group
-// ABOUTME: One binding implementation behind /coach add and the confirm step of /coach create
+// ABOUTME: Handlers for the /agent command tree — list installed agents, add one to a conversation, remove it, assign to a group
+// ABOUTME: One binding implementation behind /agent add and the confirm step of /agent create
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -29,7 +29,7 @@ use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 /// Maximum number of coaches offered as buttons on the list card.
 const MAX_COACH_BUTTONS: usize = 8;
 
-/// Handler for `/coach` (also `/coach list`, `/coaches`) — the caller's own
+/// Handler for `/agent` (also `/agent list`, and the legacy `/coach` spellings) — the caller's own
 /// coach list as an interactive card.
 ///
 /// The list is what `find_installed_by_handle` resolves against: the coaches
@@ -121,24 +121,24 @@ impl CommandHandler for CoachListHandler {
     }
 }
 
-/// The `/coach add` text that names `coach`: its handle when it owns one,
-/// its id otherwise — a coach created through the editor owns none until
+/// The `/agent add` text that names `coach`: its handle when it owns one,
+/// its id otherwise — an agent created through the editor owns none until
 /// the Store approves it.
 ///
-/// Bounded by construction: `/coach add @` plus a handle of at most
+/// Bounded by construction: `/agent add @` plus a handle of at most
 /// [`CoachHandle::MAX_LEN`] characters is 52 bytes, and the id form is 47 —
 /// both under the 64-byte ceiling Telegram puts on a button's callback data.
 fn add_postback(coach: &Coach) -> String {
     coach.handle.as_deref().map_or_else(
-        || format!("/coach add {}", coach.id),
-        |handle| format!("/coach add @{handle}"),
+        || format!("/agent add {}", coach.id),
+        |handle| format!("/agent add @{handle}"),
     )
 }
 
-/// Handler for `/coach add @handle` — bring an installed coach into this
+/// Handler for `/agent add @handle` — bring an installed agent into this
 /// conversation.
 ///
-/// The argument is the catalogue handle shown by `/coach`, or a coach id (the
+/// The argument is the catalogue handle shown by `/agent`, or an agent id (the
 /// form the list card sends for a coach that owns no handle). Either way the
 /// coach has to be on the caller's list: a catalogue coach they never
 /// installed is refused by name, and no `/discover install` happens on their
@@ -190,7 +190,7 @@ impl CommandHandler for CoachAddHandler {
 }
 
 /// The caller's own coach list: the coaches they created and the ones they
-/// installed from Discover — the set `/coach` shows and `/coach add` resolves
+/// installed from Discover — the set `/agent` shows and `/agent add` resolves
 /// against. System coaches they never installed are not on it.
 fn installed_filter() -> ListCoachesFilter {
     ListCoachesFilter {
@@ -199,7 +199,7 @@ fn installed_filter() -> ListCoachesFilter {
     }
 }
 
-/// Resolve the argument of `/coach add` to a coach on the caller's list.
+/// Resolve the argument of `/agent add` to an agent on the caller's list.
 ///
 /// A catalogue handle resolves through `find_installed_by_handle`. A coach id
 /// — the form the list card sends for a coach that owns no handle — resolves
@@ -243,8 +243,8 @@ pub(crate) enum CoachBinding {
 
 /// Make `coach` answer in the conversation the command was typed in.
 ///
-/// The one implementation behind `/coach add` and the confirm step of
-/// `/coach create`: the two differ only in where the coach comes from.
+/// The one implementation behind `/agent add` and the confirm step of
+/// `/agent create`: the two differ only in where the agent comes from.
 ///
 /// In a personal conversation the selection is per-membership: the selection
 /// pointer moves and the conversation the command was typed in rebinds (see
@@ -325,7 +325,7 @@ async fn bind_conversation_coach(
     Ok(())
 }
 
-/// Handler for `/coach remove` — detach this conversation's coach.
+/// Handler for `/agent remove` — detach this conversation's agent.
 ///
 /// Personal conversations only: in a group conversation the coach is the
 /// group's, and `/group coach` is the command that changes it. Clears both
@@ -374,7 +374,7 @@ impl CommandHandler for CoachRemoveHandler {
             .coaches
             .get_by_id(&coach_id, ctx.user_id, ctx.tenant_id)
             .await?
-            .map_or_else(|| "Coach".to_owned(), |coach| coach.title);
+            .map_or_else(|| "Agent".to_owned(), |coach| coach.title);
 
         chat.set_conversation_coach_id(conversation_id, None, ctx.conversation_tenant_id)
             .await?;
@@ -392,12 +392,12 @@ impl CommandHandler for CoachRemoveHandler {
     }
 }
 
-/// Handler for `/coach invite` — the `/coach`-domain spelling of
+/// Handler for `/agent invite` — the `/agent`-domain spelling of
 /// `/group invite coach`.
 ///
 /// Both run [`issue_group_invite`], so whoever redeems the code is attached
 /// as the group's human coach either way. Bringing a Dravr coach into a
-/// conversation is `/coach add`, not this.
+/// conversation is `/agent add`, not this.
 pub struct CoachInviteHandler;
 
 #[async_trait]
@@ -413,7 +413,7 @@ impl CommandHandler for CoachInviteHandler {
     }
 }
 
-/// Handler for `/coach assign <coach_id> <group_id>` — bind coach to a specific group
+/// Handler for `/agent assign <coach_id> <group_id>` — bind an agent to a specific group
 pub struct CoachAssignHandler;
 
 impl CoachAssignHandler {
@@ -430,11 +430,11 @@ impl CommandHandler for CoachAssignHandler {
         let coach_id = ctx
             .args
             .first()
-            .ok_or_else(|| AppError::invalid_input("Usage: /coach assign <coach_id> <group_id>"))?;
+            .ok_or_else(|| AppError::invalid_input("Usage: /agent assign <coach_id> <group_id>"))?;
         let group_id = ctx
             .args
             .get(1)
-            .ok_or_else(|| AppError::invalid_input("Usage: /coach assign <coach_id> <group_id>"))?;
+            .ok_or_else(|| AppError::invalid_input("Usage: /agent assign <coach_id> <group_id>"))?;
 
         // Validate both IDs are valid UUIDs
         let _ = parse_uuid(coach_id)?;
@@ -497,10 +497,10 @@ impl CommandHandler for CoachAssignHandler {
     }
 }
 
-/// Record the coach selection a `/coach` command just made, emitting the
+/// Record the agent selection an `/agent` command just made, emitting the
 /// catalogued `coach.selected` event through the shared recorder.
 ///
-/// `/coach add` is the chat equivalent of picking a coach on Discover, so it
+/// `/agent add` is the chat equivalent of picking an agent on Discover, so it
 /// is the same product event as `POST /api/coaches/{id}/usage` — before this
 /// call existed, the slash command was the one selection surface that emitted
 /// nothing, and it is the surface most Dravr users actually have.
@@ -528,7 +528,7 @@ async fn record_slash_selection(ctx: &PlatformCommandContext, coach_id: &str) {
 /// `group_tenant_id` is the tenant that owns the `coaching_groups` row — the
 /// conversation tenant when the chat binding supplied the group (a shared
 /// room's group belongs to the channel tenant), the caller's own tenant for
-/// `/coach assign`, which names the group by id in the caller's scope.
+/// `/agent assign`, which names the group by id in the caller's scope.
 async fn update_group_coach(
     ctx: &PlatformCommandContext,
     group_id: &str,
@@ -553,7 +553,7 @@ async fn update_group_coach(
         .update_group(group_id, group_tenant_id, &update)
         .await?;
 
-    // Shared by `/coach add` (group conversation) and `/coach assign`, so
+    // Shared by `/agent add` (group conversation) and `/agent assign`, so
     // both surfaces record the selection exactly once.
     record_slash_selection(ctx, coach_id).await;
 

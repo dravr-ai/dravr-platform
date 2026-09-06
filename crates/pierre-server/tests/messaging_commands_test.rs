@@ -647,7 +647,7 @@ mod command_tests {
             &resources,
             user_id,
             tenant_id,
-            "Activity Analysis Coach",
+            "Activity Analysis Agent",
             "Analyzes training data.",
         )
         .await;
@@ -683,7 +683,7 @@ mod command_tests {
 
         // Confirmation mentions coach title but NEVER "groupe"/"group".
         assert!(
-            response.text.contains("Activity Analysis Coach"),
+            response.text.contains("Activity Analysis Agent"),
             "expected coach title in response, got: {}",
             response.text
         );
@@ -774,7 +774,7 @@ mod command_tests {
             &resources,
             user_id,
             tenant_id,
-            "Pre-Workout Mobility Coach",
+            "Pre-Workout Mobility Agent",
             "Expert in warm-ups — clear guidance on what *not* to do before a workout.",
         )
         .await;
@@ -1422,8 +1422,8 @@ mod command_tests {
         };
         let miss = GroupCoachHandler.execute(&ctx_miss).await.unwrap();
         assert!(
-            miss.text.to_lowercase().contains("no coach"),
-            "unknown coach name should report not found, got: {}",
+            miss.text.to_lowercase().contains("no agent"),
+            "unknown agent name should report not found, got: {}",
             miss.text
         );
         let after = resources
@@ -2870,7 +2870,7 @@ mod command_tests {
         );
         let response = CoachAddHandler.execute(&ctx).await.unwrap();
 
-        assert_eq!(response.text, "Coach selected: Recovery Coach.");
+        assert_eq!(response.text, "Agent selected: Recovery Coach.");
         assert_eq!(
             conversation_coach(&resources, &conversation_id, user_id, tenant_id)
                 .await
@@ -2921,15 +2921,15 @@ mod command_tests {
         for (typed, expected) in [
             (
                 "@nobody-here",
-                "No installed coach answers to @nobody-here. Type /coach to see your list, or /discover to install one.",
+                "No installed agent answers to @nobody-here. Type /agent to see your list, or /discover to install one.",
             ),
             (
                 "@strength-coach",
-                "No installed coach answers to @strength-coach. Type /coach to see your list, or /discover to install one.",
+                "No installed agent answers to @strength-coach. Type /agent to see your list, or /discover to install one.",
             ),
             (
                 "strength-coach",
-                "No installed coach answers to @strength-coach. Type /coach to see your list, or /discover to install one.",
+                "No installed agent answers to @strength-coach. Type /agent to see your list, or /discover to install one.",
             ),
         ] {
             let ctx = group_ctx(
@@ -2955,7 +2955,7 @@ mod command_tests {
         let response = CoachAddHandler.execute(&bare).await.unwrap();
         assert_eq!(
             response.text,
-            "Say which coach to add: /coach add @handle. Type /coach to see your list."
+            "Say which agent to add: /agent add @handle. Type /agent to see your list."
         );
 
         // French, the platform default locale.
@@ -2971,7 +2971,7 @@ mod command_tests {
         let response = CoachAddHandler.execute(&ctx).await.unwrap();
         assert_eq!(
             response.text,
-            "Aucun coach installé ne répond à @nobody-here. Tape /coach pour voir ta liste, ou /discover pour l'installer."
+            "Aucun agent installé ne répond à @nobody-here. Tape /agent pour voir ta liste, ou /discover pour l'installer."
         );
 
         assert_eq!(
@@ -3045,7 +3045,7 @@ mod command_tests {
             panic!("/coaches add @recovery-coach must execute a registered command");
         };
         assert_eq!(command_name, "coach-add");
-        assert_eq!(response.text, "Coach selected: Recovery Coach.");
+        assert_eq!(response.text, "Agent selected: Recovery Coach.");
         assert_eq!(
             conversation_coach(&resources, &conversation_id, user_id, tenant_id)
                 .await

@@ -1,4 +1,4 @@
-# ABOUTME: The thread header opens the conversation info sheet — the only way group and coach info are reached
+# ABOUTME: The thread header opens the conversation info sheet — the only way group and agent info are reached
 # ABOUTME: Replaces the header popover: rename, participants and delete now live inside the sheet
 
 appId: ai.dravr.app

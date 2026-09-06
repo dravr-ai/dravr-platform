@@ -71,23 +71,23 @@ describe('CoachReviewDrawer', () => {
 
   it('renders nothing when not open', () => {
     renderCoachReviewDrawer(mockCoach, false);
-    expect(screen.queryByText('Review Coach')).not.toBeInTheDocument();
+    expect(screen.queryByText('Review Agent')).not.toBeInTheDocument();
   });
 
-  it('renders nothing when coach is null', () => {
+  it('renders nothing when the agent is null', () => {
     renderCoachReviewDrawer(null, true);
-    expect(screen.queryByText('Review Coach')).not.toBeInTheDocument();
+    expect(screen.queryByText('Review Agent')).not.toBeInTheDocument();
   });
 
-  it('displays coach details when open', () => {
+  it('displays agent details when open', () => {
     renderCoachReviewDrawer();
 
-    expect(screen.getByText('Review Coach')).toBeInTheDocument();
+    expect(screen.getByText('Review Agent')).toBeInTheDocument();
     expect(screen.getByText('Marathon Training Coach')).toBeInTheDocument();
     expect(screen.getByText('Training')).toBeInTheDocument();
   });
 
-  it('shows coach description', () => {
+  it('shows the agent description', () => {
     renderCoachReviewDrawer();
     expect(
       screen.getByText('A comprehensive marathon training program with weekly schedules')
@@ -199,13 +199,13 @@ describe('CoachReviewDrawer', () => {
     await user.click(rejectButton);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Reject Coach' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Reject Agent' })).toBeInTheDocument();
     });
   });
 
-  it('displays coach initial when no icon', () => {
+  it('displays the agent initial when no icon', () => {
     renderCoachReviewDrawer();
-    // Coach name starts with 'M', so the initial should be 'M'
+    // The agent name starts with 'M', so the initial should be 'M'
     expect(screen.getByText('M')).toBeInTheDocument();
   });
 });

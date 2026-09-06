@@ -78,14 +78,14 @@ export default defineConfig(({ mode }) => {
               sizes: '3420x1858',
               type: 'image/png',
               form_factor: 'wide',
-              label: 'Starting a new conversation with a coach',
+              label: 'Starting a new conversation with an agent',
             },
           ],
           // Long-press / jump-list entries. The routes are the same hash routes
           // the shell already parses, so these need no routing of their own.
           shortcuts: [
             { name: 'Chat', short_name: 'Chat', url: '/#chat' },
-            { name: 'Discover coaches', short_name: 'Discover', url: '/#discover' },
+            { name: 'Discover agents', short_name: 'Discover', url: '/#discover' },
             { name: 'Notifications', short_name: 'Alerts', url: '/#notifications' },
           ],
         },

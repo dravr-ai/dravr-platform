@@ -155,6 +155,8 @@ describe('ConversationsScreen — one flat list', () => {
     const order = getAllByTestId(/^conversation-row-/).map((node) => node.props.testID);
     expect(order).toEqual(['conversation-row-c2', 'conversation-row-c3', 'conversation-row-c1', 'conversation-row-c4']);
     expect(queryByTestId(/^session-group-header-/)).toBeNull();
+    // The bucket label the grouped screen hardcoded, spelled as it spelled it:
+    // the only form a revert of b460057d3 could put back.
     expect(queryByText('Without a coach')).toBeNull();
     // The coach handle and the group glyph ride the row, not a header.
     expect(getByTestId('conversation-handle-c1')).toHaveTextContent('@coach-tempo');

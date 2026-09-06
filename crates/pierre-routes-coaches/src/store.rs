@@ -458,7 +458,7 @@ async fn handle_uninstall<C: CoachesCtx + MiddlewareCtx>(
     );
 
     let response = UninstallCoachResponse {
-        message: "Coach uninstalled successfully".to_owned(),
+        message: "Agent uninstalled successfully".to_owned(),
         source_coach_id: source_id,
         metadata: build_metadata(),
     };

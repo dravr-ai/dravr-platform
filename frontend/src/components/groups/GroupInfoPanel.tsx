@@ -163,10 +163,10 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
   const handleRemoveCoach = async () => {
     try {
       await removeCoach();
-      showSuccess(t('app.coachRemoved'), t('app.humanCoachDetached'));
+      showSuccess(t('humanCoach.removed'), t('humanCoach.detached'));
       setConfirmRemoveCoach(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.removeCoachFailed');
+      const message = err instanceof Error ? err.message : t('humanCoach.removeFailed');
       showError(t('app.removeFailed'), message);
     }
   };
@@ -237,7 +237,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
           {group.coach_user_id && (
             <span className="flex items-center gap-1.5 text-primary">
               <UserCog className="w-3.5 h-3.5" aria-hidden="true" />
-              {t('groups.coachAttached')}
+              {t('humanCoach.attachedBadge')}
             </span>
           )}
         </div>
@@ -280,9 +280,9 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
       </Section>
 
       {isAdmin && (
-        <Section icon={<UserCog className="w-3.5 h-3.5" aria-hidden="true" />} title={t('chat.coachPanelTitle')}>
+        <Section icon={<UserCog className="w-3.5 h-3.5" aria-hidden="true" />} title={t('humanCoach.coach')}>
           <p className="text-sm text-on-surface">
-            {t('groups.coachRoomHint')}
+            {t('humanCoach.roomHint')}
           </p>
           {group.coach_user_id ? (
             <div className="flex items-center justify-between gap-3">
@@ -295,12 +295,12 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
                 onClick={() => setConfirmRemoveCoach(true)}
                 data-testid="group-info-remove-coach"
               >
-                {t('groups.removeCoach')}
+                {t('humanCoach.remove')}
               </Button>
             </div>
           ) : (
             <p className="text-sm text-outline">
-              {t('groups.noCoachAttachedHint')}
+              {t('humanCoach.noneHint')}
             </p>
           )}
         </Section>
@@ -338,7 +338,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
                 { value: 'all', label: t('groups.respondEvery') },
                 { value: 'mentions', label: t('groups.respondMentioned') },
               ]}
-              helpText={'"Only when mentioned" keeps the coach quiet unless someone @-mentions it or replies to one of its messages; it still follows the discussion for context.'}
+              helpText={'"Only when mentioned" keeps the agent quiet unless someone @-mentions it or replies to one of its messages; it still follows the discussion for context.'}
             />
             <div className="flex justify-end">
               <Button
@@ -465,9 +465,9 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         isOpen={confirmRemoveCoach}
         onClose={() => setConfirmRemoveCoach(false)}
         onConfirm={() => void handleRemoveCoach()}
-        title={t('groups.removeCoach')}
+        title={t('humanCoach.remove')}
         message="Detach the human coach from this group? They will lose access to the group's roster. You can invite a coach again later."
-        confirmLabel={t('app.removeCoach')}
+        confirmLabel={t('humanCoach.remove')}
         variant="warning"
         isLoading={isRemovingCoach}
       />

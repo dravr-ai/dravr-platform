@@ -66,7 +66,7 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={{ fontSize: 12, fontWeight: '600', color: colors.text.secondary }}>
                 {entry.author_display_name ?? entry.author_user_id}
-                {entry.speaker === 'coach' ? ' · coach' : ''}
+                {entry.speaker === 'coach' ? ' · agent' : ''}
               </Text>
               <Text style={{ fontSize: 11, color: colors.text.tertiary }}>
                 {new Date(entry.created_at).toLocaleDateString()}

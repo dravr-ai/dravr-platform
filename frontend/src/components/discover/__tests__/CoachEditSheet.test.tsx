@@ -73,21 +73,21 @@ describe('CoachEditSheet', () => {
     deleteCoach.mockResolvedValue(undefined);
   });
 
-  it('loads the coach by id and hydrates the form from it', async () => {
+  it('loads the agent by id and hydrates the form from it', async () => {
     renderSheet();
 
-    expect(await screen.findByRole('heading', { name: 'Edit Coach' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
     expect(getCoach).toHaveBeenCalledWith(COACH_ID);
-    expect(screen.getByPlaceholderText('e.g., Marathon Training Coach')).toHaveValue(COACH_TITLE);
+    expect(screen.getByPlaceholderText('e.g., Marathon Training Agent')).toHaveValue(COACH_TITLE);
     expect(screen.getByLabelText('Max tool iterations per turn')).toHaveValue(25);
   });
 
   it('saves through coachesApi.update with the update request and closes', async () => {
     const user = userEvent.setup();
     const { onClose } = renderSheet();
-    await screen.findByRole('heading', { name: 'Edit Coach' });
+    await screen.findByRole('heading', { name: 'Edit Agent' });
 
-    const description = screen.getByPlaceholderText('Brief description of what this coach specializes in');
+    const description = screen.getByPlaceholderText('Brief description of what this agent specializes in');
     await user.clear(description);
     await user.type(description, 'Sharpening only');
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
@@ -105,12 +105,12 @@ describe('CoachEditSheet', () => {
   it('deletes through coachesApi.delete after confirmation and closes', async () => {
     const user = userEvent.setup();
     const { onClose } = renderSheet();
-    await screen.findByRole('heading', { name: 'Edit Coach' });
+    await screen.findByRole('heading', { name: 'Edit Agent' });
 
-    await user.click(screen.getByRole('button', { name: 'Delete this coach' }));
+    await user.click(screen.getByRole('button', { name: 'Delete this agent' }));
     const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByText('Delete Coach?')).toBeInTheDocument();
-    expect(within(dialog).getByText(`Delete coach "${COACH_TITLE}"? This cannot be undone.`)).toBeInTheDocument();
+    expect(within(dialog).getByText('Delete Agent?')).toBeInTheDocument();
+    expect(within(dialog).getByText(`Delete agent "${COACH_TITLE}"? This cannot be undone.`)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(deleteCoach).toHaveBeenCalledWith(COACH_ID));
@@ -118,30 +118,30 @@ describe('CoachEditSheet', () => {
     expect(updateCoach).not.toHaveBeenCalled();
   });
 
-  it('cancelling the confirmation keeps the coach', async () => {
+  it('cancelling the confirmation keeps the agent', async () => {
     const user = userEvent.setup();
     const { onClose } = renderSheet();
-    await screen.findByRole('heading', { name: 'Edit Coach' });
+    await screen.findByRole('heading', { name: 'Edit Agent' });
 
-    await user.click(screen.getByRole('button', { name: 'Delete this coach' }));
+    await user.click(screen.getByRole('button', { name: 'Delete this agent' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
 
     expect(deleteCoach).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole('heading', { name: 'Edit Coach' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
   });
 
   it('shows the load failure instead of an empty form', async () => {
     getCoach.mockRejectedValueOnce(new Error('Coach coach-tempo not found'));
     renderSheet();
 
-    expect(await screen.findByText("Couldn't load this coach")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't load this agent")).toBeInTheDocument();
     expect(screen.getByText('Coach coach-tempo not found')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Edit Coach' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Edit Agent' })).not.toBeInTheDocument();
   });
 });
 
-describe('coach form → update request tool budget', () => {
+describe('agent form → update request tool budget', () => {
   function filledForm(overrides: Partial<CoachFormData> = {}): CoachFormData {
     return {
       ...DEFAULT_COACH_FORM_DATA,
@@ -170,7 +170,7 @@ describe('coach form → update request tool budget', () => {
 
     // The key has to be PRESENT and null. Merely leaving it out is what the
     // untouched state does, and the server preserves an absent field — so an
-    // omitted key would leave the coach's existing pin in place forever.
+    // omitted key would leave the agent's existing pin in place forever.
     expect('max_tool_iterations' in request).toBe(true);
     expect(request.max_tool_iterations).toBeNull();
   });

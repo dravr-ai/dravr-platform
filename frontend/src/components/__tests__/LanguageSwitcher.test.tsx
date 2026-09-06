@@ -96,7 +96,7 @@ describe('LanguageSwitcher — one switch, two locales', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe(
-      'O idioma da interface mudou, mas o das respostas do teu coach não pôde ser guardado. Tenta de novo.',
+      'O idioma da interface mudou, mas o das respostas do teu agente não pôde ser guardado. Tenta de novo.',
     );
   });
 });

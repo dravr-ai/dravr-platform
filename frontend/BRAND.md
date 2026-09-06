@@ -105,7 +105,7 @@ exists the mobile app keeps its 48px downsample.
 - Don't recolour the mark outside forest, mint and sage (`#255f4d`, for a hero mark on a coloured ground). Never a pillar hue.
 - Don't put it on a badge, a plate or a gradient, and don't cast a shadow behind it.
 - Don't stretch or distort proportions; leave one quarter of its height clear on every side.
-- Don't use it as an avatar: the coach's avatar is the coach's initials.
+- Don't use it as an avatar: the agent's avatar is the agent's initials.
 
 ## Typography
 

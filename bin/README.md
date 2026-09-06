@@ -58,7 +58,7 @@ See `book/src/environment.md` for the complete variable reference.
 2. Resets database (backs up existing, runs fresh migrations)
 3. Seeds all data:
    - Admin user (from `.envrc`: `ADMIN_EMAIL`, `ADMIN_PASSWORD`)
-   - 9 AI coaching personas
+   - Agent personas from `../dravr-contremaitre/prompts/coaches` (21 today)
    - Demo users (Alice, Bob, etc.)
    - Visual test users (webtest, mobiletest)
    - Mobility data (stretches, yoga poses)

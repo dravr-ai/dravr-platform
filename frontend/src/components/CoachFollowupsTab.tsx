@@ -1,4 +1,4 @@
-// ABOUTME: Phase B Sprint C7 — admin tab for the coach followup triage queue
+// ABOUTME: Phase B Sprint C7 — admin tab for the agent followup triage queue
 // ABOUTME: Lists pending followups tenant-wide, supports cancel to clear stale promises
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -113,12 +113,12 @@ export default function CoachFollowupsTab() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-on-surface">
-              Coach followups
+              Agent followups
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Promised check-ins from coach personas waiting to be injected
+              Promised check-ins from agent personas waiting to be injected
               into the next system prompt. Cancel stale promises that should
-              never reach the coach.
+              never reach the agent.
             </p>
           </div>
           <Button onClick={() => refetch()} variant="secondary" disabled={isFetching}>
@@ -156,7 +156,7 @@ export default function CoachFollowupsTab() {
 
       <Card className="p-6">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Input label="Coach ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)} placeholder="filter by coach id" />
+          <Input label="Agent ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)} placeholder="filter by agent id" />
           <Input label="User ID" type="text" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="filter by user id" />
           <Select
             label="Rows"
@@ -181,7 +181,7 @@ export default function CoachFollowupsTab() {
           <div className="p-12 text-center">
             <p className="text-on-surface-variant">No pending followups.</p>
             <p className="mt-1 text-xs text-outline">
-              Coach personas add followups via tool calls when they promise a
+              Agent personas add followups via tool calls when they promise a
               future check-in. Nothing pending means every promise has been
               delivered or cancelled.
             </p>
@@ -198,7 +198,7 @@ export default function CoachFollowupsTab() {
                     Due
                   </th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
-                    Coach
+                    Agent
                   </th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-on-surface-variant">
                     User
@@ -264,7 +264,7 @@ export default function CoachFollowupsTab() {
         <ConfirmDialog
           isOpen
           title="Cancel this followup?"
-          message={`The coach will never see "${pendingCancel.content}". This cannot be undone.`}
+          message={`The agent will never see "${pendingCancel.content}". This cannot be undone.`}
           confirmLabel="Cancel followup"
           cancelLabel="Keep"
           variant="danger"

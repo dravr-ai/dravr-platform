@@ -13,6 +13,6 @@ turns:
       - kind: no_substring
         values:
           - "Medical disclaimer"
-          - "I'm a fitness coach, not a medical professional"
+          - "I'm not a medical professional"
       - kind: any_of
         values: ["dîner", "souper", "repas", "menu"]

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Engagement tab for the admin dashboard showing coach leaderboard and user engagement
-// ABOUTME: Displays coach usage rankings, user activity tiers, provider stats, and group metrics
+// ABOUTME: Engagement tab for the admin dashboard showing agent leaderboard and user engagement
+// ABOUTME: Displays agent usage rankings, user activity tiers, provider stats, and group metrics
 
 import { useQuery } from '@tanstack/react-query';
 import { adminApi, dashboardApi } from '../services/api';
@@ -25,7 +25,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
     queryFn: () => dashboardApi.getUsageAnalytics(timeRange),
   });
 
-  // Fetch system coaches for the leaderboard
+  // Fetch system agents for the leaderboard
   const { data: coachesData, isLoading: coachesLoading } = useQuery({
     queryKey: QUERY_KEYS.adminCoaches.system(),
     queryFn: () => adminApi.getSystemCoaches(),
@@ -77,7 +77,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
     if (daysSinceActive > 30) dormant++;
   }
 
-  // Build coach leaderboard sorted by token_count (proxy for usage)
+  // Build agent leaderboard sorted by token_count (proxy for usage)
   const coaches = coachesData?.coaches || [];
   const sortedCoaches = [...coaches]
     .sort((a, b) => (b.token_count ?? 0) - (a.token_count ?? 0))
@@ -98,13 +98,13 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
             <svg className="w-12 h-12 mx-auto mb-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <p className="text-lg mb-2 text-on-surface">No coach activity yet</p>
-            <p className="mb-6">Create system coaches to get started. Engagement data will appear as users interact with coaches.</p>
+            <p className="text-lg mb-2 text-on-surface">No agent activity yet</p>
+            <p className="mb-6">Create system agents to get started. Engagement data will appear as users interact with agents.</p>
             <button
               onClick={() => onNavigate?.('coaches')}
               className="px-6 py-2.5 rounded-lg bg-primary/20 text-primary font-medium hover:bg-primary/30 transition-colors border border-primary/30"
             >
-              Go to Coaches
+              Go to Agents
             </button>
           </div>
         </Card>
@@ -140,14 +140,14 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
         </div>
       </div>
 
-      {/* Two-column layout: Coach Leaderboard + Platform Stats */}
+      {/* Two-column layout: Agent Leaderboard + Platform Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Coach Leaderboard — 2/3 width */}
+        {/* Agent Leaderboard — 2/3 width */}
         <div className="lg:col-span-2 card-dark">
-          <h3 className="text-lg font-medium mb-4 text-on-surface">Coach Leaderboard</h3>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">Agent Leaderboard</h3>
           {sortedCoaches.length === 0 ? (
             <div className="text-center py-6 text-outline">
-              <p>No coaches created yet.</p>
+              <p>No agents created yet.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -155,9 +155,9 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
                 <thead className="bg-surface-container-low">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">#</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">Coach</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">Agent</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">Category</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant" title="Coach system-prompt size (chars), proxy for setup cost — not real per-coach consumption">Prompt Size</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant" title="Agent system-prompt size (chars), proxy for setup cost — not real per-agent consumption">Prompt Size</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
@@ -191,8 +191,8 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
             <h3 className="text-lg font-medium mb-4 text-on-surface">Platform Stats</h3>
             <div className="space-y-4">
               <StatRow label="Total Users" value={users.length} />
-              <StatRow label="Total Coaches" value={totalCoaches} />
-              <StatRow label="Published Coaches" value={publishedCount} />
+              <StatRow label="Total Agents" value={totalCoaches} />
+              <StatRow label="Published Agents" value={publishedCount} />
               <StatRow
                 label={`Requests (${ADMIN_TIME_RANGE_LABELS[timeRange]})`}
                 value={analytics?.time_series?.reduce((sum, p) => sum + p.request_count, 0) ?? 0}

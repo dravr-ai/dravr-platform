@@ -302,7 +302,7 @@ fn install_hint(
         vec![CommandAction {
             label: reg.render(KEY_DISCOVER_ADD_LABEL, locale, &[]),
             action_type: "postback".to_owned(),
-            value: format!("/coach add @{}", handle.as_str()),
+            value: format!("/agent add @{}", handle.as_str()),
         }],
     )
 }

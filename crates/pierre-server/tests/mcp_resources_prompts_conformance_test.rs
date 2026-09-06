@@ -95,7 +95,7 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
     let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = tenant_for_user(&resources, user_id).await;
 
-    publish_coach(&resources, user_id, tenant_id, "Marathon Coach").await;
+    publish_coach(&resources, user_id, tenant_id, "Marathon Agent").await;
 
     let server = build_mcp_server(Arc::clone(&resources));
 
@@ -171,7 +171,7 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
     assert_eq!(contents.len(), 1);
     let text = contents[0]["text"].as_str().expect("content has text");
     assert!(
-        text.contains("Marathon Coach"),
+        text.contains("Marathon Agent"),
         "coach markdown should contain the coach title"
     );
     assert_eq!(contents[0]["mimeType"], json!("text/markdown"));

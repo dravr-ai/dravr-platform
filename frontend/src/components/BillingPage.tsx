@@ -402,7 +402,7 @@ function PlanCard({
   const features: Array<[string, string]> = [
     ['Messages / day', cap(plan.daily_messages)],
     ['Tokens / day', cap(plan.daily_tokens)],
-    ['Coaches', cap(plan.max_active_coaches)],
+    ['Agents', cap(plan.max_active_coaches)],
     ['Tool calls / day', cap(plan.daily_tool_calls)],
     ['Included usage', includedUsage],
   ];

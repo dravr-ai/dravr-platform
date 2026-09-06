@@ -319,7 +319,7 @@ mod coach_rebind_tests {
                 user_id,
                 tenant_id,
                 &CreateSystemCoachRequest {
-                    title: "Coach Marathon".to_owned(),
+                    title: "Agent Marathon".to_owned(),
                     description: None,
                     system_prompt: "Tu es un coach marathon.".to_owned(),
                     category: CoachCategory::Training,

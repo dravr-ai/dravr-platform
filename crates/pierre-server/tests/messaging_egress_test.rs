@@ -798,13 +798,13 @@ fn a_reconnect_prompt_becomes_a_button_where_controls_render() {
 /// Controls attached to a reply render as one card carrying every action.
 #[test]
 fn attached_controls_render_as_a_card_where_they_are_supported() {
-    let mut state = turn_state("Choisis un coach.");
-    state.actions_title = Some("Coachs".to_owned());
+    let mut state = turn_state("Choisis un agent.");
+    state.actions_title = Some("Tes agents".to_owned());
     state.actions = vec![
         TurnAction {
             label: "Marc".to_owned(),
             kind: ActionKind::Postback,
-            value: "/coach add @marc".to_owned(),
+            value: "/agent add @marc".to_owned(),
         },
         TurnAction {
             label: "En savoir plus".to_owned(),
@@ -824,10 +824,10 @@ fn attached_controls_render_as_a_card_where_they_are_supported() {
     assert_eq!(rendered.attachments.len(), 1);
     match &rendered.attachments[0] {
         MessageContent::Card { title, actions, .. } => {
-            assert_eq!(title, "Coachs");
+            assert_eq!(title, "Tes agents");
             assert_eq!(actions.len(), 2);
             assert_eq!(actions[0].action_type, "postback");
-            assert_eq!(actions[0].value, "/coach add @marc");
+            assert_eq!(actions[0].value, "/agent add @marc");
             assert_eq!(actions[1].action_type, "url");
         }
         other => panic!("controls must render as a card: {other:?}"),

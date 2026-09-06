@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The expo-router paths the chat tab and the coach edit sheet live at, in one place
+// ABOUTME: The expo-router paths the chat tab and the agent edit sheet live at, in one place
 // ABOUTME: Screens, the tab bar, deep links and tests read these so a moved route changes one line
 
 /** The chat tab: the conversation list, and where the app lands after onboarding. */
@@ -45,7 +45,7 @@ export function threadHref(
 }
 
 /**
- * The edit sheet for one of the athlete's own coaches, under Discover. The
- * only coach editor in the app: coach creation is the `/coach create` command.
+ * The edit sheet for one of the athlete's own agents, under Discover. The
+ * only agent editor in the app: agent creation is the `/agent create` command.
  */
 export const COACH_EDIT_ROUTE = '/(app)/(tabs)/(discover)/edit/[coachId]' as const;

@@ -263,7 +263,7 @@ All MCP tools use real calculations from foundation modules. The table below map
 | `get_connection_status` | Token validation | OAuth/auth service | `oauth_validate_refresh_test.rs` |
 | `disconnect_provider` | Token revocation | Database | OAuth tests |
 
-#### Coach Management Tools (`src/tools/implementations/coaches.rs`)
+#### Agent Management Tools (`src/tools/implementations/coaches.rs`)
 
 | Tool Name | Algorithm/Intelligence | Implementation | Test Files |
 |-----------|------------------------|----------------|------------|
@@ -519,18 +519,18 @@ pub fn calculate_power_zones(ftp: f64) -> PowerZones {
 
 When a session is written to a provider calendar (intervals.icu today), each step's target is sent **relative**, never as absolute watts, so an FTP retest never invalidates an entry. `RelativeIntensity::parse` (`crates/pierre-core/src/models/workout_template.rs`) is the closed grammar the platform understands:
 
-| Coach vocabulary | Parsed as | Sent to intervals.icu |
+| Agent vocabulary | Parsed as | Sent to intervals.icu |
 |---|---|---|
 | `Z1`…`Z7`, `zone 4` | `Zone(n)` | cycling `Zn` (power) · run / swim `Zn Pace` · everything else `Zn HR` |
 | `recovery`, `endurance` / `aerobic`, `tempo`, `threshold` / `FTP`, `VO2max`, `anaerobic`, `neuromuscular` / `sprint` | `Zone(1…7)` by name | as above |
 | `Z2 HR` | `HeartRateZone(2)` | `Z2 HR` whatever the sport |
 | `sweet spot` | `SweetSpot` | cycling `88-94%` · otherwise zone 3 in the sport's family |
 | `75%`, `88-93%`, `88-93% FTP` (1–300) | `Percent { low, high }` | cycling `88-93%` · run / swim `88-93% Pace` · otherwise `88-93% HR` |
-| anything else (`3x8min @ 88-93% FTP`, `comfortably hard`, `250w`) | — | **no target**: the step goes out timed, carrying the coach's words |
+| anything else (`3x8min @ 88-93% FTP`, `comfortably hard`, `250w`) | — | **no target**: the step goes out timed, carrying the agent's words |
 
 The target *family* follows the sport — power for every cycling discipline, pace for running and swimming, heart rate otherwise. A `pace` suffix (`Z2 pace`) names the family the sport already decides and is dropped; an en dash between a band's bounds (`88–93%`) reads as the hyphen. intervals.icu resolves `Z2` against the athlete's own zones, so the platform sends **no numeric bounds**; the tables above remain the analytics-side definition.
 
-**Which structure a plan day sends.** A plan day saved with `steps` — the same `WorkoutStep` vocabulary `prescribe_workout` pushes — goes out as those steps, repeats grouped into `Nx` blocks, with `moving_time` summed from them; every step's `target_zone` must sit inside the grammar above, and the save refuses one that does not, naming the vocabulary, because a step the provider cannot target earns no planned load. A day without steps gets one step only when its `intensity` is inside the grammar and it has a `duration_min`; otherwise it is a timed entry carrying the coach's words — never a step the coach did not state.
+**Which structure a plan day sends.** A plan day saved with `steps` — the same `WorkoutStep` vocabulary `prescribe_workout` pushes — goes out as those steps, repeats grouped into `Nx` blocks, with `moving_time` summed from them; every step's `target_zone` must sit inside the grammar above, and the save refuses one that does not, naming the vocabulary, because a step the provider cannot target earns no planned load. A day without steps gets one step only when its `intensity` is inside the grammar and it has a `duration_min`; otherwise it is a timed entry carrying the agent's words — never a step the agent did not state.
 
 Source: `IntervalsIcuProvider::dsl_target` (`crates/pierre-providers/src/intervals_icu_calendar.rs`), `plan_calendar_push::plan_day_session` (`crates/pierre-services/src/plan_calendar_push.rs`) and `implementations::calendar::validate_step` (`crates/pierre-tool-runtime/src/implementations/calendar.rs`), pinned by `crates/pierre-server/tests/plan_calendar_push_test.rs`, `training_plan_tools_test.rs` and `workout_push_test.rs`.
 
@@ -1366,7 +1366,7 @@ pub fn from_form_pct(form_pct: Option<f64>) -> Self {
   first hard week would otherwise read as an elite's crisis.
 
 Every surface that bands form — the analytics tools, the group health flags,
-the coach prompts — derives it from this one classification. Hand-rolling
+the agent prompts — derives it from this one classification. Hand-rolling
 thresholds against raw TSB is what let the same athlete be called "productive"
 and "at risk" in a single response.
 

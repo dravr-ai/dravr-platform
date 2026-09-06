@@ -1,7 +1,7 @@
 ---
 name: coach-remove
-command: /coach remove
-aliases: []
-description: Detach this conversation's coach
+command: /agent remove
+aliases: ["/coach remove"]
+description: Detach this conversation's agent
 domain: coach
 ---

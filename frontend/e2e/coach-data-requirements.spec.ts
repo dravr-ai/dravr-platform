@@ -141,17 +141,17 @@ async function openEditSheet(page: Page) {
   const listing = page.getByTestId('store-coach-grid').getByText(COACH_TITLE);
   await expect(listing).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
   await listing.click();
-  await page.getByRole('button', { name: 'Edit coach' }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeVisible({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Edit agent' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeVisible({ timeout: 5000 });
 }
 
 async function saveCoach(page: Page) {
   await page.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeHidden({ timeout: 10000 });
+  await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeHidden({ timeout: 10000 });
 }
 
-test.describe('Coach Data Requirements', () => {
-  test('edit sheet shows Data Context hydrated from the stored coach', async ({ page }) => {
+test.describe('Agent Data Requirements', () => {
+  test('edit sheet shows Data Context hydrated from the stored agent', async ({ page }) => {
     await setupCoachMocks(page);
     await loginToDashboard(page);
     await openEditSheet(page);
@@ -160,7 +160,7 @@ test.describe('Coach Data Requirements', () => {
     await expect(page.getByText('Data Context')).toBeVisible();
 
     // The stored startup query is what the box holds.
-    await expect(page.getByPlaceholder(/What should the coach analyze on first message/)).toHaveValue(
+    await expect(page.getByPlaceholder(/What should the agent analyze on first message/)).toHaveValue(
       'Analyze my weekly mileage and long run progression.',
     );
 
@@ -197,7 +197,7 @@ test.describe('Coach Data Requirements', () => {
     await openEditSheet(page);
 
     // Change the startup query and the activity count
-    const startupField = page.getByPlaceholder(/What should the coach analyze on first message/);
+    const startupField = page.getByPlaceholder(/What should the agent analyze on first message/);
     await startupField.fill('Analyze my recent training trends');
     const activityInput = page.locator('input[type="number"]').first();
     await activityInput.fill('30');

@@ -356,7 +356,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let params: CreateSystemCoachParams = serde_json::from_value(args).map_err(|e| {
-                AppError::invalid_input(format!("Invalid system coach parameters: {e}"))
+                AppError::invalid_input(format!("Invalid system agent parameters: {e}"))
             })?;
 
             let visibility = params
@@ -480,7 +480,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
                     Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
                 }
                 None => Ok(ToolResult::error(json!({
-                    "error": format!("System coach not found: {coach_id}"),
+                    "error": format!("System agent not found: {coach_id}"),
                 }))),
             }
         }
@@ -651,7 +651,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                     "updated_at": c.updated_at.to_rfc3339(),
                 }))),
                 None => Ok(ToolResult::error(json!({
-                    "error": format!("System coach not found: {coach_id}"),
+                    "error": format!("System agent not found: {coach_id}"),
                 }))),
             }
         }
@@ -727,7 +727,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
                 })))
             } else {
                 Ok(ToolResult::error(json!({
-                    "error": format!("System coach not found: {coach_id}"),
+                    "error": format!("System agent not found: {coach_id}"),
                 })))
             }
         }
@@ -819,7 +819,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to get coach: {e}")))?
                 .ok_or_else(|| {
-                    AppError::invalid_input(format!("System coach not found: {coach_id}"))
+                    AppError::invalid_input(format!("System agent not found: {coach_id}"))
                 })?;
 
             // Verify target user belongs to the same tenant as the admin
@@ -935,7 +935,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
             } else {
                 Ok(ToolResult::error(json!({
                     "error": format!(
-                        "Assignment not found for coach {coach_id} and user {target_user_id}"
+                        "Assignment not found for agent {coach_id} and user {target_user_id}"
                     ),
                 })))
             }
@@ -1011,7 +1011,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to verify coach tenant: {e}")))?
                 .ok_or_else(|| {
-                    AppError::invalid_input(format!("System coach {coach_id} not found"))
+                    AppError::invalid_input(format!("System agent {coach_id} not found"))
                 })?;
 
             // List assignments scoped to the admin's tenant

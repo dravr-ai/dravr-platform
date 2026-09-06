@@ -119,7 +119,7 @@ describe('ClaimVerdictsTab', () => {
     });
     // The admin read carries provenance the chat read does not, and the one
     // drawer shows it only when it is there.
-    expect(screen.getByText('Coach')).toBeInTheDocument();
+    expect(screen.getByText('Agent')).toBeInTheDocument();
   });
 
   it('passes status filter into the API call', async () => {

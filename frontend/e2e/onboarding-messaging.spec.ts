@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for the messaging onboarding steps — pick a chat app then connect it via QR, poll-to-complete
-// ABOUTME: A connected user with coach done + channels configured lands on the messaging steps, then reaches the dashboard
+// ABOUTME: A connected user with the agent step done + channels configured lands on the messaging steps, then reaches the dashboard
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks } from './test-helpers';
@@ -53,7 +53,7 @@ test('messaging onboarding: pick a channel, connect via QR, auto-advance to the 
   page,
 }) => {
   // A connected user (needs_provider_connection: false via setupDashboardMocks)
-  // with profile + coach already done → the flow opens on the messaging steps.
+  // with profile + agent already done → the flow opens on the messaging steps.
   await page.addInitScript(() => {
     window.localStorage.setItem('dravr.profile_type_chosen.user-123', '1');
     window.localStorage.setItem('dravr.coach_proposal_done.user-123', '1');
@@ -71,7 +71,7 @@ test('messaging onboarding: pick a channel, connect via QR, auto-advance to the 
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   // Step: messaging channel picker (two channels configured → the picker shows).
-  await expect(page.getByText(/Where do you want to chat with your coach/i)).toBeVisible({
+  await expect(page.getByText(/Where do you want to chat with your agent/i)).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.getByText('Telegram')).toBeVisible();

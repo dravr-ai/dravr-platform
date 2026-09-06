@@ -141,7 +141,7 @@ async fn test_browse_store_with_published_coaches() {
         &resources,
         user_id,
         tenant_id,
-        "Marathon Coach",
+        "Marathon Agent",
         CoachCategory::Training,
     )
     .await;

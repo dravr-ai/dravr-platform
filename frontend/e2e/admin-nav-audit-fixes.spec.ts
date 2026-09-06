@@ -67,11 +67,11 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
     expect(wau).toBeLessThanOrEqual(mau);
   });
 
-  test('Engagement Coach Leaderboard column header reads "Prompt Size" (audit #17)', async ({
+  test('Engagement Agent Leaderboard column header reads "Prompt Size" (audit #17)', async ({
     page,
   }) => {
     await setupAndLoginAsAdmin(page);
-    // Need at least one system coach so the leaderboard table renders.
+    // Need at least one system agent so the leaderboard table renders.
     await page.route('**/api/admin/coaches**', (r) =>
       r.fulfill({
         status: 200,
@@ -133,7 +133,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
       }),
     );
     await setupAndLoginAsAdmin(page);
-    await navigateToTab(page, 'Coach Notes Audit');
+    await navigateToTab(page, 'Agent Notes Audit');
     await expect(page.getByText('coach_note_add', { exact: true })).toBeVisible();
     await expect(page.getByText('memory.write_note')).toHaveCount(0);
   });
@@ -161,7 +161,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
 
   test('Nav click updates URL hash (audit cross-cutting: deep links)', async ({ page }) => {
     await setupAndLoginAsAdmin(page);
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Agents');
     await expect(page).toHaveURL(/#coaches$/);
     await navigateToTab(page, 'Activity');
     await expect(page).toHaveURL(/#activity$/);
@@ -170,7 +170,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
     await expect(page).toHaveURL(/#activity$/);
   });
 
-  test('Coach Store shows "Published / Total" when counts differ (audit #3)', async ({ page }) => {
+  test('the Agent Store shows "Published / Total" when counts differ (audit #3)', async ({ page }) => {
     await setupAndLoginAsAdmin(page);
     await page.route('**/api/admin/store/stats', (r) =>
       r.fulfill({
@@ -202,8 +202,8 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
         }),
       }),
     );
-    await navigateToTab(page, 'Coach Store');
-    await expect(page.getByText('Published / Total Coaches')).toBeVisible();
+    await navigateToTab(page, 'Agent Store');
+    await expect(page.getByText('Published / Total Agents')).toBeVisible();
     await expect(page.getByText(/\/ 21$/)).toBeVisible();
   });
 

@@ -1222,7 +1222,7 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
             })))
         } else {
             Ok(ToolResult::error(json!({
-                "error": "Coach cannot be hidden (only system or assigned coaches can be hidden)",
+                "error": "Agent cannot be hidden (only system or assigned agents can be hidden)",
                 "coach_id": coach_id,
                 "is_hidden": false,
             })))

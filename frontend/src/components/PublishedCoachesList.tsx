@@ -1,4 +1,4 @@
-// ABOUTME: Component displaying published coaches in the store with management actions
+// ABOUTME: Component displaying published agents in the store with management actions
 // ABOUTME: Shows coaches in a grid with install count, published date, and unpublish option
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -52,7 +52,7 @@ export default function PublishedCoachesList() {
   const [confirmUnpublish, setConfirmUnpublish] = useState<PublishedCoach | null>(null);
   const queryClient = useQueryClient();
 
-  // Fetch published coaches
+  // Fetch published agents
   const { data, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminStore.published(sortBy),
     queryFn: () => adminApi.getPublishedStoreCoaches({ sort_by: sortBy }),
@@ -88,8 +88,8 @@ export default function PublishedCoachesList() {
   if (error) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Published Coaches</h3>
-        <p className="mt-0.5 text-xs text-outline">Unable to fetch published coaches. Please try again.</p>
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Published Agents</h3>
+        <p className="mt-0.5 text-xs text-outline">Unable to fetch published agents. Please try again.</p>
       </div>
     );
   }
@@ -99,8 +99,8 @@ export default function PublishedCoachesList() {
   if (coaches.length === 0) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Published Coaches</h3>
-        <p className="mt-0.5 text-xs text-outline">Coaches will appear here once they are approved and published.</p>
+        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Published Agents</h3>
+        <p className="mt-0.5 text-xs text-outline">Agents will appear here once they are approved and published.</p>
       </div>
     );
   }
@@ -110,7 +110,7 @@ export default function PublishedCoachesList() {
       {/* Sort Controls */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-on-surface-variant">
-          {data?.total ?? coaches.length} published coach{coaches.length !== 1 ? 'es' : ''}
+          {data?.total ?? coaches.length} published agent{coaches.length !== 1 ? 's' : ''}
         </p>
         <div className="w-48">
           <Select
@@ -225,7 +225,7 @@ export default function PublishedCoachesList() {
         isOpen={!!confirmUnpublish}
         onClose={() => setConfirmUnpublish(null)}
         onConfirm={() => confirmUnpublish && unpublishMutation.mutate(confirmUnpublish.id)}
-        title="Unpublish Coach"
+        title="Unpublish Agent"
         message={`Are you sure you want to unpublish "${confirmUnpublish?.title}"? It will be removed from the store and users will no longer be able to install it.`}
         confirmLabel={unpublishMutation.isPending ? 'Unpublishing...' : 'Unpublish'}
         variant="danger"

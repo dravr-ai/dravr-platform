@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E tests for Coach Store functionality.
+// ABOUTME: Playwright E2E tests for Agent Store functionality.
 // ABOUTME: Tests browsing, searching, filtering, viewing details, install → hint → Open chat, uninstall, and the edit sheet.
 
 import { test, expect, type Page } from '@playwright/test';
@@ -303,7 +303,7 @@ async function setupStoreMocks(
   });
 }
 
-test.describe('Coach Store Access', () => {
+test.describe('Agent Store Access', () => {
   test('displays Discover button in sidebar', async ({ page }) => {
     await setupStoreMocks(page);
     await loginToDashboard(page);
@@ -314,7 +314,7 @@ test.describe('Coach Store Access', () => {
     await expect(page.getByRole('button', { name: 'Discover', exact: true })).toBeVisible({ timeout: 5000 });
   });
 
-  test('opens Coach Store when button is clicked', async ({ page }) => {
+  test('opens the Agent Store when the button is clicked', async ({ page }) => {
     await setupStoreMocks(page);
     await loginToDashboard(page);
 
@@ -326,11 +326,11 @@ test.describe('Coach Store Access', () => {
     // Should see the store header. The description is a translated string
     // now, so the assertion goes through the header's testid and pins the
     // English copy the suite runs in.
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
   });
 });
 
-test.describe('Coach Store Browse', () => {
+test.describe('Agent Store Browse', () => {
   test('displays coaches in store', async ({ page }) => {
     await setupStoreMocks(page);
     await loginToDashboard(page);
@@ -339,7 +339,7 @@ test.describe('Coach Store Browse', () => {
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
     // Wait for store to load
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
 
     // Should display coach cards
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
@@ -354,7 +354,7 @@ test.describe('Coach Store Browse', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Should display user counts
@@ -370,7 +370,7 @@ test.describe('Coach Store Browse', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Should display category badges
@@ -386,7 +386,7 @@ test.describe('Coach Store Browse', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Should display tags
@@ -402,11 +402,11 @@ test.describe('Coach Store Browse', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Mock returns has_more: false, so end-of-list indicator should appear
-    await expect(page.getByText("You've seen all coaches")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("You've seen all agents")).toBeVisible({ timeout: 5000 });
   });
 
   test('shows empty state when store is empty', async ({ page }) => {
@@ -421,7 +421,7 @@ test.describe('Coach Store Browse', () => {
   });
 });
 
-test.describe('Coach Store Pagination', () => {
+test.describe('Agent Store Pagination', () => {
   test('loads more coaches on scroll with cursor pagination', async ({ page }) => {
     // Mock coaches for pagination - first page and second page. Discover has
     // no pinned coaches above the grid, so the first page has to be tall
@@ -502,7 +502,7 @@ test.describe('Coach Store Pagination', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
 
     // Should display first page coaches
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
@@ -524,7 +524,7 @@ test.describe('Coach Store Pagination', () => {
   });
 });
 
-test.describe('Coach Store Filtering', () => {
+test.describe('Agent Store Filtering', () => {
   test('displays category filter buttons', async ({ page }) => {
     await setupStoreMocks(page);
     await loginToDashboard(page);
@@ -532,7 +532,7 @@ test.describe('Coach Store Filtering', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
 
     // Should display category filters (use exact: true to avoid matching coach cards)
     await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
@@ -548,7 +548,7 @@ test.describe('Coach Store Filtering', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Click Training filter (use exact: true to avoid matching coach cards)
@@ -567,7 +567,7 @@ test.describe('Coach Store Filtering', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
 
     // Should display sort options
     await expect(page.getByRole('button', { name: 'Popular' })).toBeVisible();
@@ -582,7 +582,7 @@ test.describe('Coach Store Filtering', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Click Newest sort
@@ -590,12 +590,12 @@ test.describe('Coach Store Filtering', () => {
 
     await page.waitForTimeout(500);
 
-    // Coaches should be displayed (sorted by newest, but we just verify they're still visible)
+    // Agents should be displayed (sorted by newest, but we just verify they're still visible)
     await expect(page.getByText('Recovery Coach')).toBeVisible();
   });
 });
 
-test.describe('Coach Store Search', () => {
+test.describe('Agent Store Search', () => {
   test('displays search input', async ({ page }) => {
     await setupStoreMocks(page);
     await loginToDashboard(page);
@@ -603,7 +603,7 @@ test.describe('Coach Store Search', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByPlaceholder('Search coaches...')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByPlaceholder('Search agents...')).toBeVisible({ timeout: 10000 });
   });
 
   test('searches coaches when text is entered', async ({ page }) => {
@@ -613,11 +613,11 @@ test.describe('Coach Store Search', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Type in search
-    await page.getByPlaceholder('Search coaches...').fill('marathon');
+    await page.getByPlaceholder('Search agents...').fill('marathon');
 
     // Wait for debounced search
     await page.waitForTimeout(500);
@@ -633,34 +633,34 @@ test.describe('Coach Store Search', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Type in search that won't match
-    await page.getByPlaceholder('Search coaches...').fill('nonexistent');
+    await page.getByPlaceholder('Search agents...').fill('nonexistent');
 
     // Wait for debounced search
     await page.waitForTimeout(500);
 
     // Should show no results message
-    await expect(page.getByText('No coaches found')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('No agents found')).toBeVisible({ timeout: 5000 });
   });
 });
 
-test.describe('Coach Store Detail View', () => {
+test.describe('Agent Store Detail View', () => {
   test('opens coach detail when card is clicked', async ({ page }) => {
     await setupStoreMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     // Click on coach card to open detail view
     await page.getByText('Marathon Training Coach').click();
 
-    // Should show Add Coach button in detail view
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+    // Should show the Add Agent button in detail view
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
   });
 
   test('displays coach details', async ({ page }) => {
@@ -672,7 +672,7 @@ test.describe('Coach Store Detail View', () => {
 
     // Click on coach to see detail
     await page.getByText('Marathon Training Coach').click();
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
 
     // Should display coach details
     await expect(page.getByText('Sample Prompts')).toBeVisible();
@@ -690,7 +690,7 @@ test.describe('Coach Store Detail View', () => {
 
     // Click on coach to see detail
     await page.getByText('Marathon Training Coach').click();
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
 
     // Should display the system prompt text preview content
     await expect(page.getByText('System Prompt')).toBeVisible();
@@ -706,7 +706,7 @@ test.describe('Coach Store Detail View', () => {
 
     // Click on coach to see detail
     await page.getByText('Marathon Training Coach').click();
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
 
     // Should display token count label and value
     await expect(page.getByText('Token Count')).toBeVisible();
@@ -718,37 +718,37 @@ test.describe('Coach Store Detail View', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    // An installed coach is pinned above the store too; open the listing.
+    // An installed agent is pinned above the store too; open the listing.
     const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
     await expect(listing).toBeVisible({ timeout: 10000 });
     await listing.click();
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
 
     // Click back button
     await page.getByRole('button', { name: 'Back to Store' }).click();
 
     // Should return to store browse view - use h2 heading specifically to avoid matching both h1 and h2
-    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI coaching assistants', { timeout: 5000 });
+    await expect(page.getByTestId('tab-header-description')).toHaveText('Find AI agents', { timeout: 5000 });
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 5000 });
   });
 });
 
-test.describe('Coach Store Add/Remove', () => {
-  test('shows Add button for coach not in library', async ({ page }) => {
+test.describe('Agent Store Add/Remove', () => {
+  test('shows Add button for an agent not in the library', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    // An installed coach is pinned above the store too; open the listing.
+    // An installed agent is pinned above the store too; open the listing.
     const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
     await expect(listing).toBeVisible({ timeout: 10000 });
     await listing.click();
 
-    // Should show Add Coach button
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+    // Should show the Add Agent button
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
   });
 
-  test('adds coach when Add button is clicked', async ({ page }) => {
+  test('adds the agent when Add is clicked', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -757,14 +757,14 @@ test.describe('Coach Store Add/Remove', () => {
 
     // Navigate to detail view and click Add
     await page.getByText('Marathon Training Coach').click();
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
-    await page.getByRole('button', { name: 'Add Coach' }).click();
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Add Agent' }).click();
 
     // Installing ends with the hint, not a banner
     await expect(page.getByTestId('post-install-hint')).toBeVisible({ timeout: 5000 });
   });
 
-  test('shows the post-install hint that teaches /coach add @handle', async ({ page }) => {
+  test('shows the post-install hint that teaches /agent add @handle', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -773,29 +773,29 @@ test.describe('Coach Store Add/Remove', () => {
 
     // Navigate to detail view and install
     await page.getByText('Marathon Training Coach').click();
-    await page.getByRole('button', { name: 'Add Coach' }).click();
+    await page.getByRole('button', { name: 'Add Agent' }).click();
 
     // The hint names the command and the mention, with the copy's own handle
     const hint = page.getByTestId('post-install-hint');
     await expect(hint).toBeVisible({ timeout: 5000 });
-    await expect(hint).toContainText('Use it in any chat: /coach add @marathon-training-coach');
+    await expect(hint).toContainText('Use it in any chat: /agent add @marathon-training-coach');
     await expect(hint).toContainText('or mention @marathon-training-coach for one turn');
-    await expect(page.getByText(/has been added to your coaches/)).toHaveCount(0);
+    await expect(page.getByText(/has been added to your agents/)).toHaveCount(0);
 
-    // Dismiss hides it and leaves the coach installed. By test id: the
+    // Dismiss hides it and leaves the agent installed. By test id: the
     // connect-provider banner above the pane carries its own "Dismiss".
     await page.getByTestId('post-install-dismiss').click();
     await expect(hint).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
   });
 
-  test('shows Remove button for coach in library', async ({ page }) => {
+  test('shows Remove button for an agent in the library', async ({ page }) => {
     // Mock with store-coach-1 already installed
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    // An installed coach is pinned above the store too; open the listing.
+    // An installed agent is pinned above the store too; open the listing.
     const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
     await expect(listing).toBeVisible({ timeout: 10000 });
     await listing.click();
@@ -803,7 +803,7 @@ test.describe('Coach Store Add/Remove', () => {
     // Wait for detail view to fully load (indicated by System Prompt section)
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
 
-    // Should show Remove button since coach is installed (longer timeout for queries to complete)
+    // Should show Remove button since the agent is installed (longer timeout for queries to complete)
     await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
   });
 
@@ -812,7 +812,7 @@ test.describe('Coach Store Add/Remove', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    // An installed coach is pinned above the store too; open the listing.
+    // An installed agent is pinned above the store too; open the listing.
     const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
     await expect(listing).toBeVisible({ timeout: 10000 });
     await listing.click();
@@ -833,15 +833,15 @@ test.describe('Coach Store Add/Remove', () => {
 
     // Should have shown confirmation dialog
     await page.waitForTimeout(500);
-    expect(dialogMessage).toContain('Remove Coach');
+    expect(dialogMessage).toContain('Remove Agent');
   });
 
-  test('removes coach when confirmed', async ({ page }) => {
+  test('removes the agent when confirmed', async ({ page }) => {
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    // An installed coach is pinned above the store too; open the listing.
+    // An installed agent is pinned above the store too; open the listing.
     const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
     await expect(listing).toBeVisible({ timeout: 10000 });
     await listing.click();
@@ -892,7 +892,7 @@ test.describe('Coach Store Add/Remove', () => {
   });
 });
 
-test.describe('Coach Store Failures', () => {
+test.describe('Agent Store Failures', () => {
   test('shows a retry error state when the store request fails', async ({ page }) => {
     await setupStoreMocks(page, { failStore: true });
     await loginToDashboard(page);
@@ -906,7 +906,7 @@ test.describe('Coach Store Failures', () => {
 
     // A failed request must not claim the store has no published coaches
     await expect(page.getByText('Store is empty')).toHaveCount(0);
-    await expect(page.getByText('No published coaches available yet')).toHaveCount(0);
+    await expect(page.getByText('No published agents available yet')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Try Again' })).toBeVisible();
   });
 
@@ -934,18 +934,18 @@ test.describe('Coach Store Failures', () => {
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
     await page.getByText('Marathon Training Coach').click();
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
-    await page.getByRole('button', { name: 'Add Coach' }).click();
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Add Agent' }).click();
 
     // The banner carries the rejected request's message (axios reports the
     // status), so the failure is visible rather than a spinner that stops
     await expect(page.getByText(/status code 400/)).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId('post-install-hint')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible();
   });
 });
 
-test.describe('Coach Store Navigation', () => {
+test.describe('Agent Store Navigation', () => {
   test('Open chat on the hint starts a conversation and lands on it', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
@@ -955,8 +955,8 @@ test.describe('Coach Store Navigation', () => {
 
     // Navigate to detail view and install
     await page.getByText('Marathon Training Coach').click();
-    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
-    await page.getByRole('button', { name: 'Add Coach' }).click();
+    await expect(page.getByRole('button', { name: 'Add Agent' })).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Add Agent' }).click();
     await expect(page.getByTestId('post-install-hint')).toBeVisible({ timeout: 5000 });
 
     const created = page.waitForRequest(
@@ -965,13 +965,13 @@ test.describe('Coach Store Navigation', () => {
     await page.getByTestId('post-install-open-chat').click();
     await created;
 
-    // The new conversation is the route: Discover has no coach list to return to.
+    // The new conversation is the route: Discover has no agent list to return to.
     await expect(page).toHaveURL(/#chat\/conv-from-hint$/, { timeout: 10000 });
     await expect(page.getByTestId('post-install-hint')).toHaveCount(0);
   });
 
-  test('an installed listing offers Edit coach on the copy, and Remove works from the listing', async ({ page }) => {
-    // Start with coach already installed
+  test('an installed listing offers Edit agent on the copy, and Remove works from the listing', async ({ page }) => {
+    // Start with the agent already installed
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
     const copy = personalCopyOf(mockStoreCoaches[0]);
     await page.route(`**/api/coaches/${copy.id}`, async (route) => {
@@ -985,21 +985,21 @@ test.describe('Coach Store Navigation', () => {
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    // Discover keeps no coach list of its own: no pinned section, no
-    // "View My Coaches", only the catalogue.
-    await expect(page.getByRole('region', { name: /Your coaches/ })).toHaveCount(0);
-    await expect(page.getByText('View My Coaches')).toHaveCount(0);
+    // Discover keeps no agent list of its own: no pinned section, no
+    // "View My Agents", only the catalogue.
+    await expect(page.getByRole('region', { name: /Your agents/ })).toHaveCount(0);
+    await expect(page.getByText('View My Agents')).toHaveCount(0);
 
     // The listing the athlete installed is their own copy, so it can be edited from here.
     await page.getByTestId('store-coach-grid').getByText('Marathon Training Coach').click();
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: 'Edit coach' })).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: 'Edit coach' }).click();
-    await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByPlaceholder('e.g., Marathon Training Coach')).toHaveValue('Marathon Training Coach');
-    await expect(page.getByRole('button', { name: 'Delete this coach' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Edit agent' })).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Edit agent' }).click();
+    await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByPlaceholder('e.g., Marathon Training Agent')).toHaveValue('Marathon Training Coach');
+    await expect(page.getByRole('button', { name: 'Delete this agent' })).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeHidden();
 
     // And Remove still uninstalls the copy from the listing.
     await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });

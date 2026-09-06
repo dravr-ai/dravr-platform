@@ -47,7 +47,7 @@ function renderModal(
 }
 
 describe('CoachFormModal tool budget', () => {
-  it('renders the coach’s stored budget', () => {
+  it('renders the agent’s stored budget', () => {
     const { input } = renderModal(makeFormData({ max_tool_iterations: 27 }));
 
     expect(input.value).toBe('27');
@@ -55,7 +55,7 @@ describe('CoachFormModal tool budget', () => {
     expect(input.max).toBe(String(MAX_MAX_TOOL_ITERATIONS));
   });
 
-  it('leaves an untouched budget empty so the coach inherits the workspace limit', () => {
+  it('leaves an untouched budget empty so the agent inherits the workspace limit', () => {
     const { input } = renderModal(makeFormData());
 
     expect(DEFAULT_COACH_FORM_DATA.max_tool_iterations).toBeUndefined();
@@ -88,7 +88,7 @@ describe('CoachFormModal tool budget', () => {
     expect(next.max_tool_iterations).toBe(MAX_MAX_TOOL_ITERATIONS);
   });
 
-  it('emptying the box on a pinned coach asks to clear, not to leave untouched', () => {
+  it('emptying the box on a pinned agent asks to clear, not to leave untouched', () => {
     const { input, onFormDataChange } = renderModal(makeFormData({ max_tool_iterations: 42 }));
 
     fireEvent.change(input, { target: { value: '' } });
@@ -99,7 +99,7 @@ describe('CoachFormModal tool budget', () => {
     expect(next.max_tool_iterations).toBeNull();
   });
 
-  it('renders an empty box for a coach whose pin was cleared', () => {
+  it('renders an empty box for an agent whose pin was cleared', () => {
     const { input } = renderModal(makeFormData({ max_tool_iterations: null }));
 
     expect(input.value).toBe('');
@@ -110,17 +110,17 @@ describe('CoachFormModal as the edit sheet', () => {
   it('is an edit form: no create-mode copy anywhere', () => {
     renderModal(makeFormData());
 
-    expect(screen.getByRole('heading', { name: 'Edit Coach' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeInTheDocument();
-    expect(screen.queryByText('Create Custom Coach')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Create Coach' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Create Custom Agent')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create Agent' })).not.toBeInTheDocument();
   });
 
-  it('offers "Delete this coach" only when the mount owns deletion', () => {
+  it('offers "Delete this agent" only when the mount owns deletion', () => {
     const onDelete = vi.fn();
     renderModal(makeFormData(), vi.fn(), { onDelete });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete this coach' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete this agent' }));
 
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
@@ -128,6 +128,6 @@ describe('CoachFormModal as the edit sheet', () => {
   it('renders no delete affordance without an onDelete handler', () => {
     renderModal(makeFormData());
 
-    expect(screen.queryByRole('button', { name: 'Delete this coach' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete this agent' })).not.toBeInTheDocument();
   });
 });

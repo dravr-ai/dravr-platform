@@ -175,7 +175,7 @@ training-load compute, the Endurance dossier and interval exports, the athlete
 snapshot, and `GET /api/v1/endurance/*`; `set_physiology` is its only writer.
 Two read-only estimators feed it: `estimate_vo2max` turns a field test the
 athlete describes into a VO2max, and `estimate_lactate_thresholds` turns a
-lactate step test into LT1 and LT2 — each a number the coach confirms with the
+lactate step test into LT1 and LT2 — each a number the agent confirms with the
 athlete and then saves.
 
 | Tool Name | Description | Required Parameters | Optional Parameters |

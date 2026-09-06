@@ -163,7 +163,7 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
         CommandAction {
             label: reg.render(KEY_COACH_CREATE_CONFIRM_LABEL, locale, &[]),
             action_type: "postback".to_owned(),
-            value: format!("/coach create confirm {token}"),
+            value: format!("/agent create confirm {token}"),
         },
         CommandAction {
             label: reg.render(KEY_COACH_CREATE_DISCARD_LABEL, locale, &[]),

@@ -291,9 +291,9 @@ async fn test_admin_create_system_coach_happy_path() -> Result<()> {
         .execute_tool(make_request(
             "admin_create_system_coach",
             json!({
-                "title": "Marathon Coach",
+                "title": "Marathon Agent",
                 "system_prompt": "Periodization expert for marathon runners.",
-                "description": "Marathon-focused system coach",
+                "description": "Marathon-focused system agent",
                 "category": "training",
                 "tags": ["running", "marathon"],
             }),
@@ -304,7 +304,7 @@ async fn test_admin_create_system_coach_happy_path() -> Result<()> {
 
     assert!(resp.success, "create should succeed: {:?}", resp.error);
     let result = resp.result.unwrap();
-    assert_eq!(result["title"].as_str().unwrap(), "Marathon Coach");
+    assert_eq!(result["title"].as_str().unwrap(), "Marathon Agent");
     assert!(result["is_system"].as_bool().unwrap());
     assert!(result["id"].as_str().is_some());
     Ok(())

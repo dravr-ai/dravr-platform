@@ -35,12 +35,12 @@ const USER_SURFACES = webNavLabels();
 const ADMIN_SURFACES = [
   'Users',
   'Analytics',
-  'Coach Store',
+  'Agent Store',
   'Tool Management',
   'Platform Settings',
   'Service Tokens',
   'Harness Config',
-  'Coach Notes Audit',
+  'Agent Notes Audit',
 ] as const;
 
 const THEMES = ['light', 'dark'] as const;

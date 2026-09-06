@@ -1,5 +1,5 @@
-// ABOUTME: Side drawer component for reviewing coach submissions in detail
-// ABOUTME: 480px width drawer with coach details, system prompt preview, and approve/reject actions
+// ABOUTME: Side drawer component for reviewing agent submissions in detail
+// ABOUTME: 480px width drawer with agent details, system prompt preview, and approve/reject actions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -107,7 +107,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
       <div className="fixed inset-y-0 right-0 w-full max-w-[480px] bg-surface z-50 border-l ghost-border flex flex-col">
         {/* Header - Sticky */}
         <div className="sticky top-0 bg-surface/95 backdrop-blur-lg border-b ghost-border px-6 py-4 flex justify-between items-center z-10">
-          <h2 className="text-xl font-semibold text-on-surface">Review Coach</h2>
+          <h2 className="text-xl font-semibold text-on-surface">Review Agent</h2>
           <button
             onClick={onClose}
             aria-label="Close drawer"
@@ -121,7 +121,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
 
         {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-dark">
-          {/* Coach Header */}
+          {/* Agent Header */}
           <div className="flex items-start gap-4">
             {coach.icon_url ? (
               <img
@@ -292,7 +292,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           <div className="px-6 pb-4">
             <div className="p-3 bg-error/15 border border-error/30 rounded-md">
               <p className="text-sm text-error">
-                Failed to approve coach. Please try again.
+                Failed to approve agent. Please try again.
               </p>
             </div>
           </div>

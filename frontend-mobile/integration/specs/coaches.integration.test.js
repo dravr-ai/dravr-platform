@@ -75,7 +75,7 @@ describe('Coaches Integration Tests', () => {
     });
   });
 
-  describe('Coach Store', () => {
+  describe('Agent Store', () => {
     it('should fetch coach store/catalog', async () => {
       const result = await authenticatedRequest(
         '/api/store/coaches',

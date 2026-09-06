@@ -69,7 +69,7 @@ pub fn check_prerequisites<S: BuildHasher>(
         missing.push(MissingPrerequisite {
             prerequisite_type: "provider".to_owned(),
             requirement: prerequisites.providers.join(", "),
-            message: format!("Connect {} to unlock this coach", join_with_or(&names)),
+            message: format!("Connect {} to unlock this agent", join_with_or(&names)),
         });
     }
 
@@ -286,18 +286,18 @@ pub fn fallback_reason_for_sport(sport: &str, locale: &str) -> String {
     }
 }
 
-/// Deterministic rationale localized to `locale` for an all-round coach.
+/// Deterministic rationale localized to `locale` for an all-round agent.
 ///
 /// Counterpart to [`fallback_reason_for_sport`] used when no primary sport is
-/// known or the coach has no activity-type prerequisites to match against.
+/// known or the agent has no activity-type prerequisites to match against.
 #[must_use]
 pub fn fallback_reason_generic(locale: &str) -> &'static str {
     match base_locale(locale).as_str() {
-        "en" => "A solid all-round coach to start with.",
-        "es" => "Un buen entrenador todoterreno para empezar.",
-        "de" => "Ein solider Allround-Coach für den Anfang.",
-        "pt" => "Um bom treinador completo para começar.",
-        _ => "Un bon coach polyvalent pour commencer.",
+        "en" => "A solid all-round agent to start with.",
+        "es" => "Un buen agente todoterreno para empezar.",
+        "de" => "Ein solider Allround-Agent für den Anfang.",
+        "pt" => "Um bom agente completo para começar.",
+        _ => "Un bon agent polyvalent pour commencer.",
     }
 }
 
@@ -332,8 +332,8 @@ pub fn build_rerank_user_prompt(
         );
     }
     format!(
-        "Athlete profile:\n{profile_summary}\n\nCandidate coaches:\n{list}\n\
-         Select at most {max} coaches that best fit this athlete right now. \
+        "Athlete profile:\n{profile_summary}\n\nCandidate personas:\n{list}\n\
+         Select at most {max} personas that best fit this athlete right now. \
          Write each \"reason\" in {language}.",
         language = language_name(locale),
     )

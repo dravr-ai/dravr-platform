@@ -47,7 +47,7 @@ gh run list --branch main --limit 5 --json workflowName,conclusion
 - Anything is already listening on 8081 / 5173 → someone may be mid-session. The setup
   script **kills all services and resets the dev database**. That is destructive; confirm.
 
-Confirm the coach source exists — the setup script hard-exits without it:
+Confirm the agent source exists — the setup script hard-exits without it:
 
 ```bash
 ls ../dravr-contremaitre/prompts/coaches >/dev/null && echo "coaches ok"

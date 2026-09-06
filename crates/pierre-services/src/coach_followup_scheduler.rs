@@ -242,7 +242,7 @@ async fn dispatch_notification(
         tenant_id: CommTenantId(tenant_uuid),
         category: CommNotifCategory::Coach,
         notification_type: "coach_followup_due".to_owned(),
-        title: "Your coach has a followup for you".to_owned(),
+        title: "Your agent has a followup for you".to_owned(),
         body: followup.content.clone(),
         data: None,
         image_url: None,

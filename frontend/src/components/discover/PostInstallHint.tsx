@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The card shown after a coach is installed from Discover — teaches /coach add @handle and @handle
-// ABOUTME: Dismissible; t('app.openChat') hands the /coach add draft to the caller and starts a conversation
+// ABOUTME: The card shown after an agent is installed from Discover — teaches /agent add @handle and @handle
+// ABOUTME: Dismissible; t('app.openChat') hands the /agent add draft to the caller and starts a conversation
 
 import { Button, Card } from '../ui';
 import { coachAddDraft, coachMention } from './coachDraft';
@@ -13,7 +13,7 @@ export interface PostInstallHintProps {
   /** The catalogue handle the copy inherited from its listing. */
   handle: string | undefined;
   /**
-   * Receives the `/coach add @handle` command so the caller can start a
+   * Receives the `/agent add @handle` command so the caller can start a
    * conversation and seed its composer with it.
    */
   onOpenChat: (draft: string) => void;
@@ -28,7 +28,7 @@ export default function PostInstallHint({ coachTitle, handle, onOpenChat, onDism
     <section data-testid="post-install-hint" aria-live="polite">
       <Card variant="dark" className="space-y-3">
         <h3 className="text-base font-semibold text-on-surface">
-          &ldquo;{coachTitle}&rdquo; is in your coaches
+          &ldquo;{coachTitle}&rdquo; is in your agents
         </h3>
         <p className="text-sm text-on-surface-variant">
           {t('discover.postInstallUseHint')} <code className="font-mono text-primary">{draft}</code> — or mention{' '}

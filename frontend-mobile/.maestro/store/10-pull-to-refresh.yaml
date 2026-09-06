@@ -14,7 +14,7 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Test: should refresh coaches on pull down
+# Test: should refresh agents on pull down
 # Scroll down first, then scroll up to trigger refresh
 - scroll
 

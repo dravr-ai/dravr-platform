@@ -1,8 +1,8 @@
 ---
 name: coach-add
-command: /coach add
-aliases: []
-description: Bring one of your installed coaches into this conversation
+command: /agent add
+aliases: ["/coach add"]
+description: Bring one of your installed agents into this conversation
 domain: coach
 arguments: "@handle"
 ---

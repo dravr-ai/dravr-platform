@@ -56,9 +56,9 @@ features:
     review_by: 2026-10-31
   # coach-visual-blocks-rail graduated 2026-08-19. Every condition its
   # advance_when named is met: the phase 3 client renderers shipped (612d26995,
-  # web + mobile + the messaging rasteriser), 13 of the 26 coaches in
-  # contremaitre @ acecb07 carry a visuals grant, and a live chart turn was
+  # web + mobile + the messaging rasteriser), 13 of the then-26 agents in
+  # contremaitre @ acecb07 carried a visuals grant (14 of the 21 at d1f3fda), and a live chart turn was
   # verified end to end on 2026-08-18 (a0c41bf87 — twelve weeks of weekly volume
   # from a real get_activities call). The surface is armed, so it is no longer a
-  # dark launch; which coaches carry the grant is per-coach product
+  # dark launch; which agents carry the grant is per-agent product
   # configuration in contremaitre, not a disarmed platform feature.

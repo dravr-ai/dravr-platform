@@ -1,5 +1,5 @@
 # ABOUTME: The unified conversation list — one flat row per thread, search, and the "+" empty state
-# ABOUTME: Replaces the coach-grouped list: no coach headers, no "Without a coach" section, one row each
+# ABOUTME: Replaces the grouped list retired in b460057d3 — no per-persona headers, no bucket, one row each
 
 appId: ai.dravr.app
 
@@ -23,7 +23,13 @@ appId: ai.dravr.app
 - assertVisible:
     id: "conversations-list"
 
-# The grouping is gone: no coach header and no "Without a coach" bucket.
+# The grouping is gone. Both strings below are the literals the deleted code
+# rendered — the bucket label hardcoded in the grouped ConversationsScreen, and
+# the picker heading hardcoded in MessageList — so they are the only spellings a
+# revert or a copy-paste of that code could put back on screen. Written in the
+# new vocabulary they would name text no build has ever produced, and "Your
+# agents" is now the live title of the /agent list card, which a row preview can
+# legitimately carry.
 - assertNotVisible: "Without a coach"
 - assertNotVisible: "Your Coaches"
 

@@ -58,10 +58,10 @@ impl Rubric {
     pub fn persona_adherence() -> Self {
         Self {
             name: "persona_adherence".to_owned(),
-            dimension: "Does the response stay in the configured coach persona?".to_owned(),
+            dimension: "Does the response stay in the configured persona?".to_owned(),
             instructions: "Score 1 if the persona is broken (wrong tone, wrong sport focus). \
                  Score 3 if the persona is mostly maintained but slips. Score 5 if the persona \
-                 is consistent with the coach definition."
+                 is consistent with its definition."
                 .to_owned(),
             passing_score: 3,
         }

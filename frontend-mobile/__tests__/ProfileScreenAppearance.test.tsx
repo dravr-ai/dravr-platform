@@ -80,7 +80,7 @@ describe('Profile pane — appearance and language', () => {
     }
     expect(screen.getByTestId('language-option-fr').props.accessibilityState.selected).toBe(true);
     expect(
-      screen.getByText('L’interface et les réponses de ton coach suivent toutes deux ce réglage.'),
+      screen.getByText('L’interface et les réponses de ton agent suivent toutes deux ce réglage.'),
     ).toBeTruthy();
   });
 

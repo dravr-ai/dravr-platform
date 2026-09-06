@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the post-install hint — the copy it teaches and the draft it hands to Open chat
-// ABOUTME: Pins the /coach add @handle command and the @handle mention as the two ways to use a coach
+// ABOUTME: Pins the /agent add @handle command and the @handle mention as the two ways to use an agent
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -10,7 +10,7 @@ import PostInstallHint from '../PostInstallHint';
 import { coachAddDraft, coachMention } from '../coachDraft';
 
 describe('PostInstallHint', () => {
-  it('teaches /coach add @handle and the @handle mention for the installed coach', () => {
+  it('teaches /agent add @handle and the @handle mention for the installed agent', () => {
     render(
       <PostInstallHint
         coachTitle="Marathon Training Coach"
@@ -21,13 +21,13 @@ describe('PostInstallHint', () => {
     );
 
     const hint = screen.getByTestId('post-install-hint');
-    expect(hint).toHaveTextContent('“Marathon Training Coach” is in your coaches');
+    expect(hint).toHaveTextContent('“Marathon Training Coach” is in your agents');
     expect(hint).toHaveTextContent(
-      'Use it in any chat: /coach add @marathon-training-coach — or mention @marathon-training-coach for one turn',
+      'Use it in any chat: /agent add @marathon-training-coach — or mention @marathon-training-coach for one turn',
     );
   });
 
-  it('hands the /coach add draft to Open chat', () => {
+  it('hands the /agent add draft to Open chat', () => {
     const onOpenChat = vi.fn();
     render(
       <PostInstallHint coachTitle="Tempo" handle="tempo-coach" onOpenChat={onOpenChat} onDismiss={vi.fn()} />,
@@ -35,7 +35,7 @@ describe('PostInstallHint', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open chat' }));
 
-    expect(onOpenChat).toHaveBeenCalledWith('/coach add @tempo-coach');
+    expect(onOpenChat).toHaveBeenCalledWith('/agent add @tempo-coach');
   });
 
   it('dismisses through onDismiss', () => {
@@ -49,7 +49,7 @@ describe('PostInstallHint', () => {
 
   it('reads as the literal @handle placeholder when the payload carries no handle', () => {
     expect(coachMention(undefined)).toBe('@handle');
-    expect(coachAddDraft(undefined)).toBe('/coach add @handle');
-    expect(coachAddDraft('tempo-coach')).toBe('/coach add @tempo-coach');
+    expect(coachAddDraft(undefined)).toBe('/agent add @handle');
+    expect(coachAddDraft('tempo-coach')).toBe('/agent add @tempo-coach');
   });
 });

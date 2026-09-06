@@ -207,7 +207,7 @@ pub async fn propose_coach(
         .collect::<Vec<_>>()
         .join("\n\n");
     let user_prompt = format!(
-        "Analyze this fitness conversation and create a specialized coach profile.\n\n\
+        "Analyze this fitness conversation and create a specialized persona profile.\n\n\
          Conversation (last {messages_analyzed} of {total_messages} messages):\n\n\
          {conversation_text}"
     );

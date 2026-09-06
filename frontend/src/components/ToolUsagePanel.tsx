@@ -59,7 +59,7 @@ export default function ToolUsagePanel() {
         </div>
         <div className="text-center py-8 text-on-surface-variant">
           <p className="text-lg mb-2 text-on-surface">No tool usage yet</p>
-          <p>Once the coach runs tools in chat, they show up here.</p>
+          <p>Once the agent runs tools in chat, they show up here.</p>
         </div>
       </div>
     );

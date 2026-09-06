@@ -57,7 +57,7 @@ function defaultDocument(): HarnessConfigDocument {
             'prescription',
           ],
           disclaimer_text:
-            "**Medical disclaimer:** I'm a fitness coach, not a medical professional. " +
+            "**Medical disclaimer:** I'm not a medical professional. " +
             'Please consult a qualified clinician for any injury, pain, or medication question.',
         },
         fr: {
@@ -70,7 +70,7 @@ function defaultDocument(): HarnessConfigDocument {
             'ordonnance',
           ],
           disclaimer_text:
-            '**Avis médical :** Je suis un coach sportif, pas un professionnel de santé. ' +
+            '**Avis médical :** Je ne suis pas un professionnel de santé. ' +
             'Consulte un clinicien qualifié pour toute blessure, douleur ou question médicamenteuse.',
         },
         es: {
@@ -83,7 +83,7 @@ function defaultDocument(): HarnessConfigDocument {
             'receta',
           ],
           disclaimer_text:
-            '**Aviso médico:** Soy un entrenador deportivo, no un profesional médico. ' +
+            '**Aviso médico:** No soy un profesional médico. ' +
             'Consulta a un clínico cualificado para cualquier lesión, dolor o duda sobre medicación.',
         },
         de: {
@@ -96,7 +96,7 @@ function defaultDocument(): HarnessConfigDocument {
             'rezept',
           ],
           disclaimer_text:
-            '**Medizinischer Hinweis:** Ich bin ein Fitness-Coach, kein Arzt. Bitte ' +
+            '**Medizinischer Hinweis:** Ich bin kein Arzt. Bitte ' +
             'konsultiere eine qualifizierte Fachkraft bei Verletzungen, Schmerzen oder Medikamentenfragen.',
         },
         pt: {
@@ -109,7 +109,7 @@ function defaultDocument(): HarnessConfigDocument {
             'receita',
           ],
           disclaimer_text:
-            '**Aviso médico:** Sou um treinador desportivo, não um profissional de saúde. ' +
+            '**Aviso médico:** Não sou um profissional de saúde. ' +
             'Consulta um clínico qualificado para qualquer lesão, dor ou questão de medicação.',
         },
       },
@@ -244,7 +244,7 @@ export default function HarnessConfigTab() {
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
               Tunables for conversation compaction and response text guardrails.
-              Changes apply on the next coach turn.
+              Changes apply on the next agent turn.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -345,7 +345,7 @@ export default function HarnessConfigTab() {
         <div className="space-y-4">
           <NumericField
             label="Max response characters"
-            help="Coach replies longer than this are rewritten as a length-cap fallback. Use 0 to disable."
+            help="Agent replies longer than this are rewritten as a length-cap fallback. Use 0 to disable."
             value={draft.guardrails.max_response_chars}
             min={0}
             max={1_000_000}
@@ -359,7 +359,7 @@ export default function HarnessConfigTab() {
           />
           <CsvField
             label="Blocked topics (comma separated)"
-            help="Coach replies containing any of these substrings (case insensitive) are replaced with a refusal."
+            help="Agent replies containing any of these substrings (case insensitive) are replaced with a refusal."
             value={joinCsv(draft.guardrails.blocked_topics)}
             onChange={(v) =>
               setDraft({

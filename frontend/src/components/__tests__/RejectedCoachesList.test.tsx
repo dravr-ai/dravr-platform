@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for RejectedCoachesList component
-// ABOUTME: Tests rejected coaches list, rejection details, and empty state
+// ABOUTME: Tests rejected agents list, rejection details, and empty state
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -96,7 +96,7 @@ describe('RejectedCoachesList', () => {
     expect(document.querySelector('.pierre-spinner')).toBeInTheDocument();
   });
 
-  it('renders rejected coaches', async () => {
+  it('renders rejected agents', async () => {
     renderRejectedCoachesList();
 
     await waitFor(() => {
@@ -164,12 +164,12 @@ describe('RejectedCoachesList', () => {
     renderRejectedCoachesList();
 
     await waitFor(() => {
-      // Coach 2 has 5 tags, should show 4 + overflow
+      // Agent 2 has 5 tags, should show 4 + overflow
       expect(screen.getByText('+1')).toBeInTheDocument();
     });
   });
 
-  it('shows empty state when no rejected coaches', async () => {
+  it('shows empty state when no rejected agents', async () => {
     vi.mocked(adminApi.getRejectedStoreCoaches).mockResolvedValue({
       coaches: [],
       total: 0,
@@ -179,9 +179,9 @@ describe('RejectedCoachesList', () => {
     renderRejectedCoachesList();
 
     await waitFor(() => {
-      expect(screen.getByText('No Rejected Coaches')).toBeInTheDocument();
+      expect(screen.getByText('No Rejected Agents')).toBeInTheDocument();
       expect(
-        screen.getByText('Rejected coach submissions will appear here.')
+        screen.getByText('Rejected agent submissions will appear here.')
       ).toBeInTheDocument();
     });
   });
@@ -194,15 +194,15 @@ describe('RejectedCoachesList', () => {
     renderRejectedCoachesList();
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to Load Rejected Coaches')).toBeInTheDocument();
+      expect(screen.getByText('Failed to Load Rejected Agents')).toBeInTheDocument();
     });
   });
 
-  it('displays coach initial when no icon', async () => {
+  it('displays the agent initial when no icon', async () => {
     renderRejectedCoachesList();
 
     await waitFor(() => {
-      // Problematic coach has no icon, should show 'P'
+      // The Problematic agent has no icon, should show 'P'
       expect(screen.getByText('P')).toBeInTheDocument();
     });
   });

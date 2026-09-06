@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Coach info — the handle it teaches, the /coach remove it sends, and who may edit a coach
+// ABOUTME: Tests Agent info — the handle it teaches, the /agent remove it sends, and who may edit an agent
 // ABOUTME: Detaching is a command, not a private client call, so the app cannot reach a state the command cannot
 
 import React from 'react';
@@ -61,7 +61,7 @@ describe('CoachInfoSheet', () => {
     mockListCoaches.mockResolvedValue({ coaches: [coach({})] });
   });
 
-  it('names the coach and teaches the handle a mention would use', async () => {
+  it('names the agent and teaches the handle a mention would use', async () => {
     const { findByTestId, getByTestId, getByText } = renderSheet();
 
     expect(await findByTestId('coach-info-handle')).toHaveTextContent('@coach-tempo');
@@ -70,7 +70,7 @@ describe('CoachInfoSheet', () => {
     expect(getByText(/Mention @coach-tempo in any chat/)).toBeTruthy();
   });
 
-  it('detaches the coach by sending /coach remove', async () => {
+  it('detaches the agent by sending /agent remove', async () => {
     const { findByTestId, handlers } = renderSheet();
 
     fireEvent.press(await findByTestId('coach-info-remove'));
@@ -79,7 +79,7 @@ describe('CoachInfoSheet', () => {
     expect(handlers.onSendCommand).toHaveBeenCalledWith(COMMAND_DRAFTS.coachRemove);
   });
 
-  it('offers Edit coach for the athlete own coach', async () => {
+  it('offers Edit agent for the athlete own agent', async () => {
     const { findByTestId } = renderSheet();
 
     fireEvent.press(await findByTestId('coach-info-edit'));
@@ -90,9 +90,9 @@ describe('CoachInfoSheet', () => {
     });
   });
 
-  // A system coach is shared by every tenant and the server refuses the write,
+  // A system agent is shared by every tenant and the server refuses the write,
   // so offering Edit would advertise a 403.
-  it('offers no Edit coach for a system coach', async () => {
+  it('offers no Edit agent for a system agent', async () => {
     mockListCoaches.mockResolvedValue({ coaches: [coach({ is_system: true })] });
     const { findByTestId, queryByTestId } = renderSheet();
 
@@ -100,7 +100,7 @@ describe('CoachInfoSheet', () => {
     await waitFor(() => expect(queryByTestId('coach-info-edit')).toBeNull());
   });
 
-  it('still names the thread coach while the list is loading', () => {
+  it('still names the thread agent while the list is loading', () => {
     mockListCoaches.mockReturnValue(new Promise(() => undefined));
     const { getByTestId, queryByTestId } = renderSheet();
     expect(getByTestId('coach-info-title')).toHaveTextContent('Coach Tempo');

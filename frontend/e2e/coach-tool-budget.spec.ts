@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E tests for the coach tool-iteration budget, driven through Discover's edit sheet.
+// ABOUTME: Playwright E2E tests for the agent tool-iteration budget, driven through Discover's edit sheet.
 // ABOUTME: Pins the three-state write contract — absent inherits, a number pins, an explicit null clears.
 
 import { test, expect, type Page } from '@playwright/test';
@@ -176,7 +176,7 @@ async function setupCoachMocks(
   return { updates, storedBudget: () => stored };
 }
 
-/** Discover → the installed listing's detail, where "Edit coach" lives. */
+/** Discover → the installed listing's detail, where "Edit agent" lives. */
 async function openInstalledListing(page: Page) {
   await navigateToTab(page, 'Discover');
   // Discover is a lazy chunk: the first worker to open it waits on Vite's
@@ -184,13 +184,13 @@ async function openInstalledListing(page: Page) {
   const listing = page.getByTestId('store-coach-grid').getByText(COACH_TITLE);
   await expect(listing).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
   await listing.click();
-  await expect(page.getByRole('button', { name: 'Edit coach' })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: 'Edit agent' })).toBeVisible({ timeout: 10000 });
 }
 
 /** Open the edit sheet from the listing detail already on screen. */
 async function openEditSheet(page: Page) {
-  await page.getByRole('button', { name: 'Edit coach' }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeVisible({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Edit agent' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeVisible({ timeout: 5000 });
 }
 
 function budgetInput(page: Page) {
@@ -210,12 +210,12 @@ async function saveCoach(page: Page) {
   await page.getByRole('button', { name: 'Save Changes' }).click();
   // The sheet closes only on a successful mutation, so its disappearance is
   // the signal that the PUT completed rather than an arbitrary sleep.
-  await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeHidden({ timeout: 10000 });
+  await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeHidden({ timeout: 10000 });
   await listRefetched;
   await page.waitForTimeout(300);
 }
 
-test.describe('Coach tool budget - explicit value', () => {
+test.describe('Agent tool budget - explicit value', () => {
   test('saving an explicit budget sends the number and it round-trips on reopen', async ({ page }) => {
     const mocks = await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
@@ -258,7 +258,7 @@ test.describe('Coach tool budget - explicit value', () => {
   });
 });
 
-test.describe('Coach tool budget - inherit guarantee', () => {
+test.describe('Agent tool budget - inherit guarantee', () => {
   test('an edit that never touches the budget omits the key entirely', async ({ page }) => {
     const mocks = await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
@@ -269,7 +269,7 @@ test.describe('Coach tool budget - inherit guarantee', () => {
 
     // Touch an unrelated field only.
     await page
-      .getByPlaceholder('Brief description of what this coach specializes in')
+      .getByPlaceholder('Brief description of what this agent specializes in')
       .fill('Threshold work, race-week sharpening');
     await saveCoach(page);
 
@@ -295,7 +295,7 @@ test.describe('Coach tool budget - inherit guarantee', () => {
     await expect(budgetInput(page)).toHaveValue('25');
 
     await page
-      .getByPlaceholder('Brief description of what this coach specializes in')
+      .getByPlaceholder('Brief description of what this agent specializes in')
       .fill('Sharpening only');
     await saveCoach(page);
 
@@ -309,8 +309,8 @@ test.describe('Coach tool budget - inherit guarantee', () => {
   });
 });
 
-test.describe('Coach tool budget - clearing', () => {
-  test('clearing a pinned budget sends an explicit null and returns the coach to inherit', async ({ page }) => {
+test.describe('Agent tool budget - clearing', () => {
+  test('clearing a pinned budget sends an explicit null and returns the agent to inherit', async ({ page }) => {
     const mocks = await setupCoachMocks(page, { initialBudget: 12 });
     await loginToDashboard(page);
     await openInstalledListing(page);
@@ -337,7 +337,7 @@ test.describe('Coach tool budget - clearing', () => {
   });
 });
 
-test.describe('Coach authoring surface - the edit sheet is the only coach editor', () => {
+test.describe('Agent authoring surface - the edit sheet is the only agent editor', () => {
   /** Step chrome that only the deleted seven-step CoachWizard ever rendered. */
   const WIZARD_ONLY_CHROME = [
     'Basic Info',
@@ -354,20 +354,20 @@ test.describe('Coach authoring surface - the edit sheet is the only coach editor
     await openEditSheet(page);
 
     // The surviving editor: one screen, submitted in one action, with the
-    // coach's deletion under it.
+    // agent's deletion under it.
     await expect(page.getByRole('button', { name: 'Save Changes' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Delete this coach' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete this agent' })).toBeVisible();
     await expect(budgetInput(page)).toBeVisible();
 
     for (const chrome of WIZARD_ONLY_CHROME) {
       await expect(page.getByText(chrome, { exact: true })).toHaveCount(0);
     }
-    await expect(page.getByPlaceholder('Enter coach title')).toHaveCount(0);
+    await expect(page.getByPlaceholder('Enter agent title')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Next' })).toHaveCount(0);
     await expect(page.getByText(/Version History/i)).toHaveCount(0);
   });
 
-  test('Discover offers no coach creation: coaches are created with /coach create', async ({ page }) => {
+  test('Discover offers no agent creation: agents are created with /agent create', async ({ page }) => {
     await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
 
@@ -380,9 +380,9 @@ test.describe('Coach authoring surface - the edit sheet is the only coach editor
 
     await navigateToTab(page, 'Discover');
     await expect(page.getByTestId('store-coach-grid')).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
-    await expect(page.getByRole('region', { name: /Your coaches/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Create Coach' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Import Coach' })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: /Your agents/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Create Agent' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Import Agent' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Create Custom Agent' })).toHaveCount(0);
   });
 });

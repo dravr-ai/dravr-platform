@@ -162,7 +162,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const handleShareInvite = useCallback(() => {
     Alert.alert(t('app.createInvite'), t('app.whoIsInviteFor'), [
       { text: t('app.inviteKindMember'), onPress: () => void createInviteOfKind('member') },
-      { text: t('app.coach'), onPress: () => void createInviteOfKind('coach') },
+      { text: t('humanCoach.coach'), onPress: () => void createInviteOfKind('coach') },
       { text: t('common.cancel'), style: 'cancel' },
     ]);
   }, [createInviteOfKind, t]);
@@ -188,7 +188,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   );
 
   const handleRemoveCoach = useCallback(() => {
-    Alert.alert(t('app.removeCoach'), t('app.detachHumanCoachQ'), [
+    Alert.alert(t('humanCoach.remove'), t('humanCoach.detachQ'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('app.remove'),
@@ -197,7 +197,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           try {
             await removeCoach();
           } catch (err) {
-            Alert.alert(t('common.error'), errorText(err, t('app.failedRemoveCoach')));
+            Alert.alert(t('common.error'), errorText(err, t('humanCoach.removeFailed')));
           }
         },
       },
@@ -356,7 +356,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                   <View className="flex-1 pr-3">
                     <Text className="text-sm font-mono text-text-primary">{invite.code}</Text>
                     <Text className="text-xs text-text-tertiary mt-0.5">
-                      {invite.kind === 'coach' ? t('app.coachInvite') : t('app.memberInvite')} · used {invite.use_count}×
+                      {invite.kind === 'coach' ? t('humanCoach.invite') : t('app.memberInvite')} · used {invite.use_count}×
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -372,7 +372,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           </CollapsibleSection>
         )}
 
-        <CollapsibleSection title={t('app.coach')} testID="group-info-coach">
+        <CollapsibleSection title={t('humanCoach.coach')} testID="group-info-coach">
           <View className="flex-row items-center py-2">
             <Feather name="cpu" size={16} color={colors.pierre.violet} />
             <Text className="text-sm text-text-primary ml-2 flex-1" testID="group-info-ai-coach">
@@ -383,7 +383,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           {group?.coach_user_id ? (
             <View className="flex-row items-center py-2" testID="group-info-human-coach">
               <Feather name="user-check" size={16} color={colors.pierre.violet} />
-              <Text className="text-sm text-text-primary ml-2 flex-1">{t('app.humanCoachAttached')}</Text>
+              <Text className="text-sm text-text-primary ml-2 flex-1">{t('humanCoach.attached')}</Text>
               {isAdmin && (
                 <TouchableOpacity onPress={handleRemoveCoach} testID="remove-coach-button">
                   <Text className="text-sm font-semibold text-text-secondary">{t('app.remove')}</Text>
@@ -392,7 +392,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             </View>
           ) : (
             <Text className="text-xs text-text-tertiary py-2">
-              {t('app.noHumanCoach')}
+              {t('humanCoach.none')}
             </Text>
           )}
         </CollapsibleSection>

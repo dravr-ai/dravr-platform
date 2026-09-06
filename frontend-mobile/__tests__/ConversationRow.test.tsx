@@ -9,7 +9,7 @@ import { render, fireEvent } from '@testing-library/react-native';
 import { buildConversationRow, type ConversationRowModel } from '@pierre/chat-utils';
 
 /** The words the row cannot spell itself, as the English client resolves them. */
-const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitled chat' };
+const LABELS = { locale: 'en-US', you: 'You', coach: 'Agent', untitled: 'Untitled chat' };
 import type { Conversation } from '@pierre/shared-types';
 import { ConversationRow, previewMentionsSomeone } from '../src/screens/conversations/ConversationRow';
 

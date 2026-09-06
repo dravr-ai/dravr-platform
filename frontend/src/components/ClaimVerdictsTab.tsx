@@ -1,5 +1,5 @@
 // ABOUTME: Claim-verification admin tab — triage flagged claim verdicts from the bullshit detector
-// ABOUTME: Lists claim_verdicts with status/category/coach filters, drill-down drawer for details
+// ABOUTME: Lists claim_verdicts with status/category/agent filters, drill-down drawer for details
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -129,9 +129,9 @@ export default function ClaimVerdictsTab() {
               Claim verdicts
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Every claim a coach makes is evaluated by the claim verifier and
+              Every claim an agent makes is evaluated by the claim verifier and
               recorded here. Filter, drill into the source message, and
-              course-correct coaches that ship unsupported or contradicted
+              course-correct agents that ship unsupported or contradicted
               claims.
             </p>
           </div>
@@ -171,7 +171,7 @@ export default function ClaimVerdictsTab() {
             onChange={(e) => setCategoryFilter(e.target.value)}
             options={CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
           />
-          <Input label="Coach ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value.trim())} placeholder="filter by coach id" />
+          <Input label="Agent ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value.trim())} placeholder="filter by agent id" />
           <Select
             label="Rows"
             value={limit}
@@ -196,7 +196,7 @@ export default function ClaimVerdictsTab() {
               No claim verdicts matching these filters.
             </p>
             <p className="mt-1 text-xs text-outline">
-              Verdicts are written when a coach reply passes through the claim
+              Verdicts are written when an agent reply passes through the claim
               verifier and produces claims that need evidence.
             </p>
           </div>

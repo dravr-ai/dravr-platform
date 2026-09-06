@@ -73,7 +73,7 @@ test.describe('Mobile authenticated layout', () => {
     await expect(nav.getByRole('button', { name: 'Open menu' })).toBeVisible();
     await expect(nav.getByRole('button')).toHaveCount(4);
     await expect(nav.getByRole('button', { name: 'Insights' })).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Coaches' })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Agents' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Groups' })).toHaveCount(0);
   });
 

@@ -37,7 +37,7 @@ and any `pierre-violet`/`pierre-cyan`/`gradient-pierre` class is a regression.
   avatar/title/time/preview/unread pill) → thread (header with avatar + title
   + one subtitle line, bubbles, composer). Below `lg` the list and the thread
   take turns; the thread header carries the back button.
-- **Bubbles, not a document.** Athlete right in `.chat-bubble-user`, coach left
+- **Bubbles, not a document.** Athlete right in `.chat-bubble-user`, agent left
   in `.chat-bubble-ai`, 24-hour time inside the bubble, author line only on the
   first bubble of a run, day pills between days, actions (copy/share/rate/
   regenerate/model·latency) hidden until hover, focus or a coarse pointer.

@@ -64,7 +64,7 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-xs font-medium text-on-surface-variant">
                 {entry.author_display_name ?? entry.author_user_id}
-                {entry.speaker === 'coach' ? ' · coach' : ''}
+                {entry.speaker === 'coach' ? ' · agent' : ''}
               </span>
               <span className="text-xs text-outline">
                 {new Date(entry.created_at).toLocaleString()}

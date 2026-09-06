@@ -1,6 +1,6 @@
 # Dravr
 
-> Multi-tenant fitness intelligence for athletes and coaches. Dravr connects an athlete's training, nutrition, recovery and mobility data from their existing providers and exposes it both as a conversational coach and as a machine-readable API over MCP, A2A and REST.
+> Multi-tenant fitness intelligence for athletes and coaches. Dravr connects an athlete's training, nutrition, recovery and mobility data from their existing providers and exposes it both as a conversational agent and as a machine-readable API over MCP, A2A and REST.
 
 Dravr is an authenticated product: the web app at `/` is a sign-in page, and everything beyond it needs a session. There are no public content pages to crawl. What is genuinely useful to an agent is the protocol surface, which is documented and discoverable.
 

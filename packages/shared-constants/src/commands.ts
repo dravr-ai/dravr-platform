@@ -17,15 +17,15 @@ export const COMMAND_PREFIX = '/';
  * silently stranding one of them.
  */
 export const COMMAND_DRAFTS = {
-  /** Binds an installed coach to the open conversation. */
-  coachAdd: (handle: string): string => `${COMMAND_PREFIX}coach add ${MENTION_PREFIX}${handle}`,
-  /** Detaches the conversation's coach. */
-  coachRemove: `${COMMAND_PREFIX}coach remove`,
+  /** Binds an installed agent to the open conversation. */
+  coachAdd: (handle: string): string => `${COMMAND_PREFIX}agent add ${MENTION_PREFIX}${handle}`,
+  /** Detaches the conversation's agent. */
+  coachRemove: `${COMMAND_PREFIX}agent remove`,
   /** Creates a coaching group and binds the thread to it. */
   groupCreate: (name: string): string => `${COMMAND_PREFIX}group create ${name}`,
   /** Joins a coaching group by invite code. */
   groupJoin: (code: string): string => `${COMMAND_PREFIX}group join ${code}`,
-  /** Brings a coach in for one turn; the trailing space lets the athlete keep typing. */
+  /** Brings an agent in for one turn; the trailing space lets the athlete keep typing. */
   mention: (handle: string): string => `${MENTION_PREFIX}${handle} `,
 } as const;
 

@@ -1,4 +1,4 @@
-# ABOUTME: Visual tests for coach store
+# ABOUTME: Visual tests for agent store
 # ABOUTME: Converted from mobile-visual.test.js "Coach Store" tests
 
 appId: ai.dravr.app
@@ -14,7 +14,7 @@ appId: ai.dravr.app
 - tapOn:
     id: "tab-discover"
 
-# Test: store - displays coach grid
+# Test: store - displays agent grid
 - extendedWaitUntil:
     visible:
       id: "store-screen"
@@ -33,7 +33,7 @@ appId: ai.dravr.app
           commands:
             - tapOn: "Recovery"
 
-# Test: store - search coaches works
+# Test: store - search agents works
 - runFlow:
     when:
       visible:

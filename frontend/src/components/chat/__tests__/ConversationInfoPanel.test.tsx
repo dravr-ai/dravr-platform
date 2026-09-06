@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the header info drawer's three shapes — Group info, Coach info, and a plain thread
-// ABOUTME: Pins that the shape is read off the conversation and that Remove sends the /coach remove command
+// ABOUTME: Tests for the header info drawer's three shapes — Group info, Agent info, and a plain thread
+// ABOUTME: Pins that the shape is read off the conversation and that Remove sends the /agent remove command
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -98,27 +98,27 @@ describe('ConversationInfoPanel', () => {
     expect(screen.queryByTestId('coach-info-panel')).toBeNull();
   });
 
-  it('draws Coach info with the title, handle and mention hint for a coach thread', async () => {
+  it('draws Agent info with the title, handle and mention hint for an agent thread', async () => {
     renderPanel(conversation({ coach_id: 'coach-1' }));
 
     expect(await screen.findByTestId('coach-info-panel')).toBeInTheDocument();
-    expect(screen.getByRole('dialog', { name: 'Coach info' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Agent info' })).toBeInTheDocument();
     expect(screen.getByText('Marathon Coach')).toBeInTheDocument();
     expect(screen.getByTestId('coach-info-handle')).toHaveTextContent('@marathon-coach');
     expect(screen.getByText('endurance')).toBeInTheDocument();
     expect(screen.getByText(/Mention:/)).toBeInTheDocument();
   });
 
-  it('sends /coach remove when the coach is removed from the chat', async () => {
+  it('sends /agent remove when the agent is removed from the chat', async () => {
     const user = userEvent.setup();
     const handlers = renderPanel(conversation({ coach_id: 'coach-1' }));
 
     await user.click(await screen.findByTestId('coach-info-remove'));
 
-    expect(handlers.onSendCommand).toHaveBeenCalledWith('/coach remove');
+    expect(handlers.onSendCommand).toHaveBeenCalledWith('/agent remove');
   });
 
-  it('routes Edit coach to the coach Discover detail, and hides it for a system coach', async () => {
+  it('routes Edit agent to the agent Discover detail, and hides it for a system agent', async () => {
     const user = userEvent.setup();
     const handlers = renderPanel(conversation({ coach_id: 'coach-1' }));
 

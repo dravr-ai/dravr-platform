@@ -28,8 +28,8 @@ src/tools/
     ├── mod.rs
     ├── data.rs         # get_activities, get_athlete, get_stats
     ├── analytics.rs    # training load, fitness score, patterns
-    ├── coaches.rs      # coach CRUD operations
-    ├── admin.rs        # admin-only coach management
+    ├── coaches.rs      # agent CRUD operations
+    ├── admin.rs        # admin-only agent management
     ├── goals.rs        # goal setting and tracking
     ├── configuration.rs # user configuration management
     ├── fitness_config.rs # fitness thresholds (FTP, zones)
@@ -190,7 +190,7 @@ Capabilities are bitflags that control tool visibility and behavior:
 | `GOALS` | `0x0040` | Tool manages goals |
 | `CONFIGURATION` | `0x0080` | Tool manages configuration |
 | `RECIPES` | `0x0100` | Tool manages recipes |
-| `COACHES` | `0x0200` | Tool manages coaches |
+| `COACHES` | `0x0200` | Tool manages agents |
 | `ADMIN_ONLY` | `0x0400` | Tool requires admin privileges |
 | `SLEEP_RECOVERY` | `0x0800` | Tool handles sleep/recovery data |
 

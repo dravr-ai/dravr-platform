@@ -34,7 +34,7 @@ pub const PLATFORM_CONTRACT_PROMPT: &str = system::PLATFORM_CONTRACT;
 /// Coach generation system prompt
 ///
 /// Contains instructions for the LLM to analyze a conversation and generate
-/// a specialized coach profile with title, description, system prompt, and tags.
+/// a specialized persona profile with title, description, system prompt, and tags.
 pub const COACH_GENERATION_PROMPT: &str = system::COACH_GENERATION;
 
 /// Messaging channel context prompt

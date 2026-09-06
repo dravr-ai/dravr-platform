@@ -337,7 +337,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   }, [selectedCoachId, installMutation]);
 
   const handleRemove = useCallback(() => {
-    if (installedCopyId && window.confirm(`Remove Coach?\n\nRemove "${coachDetail?.title}" from your coaches? You can always reinstall it later.`)) {
+    if (installedCopyId && window.confirm(`Remove Agent?\n\nRemove "${coachDetail?.title}" from your agents? You can always reinstall it later.`)) {
       setActionError(null);
       uninstallMutation.mutate(installedCopyId);
     }

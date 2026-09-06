@@ -1,5 +1,5 @@
-// ABOUTME: Discover screen — the Coach Store catalogue to install coaches from
-// ABOUTME: Lists published coaches with category filters, search, and the detail screen's install actions
+// ABOUTME: Discover screen — the Agent Store catalogue to install agents from
+// ABOUTME: Lists published agents with category filters, search, and the detail screen's install actions
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {

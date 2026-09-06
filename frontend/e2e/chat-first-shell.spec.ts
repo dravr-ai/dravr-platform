@@ -231,7 +231,7 @@ test.describe('Chat-first shell', () => {
     await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
     await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
     await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
-    await expect(aside.getByRole('button', { name: 'Coaches' })).toHaveCount(0);
+    await expect(aside.getByRole('button', { name: 'Agents' })).toHaveCount(0);
   });
 
   test('a stale #groups deep link lands on chat', async ({ page }) => {
