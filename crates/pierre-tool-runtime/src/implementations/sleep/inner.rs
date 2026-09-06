@@ -21,7 +21,11 @@ use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::algorithms::RecoveryAggregationAlgorithm;
 use pierre_intelligence::{RecoveryCalculator, SleepAnalyzer, SleepData, TrainingLoadCalculator};
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::sleep::output::{
+    recovery_score_payload, rest_day_payload, sleep_schedule_payload, RecoveryTrainingLoad,
+    SleepHighlights, SleepNight, SleepQualityResult, SleepTrendSummary, SleepTrendsResult,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 
 /// Provider-agnostic activity fetcher
 ///
@@ -347,14 +351,15 @@ pub fn handle_analyze_sleep_quality(
             None
         };
 
+        let payload = SleepQualityResult {
+            sleep_quality,
+            hrv_analysis,
+            analysis_date: sleep_data.date,
+            provider_score: sleep_data.provider_score,
+        };
         let result = UniversalResponse {
             success: true,
-            result: Some(serde_json::json!({
-                "sleep_quality": sleep_quality,
-                "hrv_analysis": hrv_analysis,
-                "analysis_date": sleep_data.date,
-                "provider_score": sleep_data.provider_score,
-            })),
+            result: None,
             error: None,
             metadata: Some({
                 let mut map = HashMap::new();
@@ -377,12 +382,7 @@ pub fn handle_analyze_sleep_quality(
             }),
         };
 
-        // Apply format transformation
-        Ok(apply_format_to_response(
-            result,
-            "sleep_quality",
-            output_format,
-        ))
+        apply_format_typed(result, payload, output_format)
     })
 }
 
@@ -686,23 +686,22 @@ pub fn handle_calculate_recovery_score(
             None
         };
 
+        let payload = recovery_score_payload(
+            recovery_score.clone(),
+            RecoveryTrainingLoad {
+                ctl: training_load.ctl,
+                atl: training_load.atl,
+                tsb: training_load.tsb,
+            },
+            daily_strain,
+            sleep_quality_score,
+            hrv_status,
+            activity_provider.clone(),
+            sleep_provider_used.clone(),
+        );
         let result = UniversalResponse {
             success: true,
-            result: Some(serde_json::json!({
-                "recovery_score": recovery_score,
-                "training_load": {
-                    "ctl": training_load.ctl,
-                    "atl": training_load.atl,
-                    "tsb": training_load.tsb,
-                },
-                "whoop_daily_strain": daily_strain,
-                "sleep_quality_score": sleep_quality_score,
-                "hrv_status": hrv_status,
-                "providers_used": {
-                    "activity_provider": activity_provider,
-                    "sleep_provider": sleep_provider_used,
-                },
-            })),
+            result: None,
             error: None,
             metadata: Some({
                 let mut map = HashMap::new();
@@ -735,8 +734,7 @@ pub fn handle_calculate_recovery_score(
             }),
         };
 
-        // Apply format transformation
-        Ok(apply_format_to_response(result, "recovery", output_format))
+        apply_format_typed(result, payload, output_format)
     })
 }
 
@@ -1004,24 +1002,20 @@ pub fn handle_suggest_rest_day(
                 (score, rec, None, None, None)
             };
 
+        let payload = rest_day_payload(
+            recommendation.clone(),
+            &recovery_score,
+            training_load.tsb,
+            sleep_quality_score,
+            sleep_hours,
+            hrv_status,
+        );
         Ok(UniversalResponse {
             success: true,
-            result: Some(serde_json::json!({
-                "recommendation": recommendation,
-                "recovery_summary": {
-                    "overall_score": recovery_score.overall_score,
-                    "category": recovery_score.recovery_category,
-                    "training_readiness": recovery_score.training_readiness,
-                    "data_completeness": recovery_score.data_completeness,
-                    "limitations": recovery_score.limitations,
-                },
-                "key_factors": {
-                    "tsb": training_load.tsb,
-                    "sleep_score": sleep_quality_score,
-                    "sleep_hours": sleep_hours,
-                    "hrv_status": hrv_status,
-                },
-            })),
+            result: Some(
+                serde_json::to_value(&payload)
+                    .map_err(|e| ProtocolError::InternalError(format!("suggest_rest_day: {e}")))?,
+            ),
             error: None,
             metadata: Some({
                 let mut map = HashMap::new();
@@ -1260,27 +1254,30 @@ pub fn handle_track_sleep_trends(
             ));
         }
 
+        let payload = SleepTrendsResult {
+            trends: SleepTrendSummary {
+                average_duration_hours: avg_duration,
+                average_efficiency_percent: avg_efficiency,
+                quality_trend: trend.to_owned(),
+                recent_7day_avg: recent_avg,
+                previous_7day_avg: previous_avg,
+            },
+            highlights: SleepHighlights {
+                best_night: best_night.map(|(date, score)| SleepNight {
+                    date: *date,
+                    score: *score,
+                }),
+                worst_night: worst_night.map(|(date, score)| SleepNight {
+                    date: *date,
+                    score: *score,
+                }),
+            },
+            insights,
+            data_points: quality_scores.len(),
+        };
         let result = UniversalResponse {
             success: true,
-            result: Some(serde_json::json!({
-                "trends": {
-                    "average_duration_hours": avg_duration,
-                    "average_efficiency_percent": avg_efficiency,
-                    "quality_trend": trend,
-                    "recent_7day_avg": recent_avg,
-                    "previous_7day_avg": previous_avg,
-                },
-                "highlights": {
-                    "best_night": best_night.map(|(date, score)| {
-                        serde_json::json!({ "date": date, "score": score })
-                    }),
-                    "worst_night": worst_night.map(|(date, score)| {
-                        serde_json::json!({ "date": date, "score": score })
-                    }),
-                },
-                "insights": insights,
-                "data_points": quality_scores.len(),
-            })),
+            result: None,
             error: None,
             metadata: Some({
                 let mut map = HashMap::new();
@@ -1296,12 +1293,7 @@ pub fn handle_track_sleep_trends(
             }),
         };
 
-        // Apply format transformation
-        Ok(apply_format_to_response(
-            result,
-            "sleep_trends",
-            output_format,
-        ))
+        apply_format_typed(result, payload, output_format)
     })
 }
 
@@ -1476,24 +1468,23 @@ pub fn handle_optimize_sleep_schedule(
             );
         }
 
+        let payload = sleep_schedule_payload(
+            recommended_hours,
+            bedtime,
+            wake_time,
+            RecoveryTrainingLoad {
+                ctl: training_load.ctl,
+                atl: training_load.atl,
+                tsb: training_load.tsb,
+            },
+            upcoming_workout_intensity,
+            recommendations,
+        );
         Ok(UniversalResponse {
             success: true,
-            result: Some(serde_json::json!({
-                "recommendations": {
-                    "target_hours": recommended_hours,
-                    "recommended_bedtime": bedtime,
-                    "wake_time": wake_time,
-                },
-                "rationale": {
-                    "training_load": {
-                        "tsb": training_load.tsb,
-                        "atl": training_load.atl,
-                        "ctl": training_load.ctl,
-                    },
-                    "upcoming_intensity": upcoming_workout_intensity,
-                },
-                "tips": recommendations,
-            })),
+            result: Some(serde_json::to_value(&payload).map_err(|e| {
+                ProtocolError::InternalError(format!("optimize_sleep_schedule: {e}"))
+            })?),
             error: None,
             metadata: Some({
                 let mut map = HashMap::new();

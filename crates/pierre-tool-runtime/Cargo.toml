@@ -76,7 +76,9 @@ lru = "0.18.2"
 num-traits = "0.2"
 regex = "1.12"
 reqwest = { version = "0.12", features = ["json"] }
-schemars = "0.9"
+# chrono04: sleep answers carry DateTime<Utc>, which the schema states as
+# a date-time string rather than an opaque one.
+schemars = { version = "0.9", features = ["chrono04"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

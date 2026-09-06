@@ -114,6 +114,13 @@ use pierre_tool_runtime::implementations::recipes::{
 use pierre_tool_runtime::implementations::routes::{
     DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
 };
+use pierre_tool_runtime::implementations::sleep::output::{
+    RecoveryScoreResult, RestDayResult, SleepQualityResult, SleepScheduleResult, SleepTrendsResult,
+};
+use pierre_tool_runtime::implementations::sleep::{
+    AnalyzeSleepQualityTool, CalculateRecoveryScoreTool, OptimizeSleepScheduleTool,
+    SuggestRestDayTool, TrackSleepTrendsTool,
+};
 use pierre_tool_runtime::implementations::store::{
     BrowseCoachStoreResult, BrowseCoachStoreTool, InstallCoachFromStoreResult,
     InstallCoachFromStoreTool, SearchCoachStoreResult, SearchCoachStoreTool, StoreCoachEntry,
@@ -3459,4 +3466,145 @@ fn estimate_vo2max_says_it_did_not_save() {
         value["stored_vo2_max"].is_null(),
         "an athlete with no stored VO2max gets null, not the estimate echoed back"
     );
+}
+
+// ============================================================================
+// sleep and recovery
+// ============================================================================
+
+#[test]
+fn each_sleep_schema_is_attached_to_the_tool_it_names() {
+    for (tool_name, declared, derived) in [
+        (
+            "analyze_sleep_quality",
+            <AnalyzeSleepQualityTool as McpTool<dyn ToolRuntime>>::definition(
+                &AnalyzeSleepQualityTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(Formatted<SleepQualityResult>))
+                .expect("derives"),
+        ),
+        (
+            "calculate_recovery_score",
+            <CalculateRecoveryScoreTool as McpTool<dyn ToolRuntime>>::definition(
+                &CalculateRecoveryScoreTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(Formatted<RecoveryScoreResult>))
+                .expect("derives"),
+        ),
+        (
+            "suggest_rest_day",
+            <SuggestRestDayTool as McpTool<dyn ToolRuntime>>::definition(&SuggestRestDayTool),
+            serde_json::to_value(schemars::schema_for!(RestDayResult)).expect("derives"),
+        ),
+        (
+            "track_sleep_trends",
+            <TrackSleepTrendsTool as McpTool<dyn ToolRuntime>>::definition(&TrackSleepTrendsTool),
+            serde_json::to_value(schemars::schema_for!(Formatted<SleepTrendsResult>))
+                .expect("derives"),
+        ),
+        (
+            "optimize_sleep_schedule",
+            <OptimizeSleepScheduleTool as McpTool<dyn ToolRuntime>>::definition(
+                &OptimizeSleepScheduleTool,
+            ),
+            serde_json::to_value(schemars::schema_for!(SleepScheduleResult)).expect("derives"),
+        ),
+    ] {
+        assert_eq!(
+            declared.name, tool_name,
+            "the tool struct under test is not the tool it was paired with"
+        );
+        assert_eq!(
+            declared
+                .output_schema
+                .unwrap_or_else(|| panic!("{tool_name} must declare an outputSchema")),
+            derived,
+            "{tool_name} declares a schema derived from a DIFFERENT result type"
+        );
+    }
+}
+
+/// The science crate's own types reach the wire, so the schema has to carry
+/// their fields rather than an opaque object.
+///
+/// This is the whole reason `dravr-cageux` derives `JsonSchema` as of v0.9.0.
+/// Mirroring these fields platform-side would have been two structs
+/// describing one thing, and they would have drifted the first time a
+/// recovery component changed.
+#[test]
+fn the_cageux_types_carry_their_fields_into_the_declared_schema() {
+    let recovery = serde_json::to_value(schemars::schema_for!(Formatted<RecoveryScoreResult>))
+        .expect("derives");
+    let rendered = serde_json::to_string(&recovery).expect("serializes");
+    for field in [
+        "overall_score",
+        "recovery_category",
+        "data_completeness",
+        "training_readiness",
+        "components_available",
+    ] {
+        assert!(
+            rendered.contains(field),
+            "RecoveryScore's {field} must reach the declared schema — if it does not, \
+             cageux stopped deriving JsonSchema and the tool is promising an opaque object"
+        );
+    }
+
+    let quality = serde_json::to_value(schemars::schema_for!(Formatted<SleepQualityResult>))
+        .expect("derives");
+    let rendered = serde_json::to_string(&quality).expect("serializes");
+    for field in ["duration_score", "stage_quality_score", "efficiency_score"] {
+        assert!(
+            rendered.contains(field),
+            "SleepQualityScore's {field} must reach the declared schema"
+        );
+    }
+}
+
+#[test]
+fn a_night_with_no_hrv_still_validates() {
+    // Plenty of devices do not measure HRV. Its absence is the ordinary case
+    // on those, not a fault, so the schema has to accept a night without it.
+    let derived = serde_json::to_value(schemars::schema_for!(Formatted<SleepQualityResult>))
+        .expect("derives");
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+
+    // Serialized rather than constructed: SleepQualityScore is the science
+    // crate's type and this test is about the SCHEMA accepting the shape, not
+    // about rebuilding the science crate's constructors here.
+    let payload = json!({
+        "sleep_quality": {
+            "overall_score": 78.0,
+            "duration_score": 82.0,
+            "stage_quality_score": 71.0,
+            "efficiency_score": 80.0,
+            "quality_category": "good",
+            "insights": ["Slept 7h20m"],
+            "recommendations": ["Aim for an earlier bedtime"]
+        },
+        "hrv_analysis": null,
+        "analysis_date": "2026-09-05T00:00:00Z",
+        "provider_score": null
+    });
+
+    assert!(
+        validator.is_valid(&payload),
+        "a night with no HRV and no provider score must validate:\n{payload:#}"
+    );
+}
+
+#[test]
+fn the_rest_day_call_ships_the_evidence_beside_it() {
+    // A rest-day verdict with no visible basis is one the athlete cannot
+    // argue with. The recommendation, the recovery picture and the individual
+    // signals are all declared, so a client can show the reasoning.
+    let derived = serde_json::to_value(schemars::schema_for!(RestDayResult)).expect("derives");
+    let props = derived["properties"].as_object().expect("object schema");
+
+    for field in ["recommendation", "recovery_summary", "key_factors"] {
+        assert!(
+            props.contains_key(field),
+            "suggest_rest_day must declare {field}: the verdict and its basis travel together"
+        );
+    }
 }
