@@ -12,6 +12,8 @@ import {
   BOREAL_LIGHT,
   BOREAL_DARK,
   PILLARS,
+  SEMANTIC_COLORS,
+  SEMANTIC_COLORS_DARK,
   type ColorScheme,
 } from '../../../packages/shared-constants/src/design-system';
 import { useAppearancePref, type AppearancePref } from '../hooks/useAppearancePref';
@@ -21,7 +23,7 @@ import { useAppearancePref, type AppearancePref } from '../hooks/useAppearancePr
 // so `tokens` can hold either palette without TS complaining at the assign.
 type BorealTokens = { readonly [K in keyof typeof BOREAL_LIGHT]: string };
 
-interface ThemeColors {
+export interface ThemeColors {
   /** Boreal MD3 token tree for the active scheme. */
   tokens: BorealTokens;
   /** Pierre legacy palette (icons, indicators, gradient endpoints). */
@@ -133,10 +135,16 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
       default: `rgba(${ink.rgb}, ${ink.default})`,
       strong: `rgba(${ink.rgb}, ${ink.strong})`,
     },
-    success: scheme === 'dark' ? '#79a694' : '#2e7d5b',
-    warning: scheme === 'dark' ? '#d6b87a' : '#8f6a2e',
+    // Read the shared feedback set rather than restating it. These were four
+    // hardcoded ternaries, and one of them had drifted: light `warning` was
+    // `#8f6a2e`, the EDITORIAL tier value, while global.css and
+    // shared-constants both carried the Product tier `#b08326`. The phone
+    // therefore answered with two different ambers for one token depending on
+    // whether a component read a NativeWind class or this hook — which is the
+    // same drift DESIGN.md §2 records mobile carrying for months, fixed in the
+    // other two mirrors and missed here.
+    ...(scheme === 'dark' ? SEMANTIC_COLORS_DARK : SEMANTIC_COLORS),
     error: tokens.error,
-    info: scheme === 'dark' ? '#9bb6bd' : '#3e7283',
   };
 }
 

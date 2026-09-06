@@ -13,10 +13,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAsyncAction } from '@pierre/ui-logic';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
-import { spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
+import { BrandLockup } from '../../components/ui/BrandLockup';
+import { spacing, glassCard, buttonGlow } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
@@ -105,25 +105,18 @@ export function RegisterScreen() {
         >
           {/* Glassmorphism Card Container */}
           <View style={cardStyle}>
-            {/* Gradient accent bar at top */}
-            <LinearGradient
-              colors={gradients.violetCyan as [string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: 3, width: '100%' }}
-            />
-
             <View className="px-6 py-8">
               {/* Header */}
               <View className="items-center mb-6">
-                <LinearGradient
-                  colors={gradients.violetCyan as [string, string]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  className="w-14 h-14 rounded-xl items-center justify-center mb-3"
-                >
-                  <Text className="text-[28px] font-bold text-on-surface">P</Text>
-                </LinearGradient>
+                {/* The product's own mark. This was a gradient square holding a
+                    bold "P" — the Pierre-era monogram, on a fixed fill, with
+                    body ink over it. Three things wrong at once: the wrong
+                    brand, a colour that ignored the athlete's scheme, and an
+                    ink not bound to its ground. `BrandLockup` is the one
+                    lockup both clients draw. */}
+                <View className="mb-3">
+                  <BrandLockup size={36} testID="register-lockup" />
+                </View>
                 <Text className="text-xl font-bold text-text-primary mb-1">{t('app.createAccount')}</Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
                   {t('app.joinDravrBlurb')}

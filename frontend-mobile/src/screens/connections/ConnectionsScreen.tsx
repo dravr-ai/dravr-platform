@@ -13,8 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
-import { LinearGradient } from 'expo-linear-gradient';
-import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, glassCard, gradients, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { Modal } from 'react-native';
 import { Card, DragIndicator, PaneScrollView } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
@@ -378,12 +377,6 @@ export function ConnectionsScreen() {
 
         {/* Privacy Note with glassmorphism */}
         <View className="rounded-xl overflow-hidden mt-6" style={{ ...glassCard, borderRadius: 16 }}>
-          <LinearGradient
-            colors={gradients.violetCyan as [string, string]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={{ height: 3, width: '100%' }}
-          />
           <View className="p-4">
             <Text className="text-sm font-semibold text-text-primary mb-1">{t('app.privacyNote')}</Text>
             <Text className="text-sm text-text-secondary leading-5">

@@ -199,4 +199,36 @@ export {
 // keep their existing `colors.pierre.*` access patterns and gain runtime
 // reactivity in one swap.
 export { useTheme, useThemeColors } from '../contexts/ThemeContext';
+import type { ThemeColors } from '../contexts/ThemeContext';
 export type { AppearancePref } from '../hooks/useAppearancePref';
+
+/**
+ * The accent for an agent/coach category, drawn from the pillar tokens.
+ *
+ * Three screens each carried their own hardcoded map of this and the three had
+ * already drifted apart: recovery was `#0d3b2e` in the editor and `#5e7a82` in
+ * the store, `custom` was the retired v1 primary `#00241a`, `recipes` was a
+ * stock Tailwind orange, and every value was an **Editorial** tier hex on a
+ * Product tier surface. None of them moved with the athlete's appearance
+ * setting, because a module-level hex cannot.
+ *
+ * `category` is the English key stored on the coach and sent to the API, so it
+ * is matched as data rather than translated. An unknown category falls back to
+ * `primary` — the same answer `custom` gets, which is the honest one for "a
+ * category this build does not have a pillar for".
+ */
+export function categoryAccent(colors: ThemeColors, category: string): string {
+  switch (category) {
+    case 'training':
+      return colors.pierre.activity;
+    case 'nutrition':
+    case 'recipes':
+      return colors.pierre.nutrition;
+    case 'recovery':
+      return colors.pierre.recovery;
+    case 'mobility':
+      return colors.pierre.mobility;
+    default:
+      return colors.tokens.primary;
+  }
+}

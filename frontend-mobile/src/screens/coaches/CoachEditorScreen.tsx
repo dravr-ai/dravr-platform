@@ -18,8 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, buttonGlow, useThemeColors, categoryAccent } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import type { UpdateCoachRequest } from '../../types';
@@ -28,13 +27,16 @@ import { useTranslation } from '@pierre/i18n';
 // Category options with colors matching Stitch UX spec
 // `key` is the value stored on the coach and sent to the API, so it stays
 // English; `labelKey` is what the chip shows and is resolved at render.
-const CATEGORY_OPTIONS: Array<{ key: string; labelKey: string; color: string }> = [
-  { key: 'training', labelKey: 'app.training', color: '#3c6658' },
-  { key: 'nutrition', labelKey: 'app.nutrition', color: '#8f6a2e' },
-  { key: 'recovery', labelKey: 'app.recovery', color: '#0d3b2e' },
-  { key: 'recipes', labelKey: 'app.recipes', color: '#8f6a2e' },
-  { key: 'mobility', labelKey: 'app.mobility', color: '#7a4d5e' },
-  { key: 'custom', labelKey: 'app.custom', color: '#00241a' },
+// The colour is no longer carried here: it comes from `categoryAccent`, which
+// reads the live pillar tokens, so this table holds only what is genuinely
+// static about a category.
+const CATEGORY_OPTIONS: Array<{ key: string; labelKey: string }> = [
+  { key: 'training', labelKey: 'app.training' },
+  { key: 'nutrition', labelKey: 'app.nutrition' },
+  { key: 'recovery', labelKey: 'app.recovery' },
+  { key: 'recipes', labelKey: 'app.recipes' },
+  { key: 'mobility', labelKey: 'app.mobility' },
+  { key: 'custom', labelKey: 'app.custom' },
 ];
 
 // Validation constants
@@ -344,7 +346,7 @@ export function CoachEditorScreen() {
             >
               <View
                 className="px-3 py-1.5 rounded-full"
-                style={{ backgroundColor: currentCategory?.color }}
+                style={{ backgroundColor: currentCategory ? categoryAccent(colors, currentCategory.key) : colors.tokens.primary }}
                 testID="selected-category"
               >
                 <Text className="text-on-surface text-sm font-semibold">
@@ -435,14 +437,16 @@ export function CoachEditorScreen() {
                 className="h-1.5 rounded-full overflow-hidden"
                 style={{ backgroundColor: colors.background.tertiary }}
               >
-                <LinearGradient
-                  colors={gradients.violetCyan as [string, string]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
+                {/* A meter reads its value from length, not from a colour
+                    ramp, and the ramp here was a fixed pair that ignored the
+                    scheme. One solid `primary` fill says the same thing in
+                    both. */}
+                <View
                   style={{
                     height: '100%',
                     width: `${Math.min(parseFloat(contextPercentage), 100)}%`,
                     borderRadius: 3,
+                    backgroundColor: colors.tokens.primary,
                   }}
                 />
               </View>
@@ -724,7 +728,7 @@ export function CoachEditorScreen() {
               >
                 <View
                   className="w-3 h-3 rounded-full mr-3"
-                  style={{ backgroundColor: cat.color }}
+                  style={{ backgroundColor: categoryAccent(colors, cat.key) }}
                 />
                 <Text className="text-text-primary text-base">{t(cat.labelKey)}</Text>
               </TouchableOpacity>

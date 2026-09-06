@@ -18,9 +18,8 @@ import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { filterRows, type ConversationRowModel } from '@pierre/chat-utils';
-import { glassCard, gradients, useThemeColors } from '../../constants/theme';
+import { glassCard, useThemeColors } from '../../constants/theme';
 import { BrandLockup, FloatingSearchBar, PromptDialog, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
@@ -288,12 +287,6 @@ export function ConversationsScreen() {
       <Modal visible={actionMenuVisible} animationType="fade" transparent onRequestClose={closeActionMenu}>
         <TouchableOpacity className="flex-1 bg-black/50 justify-center items-center" activeOpacity={1} onPress={closeActionMenu}>
           <View className="min-w-[240px] overflow-hidden" style={menuStyle} testID="conversation-action-menu">
-            <LinearGradient
-              colors={gradients.violetCyan as [string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: 3, width: '100%' }}
-            />
             <View className="py-2">
               <TouchableOpacity
                 className="flex-row items-center px-4 py-3"

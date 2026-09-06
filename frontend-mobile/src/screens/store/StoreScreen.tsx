@@ -17,7 +17,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 
-import { PRIMARY_PALETTE, spacing, glassCard } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, categoryAccent, useThemeColors } from '../../constants/theme';
 import { FloatingSearchBar } from '../../components/ui';
 
 // Shadow styles for coach cards (React Native shadows cannot use className)
@@ -55,18 +55,9 @@ const SORT_OPTIONS: Array<{ key: SortOption; labelKey: string }> = [
   { key: 'title', labelKey: 'app.sortAlphabetical' },
 ];
 
-// Coach category colors
-const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: '#3c6658',
-  nutrition: '#8f6a2e',
-  recovery: '#5e7a82',
-  recipes: '#F97316',
-  mobility: '#7a4d5e',
-  custom: '#00241a',
-};
-
 export function StoreScreen() {
   const { t } = useTranslation();
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [coaches, setCoaches] = useState<StoreCoach[]>([]);
@@ -249,11 +240,11 @@ export function StoreScreen() {
         <View
           testID="category-badge"
           className="px-2 py-0.5 rounded"
-          style={{ backgroundColor: COACH_CATEGORY_COLORS[item.category] + '20' }}
+          style={{ backgroundColor: `${categoryAccent(colors, item.category)}20` }}
         >
           <Text
             className="text-xs font-medium"
-            style={{ color: COACH_CATEGORY_COLORS[item.category] }}
+            style={{ color: categoryAccent(colors, item.category) }}
           >
             {t(coachCategoryLabelKey(item.category))}
           </Text>

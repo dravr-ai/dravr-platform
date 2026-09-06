@@ -11,11 +11,10 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
-import { PRIMARY_PALETTE, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, buttonGlow } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
@@ -81,13 +80,6 @@ export function ForgotPasswordScreen() {
           automaticallyAdjustKeyboardInsets
         >
           <View style={cardStyle}>
-            <LinearGradient
-              colors={gradients.violetCyan as [string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: 3, width: '100%' }}
-            />
-
             <View className="px-6 py-8">
               {/* Header */}
               <View className="items-center mb-6">

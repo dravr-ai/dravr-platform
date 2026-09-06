@@ -410,17 +410,19 @@ A tint beside white is the light scheme's version of what the dark scheme
 gets from a grey step: two surfaces that are *different things*, not two
 greys.
 
-**The aside's ink is the one deliberate exception to the on-color pairing.**
-§2 binds `on-primary-container` as the text role for `primary-container`, and
-every other web call site honours that — the athlete bubble, the active rail
-item, the avatar ground. The login aside does not: its headline stays
-`on-surface` and its blurb `on-surface-variant`, measured at **13.9:1** and
-**7.6:1** on the tint, with `primary` ink for the wordmark at 6.1:1. The
-binding exists to stop unreadable pairings, and none of those are close to the
-floor. Carrying `on-primary-container` here would tint the whole editorial
-moment forest-green, which is a brand decision rather than a contrast one — so
-it is written down as an exception instead of taken silently. Anywhere the
-tint is a *component* fill, the bound ink is not optional.
+**The aside's ink is bound to its ground, in both schemes.** §2 pairs
+`primary-container` with `on-primary-container`, so in light the headline is
+`on-primary-container` (9.8:1) and the blurb and pillar row the same ink at
+85% (6.7:1 composited); in dark the aside is `surface-container-low` and they
+are `on-surface` / `on-surface-variant`. Every role is scheme-qualified.
+
+This was briefly an exception. The aside shipped with body ink on the tint —
+13.9:1, comfortably legible, and the only web call site not using the bound
+role while the same change was pinning that exact pairing on the phone's
+bubble. A token that carries its own foreground and is paired with someone
+else's is how a system stops being one, so the rule won: the eleven points of
+contrast it costs are worth less than the consistency. There is no exception
+to the on-color pairing anywhere in the Product Tier.
 
 The other auth pages are one white card with a hairline on `surface`, and
 every onboarding step is a bare column on `surface` under a row of small
@@ -582,6 +584,33 @@ in the vault under `Design/Boreal v2.1 — Less`.
 | Admin sidebar | 260px, 44px items | **232px, 32px items** |
 | Stat tiles | bordered, coloured numerals | **label over a mono number**, no box |
 | Dividers | one hairline | **two**: `ghost-border` at pane edges, `ghost-border-faint` inside lists |
+
+**Scheme-aware surfaces (2026-09-06).** The pass after the one below, closing
+the two things it left open. The login aside's ink is now bound to its ground
+rather than documented as an exception (§5 "Auth and onboarding"). And the
+phone stopped pinning colours the appearance setting cannot move: seven screens
+drew from `gradients.violetCyan`, a module-level `as const`, so they rendered
+identically in both schemes. Six of those were the 3px gradient strip this
+system retired; the register screen also carried a gradient square holding a
+bold **"P"** — the Pierre-era monogram, on a fixed fill, with body ink over it
+— which is now the shared `BrandLockup`. The three step badges and the context
+meter take tokens instead of a ramp.
+
+The same sweep found a **second source for `warning`**: three screens each
+carried their own hardcoded category map, drifted apart from each other
+(recovery was `#0d3b2e` in the editor and `#5e7a82` in the store), holding
+Editorial-tier values and the retired v1 primary; and `ThemeContext` restated
+the feedback set with light `warning` as `#8f6a2e`, the Editorial value, while
+`global.css` and `shared-constants` both carried Product `#b08326`. The phone
+therefore answered with two different ambers for one token depending on
+whether a component read a NativeWind class or `useThemeColors()`. One
+`categoryAccent` helper on the pillar tokens replaces the three maps, and the
+feedback set is read from `SEMANTIC_COLORS` rather than restated.
+
+Third-party brand colour stays exempt and is not a violation: `SciotteLoginModal`
+draws a provider's own gradient, and Strava's orange is Strava's orange in both
+schemes. The guard in `SchemeAwareSurfaces.test.tsx` is written against the
+colour's *source* rather than its shape, so that exemption needs no list.
 
 **Light-scheme revision (2026-09-06).** v2.1 shrank the chrome; the light
 scheme still read as unfinished beside dark, and the reason was not scale. It

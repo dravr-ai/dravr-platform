@@ -174,8 +174,15 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
         (`primary-container`) beside a white form sheet: the two paper tones
         the previous pairing used were a half-step apart and read as one
         muddy field. Dark keeps its grey step, where the tint would be a dense
-        green wall. Nothing here is pinned to a fill that ignores the scheme:
-        the mark swaps its ink under `.dark` and the text roles follow.
+        green wall.
+
+        Because the ground changes between schemes, so does the ink. The tint
+        binds `on-primary-container` (9.8:1 here) and the dark grey binds
+        `on-surface`, so every text role below is scheme-qualified rather than
+        left on the body ink. Body ink on the tint measured 13.9:1 and was
+        legible, but a token that carries its own foreground and is paired
+        with someone else's is how a system stops being one — the rule is
+        worth more than the eleven points of contrast it costs here.
       */}
       <aside className="hidden lg:flex lg:w-1/2 xl:w-3/5 flex-col justify-between border-r ghost-border bg-primary-container p-12 dark:bg-surface-container-low xl:p-16">
         {/* Lockup */}
@@ -189,24 +196,24 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
         {/* The mark, large, and the one serif line in the product */}
         <div className="max-w-xl">
           <DravrLogo size={220} />
-          <h2 className="mt-8 font-serif text-4xl italic leading-tight text-on-surface xl:text-5xl">
+          <h2 className="mt-8 font-serif text-4xl italic leading-tight text-on-primary-container dark:text-on-surface xl:text-5xl">
             {t('auth.taglineLead')}
             <br />
             {t('auth.taglineTail')}
           </h2>
-          <p className="mt-6 max-w-md text-base leading-relaxed text-on-surface-variant">
+          <p className="mt-6 max-w-md text-base leading-relaxed text-on-primary-container/85 dark:text-on-surface-variant">
             {t('auth.landingBlurb')}
           </p>
         </div>
 
         {/* The four pillars, in sentence case */}
-        <div className="flex items-center gap-3 text-sm text-on-surface-variant">
+        <div className="flex items-center gap-3 text-sm text-on-primary-container/85 dark:text-on-surface-variant">
           <span>{t('auth.activityLabel')}</span>
-          <span aria-hidden className="text-outline">·</span>
+          <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
           <span>{t('chat.categoryNutrition')}</span>
-          <span aria-hidden className="text-outline">·</span>
+          <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
           <span>{t('chat.categoryRecovery')}</span>
-          <span aria-hidden className="text-outline">·</span>
+          <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
           <span>{t('chat.categoryMobility')}</span>
         </div>
       </aside>

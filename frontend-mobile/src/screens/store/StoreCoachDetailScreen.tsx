@@ -13,7 +13,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { PRIMARY_PALETTE, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, glassCard, buttonGlow, useThemeColors, categoryAccent } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
@@ -42,15 +42,6 @@ interface InstalledCopy {
   handle: string | undefined;
 }
 // Coach category colors
-const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: '#3c6658',
-  nutrition: '#8f6a2e',
-  recovery: '#5e7a82',
-  recipes: '#F97316',
-  mobility: '#7a4d5e',
-  custom: '#00241a',
-};
-
 export function StoreCoachDetailScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -178,7 +169,7 @@ export function StoreCoachDetailScreen() {
     );
   }
 
-  const categoryColor = COACH_CATEGORY_COLORS[coach.category];
+  const categoryColor = categoryAccent(colors, coach.category);
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="store-coach-detail-screen">

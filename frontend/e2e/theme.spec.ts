@@ -262,6 +262,27 @@ test.describe('Boreal Theme — visible layout elements', () => {
     expect(await fill(page.locator('main'))).toBe('rgb(247, 246, 242)');
   });
 
+  // A token that carries its own foreground has to be paired with it. The
+  // aside shipped body ink on the tint — legible at 13.9:1, but the one web
+  // call site not using the bound role, while the same change was pinning
+  // that pairing on the phone's bubble.
+  test('the login aside pairs the tint with its own ink', async ({ page }) => {
+    await forceLightTheme(page);
+    await setupThemeMocks(page, { isAdmin: true });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('form', { timeout: 10000 });
+
+    const headline = page.locator('aside h2');
+    await expect(headline).toBeVisible();
+
+    // on-primary-container #143d30, the ink primary-container binds.
+    expect(await headline.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(20, 61, 48)');
+    // and NOT on-surface #1a1c1b, the body ink of the page canvas.
+    expect(await headline.evaluate((el) => getComputedStyle(el).color)).not.toBe('rgb(26, 28, 27)');
+  });
+
   test('dashboard renders the editorial layout', async ({ page }) => {
     await forceLightTheme(page);
     await setupThemeMocks(page, { isAdmin: true });
