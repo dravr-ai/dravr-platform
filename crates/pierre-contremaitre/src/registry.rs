@@ -10,6 +10,8 @@ use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::CoachingPersona;
+
+use super::messaging_strings::DEFAULT_LOCALE;
 use pierre_llm::prompts::{
     get_coaching_persona_prompt, ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
     CASUAL_PERSONA_PROMPT, COACH_GENERATION_PROMPT, COACH_PERSONA_PROMPT,
@@ -304,6 +306,31 @@ impl PromptRegistry {
             .get(slug)
             .and_then(|locales| locales.get(locale))
             .map(|e| e.content.clone())
+    }
+
+    /// Get a coach prompt for `locale`, falling back to [`DEFAULT_LOCALE`].
+    ///
+    /// [`Self::get_coach_prompt`] is the raw accessor and stays exact; this is
+    /// the layered one its doc invites a caller to build, and it exists because
+    /// the corpus ships each coach in `en` and `fr` while `SUPPORTED_LOCALES`
+    /// is five. Without the second lookup an `es`, `de` or `pt` athlete missed
+    /// the registry and fell through to the `coaches.system_prompt` column —
+    /// which the seeder fills with the `## Instructions` section alone, so the
+    /// domain knowledge, alert taxonomy and success criteria all disappeared
+    /// for three of five supported locales behind a single `warn!`
+    /// (carnet#386).
+    ///
+    /// Serving the default locale's full markdown does not decide the reply's
+    /// language: the turn-language block states that independently of which
+    /// locale authored the persona text.
+    pub fn coach_prompt_for_locale(&self, slug: &str, locale: &str) -> Option<String> {
+        if let Some(content) = self.get_coach_prompt(slug, locale) {
+            return Some(content);
+        }
+        if locale == DEFAULT_LOCALE {
+            return None;
+        }
+        self.get_coach_prompt(slug, DEFAULT_LOCALE)
     }
 
     /// Get the coaching-persona output-format block for `persona`.

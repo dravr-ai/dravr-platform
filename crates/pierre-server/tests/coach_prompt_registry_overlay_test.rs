@@ -161,3 +161,126 @@ fn contremaitre_coach_locale_routing_picks_caller_locale() {
     let fr = resolve_coach_base_prompt(&registry, &coach_ctx, "fr");
     assert_eq!(fr, "PROMPT_FRANCAIS");
 }
+
+/// The corpus ships each coach in `en` and `fr`; `SUPPORTED_LOCALES` is
+/// five. An `es`, `de` or `pt` athlete therefore misses the registry on
+/// their own locale, and before the fallback existed they landed on the
+/// `coaches.system_prompt` column — which the seeder fills with
+/// `sections.instructions` alone, not the full markdown. The domain
+/// knowledge, alert taxonomy and success criteria all disappeared for
+/// three of five supported locales behind a single `warn!`.
+///
+/// A miss must now retry `DEFAULT_LOCALE` and serve that markdown.
+#[test]
+fn unsupported_locale_falls_back_to_default_locale_markdown_not_db_column() {
+    let registry = Arc::new(PromptRegistry::new());
+    registry.update_coach_prompt(
+        "endurance-coach",
+        "en",
+        "FULL_MARKDOWN_EN".to_owned(),
+        "3333333333333333".to_owned(),
+    );
+    registry.update_coach_prompt(
+        "endurance-coach",
+        "fr",
+        "FULL_MARKDOWN_FR".to_owned(),
+        "4444444444444444".to_owned(),
+    );
+
+    let coach_ctx = CoachRuntimeContext {
+        slug: "endurance-coach".to_owned(),
+        source: "contremaitre".to_owned(),
+        system_prompt: "INSTRUCTIONS_ONLY_DB_COLUMN".to_owned(),
+        startup_query: None,
+        data_requirements: None,
+        output_schema: None,
+        visuals: Vec::new(),
+        max_tool_iterations: None,
+        temperature: None,
+        category: CoachCategory::Training,
+    };
+
+    for locale in ["es", "de", "pt"] {
+        let resolved = resolve_coach_base_prompt(&registry, &coach_ctx, locale);
+        assert_eq!(
+            resolved, "FULL_MARKDOWN_FR",
+            "{locale} must fall back to the default locale's full markdown"
+        );
+        assert_ne!(
+            resolved, "INSTRUCTIONS_ONLY_DB_COLUMN",
+            "{locale} must never silently degrade to the instructions-only DB column while the registry holds the coach"
+        );
+    }
+}
+
+/// The fallback must not shadow a locale the registry actually carries:
+/// an `en` athlete keeps the English markdown even though `fr` is the
+/// default locale and would otherwise win.
+#[test]
+fn present_locale_is_never_replaced_by_the_default_locale() {
+    let registry = Arc::new(PromptRegistry::new());
+    registry.update_coach_prompt(
+        "endurance-coach",
+        "en",
+        "FULL_MARKDOWN_EN".to_owned(),
+        "5555555555555555".to_owned(),
+    );
+    registry.update_coach_prompt(
+        "endurance-coach",
+        "fr",
+        "FULL_MARKDOWN_FR".to_owned(),
+        "6666666666666666".to_owned(),
+    );
+
+    let coach_ctx = CoachRuntimeContext {
+        slug: "endurance-coach".to_owned(),
+        source: "contremaitre".to_owned(),
+        system_prompt: "INSTRUCTIONS_ONLY_DB_COLUMN".to_owned(),
+        startup_query: None,
+        data_requirements: None,
+        output_schema: None,
+        visuals: Vec::new(),
+        max_tool_iterations: None,
+        temperature: None,
+        category: CoachCategory::Training,
+    };
+
+    assert_eq!(
+        resolve_coach_base_prompt(&registry, &coach_ctx, "en"),
+        "FULL_MARKDOWN_EN",
+        "a locale the registry carries must win over the default locale"
+    );
+}
+
+/// A coach the registry does not hold in ANY locale still falls to the DB
+/// column — the fallback narrows the gap, it does not paper over a coach
+/// that never synced.
+#[test]
+fn coach_absent_in_every_locale_still_falls_back_to_db_column() {
+    let registry = Arc::new(PromptRegistry::new());
+    registry.update_coach_prompt(
+        "some-other-coach",
+        "fr",
+        "NOT_THIS_ONE".to_owned(),
+        "7777777777777777".to_owned(),
+    );
+
+    let coach_ctx = CoachRuntimeContext {
+        slug: "never-synced-coach".to_owned(),
+        source: "contremaitre".to_owned(),
+        system_prompt: "DB_COLUMN_IS_ALL_WE_HAVE".to_owned(),
+        startup_query: None,
+        data_requirements: None,
+        output_schema: None,
+        visuals: Vec::new(),
+        max_tool_iterations: None,
+        temperature: None,
+        category: CoachCategory::Training,
+    };
+
+    assert_eq!(
+        resolve_coach_base_prompt(&registry, &coach_ctx, "es"),
+        "DB_COLUMN_IS_ALL_WE_HAVE",
+        "a coach absent from every locale must still reach the DB column"
+    );
+}

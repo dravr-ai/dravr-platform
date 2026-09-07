@@ -568,8 +568,8 @@ pub(crate) async fn resolve_user_persona_and_timezone(
 /// source of truth.
 ///
 /// `locale` is the turn's resolved locale, taken from
-/// [`crate::SurfaceProfile::locale`]; the registry keys coach prompts by
-/// `(slug, locale)` per contremaitre manifest v5.
+/// [`crate::SurfaceProfile::locale`]; `coach_prompt_for_locale` keys on
+/// `(slug, locale)` and layers the default-locale fallback (carnet#386).
 pub fn resolve_coach_base_prompt(
     prompt_registry: &Arc<PromptRegistry>,
     coach_ctx: &CoachRuntimeContext,
@@ -579,14 +579,14 @@ pub fn resolve_coach_base_prompt(
         return coach_ctx.system_prompt.clone();
     }
 
-    if let Some(content) = prompt_registry.get_coach_prompt(&coach_ctx.slug, locale) {
+    if let Some(content) = prompt_registry.coach_prompt_for_locale(&coach_ctx.slug, locale) {
         return content;
     }
 
     warn!(
         slug = %coach_ctx.slug,
         locale = %locale,
-        "contremaitre coach prompt missing from PromptRegistry — falling back to coaches.system_prompt column. Hot-reload may be broken or the registry has not been populated for this locale.",
+        "contremaitre coach prompt missing from PromptRegistry in every locale — falling back to coaches.system_prompt column. Hot-reload may be broken or the registry has not been populated.",
     );
     coach_ctx.system_prompt.clone()
 }
