@@ -116,6 +116,7 @@ async fn a_re_run_supersedes_only_the_previous_interviews_window() -> Result<()>
             &user,
             Some(Pillar::TrainingAndMovement),
             Some(window_start),
+            None,
             // Pillar-scoped re-screen: no per-question narrowing.
             None,
         )
@@ -181,6 +182,7 @@ async fn a_re_run_leaves_other_pillars_alone() -> Result<()> {
             &user,
             Some(Pillar::TrainingAndMovement),
             Some(window_start),
+            None,
             // Pillar-scoped re-screen: no per-question narrowing.
             None,
         )
@@ -237,6 +239,7 @@ async fn superseded_answers_do_not_refill_the_guaranteed_bundle() -> Result<()> 
             &user,
             Some(Pillar::TrainingAndMovement),
             Some(window_start),
+            None,
             // Pillar-scoped re-screen: no per-question narrowing.
             None,
         )

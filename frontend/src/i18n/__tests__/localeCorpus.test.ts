@@ -188,8 +188,12 @@ describe('client locale corpus', () => {
     // 2381 on three different afternoons, each correct when taken. -68.
     // +7 for the route block: chat.routeAlt, routeAltTitled, routeClimbs,
     // routeClimbCategory, routeNoTrack and the two map-attribution strings.
+    // +10 for the season walk: the eight `commands.season.*` strings and the
+    // two horizon predicate sentences, `aim_this_season` and `aim_long_term`.
+    // +9 for the flavours' plain-words labels, `messaging.flavour.*` — one per
+    // catalogue flavour, what the coach says instead of "polarized".
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2320);
+    expect(reference).toHaveLength(2339);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

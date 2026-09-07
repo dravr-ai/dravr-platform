@@ -43,6 +43,8 @@ pub mod group;
 pub mod group_membership;
 /// Handlers for /confirm and /deny — Guardian pending-action resolution.
 pub mod guardian_confirm;
+/// Starting a fixed-list guided walk — the sequence `/calibrate` and `/season` share
+pub mod guided_walk;
 /// Help command listing available commands
 pub mod help;
 /// Guided pillar-onboarding command (`/pillars`)
@@ -55,6 +57,8 @@ pub mod plan;
 pub mod privacy;
 /// `/reset` — rotate the athlete onto a fresh conversation
 pub mod reset;
+/// Season walk command (`/season`) — the race calendar and what it demands
+pub mod season;
 /// Status command showing user and platform state
 pub mod status;
 /// Timezone command persisting the user's IANA timezone

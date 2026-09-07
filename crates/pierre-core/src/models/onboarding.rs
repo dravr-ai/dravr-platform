@@ -66,6 +66,9 @@ pub enum GuidedFlow {
     /// an intake turn never reaches the model, and the guided-turn resolver
     /// treats this flow as inactive.
     Intake,
+    /// The season walk — the race calendar and what it demands; topics come
+    /// from a fixed list, like calibration.
+    Season,
 }
 
 /// Whether a guided-interview topic may be probed where other people read
@@ -118,6 +121,12 @@ pub struct LoadSnapshot {
     pub longest_session_min: u32,
     /// How many weeks the means were taken over.
     pub weeks: u32,
+    /// Distinct sport families (running, cycling, swimming, other) the window
+    /// holds. Two or more is what makes an athlete multi-sport for the season
+    /// walk's facility question. Defaults to zero on a snapshot stored before
+    /// the field existed, which reads as single-sport — the shorter walk.
+    #[serde(default)]
+    pub sport_families: u32,
 }
 
 /// Conversation-scoped state of a guided interview.
@@ -224,21 +233,32 @@ impl OnboardingState {
     /// than [`COMPLETION_RELEASE_WINDOW_MINUTES`].
     #[must_use]
     pub fn just_completed(raw: Option<&str>, now: DateTime<Utc>) -> bool {
-        let Some(state) = raw.and_then(|s| serde_json::from_str::<Self>(s).ok()) else {
+        let Some((_, at)) = Self::retired(raw) else {
             return false;
         };
+        now.signed_duration_since(at) < Duration::minutes(COMPLETION_RELEASE_WINDOW_MINUTES)
+    }
+
+    /// The flow a retired marker belonged to — the release directive names
+    /// what the coach may now do, and that depends on which walk ended.
+    /// `None` for an active flow, an absent or unparseable column, or a
+    /// marker with no completion stamp.
+    #[must_use]
+    pub fn retired_flow(raw: Option<&str>) -> Option<GuidedFlow> {
+        Self::retired(raw).map(|(flow, _)| flow)
+    }
+
+    /// A retired marker's flow and completion instant.
+    fn retired(raw: Option<&str>) -> Option<(GuidedFlow, DateTime<Utc>)> {
+        let state = raw.and_then(|s| serde_json::from_str::<Self>(s).ok())?;
         if state.active {
-            return false;
+            return None;
         }
-        let Some(at) = state
+        let at = state
             .completed_at
             .as_deref()
-            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        else {
-            return false;
-        };
-        now.signed_duration_since(at.with_timezone(&Utc))
-            < Duration::minutes(COMPLETION_RELEASE_WINDOW_MINUTES)
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())?;
+        Some((state.flow, at.with_timezone(&Utc)))
     }
 
     /// This state with the flow-start load snapshot attached.
@@ -303,6 +323,7 @@ impl OnboardingState {
                         r#"{"active":true,"started_at":"","flow":"calibration"}"#
                     }
                     GuidedFlow::Intake => r#"{"active":true,"started_at":"","flow":"intake"}"#,
+                    GuidedFlow::Season => r#"{"active":true,"started_at":"","flow":"season"}"#,
                 }
                 .to_owned()
             },
@@ -600,6 +621,7 @@ mod tests {
             sessions_per_week: 4.0,
             longest_session_min: 195,
             weeks: 6,
+            sport_families: 1,
         };
         let state =
             OnboardingState::start("2026-07-28T00:00:00Z".to_owned(), GuidedFlow::Calibration)

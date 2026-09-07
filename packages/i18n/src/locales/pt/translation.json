@@ -1320,6 +1320,16 @@
       "description": "Começar uma conversa nova; a anterior fica arquivada",
       "walk_interrupted": "\n\nO teu perfil estava em curso — escreve `/pillars` para retomar."
     },
+    "season": {
+      "complete_header": "Percurso da época concluído — captei {0} de {1} respostas.",
+      "complete_missing_goal": "Não captei uma prova-objetivo. Quando tiver uma em mente, diga-me e eu organizo a época à volta dela.",
+      "description": "Planeie a sua época — um breve percurso guiado (seis perguntas, mais as instalações se pratica vários desportos): as suas provas, como seria um bom ano, os seus melhores resultados, o seu percurso, o que orienta as suas sessões e o que espera do coaching; numa sala de grupo a troca é visível e só tu respondes",
+      "followup_lay_out": "Quer que organize a sua época à volta disso — que tipo de treino lhe convém, e as fases daqui até ao dia da prova?",
+      "opener": "Vamos planear a sua época. Vou fazer seis perguntas curtas, uma de cada vez. Primeiro, o seu calendário: que provas tem esta época, mais ou menos quando, e qual delas conta mesmo?",
+      "opener_availability": "Vamos planear a sua época. Vou fazer seis perguntas curtas, uma de cada vez. Já me falou do seu tempo: {0}. Diga-me se isso mudou. Primeiro, o seu calendário: que provas tem esta época, mais ou menos quando, e qual delas conta mesmo?",
+      "opener_room": "Vamos planear a sua época aqui no grupo — as suas respostas ficam visíveis para todos, e só você as pode dar. Seis perguntas curtas, uma de cada vez. Primeiro, o seu calendário: que provas tem esta época, mais ou menos quando, e qual delas conta mesmo?",
+      "start_failed": "Não consegui iniciar o percurso da época nesta conversa. Tente de novo daqui a pouco."
+    },
     "status": {
       "channel_label": "\nCanal: {0}",
       "description": "Resumo da tua conta",
@@ -1737,6 +1747,17 @@
     "error": {
       "generic": "O Dravr está temporariamente indisponível. A equipa foi notificada — tenta de novo em alguns minutos. (ref: {0})"
     },
+    "flavour": {
+      "hvlit_foundation": "tudo leve, muito volume, uma sessão longa por semana",
+      "norwegian_singles_subthreshold": "várias sessões controladas mesmo abaixo do limiar por semana, por ritmo ou pulsação",
+      "norwegian_threshold_density": "três ou quatro sessões de limiar por semana, cada uma com teto de lactato",
+      "polarized_classic": "quase tudo leve com dois dias duros",
+      "pyramidal_base": "quase tudo leve, uma sessão constante, uma dura curta e uma longa",
+      "pyramidal_long_course": "trabalho longo e constante, com a nutrição de prova e os encadeados integrados",
+      "pyramidal_to_polarized": "primeiro uma base constante, depois dois dias duros quando a prova se aproxima",
+      "race_specific": "as últimas semanas antes da sua prova, com sessões à imagem da prova",
+      "time_crunched_threshold": "semanas curtas: duas sessões de limiar e uma leve ou longa"
+    },
     "guardian": {
       "confirm_denied": "Entendido — a ação foi cancelada.",
       "confirm_done": "Feito — a ação {0} foi executada.",
@@ -1792,6 +1813,8 @@
     },
     "memory": {
       "predicate": {
+        "aim_long_term": "Daqui a alguns anos, a sua meta é {0}",
+        "aim_this_season": "Esta época, a sua meta é {0}",
         "avoid": "Evitas {0}",
         "can_train_on": "Podes treinar {0}",
         "cannot_train_on": "Não podes treinar {0}",

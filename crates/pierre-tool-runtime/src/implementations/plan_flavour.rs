@@ -40,16 +40,18 @@ use crate::conversions::{
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{
-    build_skeleton, select_flavour, Confidence, EventClass, FlavourFamily, FlavourInputs,
-    FlavourVerdict, HoursTier, InjuryLoad, IntervalExperience, LaidPhase, Measurement,
-    RecoverySpeed, SeasonLayout, SeasonPhase, SkeletonTemplate, SportMix, TrainingAge,
+    build_skeleton, select_flavour, EventClass, FlavourFamily, FlavourInputs, FlavourVerdict,
+    HoursTier, InjuryLoad, IntervalExperience, LaidPhase, Measurement, RecoverySpeed, SeasonLayout,
+    SeasonPhase, SkeletonTemplate, SportMix, TrainingAge,
 };
-use pierre_core::models::{SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{SportFamily, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::parse_plan_date;
+use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
 /// Upper bound on weekly hours a payload may claim; above this it is a typo.
@@ -169,6 +171,30 @@ fn vocab_array_prop(description: &str, values: &[&str]) -> PropertySchema {
             ..Default::default()
         })),
         ..Default::default()
+    }
+}
+
+/// The athlete-facing name of a flavour, in one locale.
+///
+/// Plain words — "mostly easy with two hard days", never "polarized" —
+/// from the string catalogue under `messaging.flavour.<id>`, the hyphens
+/// of the id folded to underscores. A flavour the catalogue has no words
+/// for (a coach package's house flavour) is named by its id, which is at
+/// least honest.
+struct FlavourLabels<'a> {
+    registry: &'a MessagingStringsRegistry,
+    locale: &'a str,
+}
+
+impl FlavourLabels<'_> {
+    fn of(&self, id: &str) -> String {
+        let key = format!("messaging.flavour.{}", id.replace('-', "_"));
+        let label = self.registry.get(&key, self.locale);
+        if label.is_empty() {
+            id.to_owned()
+        } else {
+            label
+        }
     }
 }
 
@@ -465,32 +491,58 @@ impl RecommendPlanFlavourTool {
             .cloned()
     }
 
-    fn verdict_json(v: &FlavourVerdict) -> Value {
-        json!({
-            "ranked": v.ranked.iter().map(|s| json!({
-                "id": s.id,
-                "score": s.score,
-                "reasons": s.reasons.iter().map(|r| json!({
-                    "dimension": r.dimension.as_str(),
-                    "value": r.value,
-                    "weight": r.weight,
-                    "tier": r.tier.as_str(),
-                    "evidence_refs": r.evidence_refs,
-                    "note": r.note,
-                })).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>(),
-            "excluded": v.excluded.iter().map(|e| json!({
-                "id": e.id,
-                "reasons": e.reasons,
-            })).collect::<Vec<_>>(),
-            "confidence": match v.confidence {
-                Confidence::Low => "low",
-                Confidence::Moderate => "moderate",
-                Confidence::High => "high",
-            },
-            "missing_inputs": v.missing_inputs.iter().map(|d| d.as_str()).collect::<Vec<_>>(),
-            "coach_pinned": v.coach_pinned,
-        })
+    /// The verdict exactly as the kernel serializes it, so the coach can pass
+    /// it back into `save_training_plan.flavour.verdict` verbatim and the
+    /// stored snapshot deserializes into the same type — plus, on every
+    /// ranked and excluded entry, a `label`: the flavour in the athlete's own
+    /// words and locale, which is what the coach says out loud while the id
+    /// stays the coach's name for it. An unknown field is ignored on the way
+    /// back in, so the label costs the round-trip nothing.
+    fn verdict_json(v: &FlavourVerdict, label: &FlavourLabels<'_>) -> Value {
+        let mut verdict = serde_json::to_value(v).unwrap_or(Value::Null);
+        for list in ["ranked", "excluded"] {
+            if let Some(entries) = verdict.get_mut(list).and_then(Value::as_array_mut) {
+                for entry in entries {
+                    let Some(id) = entry.get("id").and_then(Value::as_str).map(str::to_owned)
+                    else {
+                        continue;
+                    };
+                    if let Some(map) = entry.as_object_mut() {
+                        map.insert("label".to_owned(), json!(label.of(&id)));
+                    }
+                }
+            }
+        }
+        verdict
+    }
+
+    /// The inputs as the kernel serializes them — so they pass back into
+    /// `save_training_plan.flavour.inputs` verbatim — with `measurements` as
+    /// the set the rule actually fired on (effort when nothing is on file),
+    /// plus the hours tier and where each input came from.
+    fn inputs_json(resolved: &Resolved, tier: HoursTier) -> Value {
+        let mut inputs = serde_json::to_value(&resolved.inputs).unwrap_or(Value::Null);
+        if let Some(map) = inputs.as_object_mut() {
+            map.insert(
+                "measurements".to_owned(),
+                json!(resolved
+                    .inputs
+                    .effective_measurements()
+                    .iter()
+                    .map(|m| m.as_str())
+                    .collect::<Vec<_>>()),
+            );
+            map.insert("hours_tier".to_owned(), json!(tier.as_str()));
+            map.insert(
+                "sources".to_owned(),
+                json!(resolved
+                    .sources
+                    .iter()
+                    .map(|(k, s)| json!({ "input": k, "from": s.as_str() }))
+                    .collect::<Vec<_>>()),
+            );
+        }
+        inputs
     }
 
     fn phase_json(p: &LaidPhase) -> Value {
@@ -556,15 +608,11 @@ const fn training_age_from_level(level: FitnessLevel) -> TrainingAge {
 /// The sport mix a primary sport implies. Anything the catalogue does not
 /// name a row for is `mixed`, which is the honest reading rather than a guess.
 fn sport_mix_from(sport: &SportType) -> SportMix {
-    match sport {
-        SportType::Run | SportType::VirtualRun => SportMix::Running,
-        SportType::Ride
-        | SportType::VirtualRide
-        | SportType::EbikeRide
-        | SportType::MountainBike
-        | SportType::GravelRide => SportMix::Cycling,
-        SportType::Swim => SportMix::Swimming,
-        _ => SportMix::Mixed,
+    match SportFamily::of(sport) {
+        SportFamily::Running => SportMix::Running,
+        SportFamily::Cycling => SportMix::Cycling,
+        SportFamily::Swimming => SportMix::Swimming,
+        SportFamily::Other => SportMix::Mixed,
     }
 }
 
@@ -589,7 +637,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
         );
         tool_definition(
             "recommend_plan_flavour",
-            "Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome — including any override the athlete or coach makes, with its reason — through save_training_plan. This only recommends; it writes nothing.",
+            "Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome through save_training_plan, passing `verdict` and `inputs` through exactly as returned here, with selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. This only recommends; it writes nothing.",
             schema,
             Some(read_only_annotations()),
         )
@@ -689,6 +737,14 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 _ => None,
             };
 
+            // The verdict speaks the athlete's language: the labels are what
+            // the coach says, resolved the way the memory tool resolves them.
+            let locale = resolve_user_locale(repos.users.as_ref(), user_id).await;
+            let labels = FlavourLabels {
+                registry: context.resources.messaging_strings_registry(),
+                locale: &locale,
+            };
+
             info!(
                 user_id = %user_id,
                 tenant_id = %tenant_id,
@@ -702,25 +758,9 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
 
             Ok(ToolResult::ok(json!({
                 "athlete": scope.acting_for,
-                "verdict": Self::verdict_json(&verdict),
+                "verdict": Self::verdict_json(&verdict, &labels),
                 "season": Self::season_json(layout.as_ref(), skeleton.as_ref().map(|s| s.id.as_str())),
-                "inputs": {
-                    "hours_per_week": resolved.inputs.hours_per_week,
-                    "hours_tier": tier.as_str(),
-                    "sessions_per_week": resolved.inputs.sessions_per_week,
-                    "training_age": resolved.inputs.training_age.as_str(),
-                    "training_age_years": resolved.inputs.training_age_years,
-                    "event_class": resolved.inputs.event_class.map(EventClass::as_str),
-                    "weeks_to_goal": resolved.inputs.weeks_to_goal,
-                    "measurements": resolved.inputs.effective_measurements().iter().map(|m| m.as_str()).collect::<Vec<_>>(),
-                    "recovery_speed": resolved.inputs.recovery_speed.as_str(),
-                    "injury_load": resolved.inputs.injury_load.as_str(),
-                    "interval_experience": resolved.inputs.interval_experience.as_str(),
-                    "sport_mix": resolved.inputs.sport_mix.as_str(),
-                    "season_phase": resolved.inputs.season_phase.map(SeasonPhase::as_str),
-                    "coach_preference": resolved.inputs.coach_preference,
-                    "sources": resolved.sources.iter().map(|(k, s)| json!({ "input": k, "from": s.as_str() })).collect::<Vec<_>>(),
-                },
+                "inputs": Self::inputs_json(&resolved, tier),
             })))
         }
         .await;

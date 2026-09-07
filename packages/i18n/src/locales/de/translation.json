@@ -1320,6 +1320,16 @@
       "description": "Ein neues Gespräch beginnen; das alte bleibt archiviert",
       "walk_interrupted": "\n\nDein Profil war in Arbeit — schreib `/pillars`, um weiterzumachen."
     },
+    "season": {
+      "complete_header": "Saison-Durchgang abgeschlossen — ich habe {0} von {1} Antworten erfasst.",
+      "complete_missing_goal": "Ein Zielrennen habe ich nicht erfasst. Sobald du eines im Kopf hast, sag es mir, und ich lege die Saison darum herum an.",
+      "description": "Plane deine Saison — ein kurzer geführter Durchgang (sechs Fragen, plus Trainingsstätten, wenn du mehrere Sportarten betreibst): deine Rennen, wie ein gutes Jahr aussieht, deine Bestleistungen, dein Werdegang, wonach du deine Einheiten steuerst und was du vom Coaching erwartest; in einem Gruppenraum ist der Austausch sichtbar und nur du antwortest",
+      "followup_lay_out": "Soll ich deine Saison darum herum anlegen — welche Art von Training zu dir passt, und die Phasen von jetzt bis zum Renntag?",
+      "opener": "Lass uns deine Saison planen. Ich stelle dir sechs kurze Fragen, eine nach der anderen. Zuerst dein Kalender: Welche Wettkämpfe stehen diese Saison an, ungefähr wann, und welcher zählt wirklich?",
+      "opener_availability": "Lass uns deine Saison planen. Ich stelle dir sechs kurze Fragen, eine nach der anderen. Zu deiner Zeit hast du mir schon gesagt: {0}. Sag Bescheid, falls sich das geändert hat. Zuerst dein Kalender: Welche Wettkämpfe stehen diese Saison an, ungefähr wann, und welcher zählt wirklich?",
+      "opener_room": "Wir planen deine Saison hier in der Gruppe — deine Antworten sind für alle sichtbar, und nur du gibst sie. Sechs kurze Fragen, eine nach der anderen. Zuerst dein Kalender: Welche Wettkämpfe stehen diese Saison an, ungefähr wann, und welcher zählt wirklich?",
+      "start_failed": "Ich konnte den Saison-Durchgang in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal."
+    },
     "status": {
       "channel_label": "\nKanal: {0}",
       "description": "Kontoübersicht",
@@ -1737,6 +1747,17 @@
     "error": {
       "generic": "Dravr ist vorübergehend nicht verfügbar. Das Team wurde benachrichtigt — versuch es in ein paar Minuten erneut. (Ref: {0})"
     },
+    "flavour": {
+      "hvlit_foundation": "alles locker, viel davon, eine lange Einheit pro Woche",
+      "norwegian_singles_subthreshold": "mehrere kontrollierte Einheiten knapp unter der Schwelle pro Woche, nach Tempo oder Puls",
+      "norwegian_threshold_density": "drei bis vier Schwelleneinheiten pro Woche, jede mit Laktat-Obergrenze",
+      "polarized_classic": "überwiegend locker mit zwei harten Tagen",
+      "pyramidal_base": "überwiegend locker, eine zügige Einheit, eine kurze harte, eine lange",
+      "pyramidal_long_course": "lange, zügige Arbeit mit Wettkampfverpflegung und Koppeleinheiten eingebaut",
+      "pyramidal_to_polarized": "erst eine zügige Basis, dann zwei harte Tage, wenn der Wettkampf näher rückt",
+      "race_specific": "die letzten Wochen vor deinem Wettkampf, mit Einheiten nach dem Bild des Rennens",
+      "time_crunched_threshold": "kurze Wochen: zwei Schwelleneinheiten und eine lockere oder lange"
+    },
     "guardian": {
       "confirm_denied": "Verstanden — die Aktion wurde abgebrochen.",
       "confirm_done": "Erledigt — die Aktion {0} wurde ausgeführt.",
@@ -1792,6 +1813,8 @@
     },
     "memory": {
       "predicate": {
+        "aim_long_term": "In ein paar Jahren strebst du {0} an",
+        "aim_this_season": "Diese Saison strebst du {0} an",
         "avoid": "Du vermeidest {0}",
         "can_train_on": "Du kannst {0} trainieren",
         "cannot_train_on": "Du kannst {0} nicht trainieren",

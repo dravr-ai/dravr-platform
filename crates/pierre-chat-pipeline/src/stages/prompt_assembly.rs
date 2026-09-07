@@ -1021,7 +1021,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         None if OnboardingState::just_completed(conv.onboarding_state.as_deref(), Utc::now()) => {
             format!(
                 "{raw_system_prompt}{}",
-                super::onboarding::release_directive()
+                super::onboarding::release_directive(conv.onboarding_state.as_deref())
             )
         }
         // A builder coach on a card channel already received the JSON output

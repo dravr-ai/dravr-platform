@@ -88,7 +88,13 @@ Tools for setting fitness goals, tracking progress, and receiving AI-powered goa
   same consent gate as `get_training_plan`, so a human coach in a direct chat
   reads that athlete's profile rather than their own.
 - The tool only recommends. The outcome — including any override and its reason
-  — is saved through `save_training_plan`.
+  — is saved through `save_training_plan`, whose `outline.flavour` takes the
+  tool's `verdict` and `inputs` back verbatim: they are stored beside the choice
+  as the provenance snapshot, and a `rule` selection must be the flavour the
+  verdict ranked first. Every save with a flavour reports
+  `training_plan.vision_saved`; a coach or athlete choice that departs from the
+  rule's top pick also reports `training_plan.flavour_overridden` with the
+  rule's pick beside it.
 
 **`set_goal` Parameters**:
 - `goal_type`: Type of goal - `distance`, `time`, `frequency`, `performance`, or `custom`

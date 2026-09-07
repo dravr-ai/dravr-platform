@@ -37,6 +37,8 @@ pub mod calibration;
 /// Endurance athlete dossier composed at read time from physiology, goals,
 /// zones, nutrition, and equipment slots.
 pub mod dossier;
+/// The profile-recorded window of an athlete's most recent fixed-list walk.
+pub mod guided_window;
 mod health;
 mod nutrition;
 mod oauth;
@@ -47,7 +49,11 @@ pub mod onboarding;
 pub mod pillar;
 /// Coach-athlete roster assignment shape backing `coach_athlete_assignments`.
 pub mod roster;
+/// The season walk's topic table and next-topic policy.
+pub mod season;
 mod sleep;
+/// The coarse sport family a provider sport type belongs to.
+pub mod sport_family;
 mod tenant;
 mod tool_selection;
 /// Endurance daily training-state rollup (`DailyTrainingState`) backing
@@ -127,11 +133,14 @@ pub use user::{
 // Endurance zones + dossier + training-history + workout-template domain
 pub use calibration::{CalibrationConditions, CalibrationTopic};
 pub use dossier::{Dossier, DossierFact};
+pub use guided_window::GuidedWindow;
 pub use onboarding::{
     CoverageMap, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, TopicSlug,
     TopicVisibility, WalkAudience, COMPLETION_RELEASE_WINDOW_MINUTES, MAX_PROBE_ATTEMPTS,
 };
 pub use pillar::Pillar;
+pub use season::{SeasonConditions, SeasonTopic};
+pub use sport_family::SportFamily;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{
     CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,

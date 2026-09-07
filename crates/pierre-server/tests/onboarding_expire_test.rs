@@ -91,7 +91,7 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
     // Scoped re-screen: only the Fuelling onboarding fact is superseded.
     let n = repos
         .memory
-        .expire_onboarding_facts(tenant, &user_s, Some(Pillar::Fuelling), None, None)
+        .expire_onboarding_facts(tenant, &user_s, Some(Pillar::Fuelling), None, None, None)
         .await?;
     assert_eq!(n, 1, "only the one Fuelling onboarding fact superseded");
 
@@ -108,7 +108,7 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
     // already-expired Fuelling one is excluded; the conversation fact untouched.
     let n = repos
         .memory
-        .expire_onboarding_facts(tenant, &user_s, None, None, None)
+        .expire_onboarding_facts(tenant, &user_s, None, None, None, None)
         .await?;
     assert_eq!(
         n, 1,

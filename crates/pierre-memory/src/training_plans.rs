@@ -39,8 +39,8 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::models::periodization::serde_num::{whole_u32_opt, whole_u8};
 use pierre_core::models::periodization::{
-    FlavourFamily, LoadingPattern, Modifier, PhaseKind, Sequencing, Share, TidTarget,
-    WorkoutPurpose,
+    FlavourFamily, FlavourInputs, FlavourVerdict, LoadingPattern, Modifier, PhaseKind, Sequencing,
+    Share, TidTarget, WorkoutPurpose,
 };
 use pierre_core::models::{FuelingProtocol, WorkoutStep};
 use serde::{Deserialize, Serialize};
@@ -192,7 +192,9 @@ impl SelectedBy {
 /// `id` names a catalogue flavour (`training/flavours/<id>.yaml`); `family`,
 /// `sequencing` and `modifiers` are copied from that flavour at save time so a
 /// stored plan still says what it was built on after the catalogue moves.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `PartialEq` only: the inputs snapshot carries the weekly hours as a float.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FlavourSelection {
     /// Catalogue flavour id (`polarized-classic`, `hvlit-foundation`, …).
     pub id: String,
@@ -209,6 +211,14 @@ pub struct FlavourSelection {
     /// selection; required prose for a coach or athlete choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_reason: Option<String>,
+    /// What the rule proposed at save time — `recommend_plan_flavour`'s
+    /// verdict, passed through by the coach — so an override can be measured
+    /// against it later. Absent on a plan saved without running the rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict_snapshot: Option<FlavourVerdict>,
+    /// The inputs that verdict was computed from, for the same reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inputs_snapshot: Option<FlavourInputs>,
 }
 
 /// One phase of the vision (mesocycle): a kind with a start date, a length

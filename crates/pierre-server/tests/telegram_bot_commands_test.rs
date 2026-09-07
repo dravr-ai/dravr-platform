@@ -171,7 +171,15 @@ mod telegram_menu_tests {
             group, default,
             "the group menu must offer exactly the commands the default one does"
         );
-        for expected in ["calibrate", "pillars", "logout", "plan", "group", "help"] {
+        for expected in [
+            "calibrate",
+            "season",
+            "pillars",
+            "logout",
+            "plan",
+            "group",
+            "help",
+        ] {
             assert!(
                 group.contains(&expected.to_owned()),
                 "/{expected} must be discoverable in a group; group was {group:?}"
@@ -196,6 +204,7 @@ mod telegram_menu_tests {
 
         for personal in [
             "calibrate",
+            "season",
             "pillars",
             "logout",
             "timezone",

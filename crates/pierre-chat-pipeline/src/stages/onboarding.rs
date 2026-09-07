@@ -1,4 +1,4 @@
-// ABOUTME: Guided-interview turn resolution — runs a conversation in pillars or calibration mode
+// ABOUTME: Guided-interview turn resolution — runs a conversation in pillars, calibration or season mode
 // ABOUTME: Computes which topic to probe, the LLM directive, and the fact-stamping for the turn
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,22 +12,24 @@
 //! the extraction worker stamps the captured facts with that topic's pillar and
 //! kind + `source=onboarding`.
 //!
-//! Two flows share this machinery and the one delivered-probe ledger, but not
-//! their next-topic policy:
+//! Three flows share this machinery and the one delivered-probe ledger, but
+//! not their next-topic policy:
 //!
 //! - **Pillars** derives the next topic from live Dossier coverage, so it is
 //!   self-healing: coverage is re-computed every turn and never stored, and a
 //!   topic whose answer produced no fact comes back around with an attempt
 //!   still in hand.
-//! - **Calibration** walks a fixed list. Coverage cannot serve it — most of its
-//!   topics land as the same kind in the same pillar, so the Dossier cannot say
-//!   which ones are still outstanding — which is why that flow has no re-ask
-//!   budget and leans on the completion check instead.
+//! - **Calibration** and **Season** each walk a fixed list. Coverage cannot
+//!   serve them — most of their topics land as the same kind in the same
+//!   pillar, so the Dossier cannot say which ones are still outstanding —
+//!   which is why those flows have no re-ask budget and lean on the
+//!   completion check instead.
 
 use chrono::Utc;
 use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, ConversationRecord, CoverageMap, CoverageTarget,
-    Dossier, GuidedFlow, LoadSnapshot, OnboardingState, Pillar, TenantId, TopicSlug, WalkAudience,
+    Dossier, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, SeasonConditions,
+    SeasonTopic, TenantId, TopicSlug, WalkAudience,
 };
 use pierre_memory::{FactKind, FactSource};
 use uuid::Uuid;
@@ -47,6 +49,8 @@ pub enum GuidedTarget {
     Coverage(CoverageTarget),
     /// A difficulty-calibration interview topic.
     Calibration(CalibrationTopic),
+    /// A season-walk topic.
+    Season(SeasonTopic),
 }
 
 impl GuidedTarget {
@@ -56,6 +60,7 @@ impl GuidedTarget {
         match self {
             Self::Coverage(target) => target.slug(),
             Self::Calibration(topic) => topic.slug(),
+            Self::Season(topic) => topic.slug(),
         }
     }
 }
@@ -89,15 +94,24 @@ pub(super) fn calibration_conditions(
     }
 }
 
+/// Which conditional season topics this athlete qualifies for, from the
+/// load snapshot taken when the walk started. No snapshot — no connected
+/// provider — reads as single-sport, the shorter walk.
+pub(super) fn season_conditions(snapshot: Option<&LoadSnapshot>) -> SeasonConditions {
+    SeasonConditions {
+        multi_sport: snapshot.is_some_and(|s| s.sport_families >= 2),
+    }
+}
+
 /// How a turn relates to a guided flow.
 pub enum GuidedResolution {
     /// A topic to probe this turn; the coach asks it.
     Probe(Box<OnboardingTurn>),
-    /// The calibration interview just finished. The turn answers with
-    /// platform-rendered text instead of dispatching to the LLM — the wrap-up
-    /// reports what was actually captured, which only holds if the platform
-    /// writes it.
-    CalibrationComplete {
+    /// A fixed-list walk — calibration or season — just finished. The turn
+    /// answers with platform-rendered text instead of dispatching to the LLM —
+    /// the wrap-up reports what was actually captured, which only holds if
+    /// the platform writes it.
+    WalkComplete {
         /// The wrap-up delivered in place of an LLM reply.
         summary: String,
         /// The topic this turn's inbound message answers — see
@@ -273,6 +287,12 @@ fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarge
             state.audience,
         )
         .map(GuidedTarget::Calibration),
+        GuidedFlow::Season => SeasonTopic::next_target(
+            &state.probed,
+            season_conditions(state.snapshot.as_ref()),
+            state.audience,
+        )
+        .map(GuidedTarget::Season),
         // Unreachable: `resolve` returns before this for an intake, precisely so
         // that `None` here is never read as "the walk is finished". Kept
         // exhaustive rather than wildcarded so a third platform-driven flow has
@@ -330,10 +350,20 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
             )
             .await,
         ),
+        GuidedFlow::Season => Some(
+            completion::render_season(ctx, &state, facts_tenant, subject_user_id, locale).await,
+        ),
         // The intake writes its own wrap-up when the platform closes it out, so
         // there is nothing to render here.
         GuidedFlow::Pillars | GuidedFlow::Intake => None,
     };
+    // Close the walk's window in the profile, so the next re-run of THIS flow
+    // supersedes exactly this run's answers and a re-run of the OTHER
+    // fixed-list flow leaves them alone. A failed write leaves the window
+    // open, which is the pre-existing behaviour: superseded up to the re-run.
+    if state.flow.profile_key().is_some() {
+        close_walk_window(ctx, state.flow, facts_tenant, subject_user_id).await;
+    }
     // Read before the state is consumed by `completed`: this turn carries the
     // athlete's answer to the interview's last question, and the deterministic
     // reply path still has to extract it.
@@ -363,8 +393,35 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
     }
 
     summary.map_or(GuidedResolution::Inactive, |summary| {
-        GuidedResolution::CalibrationComplete { summary, answered }
+        GuidedResolution::WalkComplete { summary, answered }
     })
+}
+
+/// Stamp the walk's completion into the athlete's profile window.
+///
+/// Read-merge-write, because `upsert_profile` replaces the whole document;
+/// a failed read is logged and leaves the profile untouched rather than
+/// writing a bare window over the athlete's nutrition and equipment blocks.
+async fn close_walk_window(
+    ctx: &ChatPipelineContext,
+    flow: GuidedFlow,
+    facts_tenant: TenantId,
+    subject_user_id: &str,
+) {
+    let Ok(user_id) = Uuid::parse_str(subject_user_id) else {
+        return;
+    };
+    let profile = match ctx.repos.profiles.get_profile(user_id).await {
+        Ok(profile) => profile,
+        Err(e) => {
+            tracing::warn!(error = %e, tenant_id = %facts_tenant, "could not read the profile to close the walk window");
+            return;
+        }
+    };
+    let merged = GuidedWindow::record_completion(profile, flow, &Utc::now().to_rfc3339());
+    if let Err(e) = ctx.repos.profiles.upsert_profile(user_id, merged).await {
+        tracing::warn!(error = %e, tenant_id = %facts_tenant, "failed to close the walk window");
+    }
 }
 
 /// The topic the athlete's inbound message is answering.
@@ -387,6 +444,9 @@ pub fn answered_target(state: &OnboardingState) -> Option<GuidedTarget> {
     let slug = state.probed.last()?.as_str();
     if let Some(topic) = CalibrationTopic::parse(slug) {
         return Some(GuidedTarget::Calibration(topic));
+    }
+    if let Some(topic) = SeasonTopic::parse(slug) {
+        return Some(GuidedTarget::Season(topic));
     }
     if slug == CoverageTarget::NorthStar.slug().as_str() {
         return Some(GuidedTarget::Coverage(CoverageTarget::NorthStar));
@@ -462,8 +522,9 @@ pub async fn record_delivered_probe(
 /// turns of "do not save" while "the earlier instruction no longer applies"
 /// resolves them.
 #[must_use]
-pub fn release_directive() -> String {
-    "\n\n# Interview complete (this overrides the interview rules you were following)\n\
+pub fn release_directive(retired_column: Option<&str>) -> String {
+    let mut out =
+        "\n\n# Interview complete (this overrides the interview rules you were following)\n\
      The guided interview is over. The instruction not to build, propose or save a training \
      plan applied only while it was running and no longer applies — disregard it, along with \
      any statement you made under it about being unable to save.\n\
@@ -472,7 +533,23 @@ pub fn release_directive() -> String {
      Never tell the athlete that saving failed unless you called the tool on this turn and it \
      returned an error. If you intend to save, call the tool and report what it actually \
      returned."
-        .to_owned()
+            .to_owned();
+    // The season wrap-up asked whether to lay the season out. A yes on this
+    // turn is answered by the rule, not by the model's own periodization:
+    // the tool reads the profile and the plan, takes the walk's answers as
+    // arguments, and returns the ranked verdict the coach then presents.
+    if OnboardingState::retired_flow(retired_column) == Some(GuidedFlow::Season) {
+        out.push_str(
+            "\n\nThe wrap-up offered to lay out the athlete's season. If they accept, call \
+             recommend_plan_flavour on this turn — hours_per_week and sessions_per_week from \
+             their calibration availability, and event_class, weeks_to_goal, training_age, \
+             measurements and interval_experience from what they said in the walk — and present \
+             its verdict in your own words: the flavour it ranks first and why, what it ruled \
+             out and why, and the phases it laid out. Never choose a flavour yourself, and never \
+             describe a season you did not get from the tool.",
+        );
+    }
+    out
 }
 
 /// Retire the just-completed marker so [`release_directive`] fires once.
@@ -542,6 +619,12 @@ pub fn directive(turn: &OnboardingTurn) -> String {
             calibration_topic_label(t).to_owned(),
             t.probe_hint().to_owned(),
         ),
+        GuidedTarget::Season(t) => (
+            "Season mode",
+            "You are laying out what this athlete's season is for, one question at a time",
+            season_topic_label(t).to_owned(),
+            t.probe_hint().to_owned(),
+        ),
     };
     let baseline = calibration_baseline_line(turn);
     let room = room_audience_line(turn);
@@ -591,6 +674,19 @@ const fn calibration_topic_label(topic: CalibrationTopic) -> &'static str {
         CalibrationTopic::RecoverySpeed => "how quickly they recover from a hard day",
         CalibrationTopic::Fueling => "what they actually eat on long sessions",
         CalibrationTopic::EventDemand => "what their goal event demands",
+    }
+}
+
+/// What the coach is asking about, for a season topic.
+const fn season_topic_label(topic: SeasonTopic) -> &'static str {
+    match topic {
+        SeasonTopic::RaceCalendar => "the events on their calendar and which one matters",
+        SeasonTopic::GoalHorizon => "what a good season and a good few years would look like",
+        SeasonTopic::PerformanceBaseline => "their recent best performances",
+        SeasonTopic::Background => "how long they have trained and what they came from",
+        SeasonTopic::MeasurementTools => "what they can steer a hard session by",
+        SeasonTopic::CoachingFit => "what they want from coaching",
+        SeasonTopic::FacilityAccess => "their access to a pool, a gym or a trainer",
     }
 }
 
@@ -646,6 +742,14 @@ pub fn extraction_params(answered: GuidedTarget) -> (Option<Pillar>, FactSource,
             Some(t.pillar()),
             FactSource::Onboarding,
             Some(FactKind::parse_lenient(t.fact_kind())),
+        ),
+        // The calendar turn leaves the kind open: it also carries the
+        // quoted-back availability, and a correction is a schedule fact
+        // while the races are goals.
+        GuidedTarget::Season(t) => (
+            Some(t.pillar()),
+            FactSource::Onboarding,
+            t.fact_kind().map(FactKind::parse_lenient),
         ),
     }
 }

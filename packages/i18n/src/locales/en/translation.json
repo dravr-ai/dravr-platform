@@ -1320,6 +1320,16 @@
       "description": "Start a fresh conversation, keeping the old one archived",
       "walk_interrupted": "\n\nYour profile walk was in progress — send `/pillars` to resume."
     },
+    "season": {
+      "complete_header": "Season walk done — I captured {0} of {1} answers.",
+      "complete_missing_goal": "I didn't catch a goal race. When you have one in mind, tell me and I'll lay the season out around it.",
+      "description": "Lay out your season — a short guided walk (six questions, plus facilities when you train several sports): your races, what a good year looks like, your bests, your background, what you train by, and what you want from coaching; in a group room the exchange is visible and yours alone to answer",
+      "followup_lay_out": "Want me to lay out your season around it — which kind of training suits you, and the phases from now to race day?",
+      "opener": "Let's lay out your season. I'll ask six short questions, one at a time. First, your calendar: which events are on it this season, roughly when, and which one actually matters?",
+      "opener_availability": "Let's lay out your season. I'll ask six short questions, one at a time. You already told me about your time: {0}. Say so if that has changed. First, your calendar: which events are on it this season, roughly when, and which one actually matters?",
+      "opener_room": "We're laying out your season here in the group — your answers will be visible to everyone, and they're yours alone to give. Six short questions, one at a time. First, your calendar: which events are on it this season, roughly when, and which one actually matters?",
+      "start_failed": "I couldn't start the season walk on this conversation. Try again in a moment."
+    },
     "status": {
       "channel_label": "\nChannel: {0}",
       "description": "Account summary",
@@ -1737,6 +1747,17 @@
     "error": {
       "generic": "Dravr is temporarily unavailable. The team has been notified — please try again in a few minutes. (ref: {0})"
     },
+    "flavour": {
+      "hvlit_foundation": "all easy, lots of it, one long session a week",
+      "norwegian_singles_subthreshold": "several controlled just-below-threshold sessions a week, by pace or heart rate",
+      "norwegian_threshold_density": "three or four threshold sessions a week, each kept under a lactate cap",
+      "polarized_classic": "mostly easy with two hard days",
+      "pyramidal_base": "mostly easy, one steady session, one short hard one, one long one",
+      "pyramidal_long_course": "long steady work with race fuelling and back-to-back sessions built in",
+      "pyramidal_to_polarized": "a steady base first, then two hard days as the race gets close",
+      "race_specific": "the last weeks before your race, with sessions shaped like the race",
+      "time_crunched_threshold": "short weeks: two threshold sessions and one easy or long one"
+    },
     "guardian": {
       "confirm_denied": "Understood — the action has been cancelled.",
       "confirm_done": "Done — the action {0} has been executed.",
@@ -1792,6 +1813,8 @@
     },
     "memory": {
       "predicate": {
+        "aim_long_term": "In a few years you aim for {0}",
+        "aim_this_season": "This season you aim for {0}",
         "avoid": "You avoid {0}",
         "can_train_on": "You can train {0}",
         "cannot_train_on": "You cannot train {0}",

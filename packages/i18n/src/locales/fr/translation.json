@@ -1320,6 +1320,16 @@
       "description": "Démarrer une nouvelle conversation, l'ancienne reste archivée",
       "walk_interrupted": "\n\nTon profil était en cours — écris `/pillars` pour reprendre."
     },
+    "season": {
+      "complete_header": "Marche de saison terminée — j'ai capté {0} réponses sur {1}.",
+      "complete_missing_goal": "Je n'ai pas saisi de course objectif. Quand tu en auras une en tête, dis-le-moi et je bâtirai la saison autour.",
+      "description": "Planifie ta saison — une courte marche guidée (six questions, plus les installations si tu pratiques plusieurs sports) : tes courses, à quoi ressemble une bonne année, tes meilleures performances, ton parcours, ce qui guide tes séances, et ce que tu attends du coaching; dans un groupe, l'échange est visible et c'est à toi seul de répondre",
+      "followup_lay_out": "Veux-tu que je planifie ta saison autour de ça — le type d'entraînement qui te convient, et les phases d'ici le jour de la course ?",
+      "opener": "Planifions ta saison. Je vais te poser six courtes questions, une à la fois. D'abord, ton calendrier : quels événements y figurent cette saison, à peu près quand, et lequel compte vraiment ?",
+      "opener_availability": "Planifions ta saison. Je vais te poser six courtes questions, une à la fois. Tu m'as déjà parlé de ton temps disponible : {0}. Dis-le-moi si ça a changé. D'abord, ton calendrier : quels événements y figurent cette saison, à peu près quand, et lequel compte vraiment ?",
+      "opener_room": "On planifie ta saison ici, dans le groupe — tes réponses seront visibles par tout le monde, et c'est à toi seul de les donner. Six courtes questions, une à la fois. D'abord, ton calendrier : quels événements y figurent cette saison, à peu près quand, et lequel compte vraiment ?",
+      "start_failed": "Je n'ai pas pu lancer la marche de saison sur cette conversation. Réessaie dans un instant."
+    },
     "status": {
       "channel_label": "\nCanal : {0}",
       "description": "Résumé de ton compte",
@@ -1737,6 +1747,17 @@
     "error": {
       "generic": "Dravr est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {0})"
     },
+    "flavour": {
+      "hvlit_foundation": "tout en facile, beaucoup, avec une longue sortie par semaine",
+      "norwegian_singles_subthreshold": "plusieurs séances contrôlées juste sous le seuil chaque semaine, à l'allure ou au cardio",
+      "norwegian_threshold_density": "trois ou quatre séances au seuil par semaine, chacune plafonnée au lactate",
+      "polarized_classic": "surtout du facile avec deux journées dures",
+      "pyramidal_base": "surtout du facile, une séance soutenue, une courte séance dure, une longue sortie",
+      "pyramidal_long_course": "du long et soutenu, avec la nutrition de course et les enchaînements intégrés",
+      "pyramidal_to_polarized": "une base soutenue d'abord, puis deux journées dures à l'approche de la course",
+      "race_specific": "les dernières semaines avant ta course, avec des séances à l'image de la course",
+      "time_crunched_threshold": "des semaines courtes : deux séances au seuil et une facile ou longue"
+    },
     "guardian": {
       "confirm_denied": "Compris — l'action a été annulée.",
       "confirm_done": "C'est fait — l'action {0} a été exécutée.",
@@ -1792,6 +1813,8 @@
     },
     "memory": {
       "predicate": {
+        "aim_long_term": "Dans quelques années, tu vises {0}",
+        "aim_this_season": "Cette saison, tu vises {0}",
         "avoid": "Tu évites {0}",
         "can_train_on": "Tu peux t'entraîner {0}",
         "cannot_train_on": "Tu ne peux pas t'entraîner {0}",

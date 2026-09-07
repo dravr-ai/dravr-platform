@@ -473,6 +473,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<DateTime<Utc>>,
+        created_before: Option<DateTime<Utc>>,
         predicate_code: Option<PredicateCode>,
     ) -> AppResult<u64> {
         let now = Utc::now();
@@ -483,7 +484,8 @@ impl HarnessMemoryRepository for PostgresDatabase {
              WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
                AND ($4::text IS NULL OR pillar = $4)
                AND ($5::timestamptz IS NULL OR created_at >= $5)
-               AND ($6::text IS NULL OR predicate_code = $6)
+               AND ($6::timestamptz IS NULL OR created_at <= $6)
+               AND ($7::text IS NULL OR predicate_code = $7)
                AND (valid_until IS NULL OR valid_until > $1)
             ",
         )
@@ -492,6 +494,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(user_id)
         .bind(pillar.map(Pillar::as_str))
         .bind(created_after)
+        .bind(created_before)
         .bind(predicate_code.map(PredicateCode::as_str))
         .execute(&self.pool)
         .await

@@ -2386,6 +2386,7 @@ mod command_tests {
             "/group coach",
             "/plan share",
             "/calibrate",
+            "/season",
             "/pillars",
         ] {
             let def = defs

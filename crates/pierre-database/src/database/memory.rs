@@ -491,13 +491,15 @@ impl HarnessMemoryRepository for Database {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<DateTime<Utc>>,
+        created_before: Option<DateTime<Utc>>,
         predicate_code: Option<PredicateCode>,
     ) -> AppResult<u64> {
         let now = Utc::now().to_rfc3339();
-        // Both timestamps are written by `to_rfc3339()` in UTC, so the string
-        // comparison below orders the same way the instants do — the same
-        // assumption every `ORDER BY updated_at` in this file already makes.
+        // All three timestamps are written by `to_rfc3339()` in UTC, so the
+        // string comparisons below order the same way the instants do — the
+        // same assumption every `ORDER BY updated_at` in this file makes.
         let created_after = created_after.map(|d| d.to_rfc3339());
+        let created_before = created_before.map(|d| d.to_rfc3339());
         let result = sqlx::query(
             r"
             UPDATE user_facts
@@ -505,7 +507,8 @@ impl HarnessMemoryRepository for Database {
              WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
                AND ($4 IS NULL OR pillar = $4)
                AND ($5 IS NULL OR created_at >= $5)
-               AND ($6 IS NULL OR predicate_code = $6)
+               AND ($6 IS NULL OR created_at <= $6)
+               AND ($7 IS NULL OR predicate_code = $7)
                AND (valid_until IS NULL OR valid_until > $1)
             ",
         )
@@ -514,6 +517,7 @@ impl HarnessMemoryRepository for Database {
         .bind(user_id)
         .bind(pillar.map(Pillar::as_str))
         .bind(created_after)
+        .bind(created_before)
         .bind(predicate_code.map(PredicateCode::as_str))
         .execute(&self.pool)
         .await

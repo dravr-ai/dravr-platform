@@ -436,6 +436,49 @@ async fn an_unknown_vocabulary_word_lists_the_real_ones() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn every_flavour_in_the_verdict_carries_its_plain_words_label() -> Result<()> {
+    // D9: the athlete hears "mostly easy with two hard days", never
+    // "polarized". The id stays beside the label for the coach.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "hours_per_week": 8.0, "sessions_per_week": 5, "training_age": "trained",
+                "event_class": "run_5k", "weeks_to_goal": 10, "measurements": ["hr", "pace"],
+                "interval_experience": "two_seasons", "sport_mix": "running" }),
+    )
+    .await?;
+    for list in ["ranked", "excluded"] {
+        let entries = payload["verdict"][list].as_array().expect(list);
+        assert!(!entries.is_empty(), "{list} is empty: {payload}");
+        for entry in entries {
+            let id = entry["id"].as_str().expect("id");
+            let label = entry["label"].as_str().expect("label");
+            assert_ne!(label, id, "{id} has no plain-words label in the catalogue");
+            assert!(
+                !label.contains("polarized") && !label.contains("pyramidal"),
+                "{id}'s label is the technical word again: {label}"
+            );
+        }
+    }
+    let polarized = payload["verdict"]["ranked"]
+        .as_array()
+        .expect("ranked")
+        .iter()
+        .chain(payload["verdict"]["excluded"].as_array().expect("excluded"))
+        .find(|e| e["id"] == "polarized-classic")
+        .expect("polarized-classic is in the verdict one way or the other");
+    // The test user's locale is the default, French.
+    assert_eq!(
+        polarized["label"],
+        "surtout du facile avec deux journées dures"
+    );
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // The `athlete` argument: a human coach reading a consenting athlete
 // ---------------------------------------------------------------------------

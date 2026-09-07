@@ -57,18 +57,19 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 /// caller's own plan is ever shared this way; a coach edits an athlete's plan
 /// from their direct chat through the plan tools' `athlete` argument.
 ///
-/// `calibrate` and `pillars` are room-visible on the same consent logic, for
-/// an interview rather than a read: typing the command in the room IS the
-/// athlete's grant of a room-visible guided walk, whose opener must land in
-/// the room for the walk to be watchable at all. The walk that follows binds
-/// to the caller alone (`OnboardingState::subject_user_id`), and a room
-/// `/pillars` walk covers only the room-safe pillars.
-pub const ROOM_VISIBLE_COMMANDS: [&str; 6] = [
+/// `calibrate`, `season` and `pillars` are room-visible on the same consent
+/// logic, for an interview rather than a read: typing the command in the
+/// room IS the athlete's grant of a room-visible guided walk, whose opener
+/// must land in the room for the walk to be watchable at all. The walk that
+/// follows binds to the caller alone (`OnboardingState::subject_user_id`),
+/// and a room walk covers only its room-safe topics.
+pub const ROOM_VISIBLE_COMMANDS: [&str; 7] = [
     "group-respond",
     "group-coach",
     "coach-add",
     "plan-share",
     "calibrate",
+    "season",
     "pillars",
 ];
 

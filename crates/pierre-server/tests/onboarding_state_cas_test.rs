@@ -58,6 +58,7 @@ fn calibration_state() -> String {
             sessions_per_week: 4.0,
             longest_session_min: 195,
             weeks: 6,
+            sport_families: 1,
         }))
         .to_column()
         .unwrap()

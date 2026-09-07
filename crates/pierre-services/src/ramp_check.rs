@@ -153,6 +153,7 @@ mod tests {
             sessions_per_week: 4.0,
             longest_session_min: 120,
             weeks: 6,
+            sport_families: 1,
         }
     }
 

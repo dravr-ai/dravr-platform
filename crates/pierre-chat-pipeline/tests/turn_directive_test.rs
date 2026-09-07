@@ -193,7 +193,7 @@ fn every_arm_of_the_slot_carries_a_task() {
 
     for arm in [
         "super::onboarding::directive(turn)",
-        "super::onboarding::release_directive()",
+        "super::onboarding::release_directive(",
         "structured_contract_active",
         "TURN_DIRECTIVE",
     ] {

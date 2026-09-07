@@ -101,7 +101,7 @@ where
     let mut written = 0u64;
 
     if let Some(north_star) = clean(answers.north_star.as_ref()) {
-        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(CODE_NORTH_STAR))
+        repo.expire_onboarding_facts(tenant_id, user_id, None, None, None, Some(CODE_NORTH_STAR))
             .await?;
         // No pillar: the North Star sits above them, which is how the guided
         // walk stamps it too (`extraction_params`).
@@ -124,7 +124,7 @@ where
     }
 
     if let Some(sport) = clean(answers.primary_sport.as_ref()) {
-        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(CODE_SPORT))
+        repo.expire_onboarding_facts(tenant_id, user_id, None, None, None, Some(CODE_SPORT))
             .await?;
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
@@ -145,7 +145,7 @@ where
     }
 
     if let Some(goal) = clean(answers.goal.as_ref()) {
-        repo.expire_onboarding_facts(tenant_id, user_id, None, None, Some(CODE_GOAL))
+        repo.expire_onboarding_facts(tenant_id, user_id, None, None, None, Some(CODE_GOAL))
             .await?;
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,

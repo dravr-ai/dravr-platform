@@ -826,14 +826,14 @@ async fn run_turn(
     // identifiers alongside user/tenant/conversation/turn.
     record_turn_span_context(input.turn_coach_id(&conv), conv.group_id.as_deref());
 
-    // Stage 4.5: Guided mode. If this conversation is mid pillars walk or mid
-    // calibration interview, resolve the topic being probed (and clear the flag
-    // once complete). Drives the prompt directive (below) and the fact-stamping
-    // at Stage 21.
-    // A finished calibration interview answers deterministically and skips the
-    // LLM entirely (see `resolve_guided_or_answer`).
+    // Stage 4.5: Guided mode. If this conversation is mid pillars walk, mid
+    // calibration interview or mid season walk, resolve the topic being probed
+    // (and clear the flag once complete). Drives the prompt directive (below)
+    // and the fact-stamping at Stage 21.
+    // A finished fixed-list walk answers deterministically and skips the LLM
+    // entirely (see `resolve_guided_or_answer`).
     // A platform-composed prompt is not the athlete answering the probe, so it
-    // never drives the guided flow. Left in, a finished calibration would
+    // never drives the guided flow. Left in, a finished walk would
     // answer this turn with its wrap-up (`GuidedOutcome::Answered` returns
     // outright) and the athlete would get an interview summary where their
     // history was supposed to arrive — the same impersonation as the `user`
@@ -1125,7 +1125,7 @@ enum GuidedOutcome {
 }
 
 /// Stage 4.5: resolve the guided flow, answering the turn outright when a
-/// calibration interview has just finished.
+/// fixed-list walk — calibration or season — has just finished.
 ///
 /// The wrap-up reports how many answers actually landed and names a safety
 /// topic that produced none — claims only the platform can make truthfully,
@@ -1156,7 +1156,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
             Ok(GuidedOutcome::Continue(Some(*turn)))
         }
         stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue(None)),
-        stages::onboarding::GuidedResolution::CalibrationComplete { summary, answered } => {
+        stages::onboarding::GuidedResolution::WalkComplete { summary, answered } => {
             let result = stages::deterministic_reply::deliver(
                 stages::deterministic_reply::DeterministicReplyInputs {
                     ctx,
@@ -1172,7 +1172,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
             // This turn carries the athlete's answer to the interview's LAST
             // question, and the reply skipping the LLM does not make that
             // answer any less theirs. Returning here without extracting dropped
-            // it on every calibration run — and the last core topic is recovery
+            // it on every walk — calibration's last core topic is recovery
             // speed, which is safety-critical and the sole writer of its kind,
             // so its absence is exactly what the wrap-up would have named.
             spawn_turn_extraction(
@@ -1182,7 +1182,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
                 PLATFORM_REPLY_TRANSCRIPT_MARKER,
                 &result.assistant.message.id,
                 answered,
-                // A guided calibration turn skips the LLM entirely, so no tool
+                // A walk's closing turn skips the LLM entirely, so no tool
                 // ran and no plan was stored.
                 false,
             );

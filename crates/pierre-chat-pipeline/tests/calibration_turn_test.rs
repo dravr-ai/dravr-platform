@@ -62,6 +62,7 @@ fn snapshot() -> LoadSnapshot {
         sessions_per_week: 4.0,
         longest_session_min: 195,
         weeks: 6,
+        sport_families: 1,
     }
 }
 

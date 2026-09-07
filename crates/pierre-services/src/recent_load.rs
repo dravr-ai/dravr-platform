@@ -22,7 +22,7 @@
 
 use chrono::{Duration, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, LoadSnapshot, TenantId};
+use pierre_core::models::{Activity, LoadSnapshot, SportFamily, TenantId};
 use pierre_database::repositories::ActivityCacheRepository;
 use uuid::Uuid;
 
@@ -57,13 +57,18 @@ pub async fn recent_load_snapshot(
     let window = activities
         .get_cached_activities(user_id, tenant_id, None, start, end, ACTIVITY_FETCH_LIMIT)
         .await?;
+    let families = SportFamily::distinct(window.iter().map(Activity::sport_type));
     Ok(snapshot_from_durations(
         &window
             .iter()
             .map(Activity::duration_seconds)
             .collect::<Vec<_>>(),
         SNAPSHOT_WEEKS,
-    ))
+    )
+    .map(|snapshot| LoadSnapshot {
+        sport_families: families,
+        ..snapshot
+    }))
 }
 
 /// The snapshot for a window of session durations, in seconds.
@@ -94,6 +99,8 @@ pub fn snapshot_from_durations(durations_seconds: &[u64], weeks: u32) -> Option<
         sessions_per_week: session_count / weeks_f,
         longest_session_min: u32::try_from(longest / 60).unwrap_or(u32::MAX),
         weeks,
+        // Durations carry no sport; the fetching caller counts families.
+        sport_families: 0,
     })
 }
 

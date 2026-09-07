@@ -139,6 +139,13 @@ pub enum PredicateCode {
     WorkingToward,
     /// Goal: the target race a saved training plan converges on.
     TargetRace,
+    /// Goal: what a good season looks like — the `/season` walk's near
+    /// horizon. Its own code so a later `about_you` edit, which supersedes
+    /// [`Self::WorkingToward`], never clobbers it.
+    AimThisSeason,
+    /// Goal: where the athlete wants to be in a few years — the `/season`
+    /// walk's far horizon, kept apart from the near one for the same reason.
+    AimLongTerm,
     /// Preference: something the athlete wants more of.
     Prefer,
     /// Preference: something the athlete wants none of.
@@ -175,10 +182,12 @@ pub enum PredicateCode {
 
 impl PredicateCode {
     /// Every code, in a stable order (the order the catalogue lists them).
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 21] = [
         Self::TrainingFor,
         Self::WorkingToward,
         Self::TargetRace,
+        Self::AimThisSeason,
+        Self::AimLongTerm,
         Self::Prefer,
         Self::Avoid,
         Self::PrimarilyTrain,
@@ -205,6 +214,8 @@ impl PredicateCode {
             Self::TrainingFor => "training_for",
             Self::WorkingToward => "working_toward",
             Self::TargetRace => "target_race",
+            Self::AimThisSeason => "aim_this_season",
+            Self::AimLongTerm => "aim_long_term",
             Self::Prefer => "prefer",
             Self::Avoid => "avoid",
             Self::PrimarilyTrain => "primarily_train",
@@ -240,7 +251,11 @@ impl PredicateCode {
             (self, kind),
             (Self::States, _)
                 | (
-                    Self::TrainingFor | Self::WorkingToward | Self::TargetRace,
+                    Self::TrainingFor
+                        | Self::WorkingToward
+                        | Self::TargetRace
+                        | Self::AimThisSeason
+                        | Self::AimLongTerm,
                     FactKind::Goal
                 )
                 | (
@@ -271,6 +286,8 @@ impl PredicateCode {
             Self::TrainingFor => "a race or event the athlete is preparing for",
             Self::WorkingToward => "a target the athlete named without an event",
             Self::TargetRace => "the target race a saved training plan converges on",
+            Self::AimThisSeason => "what a good season would look like to the athlete",
+            Self::AimLongTerm => "where the athlete wants to be in a few years",
             Self::Prefer => "something the athlete wants more of",
             Self::Avoid => "something the athlete wants none of",
             Self::PrimarilyTrain => "the athlete's main sport",
@@ -327,6 +344,8 @@ impl PredicateCode {
             Self::TrainingFor => "messaging.memory.predicate.training_for",
             Self::WorkingToward => "messaging.memory.predicate.working_toward",
             Self::TargetRace => "messaging.memory.predicate.target_race",
+            Self::AimThisSeason => "messaging.memory.predicate.aim_this_season",
+            Self::AimLongTerm => "messaging.memory.predicate.aim_long_term",
             Self::Prefer => "messaging.memory.predicate.prefer",
             Self::Avoid => "messaging.memory.predicate.avoid",
             Self::PrimarilyTrain => "messaging.memory.predicate.primarily_train",

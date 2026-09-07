@@ -46,7 +46,8 @@ use super::training_plan_schema::{
     athlete_prop, outline_schema, parse_payload_part, string_prop, weeks_schema,
 };
 use super::training_plan_telemetry::{
-    athlete_today, emit_coverage_check, emit_plan_saved, emit_ramp_verdict, ramp_baseline,
+    athlete_today, emit_coverage_check, emit_plan_saved, emit_ramp_verdict, emit_vision_saved,
+    ramp_baseline,
 };
 use super::training_plan_vision::{
     check_phase_indexes, check_template_slugs, resolve_flavour, validate_day_template,
@@ -970,8 +971,13 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
 
             // Every committed write is reported, so a weeks-only adjustment is
             // no longer silent, and the plan is then checked for whether it
-            // actually covers the athlete it was just written for.
+            // actually covers the athlete it was just written for. A flavour
+            // on the outline reports its provenance too — the override rate
+            // against the rule is the vision's falsification test.
             emit_plan_saved(&bundle.plan.id, outline.is_some(), &bundle.weeks);
+            if let Some(flavour) = flavour_selection.as_ref() {
+                emit_vision_saved(&bundle.plan.id, flavour);
+            }
             emit_coverage_check(
                 repos,
                 &tenant_id,

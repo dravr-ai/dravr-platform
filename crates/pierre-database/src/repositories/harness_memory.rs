@@ -212,15 +212,19 @@ pub trait HarnessMemoryRepository: Send + Sync {
 
     /// Supersede prior onboarding-captured facts by setting their `valid_until`
     /// to now, so they render stale and demote. Optionally scoped to one pillar,
-    /// and optionally to facts created at or after `created_after`.
+    /// and optionally to facts created at or after `created_after` and before
+    /// `created_before`.
     ///
-    /// Backs both guided-interview re-runs. `/pillars` re-screens by pillar with
-    /// no time bound. `/calibrate` passes the *previous* interview's start time
-    /// instead: its topics cannot be identified by kind and pillar — most land
-    /// as a `preference` in the training pillar, so a per-topic match would
-    /// collapse seven distinct answers onto one — which leaves the window they
-    /// were captured in as the only thing that separates the old set from the
-    /// athlete's other onboarding facts.
+    /// Backs every guided-interview re-run. `/pillars` re-screens by pillar
+    /// with no time bound. `/calibrate` and `/season` pass the *previous*
+    /// walk's window instead: their topics cannot be identified by kind and
+    /// pillar — both land `goal`, `physiology` and `preference` facts in the
+    /// training pillar, so a per-topic match would collapse distinct answers
+    /// onto one — which leaves the window they were captured in as the only
+    /// thing that separates the old set from the athlete's other onboarding
+    /// facts, including the *other* walk's. The far bound is what keeps a
+    /// calibration re-run from sweeping up a season calendar captured after
+    /// it; a walk that never completed has none and is superseded up to now.
     ///
     /// This is supersession, not deletion (GDPR erase stays on
     /// [`delete_user_fact`](Self::delete_user_fact)). Returns the number of
@@ -231,6 +235,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<chrono::DateTime<chrono::Utc>>,
+        created_before: Option<chrono::DateTime<chrono::Utc>>,
         predicate_code: Option<pierre_memory::PredicateCode>,
     ) -> AppResult<u64>;
 

@@ -1,5 +1,5 @@
-// ABOUTME: The calibration interview's platform-rendered wrap-up and facts-landed check
-// ABOUTME: Reports what was actually captured, and re-opens a safety topic whose answer never landed
+// ABOUTME: The fixed-list walks' platform-rendered wrap-ups and facts-landed checks — calibration and season
+// ABOUTME: Reports what was actually captured, and names the answer whose absence the next step cannot survive
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,13 +24,14 @@ use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
     KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_FOLLOWUP_NO_PLAN,
     KEY_CALIBRATE_FOLLOWUP_PLAN, KEY_CALIBRATE_TOPIC_INJURY, KEY_CALIBRATE_TOPIC_RECOVERY,
+    KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
 use pierre_core::models::{
-    CalibrationTopic, ConversationRecord, Dossier, OnboardingState, TenantId,
+    CalibrationTopic, ConversationRecord, Dossier, OnboardingState, SeasonTopic, TenantId,
 };
 use pierre_memory::{FactSource, UserFact};
 
-use super::onboarding::calibration_conditions;
+use super::onboarding::{calibration_conditions, season_conditions};
 use crate::ChatPipelineContext;
 
 /// Upper bound on facts pulled when counting what the interview landed. An
@@ -60,6 +61,24 @@ fn assess(
     asked: &[CalibrationTopic],
     started_at: DateTime<Utc>,
 ) -> (usize, Vec<CalibrationTopic>) {
+    let kinds: Vec<&str> = asked.iter().map(|t| t.fact_kind()).collect();
+    let (captured, missing) = credit_by_kind(landed, &kinds, started_at);
+    let missing_safety = missing
+        .into_iter()
+        .map(|i| asked[i])
+        .filter(|t| t.is_safety_critical())
+        .collect();
+    (captured, missing_safety)
+}
+
+/// The kind-crediting core both walks share: how many of the asked kinds
+/// produced at least one fact inside the window, and the indexes of the
+/// topics that produced none.
+fn credit_by_kind(
+    landed: &[UserFact],
+    asked_kinds: &[&str],
+    started_at: DateTime<Utc>,
+) -> (usize, Vec<usize>) {
     let kinds_landed: Vec<&str> = landed
         .iter()
         .filter(|f| f.created_at >= started_at)
@@ -67,10 +86,9 @@ fn assess(
         .collect();
 
     let mut captured = 0;
-    let mut missing_safety = Vec::new();
+    let mut missing = Vec::new();
     let mut counted_kinds: Vec<&str> = Vec::new();
-    for topic in asked {
-        let kind = topic.fact_kind();
+    for (index, kind) in asked_kinds.iter().copied().enumerate() {
         let present = kinds_landed.contains(&kind);
         if present && !counted_kinds.contains(&kind) {
             counted_kinds.push(kind);
@@ -86,11 +104,29 @@ fn assess(
                 captured += 1;
             }
         }
-        if !present && topic.is_safety_critical() {
-            missing_safety.push(*topic);
+        if !present {
+            missing.push(index);
         }
     }
-    (captured, missing_safety)
+    (captured, missing)
+}
+
+/// How many of the season walk's topics produced a fact, and whether the
+/// calendar — the one answer the season layout cannot do without — did.
+///
+/// The calendar credits on a `goal` fact, whichever other kinds its turn
+/// produced (a corrected availability lands as `schedule`).
+fn assess_season(
+    landed: &[UserFact],
+    asked: &[SeasonTopic],
+    started_at: DateTime<Utc>,
+) -> (usize, bool) {
+    let kinds: Vec<&str> = asked.iter().map(|t| t.landed_kind()).collect();
+    let (captured, missing) = credit_by_kind(landed, &kinds, started_at);
+    let goal_missing = missing
+        .into_iter()
+        .any(|i| asked[i] == SeasonTopic::RaceCalendar);
+    (captured, goal_missing)
 }
 
 /// Render the interview's closing message.
@@ -192,11 +228,72 @@ pub async fn render(
     out
 }
 
+/// Render the season walk's closing message.
+///
+/// Same contract as [`render`]: the header states the real count, and a
+/// missing goal race is named — the layout cannot run without one — with
+/// the offer to lay the season out deferred until the athlete names it.
+/// Otherwise the message closes on the offer, and a yes on the next turn
+/// runs `recommend_plan_flavour` under the release directive.
+pub async fn render_season(
+    ctx: &ChatPipelineContext,
+    state: &OnboardingState,
+    facts_tenant: TenantId,
+    subject_user_id: &str,
+    locale: &str,
+) -> String {
+    let reg = &ctx.messaging_strings_registry;
+    let asked = SeasonTopic::for_conditions(season_conditions(state.snapshot.as_ref()));
+    let started_at = DateTime::parse_from_rfc3339(&state.started_at)
+        .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc));
+
+    let landed = ctx
+        .repos
+        .memory
+        .list_user_facts_by_source(
+            facts_tenant,
+            subject_user_id,
+            FactSource::Onboarding,
+            LANDED_FETCH_LIMIT,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "could not read landed season facts; reporting zero");
+            Vec::new()
+        });
+
+    let (captured, goal_missing) = assess_season(&landed, &asked, started_at);
+
+    tracing::info!(
+        target: "notify",
+        event = "onboarding.completed",
+        flow = "season",
+        topics_answered = captured,
+        topics_asked = asked.len(),
+        facts_landed = landed.len(),
+        "guided interview completed"
+    );
+
+    let mut out = reg.render(
+        KEY_SEASON_COMPLETE_HEADER,
+        locale,
+        &[&captured.to_string(), &asked.len().to_string()],
+    );
+    out.push_str("\n\n");
+    let followup = if goal_missing {
+        KEY_SEASON_COMPLETE_MISSING_GOAL
+    } else {
+        KEY_SEASON_FOLLOWUP_LAY_OUT
+    };
+    out.push_str(&reg.render(followup, locale, &[]));
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::assess;
+    use super::{assess, assess_season};
     use chrono::{Duration, Utc};
-    use pierre_core::models::CalibrationTopic;
+    use pierre_core::models::{CalibrationTopic, SeasonTopic};
     use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 
     fn fact(kind: FactKind, age_minutes: i64) -> UserFact {
@@ -307,5 +404,51 @@ mod tests {
         let (captured, missing) = assess(&landed, &asked, started);
         assert_eq!(captured, 1, "only the event-demand answer landed");
         assert_eq!(missing.len(), 2, "both safety topics are still missing");
+    }
+
+    #[test]
+    fn a_season_walk_with_no_goal_fact_is_short_a_calendar() {
+        let started = Utc::now() - Duration::minutes(30);
+        let landed = vec![
+            fact(FactKind::Physiology, 20),
+            fact(FactKind::Preference, 15),
+            fact(FactKind::Equipment, 10),
+            fact(FactKind::Preference, 5),
+        ];
+        let (captured, goal_missing) = assess_season(&landed, &SeasonTopic::CORE, started);
+        assert_eq!(
+            captured, 4,
+            "bests, background, tools and coaching fit landed"
+        );
+        assert!(
+            goal_missing,
+            "no goal fact means no calendar to lay a season on"
+        );
+    }
+
+    #[test]
+    fn a_goal_fact_credits_the_calendar_and_the_horizon_separately() {
+        let started = Utc::now() - Duration::minutes(30);
+        let landed = vec![fact(FactKind::Goal, 25), fact(FactKind::Goal, 20)];
+        let (captured, goal_missing) = assess_season(&landed, &SeasonTopic::CORE, started);
+        assert_eq!(captured, 2, "two goal facts credit both goal topics");
+        assert!(!goal_missing);
+
+        let one = vec![fact(FactKind::Goal, 25)];
+        let (captured, goal_missing) = assess_season(&one, &SeasonTopic::CORE, started);
+        assert_eq!(
+            captured, 1,
+            "one goal fact credits the calendar, asked first"
+        );
+        assert!(!goal_missing);
+    }
+
+    #[test]
+    fn season_facts_before_the_window_do_not_count() {
+        let started = Utc::now() - Duration::minutes(10);
+        let stale = vec![fact(FactKind::Goal, 60), fact(FactKind::Equipment, 45)];
+        let (captured, goal_missing) = assess_season(&stale, &SeasonTopic::CORE, started);
+        assert_eq!(captured, 0);
+        assert!(goal_missing);
     }
 }

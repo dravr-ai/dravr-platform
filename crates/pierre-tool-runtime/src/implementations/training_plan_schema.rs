@@ -242,6 +242,22 @@ fn flavour_schema() -> PropertySchema {
         "override_reason".to_owned(),
         string_prop("Why a coach or athlete chose this flavour over the rule's proposal. Required for coach and athlete; omit for rule."),
     );
+    p.insert(
+        "verdict".to_owned(),
+        PropertySchema {
+            property_type: "object".to_owned(),
+            description: Some("recommend_plan_flavour's `verdict`, passed through exactly as the tool returned it, when it ran. A rule selection must be the flavour it ranked first.".to_owned()),
+            ..Default::default()
+        },
+    );
+    p.insert(
+        "inputs".to_owned(),
+        PropertySchema {
+            property_type: "object".to_owned(),
+            description: Some("recommend_plan_flavour's `inputs`, passed through exactly as the tool returned it, when it ran.".to_owned()),
+            ..Default::default()
+        },
+    );
     object_prop(
         "The flavour the season runs on, with who chose it. Omit for a plan laid out without one.",
         p,

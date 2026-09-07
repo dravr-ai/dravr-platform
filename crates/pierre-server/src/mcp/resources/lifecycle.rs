@@ -49,6 +49,7 @@ use pierre_commands::{
     plan::{PlanShareHandler, PlanShowHandler},
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
     reset::ResetHandler,
+    season::SeasonHandler,
     status::StatusHandler,
     timezone::TimezoneHandler,
     CommandHandler, CommandHandlerRegistry,
@@ -701,6 +702,7 @@ impl ServerContext {
             ("plan", Arc::new(PlanShowHandler)),
             ("plan-share", Arc::new(PlanShareHandler)),
             ("calibrate", Arc::new(CalibrateHandler)),
+            ("season", Arc::new(SeasonHandler)),
         ]
         .into_iter()
         .map(|(name, handler)| (name.to_owned(), handler))

@@ -5,9 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::NaiveDate;
+use pierre_core::models::periodization::{Confidence, FlavourVerdict};
 use pierre_core::models::{LoadSnapshot, TenantId};
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanPhase, PlanWeek};
+use pierre_memory::training_plans::{
+    parse_plan_date, FlavourSelection, PlanPhase, PlanWeek, SelectedBy,
+};
 use pierre_services::ramp_check::RampVerdict;
 use pierre_services::recent_load::recent_load_snapshot;
 use tracing::{info, warn};
@@ -242,6 +245,51 @@ pub(super) async fn ramp_baseline(
             warn!(error = %e, "ramp check: activity cache unreadable");
             None
         })
+}
+
+/// Emit the vision's provenance: which flavour the plan runs on and who
+/// chose it, and — when a human departed from what the rule ranked first —
+/// the override beside the rule's own pick. The override rate against the
+/// rule is the feature's falsification test, so a plan saved with no verdict
+/// on file still reports its flavour with confidence `unknown`, and an
+/// override with no verdict reports `rule_top` as `unknown` rather than
+/// disappearing from the count.
+pub(super) fn emit_vision_saved(plan_id: &str, flavour: &FlavourSelection) {
+    let rule_top = flavour
+        .verdict_snapshot
+        .as_ref()
+        .and_then(FlavourVerdict::top)
+        .map_or("unknown", |s| s.id.as_str());
+    let confidence = flavour
+        .verdict_snapshot
+        .as_ref()
+        .map_or("unknown", |v| match v.confidence {
+            Confidence::Low => "low",
+            Confidence::Moderate => "moderate",
+            Confidence::High => "high",
+        });
+    info!(
+        target: "notify",
+        event = "training_plan.vision_saved",
+        plan_id = %plan_id,
+        flavour = %flavour.id,
+        family = flavour.family.as_str(),
+        selected_by = flavour.selected_by.as_str(),
+        confidence = confidence,
+        "a training plan was saved with a flavour"
+    );
+    if flavour.selected_by != SelectedBy::Rule && rule_top != flavour.id {
+        info!(
+            target: "notify",
+            event = "training_plan.flavour_overridden",
+            plan_id = %plan_id,
+            flavour = %flavour.id,
+            rule_top = rule_top,
+            selected_by = flavour.selected_by.as_str(),
+            reason_len = flavour.override_reason.as_ref().map_or(0, String::len),
+            "a human chose a flavour other than the one the rule ranked first"
+        );
+    }
 }
 
 /// Emit the ramp verdict, including the explicit "could not measure" case so a

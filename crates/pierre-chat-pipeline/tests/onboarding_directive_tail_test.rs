@@ -165,7 +165,7 @@ fn the_release_directive_shares_the_interview_directives_slot() {
     let stage = &source[directive..language];
 
     assert!(
-        stage.contains("super::onboarding::release_directive()"),
+        stage.contains("super::onboarding::release_directive("),
         "the post-interview release directive must be appended from Stage 7g.3"
     );
     assert!(

@@ -12,11 +12,13 @@
 
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::periodization::Share;
+use pierre_core::models::periodization::{FlavourInputs, FlavourVerdict, Share};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{FlavourSelection, PlanPhase, PlannedDay, SelectedBy};
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::calendar::{bounded, MAX_SHORT_TEXT_LEN};
@@ -25,21 +27,59 @@ use super::training_plans::{plan_date, WeekPayload, MAX_TARGET_HOURS, MAX_TEXT_L
 /// Hard sessions a week no phase exceeds; the flavour caps are lower.
 const MAX_HARD_SESSIONS_PER_WEEK: u32 = 7;
 
-/// The flavour half of an outline as the model sends it: the id and who
-/// chose it. Family, sequencing and modifiers are copied from the catalogue
-/// at save time, never trusted from the payload.
+/// The flavour half of an outline as the model sends it: the id, who chose
+/// it, and — when `recommend_plan_flavour` ran — its verdict and inputs,
+/// passed through verbatim. Family, sequencing and modifiers are copied from
+/// the catalogue at save time, never trusted from the payload.
 #[derive(Deserialize)]
 pub(super) struct FlavourPayload {
     pub(super) id: String,
     pub(super) selected_by: SelectedBy,
     #[serde(default)]
     pub(super) override_reason: Option<String>,
+    /// Raw, parsed by [`snapshot`]: an absent or empty object carries
+    /// nothing, anything else must be the kernel's own shape.
+    #[serde(default)]
+    pub(super) verdict: Option<Value>,
+    #[serde(default)]
+    pub(super) inputs: Option<Value>,
+}
+
+/// A snapshot field as the kernel's type, or `None` when the payload left it
+/// out — `null` and `{}` both read as absent, since neither carries a
+/// verdict. Anything else that does not parse names the field, so a coach
+/// passing the tool's output through a mangling step hears about it rather
+/// than storing a snapshot that later reads as "the rule proposed nothing".
+fn snapshot<T: DeserializeOwned>(field: &str, raw: Option<&Value>) -> AppResult<Option<T>> {
+    match raw {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Object(map)) if map.is_empty() => Ok(None),
+        Some(value) => serde_json::from_value(value.clone())
+            .map(Some)
+            .map_err(|e| AppError::invalid_input(format!("flavour.{field}: {e}"))),
+    }
 }
 
 /// A flavour's provenance must be consistent: a rule selection carries no
-/// override reason, a coach or athlete choice must give one.
+/// override reason, a coach or athlete choice must give one, and a rule
+/// selection saved with the rule's verdict must be the flavour that verdict
+/// ranked first — anything else is an override wearing the rule's name,
+/// which is exactly what the override rate would then fail to count.
 pub(super) fn validate_flavour(flavour: &FlavourPayload) -> AppResult<()> {
     bounded("flavour.id", &flavour.id, MAX_SHORT_TEXT_LEN)?;
+    let verdict: Option<FlavourVerdict> = snapshot("verdict", flavour.verdict.as_ref())?;
+    snapshot::<FlavourInputs>("inputs", flavour.inputs.as_ref())?;
+    if flavour.selected_by == SelectedBy::Rule {
+        if let Some(top) = verdict.as_ref().and_then(FlavourVerdict::top) {
+            if top.id != flavour.id {
+                return Err(AppError::invalid_input(format!(
+                    "flavour '{}' is not what the rule ranked first ('{}'); a choice that departs \
+                     from the verdict is selected_by coach or athlete, with its reason",
+                    flavour.id, top.id
+                )));
+            }
+        }
+    }
     match (flavour.selected_by, flavour.override_reason.as_deref()) {
         (SelectedBy::Rule, Some(reason)) if !reason.trim().is_empty() => {
             return Err(AppError::invalid_input(
@@ -210,6 +250,8 @@ pub(super) fn resolve_flavour(
             .map(str::trim)
             .filter(|r| !r.is_empty())
             .map(str::to_owned),
+        verdict_snapshot: snapshot("verdict", payload.verdict.as_ref())?,
+        inputs_snapshot: snapshot("inputs", payload.inputs.as_ref())?,
     })
 }
 

@@ -106,7 +106,7 @@ fn an_absent_or_unreadable_marker_is_not_a_completion() {
 
 #[test]
 fn the_release_directive_retracts_the_interviews_no_saving_rule() {
-    let text = release_directive();
+    let text = release_directive(Some(&completed_column(GuidedFlow::Calibration, 1)));
 
     // The guided directive is stated as an override of everything else, so the
     // release has to be stated as an override of *it*. "You may now save" would
@@ -147,11 +147,47 @@ fn the_release_directive_does_not_instruct_the_coach_to_save() {
     // save is the athlete's decision, and a directive that pushed for one would
     // reintroduce the 2026-07-24 derail from the other direction — an unasked-for
     // plan, this time on the turn right after an interview.
-    let text = release_directive().to_lowercase();
+    let text =
+        release_directive(Some(&completed_column(GuidedFlow::Calibration, 1))).to_lowercase();
     for pushy in ["you must save", "save the plan now", "immediately save"] {
         assert!(
             !text.contains(pushy),
             "the release lifts a restriction; it must not prescribe the write: {pushy}"
         );
     }
+}
+
+#[test]
+fn the_season_release_names_the_rule_and_forbids_the_models_own_periodization() {
+    // The season wrap-up asked whether to lay the season out. The yes is
+    // answered by recommend_plan_flavour — the rule over the catalogue — not
+    // by whatever periodization the model would improvise, so the release
+    // names the tool, what to pass it, and that the flavour is never the
+    // model's to choose. Calibration's release carries none of that: its
+    // follow-up offers a plan, which save_training_plan already covers.
+    let season = release_directive(Some(&completed_column(GuidedFlow::Season, 1)));
+    assert!(season.contains("recommend_plan_flavour"), "{season}");
+    assert!(
+        season.contains("Never choose a flavour yourself"),
+        "{season}"
+    );
+    assert!(
+        season.contains("hours_per_week"),
+        "the tool's required inputs are named: {season}"
+    );
+
+    let calibration = release_directive(Some(&completed_column(GuidedFlow::Calibration, 1)));
+    assert!(
+        !calibration.contains("recommend_plan_flavour"),
+        "{calibration}"
+    );
+    assert!(
+        season.starts_with(&calibration),
+        "the season release is the common release plus its own paragraph"
+    );
+    // A column the marker cannot be read from gets the common release: the
+    // guard that appended it already established a walk just ended, and a
+    // generic release beats none.
+    assert_eq!(release_directive(None), calibration);
+    assert_eq!(release_directive(Some("{")), calibration);
 }

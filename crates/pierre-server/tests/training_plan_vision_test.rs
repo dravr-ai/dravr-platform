@@ -48,6 +48,8 @@ fn flavour() -> FlavourSelection {
         modifiers: Vec::new(),
         selected_by: SelectedBy::Coach,
         override_reason: Some("she wants the two hard days she is used to".to_owned()),
+        verdict_snapshot: None,
+        inputs_snapshot: None,
     }
 }
 

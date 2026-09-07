@@ -1351,7 +1351,7 @@ export interface RecallUserMemoryParams {
 
 
 /**
- * Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome — including any override the athlete or coach makes, with its reason — through save_training_plan. This only recommends; it writes nothing.
+ * Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome through save_training_plan, passing `verdict` and `inputs` through exactly as returned here, with selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. This only recommends; it writes nothing.
  */
 export interface RecommendPlanFlavourParams {
 
@@ -1498,11 +1498,17 @@ export interface SaveTrainingPlanParams {
   /** A flavour id from the training catalogue (polarized-classic, pyramidal-base, hvlit-foundation, …); the save refuses an id the catalogue does not hold and lists the ones it does. */
   id: string;
 
+  /** recommend_plan_flavour's `inputs`, passed through exactly as the tool returned it, when it ran. */
+  inputs?: Record<string, any>;
+
   /** Why a coach or athlete chose this flavour over the rule's proposal. Required for coach and athlete; omit for rule. */
   override_reason?: string;
 
   /** Who chose it: rule (the selection rule's proposal, taken as is), coach, or athlete. */
   selected_by: string;
+
+  /** recommend_plan_flavour's `verdict`, passed through exactly as the tool returned it, when it ran. A rule selection must be the flavour it ranked first. */
+  verdict?: Record<string, any>;
 };
 
   /** The goal (A) race this plan builds toward. */

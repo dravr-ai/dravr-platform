@@ -553,6 +553,10 @@ pub const KEY_MEMORY_PREDICATE_TRAINING_FOR: &str = "messaging.memory.predicate.
 pub const KEY_MEMORY_PREDICATE_WORKING_TOWARD: &str = "messaging.memory.predicate.working_toward";
 /// Key: memory fact sentence for the `target_race` predicate code. Args: `{0}` object.
 pub const KEY_MEMORY_PREDICATE_TARGET_RACE: &str = "messaging.memory.predicate.target_race";
+/// Key: memory fact sentence for the `aim_this_season` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_AIM_THIS_SEASON: &str = "messaging.memory.predicate.aim_this_season";
+/// Key: memory fact sentence for the `aim_long_term` predicate code. Args: `{0}` object.
+pub const KEY_MEMORY_PREDICATE_AIM_LONG_TERM: &str = "messaging.memory.predicate.aim_long_term";
 /// Key: memory fact sentence for the `prefer` predicate code. Args: `{0}` object.
 pub const KEY_MEMORY_PREDICATE_PREFER: &str = "messaging.memory.predicate.prefer";
 /// Key: memory fact sentence for the `avoid` predicate code. Args: `{0}` object.
@@ -650,6 +654,28 @@ pub const KEY_CALIBRATE_TOPIC_INJURY: &str = "commands.calibrate.topic_injury";
 /// Key: label for the recovery-speed calibration topic, used by the completion
 /// message when that answer is missing.
 pub const KEY_CALIBRATE_TOPIC_RECOVERY: &str = "commands.calibrate.topic_recovery";
+
+// ── /season command keys ──────────────────────────────────────────────────
+
+/// Key: `/season` opener for a walk started in a direct message, when no
+/// availability is on file to quote back.
+pub const KEY_SEASON_OPENER: &str = "commands.season.opener";
+/// Key: `/season` opener quoting back what `/calibrate` recorded about the
+/// athlete's time, for correction. `{0}` = the availability facts, joined.
+pub const KEY_SEASON_OPENER_AVAILABILITY: &str = "commands.season.opener_availability";
+/// Key: `/season` opener for a walk started in a shared room: the answers
+/// appear here, they are the caller's alone to give, and the room reads along.
+pub const KEY_SEASON_OPENER_ROOM: &str = "commands.season.opener_room";
+/// Key: `/season` failure when the walk could not be activated.
+pub const KEY_SEASON_START_FAILED: &str = "commands.season.start_failed";
+/// Key: `/season` completion header. `{0}` = answers captured, `{1}` = asked.
+pub const KEY_SEASON_COMPLETE_HEADER: &str = "commands.season.complete_header";
+/// Key: `/season` completion note when no goal race landed — the one answer
+/// the season layout cannot do without.
+pub const KEY_SEASON_COMPLETE_MISSING_GOAL: &str = "commands.season.complete_missing_goal";
+/// Key: `/season` completion follow-up offering to lay the season out. A
+/// question, never an action — the athlete's yes is what runs the rule.
+pub const KEY_SEASON_FOLLOWUP_LAY_OUT: &str = "commands.season.followup_lay_out";
 
 // ── /plan command keys ────────────────────────────────────────────────────
 

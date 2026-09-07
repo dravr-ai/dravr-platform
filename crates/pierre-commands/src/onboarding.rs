@@ -139,7 +139,7 @@ impl CommandHandler for PillarsHandler {
             Some("full") => {
                 let n = repos
                     .memory
-                    .expire_onboarding_facts(ctx.tenant_id, &user, None, None, None)
+                    .expire_onboarding_facts(ctx.tenant_id, &user, None, None, None, None)
                     .await?;
                 info!(user_id = %ctx.user_id, superseded = n, "/pillars full re-screen");
             }
@@ -147,7 +147,7 @@ impl CommandHandler for PillarsHandler {
                 let pillar = parse_pillar_arg(slug).ok_or_else(|| unknown_pillar_error(slug))?;
                 let n = repos
                     .memory
-                    .expire_onboarding_facts(ctx.tenant_id, &user, Some(pillar), None, None)
+                    .expire_onboarding_facts(ctx.tenant_id, &user, Some(pillar), None, None, None)
                     .await?;
                 info!(user_id = %ctx.user_id, pillar = pillar.as_str(), superseded = n, "/pillars pillar re-screen");
             }
