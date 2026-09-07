@@ -62,7 +62,7 @@ export type {
 } from '@pierre/shared-types';
 
 // ========== COACH TYPES ==========
-// AI coaching personas, store, versions
+// Agent personas, store, versions
 
 export type {
   CoachCategory,

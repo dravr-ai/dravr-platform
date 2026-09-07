@@ -33,7 +33,7 @@ export interface ChatComposeMenuProps {
 /**
  * The chat "+" as a menu rather than a bare "new chat" button.
  *
- * Coaches are invited with `/coach add @handle` from the composer's slash
+ * Agents are invited with `/agent add @handle` from the composer's slash
  * palette, so the menu names people and rooms only: a new chat, a new group
  * chat — which asks for the group's name and then issues `/group create` —
  * and, once a thread is open, adding someone to it.

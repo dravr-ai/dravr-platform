@@ -21,7 +21,7 @@ import { installLiveOverlay, type BundleFetcher } from './liveBundle';
  * `["fr", "en", "es", "de", "pt"]` on `PUT /api/user/locale` (`SUPPORTED_LOCALES`
  * in `pierre-routes-auth`), and every messaging string ships in all five
  * (`entries == keys * 5`, CI-enforced). Offering a sixth here would let a user
- * pick a language the coach cannot answer in.
+ * pick a language the agent cannot answer in.
  */
 export const SUPPORTED_LANGUAGES = ['fr', 'en', 'es', 'de', 'pt'] as const;
 
@@ -42,7 +42,7 @@ export const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
  *
  * French, matching `DEFAULT_LOCALE` in `pierre-contremaitre::messaging_strings`.
  * The user base is majority francophone and the server already answers them in
- * French; a client defaulting to English put the chrome and the coach in two
+ * French; a client defaulting to English put the chrome and the agent in two
  * different languages on first paint.
  */
 export const DEFAULT_LANGUAGE: SupportedLanguage = 'fr';
@@ -83,7 +83,7 @@ export const defaultI18nConfig = {
 /** Arguments to [`initI18n`]. */
 export interface I18nInitOptions {
   /**
-   * Writes the chosen locale back to `users.locale` so the coach answers in
+   * Writes the chosen locale back to `users.locale` so the agent answers in
    * the same language the chrome is rendered in.
    *
    * Required, not optional: the two locale systems disagreed for as long as

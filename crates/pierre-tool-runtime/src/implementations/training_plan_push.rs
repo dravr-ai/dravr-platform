@@ -179,8 +179,8 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Coach persona slug whose plan to push; falls back to the athlete's \
-                     coach-agnostic plan."
+                    "Agent persona slug whose plan to push; falls back to the athlete's \
+                     agent-agnostic plan."
                         .to_owned(),
                 ),
                 ..Default::default()

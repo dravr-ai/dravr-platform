@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The chat surface: one open thread, its header info drawer, and the composer
-// ABOUTME: Coaches and groups are commands here — no coach CRUD, no group picker, no welcome grid
+// ABOUTME: Agents and groups are commands here — no agent CRUD, no group picker, no welcome grid
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -87,7 +87,7 @@ interface ChatTabProps {
   selectedConversation: string | null;
   onSelectConversation: (id: string | null) => void;
   /**
-   * Dashboard route navigator, `tab[/subview]`. Editing a coach leaves for
+   * Dashboard route navigator, `tab[/subview]`. Editing an agent leaves for
    * `discover/<coachId>`, which is where the edit sheet lives.
    */
   onNavigate?: (route: string) => void;
@@ -129,7 +129,7 @@ export default function ChatTab({
   // Not persisted: a reloaded conversation has no block list on the wire, so
   // its rows are decoded back into the same shape by the renderer.
   const [messageBlocks, setMessageBlocks] = useState<Map<string, ReplyBlock[]>>(new Map());
-  // The header's info drawer — Group info, Coach info or the plain thread's
+  // The header's info drawer — Group info, Agent info or the plain thread's
   // own controls. The "+" menu's "Add someone" opens the same drawer with the
   // participants control already expanded.
   const [infoOpen, setInfoOpen] = useState(false);
@@ -191,7 +191,7 @@ export default function ChatTab({
   }, [messagesData]);
 
   // Claim verdicts attached to messages in the selected conversation.
-  // Refetched alongside messages so a coach reply that triggers verification
+  // Refetched alongside messages so an agent reply that triggers verification
   // surfaces its chip without a manual reload.
   const { data: verdictsData, isFetching: verdictsFetching, refetch: refetchVerdicts } = useQuery({
     queryKey: ['chat', 'verdicts', selectedConversation],
@@ -201,7 +201,7 @@ export default function ChatTab({
   const verdicts: ClaimVerdict[] = verdictsData?.verdicts ?? [];
 
   // The list is the one source for the open thread's row: its title, the
-  // coach it is bound to and the group it is scoped to all come from there,
+  // agent it is bound to and the group it is scoped to all come from there,
   // so the header and the info drawer read the same record the sidebar draws.
   const { conversations } = useConversationList();
   const { rename, remove } = useConversationMutations();
@@ -215,14 +215,14 @@ export default function ChatTab({
   const { coach: activeCoach } = useCoachInfo(activeConversation?.coach_id ?? pendingCoachId);
   const activeCoachTitle = activeCoach?.title ?? null;
 
-  // What the header names: the group, the coach, or the thread's own title.
+  // What the header names: the group, the agent, or the thread's own title.
   const headerTitle = useMemo<string>(() => {
     if (activeConversation?.group_name) return activeConversation.group_name;
     if (activeCoachTitle) return activeCoachTitle;
     return activeConversation?.title?.trim() || t('app.newConversation');
   }, [activeConversation, activeCoachTitle, t]);
 
-  // The line under the name: the coach's handle, or what the coach can see.
+  // The line under the name: the agent's handle, or what the agent can see.
   const providerStatus = useMemo<string | null>(
     () => providerStatusLine(t, providersData?.providers, providersLoaded),
     [providersData, providersLoaded, t],
@@ -261,7 +261,7 @@ export default function ChatTab({
   }, [t]);
 
   // Mutations. Takes an optional coach ID; the server resolves the
-  // coach's system prompt at runtime from the coaches table.
+  // agent's system prompt at runtime from the coaches table.
   const createConversation = useMutation<{ id: string }, Error, string | void>({
     mutationFn: (coachId) => {
       // Named for the moment it starts, in the viewer's language and on the
@@ -285,7 +285,7 @@ export default function ChatTab({
       setPendingCoachId(null);
       // The server caps active conversations (max_active_conversations) and
       // returns 429 QuotaExceeded once a user is at the limit. Without this the
-      // coach click silently did nothing — surface a clear, actionable message.
+      // agent click silently did nothing — surface a clear, actionable message.
       const apiError = error as {
         response?: { status?: number; data?: { code?: string; details?: { limit?: number } } };
       };
@@ -439,7 +439,7 @@ export default function ChatTab({
    * Send one turn and fold the result into the transcript.
    *
    * Takes its content as an argument rather than reading the composer, so
-   * every caller — the send button, a queued coach prompt, a command action
+   * every caller — the send button, a queued agent prompt, a command action
    * button, a retry — dispatches the same way. The composer is state; a
    * caller that had to seed it and then wait for React to commit is what
    * produced the simulated button clicks this replaced.
@@ -558,9 +558,9 @@ export default function ChatTab({
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
 
         // A slash command is the one turn that can rewrite what the header and
-        // the info panel draw — `/coach add` binds a coach, `/coach remove`
-        // detaches one, `/discover install` puts a new coach on the athlete's
-        // list. Both read the coach set, so a command turn refreshes it; an
+        // the info panel draw — `/agent add` binds an agent, `/agent remove`
+        // detaches one, `/discover install` puts a new agent on the athlete's
+        // list. Both read the agent set, so a command turn refreshes it; an
         // LLM turn never changes it and is left alone.
         if (turn.assistant.finish_reason === COMMAND_FINISH_REASON) {
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
@@ -616,7 +616,7 @@ export default function ChatTab({
   /**
    * Put `text` in front of the athlete in a thread, creating one when none is
    * open. `send` dispatches it as a turn (the invite deep link, the "+" menu's
-   * group creation, the info drawer's `/coach remove`); `draft` seeds the
+   * group creation, the info drawer's `/agent remove`); `draft` seeds the
    * composer and lets them finish the line.
    */
   const runComposerAction = useCallback((action: PendingComposerAction) => {

@@ -14,10 +14,10 @@ import { useTranslation } from '@pierre/i18n';
  * Athlete-vs-coach onboarding step.
  *
  * Shown once, right after sign-in and before the connect-provider gate, so the
- * choice is in place before we infer a profile and propose coaches. Picking
+ * choice is in place before we infer a profile and propose agents. Picking
  * "I coach others" persists `coaching_persona=coach`, which unlocks the
  * coach-facing builder personas (Taper Builder, etc.) in recommendations and
- * the coach library. Athletes keep the default Casual voice and never see those
+ * the agent library. Athletes keep the default Casual voice and never see those
  * builder tools. The choice is changeable later under Settings → Coaching style.
  *
  * Completion is persisted per-user in `localStorage`, so this is a one-time
@@ -50,7 +50,7 @@ export default function OnboardingProfileType({
     // step record `onComplete` writes: a `profile_type` row with no
     // `coaching_persona=coach` alongside it means they chose athlete, and no row
     // at all means they were never asked. The screen's promise to tailor the
-    // coaches is kept by the `about_you` step immediately after this one, which
+    // agents is kept by the `about_you` step immediately after this one, which
     // writes the North Star, sport and goal that the coach proposal reads.
     onComplete();
   };

@@ -572,7 +572,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         properties.insert(
             "coach_id".to_owned(),
             string_prop(
-                "Coach persona slug asking; falls back to the athlete's coach-agnostic plan.",
+                "Agent persona slug asking; falls back to the athlete's agent-agnostic plan.",
             ),
         );
         properties.insert(

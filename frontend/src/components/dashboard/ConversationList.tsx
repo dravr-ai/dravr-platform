@@ -46,7 +46,7 @@ function keepsRow(filter: RowFilter, row: ConversationRowModel): boolean {
 /**
  * Every conversation the athlete takes part in, as one flat list.
  *
- * Rows are the shared row model, so a Telegram DM, a coach thread and a group
+ * Rows are the shared row model, so a Telegram DM, an agent thread and a group
  * room sit in the same order and carry the same anatomy here as on mobile.
  * Selecting a row only opens it; the read marker is the thread's business
  * and moves once its messages resolve.

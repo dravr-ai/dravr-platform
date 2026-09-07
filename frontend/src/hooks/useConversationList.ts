@@ -109,7 +109,7 @@ export interface ConversationListState {
  * The unified list: every conversation the athlete takes part in, whatever
  * created it, as one flat set of rows sorted by last activity.
  *
- * `query` narrows the rows the way the search box does — title, coach handle
+ * `query` narrows the rows the way the search box does — title, agent handle
  * or preview — without touching what is cached, so clearing the box costs no
  * request.
  */

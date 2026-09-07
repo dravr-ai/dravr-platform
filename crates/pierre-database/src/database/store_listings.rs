@@ -113,7 +113,7 @@ impl StoreListingsManager {
 
         if coach_row.is_none() {
             return Err(AppError::invalid_input(
-                "Coach not found, not owned by you, or not in your tenant",
+                "Agent not found, not owned by you, or not in your tenant",
             ));
         }
 
@@ -255,7 +255,7 @@ impl StoreListingsManager {
         .map_err(|e| AppError::database(format!("Failed to unpublish coach: {e}")))?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::invalid_input("Coach not found or not published"));
+            return Err(AppError::invalid_input("Agent not found or not published"));
         }
 
         self.get_coach_with_listing(coach_id, &tenant_id).await
@@ -939,7 +939,7 @@ impl StoreListingsManager {
 
         let source_id: Option<String> = row.get("forked_from");
         let source_id = source_id.ok_or_else(|| {
-            AppError::invalid_input("This coach was not installed from the Store")
+            AppError::invalid_input("This agent was not installed from the Store")
         })?;
 
         // Delete the user's copy

@@ -37,7 +37,7 @@ const SEVERITY_STYLES: Record<HealthFlagSeverity, string> = {
  * The weekly report and health flags for one coaching group.
  *
  * Both are computed server-side on every request from the same member fitness
- * snapshots the chat coach sees, and until now neither had a caller outside
+ * snapshots the chat agent sees, and until now neither had a caller outside
  * the digest scheduler: an admin could read the numbers only if a digest
  * happened to be delivered to them.
  */

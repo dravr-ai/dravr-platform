@@ -27,7 +27,7 @@ export function usePendingUsersCount(enabled = true): number {
   return pendingUsers.length;
 }
 
-/** Hook to get pending coach count for badge display */
+/** Hook to get pending agent count for badge display */
 export function useStoreStatsPendingCount(enabled = true): number {
   const { data: storeStats } = useQuery({
     queryKey: QUERY_KEYS.adminStore.stats(),

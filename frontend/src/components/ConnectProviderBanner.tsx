@@ -1,5 +1,5 @@
 // ABOUTME: Dismissible one-line nudge to connect a fitness provider — a hairline row, not a boxed card
-// ABOUTME: Shown on coach screens when no provider is connected; routes to the connections pane.
+// ABOUTME: Shown on agent screens when no provider is connected; routes to the connections pane.
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -9,7 +9,7 @@ import { useTranslation } from '@pierre/i18n';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 
 /**
- * Surfaces the "connect a provider" nudge on coach surfaces (the chat flow has its
+ * Surfaces the "connect a provider" nudge on agent surfaces (the chat flow has its
  * own modal). Hidden once a provider is connected or the user dismisses it for the
  * session. The action navigates through the caller's own router rather than
  * writing `window.location.hash`, so it lands on the one connections route.
@@ -24,7 +24,7 @@ export function ConnectProviderBanner({ onNavigate }: { onNavigate: (route: stri
   const hasConnectedProvider = data?.providers?.some((p) => p.connected) ?? false;
   // Stay hidden until the providers query answers. `hasConnectedProvider`
   // defaults to false while it is in flight, so rendering on that alone nudges
-  // a connected athlete to connect a provider on every coach-screen load.
+  // a connected athlete to connect a provider on every agent-screen load.
   if (dismissed || isLoading || hasConnectedProvider) {
     return null;
   }

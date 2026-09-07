@@ -225,7 +225,7 @@ function SceneTable({ view }: { view: TableView }) {
  * Everything geometric already happened on the server: this walks a flat node
  * list and emits one element per node. There is no chart library on this side
  * and no maths — which is the whole point of resolving a Scene rather than
- * shipping the coach's spec to the client.
+ * shipping the agent's spec to the client.
  *
  * A route is the one block that keeps its geometry in geographic coordinates
  * rather than arriving pre-projected, because the projection belongs to the

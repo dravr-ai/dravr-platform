@@ -1,4 +1,4 @@
-// ABOUTME: Provider data refresh MCP tool for coach-initiated data sync
+// ABOUTME: Provider data refresh MCP tool for agent-initiated data sync
 // ABOUTME: Allows the coach to trigger on-demand provider refresh with optional blocking
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -140,7 +140,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             let reason = args
                 .get("reason")
                 .and_then(Value::as_str)
-                .unwrap_or("coach-initiated refresh");
+                .unwrap_or("agent-initiated refresh");
 
             let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(false);
 
@@ -154,7 +154,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
                 provider = %provider,
                 reason = %reason,
                 wait = %wait,
-                "Coach-initiated provider data refresh"
+                "Agent-initiated provider data refresh"
             );
 
             let refresh_service = build_refresh_service(&context);

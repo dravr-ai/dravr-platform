@@ -372,9 +372,7 @@ pub(super) fn outline_schema() -> PropertySchema {
     );
     p.insert(
         "strategy".to_owned(),
-        string_prop(
-            "The coach's strategy in prose — what the athlete sees as the long-term direction.",
-        ),
+        string_prop("The strategy in prose — what the athlete sees as the long-term direction."),
     );
     p.insert(
         "phases".to_owned(),

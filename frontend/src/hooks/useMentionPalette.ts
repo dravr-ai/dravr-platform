@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: @handle mention palette state for the web composer — installed coaches, matches, keyboard
+// ABOUTME: @handle mention palette state for the web composer — installed agents, matches, keyboard
 // ABOUTME: Sibling of useCommandPalette: the composer renders what this decides and nothing more
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -28,13 +28,13 @@ export interface UseMentionPaletteOptions {
 
 /** What the composer needs to render and drive the mention palette. */
 export interface UseMentionPaletteResult {
-  /** True when there is at least one installed coach to offer for the draft. */
+  /** True when there is at least one installed agent to offer for the draft. */
   isOpen: boolean;
-  /** The matching installed coaches, one per handle, in handle order. */
+  /** The matching installed agents, one per handle, in handle order. */
   matches: MentionCandidate[];
   /** Index into `matches` of the highlighted row. */
   highlightedIndex: number;
-  /** Replace the draft with this coach's handle and close the palette. */
+  /** Replace the draft with this agent's handle and close the palette. */
   select: (candidate: MentionCandidate) => void;
   /**
    * Handle a composer keystroke. Returns true when the palette consumed it,
@@ -46,12 +46,12 @@ export interface UseMentionPaletteResult {
 /**
  * Drive a `@handle` palette from the composer's text and caret.
  *
- * The candidates are the athlete's own coach list — the same "installed"
+ * The candidates are the athlete's own agent list — the same "installed"
  * set the server resolves a mention against, so the palette never offers a
  * handle the turn would ignore. The handle is inserted verbatim, in the
  * lowercase spelling the catalogue assigned, followed by a space.
  *
- * The coach list is only fetched once the athlete has typed a `@`; a palette
+ * The agent list is only fetched once the athlete has typed a `@`; a palette
  * nobody opens costs no request.
  */
 export function useMentionPalette({
@@ -67,16 +67,16 @@ export function useMentionPalette({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
     enabled: draft !== null,
-    // A coach joins or leaves the list through Discover, never mid-keystroke.
+    // An agent joins or leaves the list through Discover, never mid-keystroke.
     staleTime: 5 * 60_000,
   });
 
-  // Only a coach the athlete has actually installed answers a mention:
+  // Only an agent the athlete has actually installed answers a mention:
   // `find_installed_by_handle` joins `coach_assignments` for this user, so a
-  // catalogue coach nobody installed would be offered here and then silently
+  // catalogue agent nobody installed would be offered here and then silently
   // not route. `is_assigned` is that same join surfaced on the list row — and
   // it is the discriminator, not `is_system`: the resolver admits a system
-  // coach (`OR c.is_system = 1`) once the athlete has been assigned it.
+  // agent (`OR c.is_system = 1`) once the athlete has been assigned it.
   const mentionable = useMemo(
     () => (data?.coaches ?? []).filter(coach => coach.is_assigned === true),
     [data],
@@ -122,7 +122,7 @@ export function useMentionPalette({
       if (event.key === 'Enter' || event.key === 'Tab') {
         const candidate = matches[highlightedIndex];
         // Enter on a handle already typed in full belongs to the composer:
-        // the athlete addressed the coach and means to send the message.
+        // the athlete addressed the agent and means to send the message.
         if (event.key === 'Enter' && draft.query === candidate.handle) {
           return false;
         }

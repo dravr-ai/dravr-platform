@@ -30,12 +30,12 @@ export type MemberFlag =
 /** Severity level for health flags */
 export type HealthFlagSeverity = 'info' | 'warning' | 'critical';
 
-/** When the group's AI coach replies in the bound channel chat */
+/** When the group's agent replies in the bound channel chat */
 export type GroupRespondMode = 'all' | 'mentions';
 
 // ========== CORE TYPES ==========
 
-/** A coaching group binding a coach persona to multiple athletes */
+/** A coaching group binding an agent persona to multiple athletes */
 export interface CoachingGroup {
   id: string;
   tenant_id: string;

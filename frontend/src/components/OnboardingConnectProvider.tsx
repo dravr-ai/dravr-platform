@@ -27,7 +27,7 @@ import { useTranslation } from '@pierre/i18n';
  * provider, the OAuth callback in `App.tsx` invalidates the onboarding-status
  * query and the redirect flips to the dashboard.
  *
- * Skip is intentionally absent from the provider list — the LLM coach has
+ * Skip is intentionally absent from the provider list — the agent has
  * nothing to reason about without provider data. Sign Out is offered as a
  * session escape (same convention as `PendingApproval`) so the user is never
  * trapped.

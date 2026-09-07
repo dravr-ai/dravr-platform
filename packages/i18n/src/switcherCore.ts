@@ -57,7 +57,7 @@ export interface LanguageSwitcherResult {
  *
  * Chrome language and reply language are one preference wearing two hats, so
  * a change writes both: i18next for what the user reads, `users.locale` for
- * what the coach answers in. The server write is awaited and its failure is
+ * what the agent answers in. The server write is awaited and its failure is
  * reported rather than logged, because a silently-dropped write is exactly the
  * disagreement this hook exists to close.
  */

@@ -273,7 +273,7 @@ impl StoreListingsRepository for Database {
 
         if coach_row.is_none() {
             return Err(AppError::invalid_input(
-                "Coach not found, not owned by you, or not in your tenant",
+                "Agent not found, not owned by you, or not in your tenant",
             ));
         }
 
@@ -416,7 +416,7 @@ impl StoreListingsRepository for Database {
 
         if result.rows_affected() == 0 {
             return Err(AppError::invalid_input(
-                "Coach not found or not pending review",
+                "Agent not found or not pending review",
             ));
         }
 
@@ -461,7 +461,7 @@ impl StoreListingsRepository for Database {
 
         if result.rows_affected() == 0 {
             return Err(AppError::invalid_input(
-                "Coach not found or not pending review",
+                "Agent not found or not pending review",
             ));
         }
 
@@ -494,7 +494,7 @@ impl StoreListingsRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to unpublish coach: {e}")))?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::invalid_input("Coach not found or not published"));
+            return Err(AppError::invalid_input("Agent not found or not published"));
         }
 
         self.store_get_coach_with_listing(coach_id, &tenant_id)
@@ -982,7 +982,7 @@ impl StoreListingsRepository for Database {
 
         let source_id: Option<String> = row.get("forked_from");
         let source_id = source_id.ok_or_else(|| {
-            AppError::invalid_input("This coach was not installed from the Store")
+            AppError::invalid_input("This agent was not installed from the Store")
         })?;
 
         // Delete the user's copy

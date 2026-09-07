@@ -46,7 +46,7 @@ export interface UserSurface {
    * Reply-block kinds this surface renders, from the generated server
    * catalogue.
    *
-   * Empty for every surface that carries no coach reply — a settings screen
+   * Empty for every surface that carries no agent reply — a settings screen
    * renders no turn envelope. Only the chat surface has a non-empty column,
    * and it is read out of the catalogue rather than typed here, so a surface
    * cannot claim an affordance the server never sends it.
@@ -67,7 +67,7 @@ export interface UserSurface {
  */
 const CHAT_BLOCKS: readonly ReplyBlockKind[] = SURFACE_CAPABILITIES.web_chat.blocks;
 
-/** A surface that carries no coach reply renders no reply blocks. */
+/** A surface that carries no agent reply renders no reply blocks. */
 const NO_BLOCKS: readonly ReplyBlockKind[] = [];
 
 export const USER_SURFACES: readonly UserSurface[] = [

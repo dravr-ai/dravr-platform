@@ -11,7 +11,7 @@ export const MENTION_PREFIX = '@';
  *
  * The server's `CoachHandle::parse` accepts lowercase letters, digits, `-`
  * and `_`. The draft is matched case-insensitively so a capital typed by a
- * phone keyboard still finds the coach; what gets inserted is the handle as
+ * phone keyboard still finds the agent; what gets inserted is the handle as
  * the catalogue spells it, which is lowercase.
  */
 const TOKEN_CHAR = /[A-Za-z0-9_-]/;
@@ -34,13 +34,13 @@ export interface MentionDraft {
   query: string;
 }
 
-/** An installed coach the palette offers for a mention. */
+/** An installed agent the palette offers for a mention. */
 export interface MentionCandidate {
-  /** The coach's catalogue handle, without the `@`. */
+  /** The agent's catalogue handle, without the `@`. */
   handle: string;
-  /** What the athlete calls the coach. */
+  /** What the athlete calls the agent. */
   title: string;
-  /** The coach id, for callers that key rows by it. */
+  /** The agent id, for callers that key rows by it. */
   id: string;
 }
 
@@ -65,10 +65,10 @@ export function mentionDraftAt(value: string, caret: number): MentionDraft | nul
 }
 
 /**
- * The installed coaches whose handle begins with the draft, one row per
+ * The installed agents whose handle begins with the draft, one row per
  * handle, in handle order.
  *
- * Only a coach carrying a handle is addressable — a personal coach that was
+ * Only an agent carrying a handle is addressable — a personal agent that was
  * never published has none and cannot be mentioned, so it is never offered.
  * A user's installed copy carries its origin's handle, so when both sit on
  * the list they collapse to one row.

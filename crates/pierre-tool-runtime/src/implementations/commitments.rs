@@ -187,7 +187,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Coach the athlete made the promise to.".to_owned()),
+                description: Some("Agent the athlete made the promise to.".to_owned()),
                 ..Default::default()
             },
         );

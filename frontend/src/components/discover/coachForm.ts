@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach editor's form state and its conversions to and from the coaches API
+// ABOUTME: The agent editor's form state and its conversions to and from the coaches API
 // ABOUTME: One source of truth for the update payload, shared by every mount of CoachFormModal
 
 import type { Coach, UpdateCoachRequest } from '@pierre/shared-types';
@@ -17,7 +17,7 @@ export interface CoachFormData {
   time_frame: string;
   detail_mode: 'summary' | 'detailed';
   athlete_profile: boolean;
-  // Structured sections for marketplace-quality coaches
+  // Structured sections for marketplace-quality agents
   purpose: string;
   when_to_use: string;
   instructions: string;
@@ -25,14 +25,14 @@ export interface CoachFormData {
   example_outputs: string;
   success_criteria: string;
   /**
-   * Per-turn tool-loop iteration budget for this coach, in three states.
+   * Per-turn tool-loop iteration budget for this agent, in three states.
    *
    * - `undefined` — untouched. The request omits the key, so an existing pin
-   *   survives an unrelated edit and a coach without one keeps following the
+   *   survives an unrelated edit and an agent without one keeps following the
    *   tenant-wide `tool_execution.max_iterations` an admin can raise.
    * - `null` — the user emptied the box. The update request sends an explicit
    *   `null`, which clears a stored pin back to inheriting.
-   * - a number — an explicit per-coach budget the user typed.
+   * - a number — an explicit per-agent budget the user typed.
    */
   max_tool_iterations?: number | null;
 }
@@ -42,7 +42,7 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
   description: '',
   system_prompt: '',
   // The wire's `CoachCategory` union is lowercase. `'Training'` matched no
-  // entry in `COACH_CATEGORY_LABEL_KEY`, so a coach created from this form
+  // entry in `COACH_CATEGORY_LABEL_KEY`, so an agent created from this form
   // fell through to `custom` and its badge read "Personnalisé".
   category: 'training',
   startup_query: '',
@@ -57,12 +57,12 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
   example_inputs: '',
   example_outputs: '',
   success_criteria: '',
-  // Left undefined so a coach whose budget field is never touched keeps
+  // Left undefined so an agent whose budget field is never touched keeps
   // inheriting the tenant-wide limit instead of pinning one.
   max_tool_iterations: undefined,
 };
 
-/** Hydrate the coach editor's form state from a stored coach. */
+/** Hydrate the agent editor's form state from a stored agent. */
 export function coachToFormData(coach: Coach): CoachFormData {
   const dr = coach.data_requirements;
   return {
@@ -82,7 +82,7 @@ export function coachToFormData(coach: Coach): CoachFormData {
     example_inputs: coach.example_inputs || '',
     example_outputs: coach.example_outputs || '',
     success_criteria: coach.success_criteria || '',
-    // A coach with no stored override hydrates an empty box, so re-saving it
+    // An agent with no stored override hydrates an empty box, so re-saving it
     // from this form leaves it inheriting rather than pinning today's default.
     max_tool_iterations: coach.max_tool_iterations,
   };
@@ -100,7 +100,7 @@ export function formDataToUpdateRequest(data: CoachFormData): UpdateCoachRequest
 
   // Three-way, and the difference matters: an untouched field (`undefined`) is
   // left out so the server preserves whatever is stored, while an emptied box
-  // (`null`) is sent as an explicit null so a coach that already carries a pin
+  // (`null`) is sent as an explicit null so an agent that already carries a pin
   // can be reset to inheriting the tenant-wide limit.
   if (data.max_tool_iterations !== undefined) {
     request.max_tool_iterations = data.max_tool_iterations;

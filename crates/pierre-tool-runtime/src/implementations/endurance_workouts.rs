@@ -514,7 +514,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
              strength_maint, plyometric, mobility), the season phases it fits, \
              the readiness level it needs, the sports it is written for, its \
              evidence tier, and parameter ranges (reps, work and rest seconds, \
-             duration, RPE, intensity per sport) with a default the coach fills \
+             duration, RPE, intensity per sport) with a default the agent fills \
              in for the athlete. Filter with purpose, phase and sport; the reply \
              lists the athlete's own saved sessions after the bank. Pass detail = \
              full for the structured steps and target zones prescribe_workout \
@@ -696,7 +696,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Optional coach id stamped onto the audit row.".to_owned()),
+                description: Some("Optional agent id stamped onto the audit row.".to_owned()),
                 ..Default::default()
             },
         );

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Language switcher dropdown for the web app, covering all five platform locales
-// ABOUTME: Reports when the chrome moved but the coach's reply language could not be saved
+// ABOUTME: Reports when the chrome moved but the agent's reply language could not be saved
 
 import { useTranslation, useLanguageSwitcher, SUPPORTED_LANGUAGES, LANGUAGE_NAMES, type SupportedLanguage } from '@pierre/i18n';
 import { Select } from './ui';
@@ -28,7 +28,7 @@ export interface LanguageSwitcherProps {
 /**
  * Pick the app language.
  *
- * The same choice sets the chrome language and `users.locale`, so the coach
+ * The same choice sets the chrome language and `users.locale`, so the agent
  * answers in the language the user reads the app in.
  */
 export function LanguageSwitcher({ serverLocale }: LanguageSwitcherProps) {

@@ -12,7 +12,7 @@ import { useTranslation } from '@pierre/i18n';
 
 interface ThreadHeaderProps {
   title: string;
-  /** The line under the title: the coach's @handle, the group's size, or the data the coach can see. */
+  /** The line under the title: the agent's @handle, the group's size, or the data the agent can see. */
   subtitle?: string | null;
   initials: string;
   avatarSlot: number;

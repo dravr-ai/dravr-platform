@@ -19,7 +19,7 @@ interface VerdictDrawerProps {
   /** Dismiss the drawer. */
   onClose: () => void;
   /**
-   * Send a claim back to the coach as a follow-up question. Passed by the
+   * Send a claim back to the agent as a follow-up question. Passed by the
    * chat surface, where the athlete can act on it; omitted by the admin
    * triage table, which is reading someone else's conversation.
    */

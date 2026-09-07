@@ -49,7 +49,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
       // notification stranded with no destination (web QA 2026-05-09).
       // Resolved from the server's own screen vocabulary against the shared
       // surface registry, so this panel, the mobile centre and any future
-      // surface land in the same place. Coach messages carry the conversation
+      // surface land in the same place. Agent messages carry the conversation
       // id on `data.id` and resolve to `chat/<id>`, which opens the thread
       // rather than the empty picker.
       const data = item.data as Record<string, unknown> | undefined;

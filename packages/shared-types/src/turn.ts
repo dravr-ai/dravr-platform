@@ -22,7 +22,7 @@ export interface ChatMessageAction {
   action_type: string;
   /**
    * For `postback`: the text to send as the next user message
-   * (e.g. `/coach select <uuid>`). For `url`: the absolute URL.
+   * (e.g. `/agent add @handle`). For `url`: the absolute URL.
    */
   value: string;
 }
@@ -135,7 +135,7 @@ export interface TurnProgress {
   /**
    * Whether this is a pipeline stage the turn passes through, or a tool the
    * model asked for. The two read differently to an athlete — a stage says
-   * what the coach is doing, a tool names what it is looking at.
+   * what the agent is doing, a tool names what it is looking at.
    */
   kind: 'stage' | 'tool';
   /** Stable id: the stage's name, or the tool call's protocol id. */

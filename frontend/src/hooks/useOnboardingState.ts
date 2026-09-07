@@ -88,7 +88,7 @@ export function useOnboardingState(): OnboardingState {
 
   // Session-only "continue without a provider": lets the user into the app
   // without connecting. Deliberately not persisted — the connect prompts in
-  // chat and on the coach screens carry the nudge from here on.
+  // chat and on the agent screens carry the nudge from here on.
   const [skippedProvider, setSkippedProvider] = useState(false);
   // Session "skip messaging" escape (from either messaging step) → dashboard.
   const [skippedMessaging, setSkippedMessaging] = useState(false);

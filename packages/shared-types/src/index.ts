@@ -1,7 +1,7 @@
 // ABOUTME: Main entry point for @pierre/shared-types package
 // ABOUTME: Re-exports all shared types for convenient importing
 
-// Coach types (AI coaching personas, store, versions)
+// Coach types (agent personas, store, versions)
 export type {
   ActivityDataRequirements,
   DataRequirements,

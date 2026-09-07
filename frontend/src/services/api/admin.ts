@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Admin API methods - user management, tokens, config, coach management, store moderation
+// ABOUTME: Admin API methods - user management, tokens, config, agent management, store moderation
 // ABOUTME: Handles all administrative functionality for super_admin and admin roles
 
 import { axios } from './client';
@@ -1236,8 +1236,8 @@ export const adminApi = {
   },
 
   /**
-   * Suppress an audited coach note so memory recall stops surfacing it
-   * to the coach. The audit panel still shows the row (suppressed=true)
+   * Suppress an audited agent note so memory recall stops surfacing it
+   * to the agent. The audit panel still shows the row (suppressed=true)
    * for review; admins can call `unsuppressCoachNote` to restore it.
    */
   async suppressCoachNote(
@@ -1524,7 +1524,7 @@ export interface ClaimPattern {
   last_seen_at: string | null;
 }
 
-/** Aggregated stat for a coach with recurring unsupported claims. */
+/** Aggregated stat for an agent with recurring unsupported claims. */
 export interface CoachPattern {
   coach_id: string;
   unsupported_total: number;
@@ -1548,10 +1548,10 @@ export interface MythBustingSummary {
   top_categories: CategoryPattern[];
 }
 
-/** Letter grade for a coach based on claim verdict history. */
+/** Letter grade for an agent based on claim verdict history. */
 export type LetterGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'PROVISIONAL';
 
-/** Per-coach grade row from `GET /admin/coach-grading/summary`. */
+/** Per-agent grade row from `GET /admin/coach-grading/summary`. */
 export interface CoachGrade {
   coach_id: string;
   total_verdicts: number;
@@ -1572,9 +1572,9 @@ export interface CoachGradingSummary {
 }
 
 /**
- * Wire representation of a coach note row for the admin compliance audit log.
+ * Wire representation of an agent note row for the admin compliance audit log.
  *
- * Notes are personal context the coach persona derived about a user from
+ * Notes are personal context the agent derived about a user from
  * conversations, so the audit surface gates behind `ViewAuditLogs`.
  */
 export interface CoachNoteAuditRow {
@@ -1596,7 +1596,7 @@ export interface CoachNoteAuditRow {
 }
 
 /**
- * Wire representation of a coach followup row for the admin triage tab.
+ * Wire representation of an agent followup row for the admin triage tab.
  *
  * The server flattens the domain `FollowupStatus` enum to its stable
  * snake_case string so the client does not need to map enum variants.

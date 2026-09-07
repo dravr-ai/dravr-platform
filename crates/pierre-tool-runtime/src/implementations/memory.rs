@@ -104,7 +104,7 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "ID of the coach authoring the note. Must match the coach attached to the active conversation.".to_owned(),
+                    "ID of the agent authoring the note. Must match the agent attached to the active conversation.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -125,7 +125,7 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
         );
         tool_definition(
             "coach_note_add",
-            "Persist a private coach note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
+            "Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
             schema,
             Some(write_annotations()),
         )
@@ -215,7 +215,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Coach making the promise.".to_owned()),
+                description: Some("Agent making the promise.".to_owned()),
                 ..Default::default()
             },
         );
@@ -245,7 +245,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
         );
         tool_definition(
             "coach_followup_schedule",
-            "Schedule a future check-in the coach should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
+            "Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
             schema,
             Some(write_annotations()),
         )
@@ -378,7 +378,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Coach attaching the fact (optional; defaults to user-wide).".to_owned(),
+                    "Agent attaching the fact (optional; defaults to user-wide).".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -394,7 +394,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
         );
         tool_definition(
             "remember_fact",
-            "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the coach should remember next time.",
+            "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the agent should remember next time.",
             schema,
             Some(write_annotations()),
         )
@@ -491,7 +491,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional coach scope. When set, only facts attached to this coach are returned.".to_owned(),
+                    "Optional agent scope. When set, only facts attached to this agent are returned.".to_owned(),
                 ),
                 ..Default::default()
             },

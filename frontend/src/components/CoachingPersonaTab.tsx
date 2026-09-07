@@ -1,5 +1,5 @@
 // ABOUTME: Coaching-persona settings tab — the cards the server renders from the live contract registry
-// ABOUTME: Persona is orthogonal to the chosen coach — it shapes how every coach speaks
+// ABOUTME: Persona is orthogonal to the chosen agent — it shapes how every agent speaks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

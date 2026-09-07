@@ -122,7 +122,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Optional coach id for the verdict row.".to_owned()),
+                description: Some("Optional agent id for the verdict row.".to_owned()),
                 ..Default::default()
             },
         );

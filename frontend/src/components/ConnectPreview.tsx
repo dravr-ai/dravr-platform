@@ -11,7 +11,7 @@ import { useTranslation } from '@pierre/i18n';
  * A short illustrative exchange, shown collapsed on the connect gate.
  *
  * The gate asks for a third-party fitness password before the user has seen a
- * single thing the product does. That ordering is not negotiable — the coach
+ * single thing the product does. That ordering is not negotiable — the agent
  * genuinely has nothing to reason about without activity data — so the fix is to
  * show what they are being asked to unlock rather than to move the gate.
  *

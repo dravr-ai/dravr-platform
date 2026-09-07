@@ -2,25 +2,25 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: @handle autocomplete rendered above the web composer
-// ABOUTME: Lists the athlete's installed coaches by handle; holds no coach list of its own
+// ABOUTME: Lists the athlete's installed agents by handle; holds no agent list of its own
 
 import { clsx } from 'clsx';
 import type { MentionCandidate } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 export interface MentionPaletteProps {
-  /** The installed coaches to offer, already filtered and ordered by handle. */
+  /** The installed agents to offer, already filtered and ordered by handle. */
   matches: MentionCandidate[];
   /** Index of the highlighted row, driven by the composer's arrow keys. */
   highlightedIndex: number;
-  /** Insert this coach's handle into the composer. */
+  /** Insert this agent's handle into the composer. */
   onSelect: (candidate: MentionCandidate) => void;
 }
 
 /**
  * The `@` autocomplete over the composer.
  *
- * Every row is a coach on the athlete's own list — the set the server resolves
+ * Every row is an agent on the athlete's own list — the set the server resolves
  * a mention against — so a selected handle is one the next turn will route to.
  * Renders nothing when there is nothing to offer, which is what closes it.
  */

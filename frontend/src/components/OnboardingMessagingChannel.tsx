@@ -1,4 +1,4 @@
-// ABOUTME: Onboarding step — pick which messaging app to chat with the coach on (Telegram/WhatsApp/Slack/…)
+// ABOUTME: Onboarding step — pick which messaging app to chat with the agent on (Telegram/WhatsApp/Slack/…)
 // ABOUTME: Shown only when the tenant has >1 channel configured; a single channel is auto-selected upstream
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,7 +12,7 @@ import { useTranslation } from '@pierre/i18n';
 
 /**
  * Messaging-channel picker. The user chooses which chat app to connect so they
- * can talk to their coach there. Only reached when more than one channel is
+ * can talk to their agent there. Only reached when more than one channel is
  * configured for the tenant (a single channel is auto-selected by the flow, so
  * we never ask someone to pick from a list of one).
  */

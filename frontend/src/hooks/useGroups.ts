@@ -370,7 +370,7 @@ export function useGroupHealthFlags(groupId: string, enabled: boolean) {
  *
  * Membership-gated server-side and consent-filtered in the same SQL the
  * pipeline's ambient context uses, so what a member sees here is exactly what
- * the coach reasons from -- one visibility rule for humans and model alike.
+ * the agent reasons from -- one visibility rule for humans and model alike.
  */
 export function useGroupTranscript(groupId: string, enabled: boolean) {
   const query = useQuery({

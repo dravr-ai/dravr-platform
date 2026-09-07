@@ -102,8 +102,8 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
   },
   {
     // Pre-participation medical screen. Ahead of the provider gate for the same
-    // reason it exists at all: a coach should not prescribe load before we have
-    // asked. A "yes" raises a coach-visible flag and never blocks sign-up.
+    // reason it exists at all: an agent should not prescribe load before we have
+    // asked. A "yes" raises an agent-visible flag and never blocks sign-up.
     id: 'parq',
     labelKey: 'onboarding.stepHealthCheck',
     isApplicable: (c) =>
@@ -237,7 +237,7 @@ export function onboardingProgress(ctx: OnboardingContext): OnboardingProgressIt
  * The one-tap sport choices offered during onboarding.
  *
  * These strings are the VALUE stored on the athlete's profile and read back by
- * the coach, so they are English on the wire in every locale. What the chip
+ * the agent, so they are English on the wire in every locale. What the chip
  * SHOWS is `SPORT_LABEL_KEY[value]`, resolved from the translation corpus.
  *
  * Both apps had their own copy of this array with the label and the value as

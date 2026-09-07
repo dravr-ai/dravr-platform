@@ -1,4 +1,4 @@
-// ABOUTME: Component displaying rejected coach submissions with rejection details
+// ABOUTME: Component displaying rejected agent submissions with rejection details
 // ABOUTME: Lists rejected agents with reason, date, and option to re-review
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

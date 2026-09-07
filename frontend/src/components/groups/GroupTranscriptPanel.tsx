@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The shared room transcript of a coaching group, read from the surface-neutral model
-// ABOUTME: Renders exactly what the coach's ambient context sees - one visibility rule, every surface
+// ABOUTME: Renders exactly what the agent's ambient context sees - one visibility rule, every surface
 
 import { MessageCircle } from 'lucide-react';
 import { useGroupTranscript } from '../../hooks/useGroups';
@@ -17,7 +17,7 @@ interface GroupTranscriptPanelProps {
  *
  * Entries come consent-filtered from the server: an unconsented member stays
  * on the roster while their words are withheld, which is the same rule the
- * pipeline applies before the coach reasons over the room. A messaging turn,
+ * pipeline applies before the agent reasons over the room. A messaging turn,
  * a web turn and ambient room chatter all land in this one transcript.
  */
 export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelProps) {

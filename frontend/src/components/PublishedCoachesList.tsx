@@ -1,5 +1,5 @@
 // ABOUTME: Component displaying published agents in the store with management actions
-// ABOUTME: Shows coaches in a grid with install count, published date, and unpublish option
+// ABOUTME: Shows agents in a grid with install count, published date, and unpublish option
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

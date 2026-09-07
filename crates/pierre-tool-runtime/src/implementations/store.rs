@@ -138,7 +138,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Coaches per page (1-100, default 20).".to_owned()),
+                description: Some("Agents per page (1-100, default 20).".to_owned()),
                 ..Default::default()
             },
         );
@@ -157,10 +157,10 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
 
         tool_definition(
             "browse_coach_store",
-            "Browse the Coach Store — the catalogue of PUBLISHED coaches anyone can install. Use \
-             this when the athlete asks what coaches exist, or for a coach of a given kind they do \
-             not already have. Distinct from `list_coaches`, which lists only the coaches ALREADY \
-             in their library. Returns a page plus a `next_cursor` for the following one.",
+            "Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use \
+             this when the athlete asks what agents exist, or for an agent of a given kind they \
+             do not already have. Distinct from `list_coaches`, which lists only the agents \
+             ALREADY in their library. Returns a page plus a `next_cursor` for the following one.",
             schema,
             Some(read_only_annotations()),
         )
@@ -228,7 +228,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Text to match against a published coach's title, description or tags. \
+                    "Text to match against a published agent's title, description or tags. \
                      Required."
                         .to_owned(),
                 ),
@@ -247,7 +247,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
 
         tool_definition(
             "search_coach_store",
-            "Search the Coach Store for PUBLISHED coaches matching a phrase, e.g. 'ultra trail' or \
+            "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or \
              'vegetarian nutrition'. Searches the whole marketplace, unlike `search_coaches`, \
              which searches only the athlete's own library. Install a result with \
              `install_coach_from_store`.",
@@ -312,7 +312,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "UUID of the published coach to install, as returned by \
+                    "UUID of the published agent to install, as returned by \
                      `browse_coach_store` or `search_coach_store`. Required."
                         .to_owned(),
                 ),
@@ -323,10 +323,10 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
 
         tool_definition(
             "install_coach_from_store",
-            "Install a published Coach Store coach into the athlete's own library, creating their \
-             personal copy. Call it only once the athlete has asked for that specific coach — pass \
-             the `id` from `browse_coach_store` or `search_coach_store`. After installing, \
-             `activate_coach` makes it the coach that answers.",
+            "Install a published Agent Store agent into the athlete's own library, creating their \
+             personal copy. Call it only once the athlete has asked for that specific agent — \
+             pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, \
+             `activate_coach` makes it the agent that answers.",
             schema,
             Some(write_annotations()),
         )

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The right drawer behind the thread header — Group info, Coach info, or a plain thread's own controls
+// ABOUTME: The right drawer behind the thread header — Group info, Agent info, or a plain thread's own controls
 // ABOUTME: Tapping the header is how App Messaging reaches this, so nothing here needs a tab of its own
 
 import { useEffect, useState } from 'react';
@@ -19,9 +19,9 @@ interface ConversationInfoPanelProps {
   conversation: Conversation;
   /** Dismiss the drawer. */
   onClose: () => void;
-  /** Send a turn in this conversation — how the coach commands are issued. */
+  /** Send a turn in this conversation — how the agent commands are issued. */
   onSendCommand: (text: string) => void;
-  /** Open a coach's Discover edit sheet, `discover/<coachId>`. */
+  /** Open an agent's Discover edit sheet, `discover/<coachId>`. */
   onEditCoach: (coachId: string) => void;
   /** Rename this conversation. */
   onRename: (title: string) => void;
@@ -55,10 +55,10 @@ const HEADING_KEYS: Record<'group' | 'coach' | 'plain', string> = {
  * Everything there is to know about, and do to, the open thread.
  *
  * Three shapes, one drawer: a group thread gets the whole re-homed group
- * surface, a coach thread gets the coach and its two command-backed actions,
+ * surface, an agent thread gets the agent and its two command-backed actions,
  * and a plain thread gets its own name, its participants and its delete. The
  * shape is read off the conversation, never passed in, so a thread that gains
- * a coach through `/coach add` changes shape on the next list refetch.
+ * an agent through `/agent add` changes shape on the next list refetch.
  */
 export default function ConversationInfoPanel({
   conversation,

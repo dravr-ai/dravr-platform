@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Web language switcher hook backed by localStorage
-// ABOUTME: Changes chrome language and the coach's reply language in one call
+// ABOUTME: Changes chrome language and the agent's reply language in one call
 
 import { useSwitcherCore, type LanguageSwitcherOptions, type LanguageSwitcherResult } from './switcherCore';
 
@@ -20,7 +20,7 @@ const webLocaleStorage = {
  * Manage the web app's language.
  *
  * Persists to `localStorage` for the next visit and to `users.locale` so the
- * coach answers in the same language; `syncState` reports the server half.
+ * agent answers in the same language; `syncState` reports the server half.
  */
 export function useLanguageSwitcher(options: LanguageSwitcherOptions = {}): LanguageSwitcherResult {
   return useSwitcherCore(webLocaleStorage, options);

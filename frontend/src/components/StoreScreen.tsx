@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 //
-// ABOUTME: Discover — the Coach Store: browse, search, install, and the edit sheet for the athlete's own coaches
-// ABOUTME: Installing ends with a hint that teaches /coach add @handle; editing is the one coach UI outside chat
+// ABOUTME: Discover — the Agent Store: browse, search, install, and the edit sheet for the athlete's own agents
+// ABOUTME: Installing ends with a hint that teaches /agent add @handle; editing is the one agent UI outside chat
 
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -42,7 +42,7 @@ const SORT_OPTIONS = [
 
 type SortOption = typeof SORT_OPTIONS[number]['key'];
 
-// A coach's pillar is an 8px dot beside its category word — meaning, not a
+// An agent's pillar is an 8px dot beside its category word — meaning, not a
 // coloured chip (DESIGN.md §2). Recipes sit under nutrition.
 const COACH_CATEGORY_DOT: Record<string, string> = {
   training: 'bg-activity',
@@ -87,7 +87,7 @@ interface StoreScreenProps {
    */
   onNavigate?: (route: string) => void;
   /**
-   * One of the athlete's own coaches to open the edit sheet on, as the
+   * One of the athlete's own agents to open the edit sheet on, as the
    * `discover/<coachId>` route carries it. The sheet also opens from the
    * store detail of a listing the athlete has installed.
    */
@@ -164,7 +164,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     staleTime: 30_000,
   });
 
-  // Fetch coach detail when selected
+  // Fetch agent detail when selected
   const { data: coachDetail, isLoading: isLoadingDetail } = useQuery({
     queryKey: QUERY_KEYS.store.coachDetail(selectedCoachId ?? undefined),
     queryFn: () => storeApi.get(selectedCoachId!),
@@ -172,10 +172,10 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     staleTime: 30_000,
   });
 
-  // Installing a store coach mints a personal copy with a fresh id and
-  // `forked_from` set to the store listing's id, so the user's own coach list
+  // Installing a store agent mints a personal copy with a fresh id and
+  // `forked_from` set to the store listing's id, so the user's own agent list
   // is what maps a listing back to the copy. Same cache slot as the chat tab's
-  // coach list, so an install here is visible there without a second fetch.
+  // agent list, so an install here is visible there without a second fetch.
   const { data: myCoaches } = useQuery({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
@@ -233,7 +233,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   });
 
   // t('app.openChat') on the post-install hint: a fresh conversation, then the chat
-  // tab. The hint hands over the `/coach add @handle` draft the athlete types
+  // tab. The hint hands over the `/agent add @handle` draft the athlete types
   // there.
   const openChat = useMutation({
     // The same title the chat tab gives a fresh thread: the viewer's language,
@@ -347,7 +347,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     <CoachEditSheet coachId={editingCoachId} onClose={handleCloseEditSheet} />
   ) : null;
 
-  // Render detail view if a coach is selected
+  // Render detail view if an agent is selected
   if (selectedCoachId) {
     return (
       <>
@@ -502,7 +502,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   );
 }
 
-// Store coach card - memoized to prevent unnecessary re-renders during scrolling
+// Store agent card - memoized to prevent unnecessary re-renders during scrolling
 interface CoachCardProps {
   coach: StoreCoach;
   onClick: () => void;
@@ -568,14 +568,14 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
   );
 });
 
-// Coach detail view component
+// Agent detail view component
 interface CoachDetailViewProps {
   coach: StoreCoachDetail | undefined;
   isLoading: boolean;
   isInstalled: boolean;
   isInstalling: boolean;
   successMessage: string | null;
-  /** Set right after an install; the hint that teaches the coach's handle. */
+  /** Set right after an install; the hint that teaches the agent's handle. */
   installedCopy: InstalledCopy | null;
   isOpeningChat: boolean;
   actionError: string | null;

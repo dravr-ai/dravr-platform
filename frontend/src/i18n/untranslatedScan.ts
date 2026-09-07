@@ -209,7 +209,7 @@ const WEB_ENTRY_POINTS = [
   // `<UserSettings initialTab="connections" hideTabNav />`. An athlete sees
   // EVERY SETTINGS_TABS entry: ADMIN_HIDDEN_TABS removes tabs from admins.
   'components/UserSettings.tsx',
-  // Signup through first coach.
+  // Signup through first agent.
   'components/OnboardingFlow.tsx',
   // Unauthenticated surfaces — reachable before any role exists.
   'components/Login.tsx',
@@ -442,7 +442,7 @@ function isUtilityClassList(text: string): boolean {
  */
 const DATA_MODULES = [
   // Proper nouns: provider, channel and persona names. The persona value is
-  // quoted back inside the coach's own system prompt, so the list an athlete
+  // quoted back inside the agent's own system prompt, so the list an athlete
   // picks from must read exactly as the value stored on the account.
   'shared-constants/src/brands.ts',
   'src/constants/brands.ts',
@@ -450,7 +450,7 @@ const DATA_MODULES = [
   // asserts against; the chrome an athlete reads comes from the catalogue
   // (the French app paints `Discussion`, not this file's `Chat`).
   'shared-constants/src/surfaces.ts',
-  // Command names the athlete TYPES (`/coach add`). Translating one would
+  // Command names the athlete TYPES (`/agent add`). Translating one would
   // stop it matching what the parser accepts.
   'shared-constants/src/commands.ts',
   // Font family names.

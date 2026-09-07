@@ -12,7 +12,7 @@ import { Card, Button, Select, Textarea, Input } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
-// Coach category options
+// Agent category options
 const COACH_CATEGORIES = ['Training', 'Nutrition', 'Recovery', 'Recipes', 'Mobility', 'Custom'];
 
 // Category colors for visual differentiation
@@ -70,7 +70,7 @@ export default function SystemCoachesTab() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
-  // Fetch system coaches
+  // Fetch system agents
   const { data: coachesData, isLoading: coachesLoading } = useQuery({
     queryKey: QUERY_KEYS.adminCoaches.system(),
     queryFn: () => adminApi.getSystemCoaches(),
@@ -83,7 +83,7 @@ export default function SystemCoachesTab() {
     enabled: showAssignModal,
   });
 
-  // Fetch assignments for selected coach
+  // Fetch assignments for selected agent
   const { data: assignmentsData, refetch: refetchAssignments } = useQuery({
     queryKey: QUERY_KEYS.coaches.assignments(selectedCoach?.id),
     queryFn: () => selectedCoach ? adminApi.getCoachAssignments(selectedCoach.id) : null,
@@ -218,7 +218,7 @@ export default function SystemCoachesTab() {
   const assignments = assignmentsData?.assignments || [];
   const assignedUserIds = new Set(assignments.map(a => a.user_id));
 
-  // Coach list view
+  // Agent list view
   if (!selectedCoach && !isCreating) {
     return (
       <div className="space-y-6">
@@ -450,7 +450,7 @@ export default function SystemCoachesTab() {
     );
   }
 
-  // Coach detail view - TypeScript guard for selectedCoach
+  // Agent detail view - TypeScript guard for selectedCoach
   if (!selectedCoach) {
     return null;
   }

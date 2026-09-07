@@ -56,7 +56,7 @@ impl StoreListingsManager {
 
         if result.rows_affected() == 0 {
             return Err(AppError::invalid_input(
-                "Coach not found or not pending review",
+                "Agent not found or not pending review",
             ));
         }
 
@@ -106,7 +106,7 @@ impl StoreListingsManager {
 
         if result.rows_affected() == 0 {
             return Err(AppError::invalid_input(
-                "Coach not found or not pending review",
+                "Agent not found or not pending review",
             ));
         }
 

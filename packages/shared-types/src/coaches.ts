@@ -1,15 +1,15 @@
-// ABOUTME: Shared TypeScript types for AI coaching personas
-// ABOUTME: Coach definitions, store types, and version history
+// ABOUTME: Shared TypeScript types for agent personas
+// ABOUTME: Agent definitions, store types, and version history
 
 // ========== COACH ENUMS ==========
 
-/** Category of a coach */
+/** Category of an agent */
 export type CoachCategory = 'training' | 'nutrition' | 'recovery' | 'recipes' | 'mobility' | 'custom';
 
-/** Visibility setting for coaches */
+/** Visibility setting for agents */
 export type CoachVisibility = 'private' | 'tenant' | 'global';
 
-/** Publish status for store coaches */
+/** Publish status for store agents */
 export type PublishStatus = 'draft' | 'pending_review' | 'published' | 'rejected';
 
 // ========== DATA REQUIREMENTS ==========
@@ -28,7 +28,7 @@ export interface ActivityDataRequirements {
   analysis_type: string;
 }
 
-/** Structured data requirements for coach startup context assembly */
+/** Structured data requirements for agent startup context assembly */
 export interface DataRequirements {
   /** Activity data to pre-fetch */
   activities?: ActivityDataRequirements;
@@ -38,7 +38,7 @@ export interface DataRequirements {
 
 // ========== COACH TYPES ==========
 
-/** A coach (AI coaching persona) */
+/** An agent persona */
 export interface Coach {
   id: string;
   title: string;
@@ -58,12 +58,12 @@ export interface Coach {
   visibility?: string;
   is_assigned?: boolean;
   is_hidden?: boolean;
-  /** ID of source coach if forked */
+  /** ID of source agent if forked */
   forked_from?: string;
   /**
-   * Addressable catalogue handle — the `@handle` that invites this coach
-   * into a conversation. Present on catalogue coaches and on installed
-   * copies; absent on a personal coach that was never published.
+   * Addressable catalogue handle — the `@handle` that invites this agent
+   * into a conversation. Present on catalogue agents and on installed
+   * copies; absent on a personal agent that was never published.
    */
   handle?: string;
   /** Query auto-sent on first message to provide analysis context */
@@ -71,9 +71,9 @@ export interface Coach {
   /** Structured data requirements for deterministic activity pre-fetching */
   data_requirements?: DataRequirements;
 
-  // -- Structured sections (populated for system coaches and structured user coaches) --
+  // -- Structured sections (populated for system agents and structured user agents) --
 
-  /** Coach purpose extracted from ## Purpose section */
+  /** Agent purpose extracted from ## Purpose section */
   purpose?: string;
   /** Usage scenarios extracted from ## When to Use section */
   when_to_use?: string;
@@ -92,11 +92,11 @@ export interface Coach {
 
   /** Relevance score in 0..1 for the user's recent sport mix + connected providers */
   match_score?: number;
-  /** Whether this coach is in the user's "Recommended for you" set */
+  /** Whether this agent is in the user's "Recommended for you" set */
   recommended?: boolean;
 
   /**
-   * Per-turn tool-loop iteration budget for this coach. Absent when the coach
+   * Per-turn tool-loop iteration budget for this agent. Absent when the agent
    * inherits the tenant-wide `tool_execution.max_iterations` setting.
    */
   max_tool_iterations?: number;
@@ -128,25 +128,25 @@ export interface SportProfileSummary {
   sport_mix: SportShare[];
 }
 
-/** A coach proposed during onboarding, with its score and a rationale. */
+/** An agent proposed during onboarding, with its score and a rationale. */
 export interface ProposedCoach {
-  /** The proposed coach */
+  /** The proposed agent */
   coach: Coach;
   /** Relevance score in 0..1 from the deterministic prefilter */
   match_score: number;
-  /** One-sentence, second-person rationale ("why this coach fits you") */
+  /** One-sentence, second-person rationale ("why this agent fits you") */
   reason: string;
 }
 
 /** Response for GET /api/coaches/proposal. */
 export interface CoachProposalResponse {
-  /** The inferred sport profile shown before the coach list */
+  /** The inferred sport profile shown before the agent list */
   profile: SportProfileSummary;
-  /** Up to 3 proposed coaches, best fit first */
+  /** Up to 3 proposed agents, best fit first */
   coaches: ProposedCoach[];
 }
 
-/** Request to update an existing coach */
+/** Request to update an existing agent */
 export interface UpdateCoachRequest {
   title?: string;
   description?: string;
@@ -172,20 +172,20 @@ export interface UpdateCoachRequest {
   success_criteria?: string;
   /**
    * New per-turn tool-loop iteration budget. Three-way: omit the key to leave
-   * the stored value untouched, send `null` to clear the pin so the coach
+   * the stored value untouched, send `null` to clear the pin so the agent
    * inherits the tenant-wide `tool_execution.max_iterations` again, or send a
    * number in 1..=50 to pin that budget.
    */
   max_tool_iterations?: number | null;
 }
 
-/** Standard metadata for coach API responses */
+/** Standard metadata for agent API responses */
 export interface CoachMetadata {
   timestamp: string;
   api_version: string;
 }
 
-/** Response for listing coaches */
+/** Response for listing agents */
 export interface ListCoachesResponse {
   coaches: Coach[];
   total: number;
@@ -194,7 +194,7 @@ export interface ListCoachesResponse {
 
 // ========== COACH STORE TYPES ==========
 
-/** A coach in the public store */
+/** An agent in the public store */
 export interface StoreCoach {
   id: string;
   title: string;
@@ -212,7 +212,7 @@ export interface StoreCoach {
   handle?: string;
 }
 
-/** Detailed view of a store coach */
+/** Detailed view of a store agent */
 export interface StoreCoachDetail extends StoreCoach {
   system_prompt: string;
   created_at: string;
@@ -225,7 +225,7 @@ export interface StoreMetadata {
   api_version: string;
 }
 
-/** Response for browsing store coaches */
+/** Response for browsing store agents */
 export interface BrowseCoachesResponse {
   coaches: StoreCoach[];
   next_cursor?: string | null;
@@ -234,28 +234,28 @@ export interface BrowseCoachesResponse {
   metadata: StoreMetadata;
 }
 
-/** Response for searching store coaches */
+/** Response for searching store agents */
 export interface SearchCoachesResponse {
   coaches: StoreCoach[];
   query: string;
   metadata: StoreMetadata;
 }
 
-/** Response for installing a coach */
+/** Response for installing an agent */
 export interface InstallCoachResponse {
   message: string;
   coach: StoreCoach;
   metadata: StoreMetadata;
 }
 
-/** Response for uninstalling a coach */
+/** Response for uninstalling an agent */
 export interface UninstallCoachResponse {
   message: string;
   source_coach_id: string;
   metadata: StoreMetadata;
 }
 
-/** Response for listing installed coaches */
+/** Response for listing installed agents */
 export interface InstallationsResponse {
   coaches: StoreCoach[];
   metadata: StoreMetadata;
@@ -263,7 +263,7 @@ export interface InstallationsResponse {
 
 // ========== COACH ASSIGNMENT TYPES ==========
 
-/** A coach assignment to a user */
+/** An agent assignment to a user */
 export interface CoachAssignment {
   user_id: string;
   user_email?: string;
@@ -271,14 +271,14 @@ export interface CoachAssignment {
   assigned_by?: string;
 }
 
-/** Response for assigning a coach */
+/** Response for assigning an agent */
 export interface AssignCoachResponse {
   coach_id: string;
   assigned_count: number;
   total_requested: number;
 }
 
-/** Response for unassigning a coach */
+/** Response for unassigning an agent */
 export interface UnassignCoachResponse {
   coach_id: string;
   removed_count: number;

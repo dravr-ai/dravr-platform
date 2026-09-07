@@ -132,7 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Best-effort: forward the browser's IANA timezone so the chat
     // prompt can render {{CURRENT_DATE}} in the user's local calendar
-    // day (otherwise the resolver falls back to UTC and the coach
+    // day (otherwise the resolver falls back to UTC and the agent
     // misreads "today"). A failure here must not break login — swallow
     // it and log to the browser console.
     void captureUserTimezone(userData.user_status);

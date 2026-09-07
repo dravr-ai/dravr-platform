@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The thread's transcript — bubbles grouped by author, a day pill between days, and the live rows of a turn
-// ABOUTME: Streaming text, the thinking dots, an error and a provider notice all speak from the coach's side of the thread
+// ABOUTME: Streaming text, the thinking dots, an error and a provider notice all speak from the agent's side of the thread
 
 import { useRef, useEffect, useMemo, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
@@ -40,8 +40,8 @@ interface MessageListProps {
   messageBlocks?: Map<string, ReplyBlock[]>;
   /** Claim verdicts for the active conversation, keyed by message_id. */
   verdicts?: ClaimVerdict[];
-  /** Label shown above assistant turns — the active coach's name, or
-   *  'Dravr' when the conversation has no coach attached. */
+  /** Label shown above assistant turns — the active agent's name, or
+   *  'Dravr' when the conversation has no agent attached. */
   assistantLabel?: string;
   isLoading: boolean;
   isStreaming: boolean;

@@ -1,5 +1,5 @@
-// ABOUTME: Component displaying pending coach submissions for admin review
-// ABOUTME: Lists coaches sorted by submission date (FIFO) with click to open review drawer
+// ABOUTME: Component displaying pending agent submissions for admin review
+// ABOUTME: Lists agents sorted by submission date (FIFO) with click to open review drawer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -48,7 +48,7 @@ interface PendingCoach {
 export default function CoachReviewQueue() {
   const [selectedCoach, setSelectedCoach] = useState<PendingCoach | null>(null);
 
-  // Fetch pending coaches
+  // Fetch pending agents
   const { data, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminStore.reviewQueue(),
     queryFn: () => adminApi.getStoreReviewQueue(),

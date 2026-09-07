@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach edit form — title, description, system prompt, category, data context, tool budget
+// ABOUTME: The agent edit form — title, description, system prompt, category, data context, tool budget
 // ABOUTME: A modal over whatever mounted it; the caller owns the form state and the save/delete requests
 
 import {
@@ -33,7 +33,7 @@ interface CoachFormModalProps {
   onClose: () => void;
   isSubmitting: boolean;
   submitError: boolean;
-  /** Offered as "Delete this coach" under the form when the mount owns deletion. */
+  /** Offered as "Delete this agent" under the form when the mount owns deletion. */
   onDelete?: () => void;
 }
 

@@ -1,5 +1,5 @@
-// ABOUTME: Phase B Sprint C8 — admin compliance audit log for coach-authored notes
-// ABOUTME: Flat tenant-wide feed of every agent note with coach/user filters and scope badge
+// ABOUTME: Phase B Sprint C8 — admin compliance audit log for agent-authored notes
+// ABOUTME: Flat tenant-wide feed of every agent note with agent/user filters and scope badge
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

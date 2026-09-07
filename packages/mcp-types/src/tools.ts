@@ -14,37 +14,37 @@
 
 
 /**
- * Activate a coach for personalized training guidance
+ * Activate an agent for personalized training guidance
  */
 export interface ActivateCoachParams {
 
-  /** ID of the coach to activate */
+  /** ID of the agent to activate */
   coach_id: string;
 }
 
 
 /**
- * Assign a system coach to a specific user (admin only)
+ * Assign a system agent to a specific user (admin only)
  */
 export interface AdminAssignCoachParams {
 
-  /** ID of the system coach to assign */
+  /** ID of the system agent to assign */
   coach_id: string;
 
-  /** ID of the user to assign the coach to */
+  /** ID of the user to assign the agent to */
   user_id: string;
 }
 
 
 /**
- * Create a new system coach visible to all tenant users (admin only)
+ * Create a new system agent visible to all tenant users (admin only)
  */
 export interface AdminCreateSystemCoachParams {
 
   /** Category: 'training', 'nutrition', 'recovery', 'recipes', 'custom' */
   category?: string;
 
-  /** Description explaining the coach's purpose */
+  /** Description explaining the agent's purpose */
   description?: string;
 
   /** System prompt that shapes AI responses */
@@ -53,7 +53,7 @@ export interface AdminCreateSystemCoachParams {
   /** Tags for filtering and organization */
   tags?: string[];
 
-  /** Display title for the coach */
+  /** Display title for the agent */
   title: string;
 
   /** Visibility: 'tenant' (default) or 'global' */
@@ -62,41 +62,41 @@ export interface AdminCreateSystemCoachParams {
 
 
 /**
- * Delete a system coach and remove all assignments (admin only)
+ * Delete a system agent and remove all assignments (admin only)
  */
 export interface AdminDeleteSystemCoachParams {
 
-  /** ID of the system coach to delete */
+  /** ID of the system agent to delete */
   coach_id: string;
 }
 
 
 /**
- * Get detailed information about a system coach (admin only)
+ * Get detailed information about a system agent (admin only)
  */
 export interface AdminGetSystemCoachParams {
 
-  /** ID of the system coach to retrieve */
+  /** ID of the system agent to retrieve */
   coach_id: string;
 }
 
 
 /**
- * List all assignments for a system coach (admin only)
+ * List all assignments for a system agent (admin only)
  */
 export interface AdminListCoachAssignmentsParams {
 
-  /** ID of the coach to list assignments for */
+  /** ID of the agent to list assignments for */
   coach_id: string;
 }
 
 
 /**
- * List all system coaches in the tenant (admin only)
+ * List all system agents in the tenant (admin only)
  */
 export interface AdminListSystemCoachesParams {
 
-  /** Maximum number of coaches to return. Default: 50 */
+  /** Maximum number of agents to return. Default: 50 */
   limit?: number;
 
   /** Pagination offset. Default: 0 */
@@ -105,11 +105,11 @@ export interface AdminListSystemCoachesParams {
 
 
 /**
- * Remove a coach assignment from a user (admin only)
+ * Remove an agent assignment from a user (admin only)
  */
 export interface AdminUnassignCoachParams {
 
-  /** ID of the system coach to unassign */
+  /** ID of the system agent to unassign */
   coach_id: string;
 
   /** ID of the user to remove the assignment from */
@@ -118,14 +118,14 @@ export interface AdminUnassignCoachParams {
 
 
 /**
- * Update an existing system coach (admin only)
+ * Update an existing system agent (admin only)
  */
 export interface AdminUpdateSystemCoachParams {
 
   /** New category */
   category?: string;
 
-  /** ID of the system coach to update */
+  /** ID of the system agent to update */
   coach_id: string;
 
   /** New description */
@@ -259,7 +259,7 @@ export interface AnalyzeWeatherImpactParams {
 
 
 /**
- * Browse the Coach Store — the catalogue of PUBLISHED coaches anyone can install. Use this when the athlete asks what coaches exist, or for a coach of a given kind they do not already have. Distinct from `list_coaches`, which lists only the coaches ALREADY in their library. Returns a page plus a `next_cursor` for the following one.
+ * Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use this when the athlete asks what agents exist, or for an agent of a given kind they do not already have. Distinct from `list_coaches`, which lists only the agents ALREADY in their library. Returns a page plus a `next_cursor` for the following one.
  */
 export interface BrowseCoachStoreParams {
 
@@ -269,7 +269,7 @@ export interface BrowseCoachStoreParams {
   /** Opaque cursor from a previous call's `next_cursor`, to fetch the next page. */
   cursor?: string;
 
-  /** Coaches per page (1-100, default 20). */
+  /** Agents per page (1-100, default 20). */
   limit?: number;
 
   /** Ordering: 'newest' (default), 'popular' (most installed), or 'title'. */
@@ -385,11 +385,11 @@ export interface CalculateRecoveryScoreParams {
 
 
 /**
- * Schedule a future check-in the coach should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'
+ * Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'
  */
 export interface CoachFollowupScheduleParams {
 
-  /** Coach making the promise. */
+  /** Agent making the promise. */
   coach_id: string;
 
   /** Reminder text (≤ 500 characters), e.g., 'check on Achilles pain after long run'. */
@@ -404,11 +404,11 @@ export interface CoachFollowupScheduleParams {
 
 
 /**
- * Persist a private coach note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.
+ * Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.
  */
 export interface CoachNoteAddParams {
 
-  /** ID of the coach authoring the note. Must match the coach attached to the active conversation. */
+  /** ID of the agent authoring the note. Must match the agent attached to the active conversation. */
   coach_id: string;
 
   /** Free-form note content (plain text, no markup, ≤ 2000 characters). */
@@ -434,7 +434,7 @@ export interface CommitmentCancelParams {
  */
 export interface CommitmentCreateParams {
 
-  /** Coach the athlete made the promise to. */
+  /** Agent the athlete made the promise to. */
   coach_id: string;
 
   /** Last day that counts, as YYYY-MM-DD in the athlete's local calendar. For 'this week' use the date of the coming Sunday from the current-date anchor. */
@@ -497,14 +497,14 @@ export interface ConnectProviderParams {
 
 
 /**
- * Create a custom AI coach with personalized training guidance
+ * Create a custom AI agent with personalized training guidance
  */
 export interface CreateCoachParams {
 
   /** Category: training, nutrition, recovery, recipes, custom */
   category?: string;
 
-  /** Description of the coach */
+  /** Description of the agent */
   description?: string;
 
   /** Example prompts to show users */
@@ -516,23 +516,23 @@ export interface CreateCoachParams {
   /** Tags for organization */
   tags?: string[];
 
-  /** Display title for the coach */
+  /** Display title for the agent */
   title: string;
 }
 
 
 /**
- * Deactivate the current coach and return to default AI guidance
+ * Deactivate the current agent and return to default AI guidance
  */
 export interface DeactivateCoachParams {}
 
 
 /**
- * Delete a coach
+ * Delete an agent
  */
 export interface DeleteCoachParams {
 
-  /** ID of the coach to delete */
+  /** ID of the agent to delete */
   coach_id: string;
 }
 
@@ -738,7 +738,7 @@ export interface GenerateRecommendationsParams {
 
 
 /**
- * Get the currently active coach
+ * Get the currently active agent
  */
 export interface GetActiveCoachParams {}
 
@@ -804,11 +804,11 @@ export interface GetAthleteParams {
 
 
 /**
- * Get detailed information about a specific coach
+ * Get detailed information about a specific agent
  */
 export interface GetCoachParams {
 
-  /** ID of the coach to retrieve */
+  /** ID of the agent to retrieve */
   coach_id: string;
 }
 
@@ -1029,7 +1029,7 @@ export interface GetTrainingPlanParams {
   /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
   athlete?: string;
 
-  /** Coach persona slug asking; falls back to the athlete's coach-agnostic plan. */
+  /** Agent persona slug asking; falls back to the athlete's agent-agnostic plan. */
   coach_id?: string;
 
   /** Include superseded week versions (the adjustment audit trail). */
@@ -1076,27 +1076,27 @@ export interface GetYogaPoseParams {
 
 
 /**
- * Hide a coach from listings
+ * Hide an agent from listings
  */
 export interface HideCoachParams {
 
-  /** ID of the coach to hide */
+  /** ID of the agent to hide */
   coach_id: string;
 }
 
 
 /**
- * Install a published Coach Store coach into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific coach — pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, `activate_coach` makes it the coach that answers.
+ * Install a published Agent Store agent into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, `activate_coach` makes it the agent that answers.
  */
 export interface InstallCoachFromStoreParams {
 
-  /** UUID of the published coach to install, as returned by `browse_coach_store` or `search_coach_store`. Required. */
+  /** UUID of the published agent to install, as returned by `browse_coach_store` or `search_coach_store`. Required. */
   coach_id: string;
 }
 
 
 /**
- * List available AI coaches for personalized training guidance
+ * List available AI agents for personalized training guidance
  */
 export interface ListCoachesParams {
 
@@ -1106,7 +1106,7 @@ export interface ListCoachesParams {
   /** Only show favorites. Default: false */
   favorites_only?: boolean;
 
-  /** Include system coaches. Default: true */
+  /** Include system agents. Default: true */
   include_system?: boolean;
 
   /** Max results. Default: 50 */
@@ -1148,7 +1148,7 @@ export interface ListFitnessConfigsParams {
 
 
 /**
- * List all hidden coaches
+ * List all hidden agents
  */
 export interface ListHiddenCoachesParams {}
 
@@ -1192,7 +1192,7 @@ export interface ListStretchingExercisesParams {
 
 
 /**
- * List the workout template bank by what a session is for. Every template carries a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility), the season phases it fits, the readiness level it needs, the sports it is written for, its evidence tier, and parameter ranges (reps, work and rest seconds, duration, RPE, intensity per sport) with a default the coach fills in for the athlete. Filter with purpose, phase and sport; the reply lists the athlete's own saved sessions after the bank. Pass detail = full for the structured steps and target zones prescribe_workout pushes to the athlete's Intervals.icu calendar.
+ * List the workout template bank by what a session is for. Every template carries a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility), the season phases it fits, the readiness level it needs, the sports it is written for, its evidence tier, and parameter ranges (reps, work and rest seconds, duration, RPE, intensity per sport) with a default the agent fills in for the athlete. Filter with purpose, phase and sport; the reply lists the athlete's own saved sessions after the bank. Pass detail = full for the structured steps and target zones prescribe_workout pushes to the athlete's Intervals.icu calendar.
  */
 export interface ListWorkoutTemplatesParams {
 
@@ -1269,7 +1269,7 @@ export interface PredictPerformanceParams {
  */
 export interface PrescribeWorkoutParams {
 
-  /** Optional coach id stamped onto the audit row. */
+  /** Optional agent id stamped onto the audit row. */
   coach_id?: string;
 
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
@@ -1326,7 +1326,7 @@ export interface PrescribeWorkoutParams {
  */
 export interface PushTrainingPlanParams {
 
-  /** Coach persona slug whose plan to push; falls back to the athlete's coach-agnostic plan. */
+  /** Agent persona slug whose plan to push; falls back to the athlete's agent-agnostic plan. */
   coach_id?: string;
 
   /** First date to push (YYYY-MM-DD). Defaults to today in the athlete's calendar, and is never earlier than that: dates already past are not rewritten. */
@@ -1339,7 +1339,7 @@ export interface PushTrainingPlanParams {
  */
 export interface RecallUserMemoryParams {
 
-  /** Optional coach scope. When set, only facts attached to this coach are returned. */
+  /** Optional agent scope. When set, only facts attached to this agent are returned. */
   coach_id?: string;
 
   /** Optional fact kind filter (preference | physiology | injury | goal | schedule | equipment | other). */
@@ -1367,11 +1367,11 @@ export interface RefreshProviderDataParams {
 
 
 /**
- * Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the coach should remember next time.
+ * Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the agent should remember next time.
  */
 export interface RememberFactParams {
 
-  /** Coach attaching the fact (optional; defaults to user-wide). */
+  /** Agent attaching the fact (optional; defaults to user-wide). */
   coach_id?: string;
 
   /** Confidence in [0.0, 1.0]. Direct user confirmation → 0.9+. */
@@ -1578,7 +1578,7 @@ export interface SaveTrainingPlanParams {
   /** First day of the season the phases lay out, YYYY-MM-DD; omit when the plan runs from its first phase. */
   season_start?: string;
 
-  /** The coach's strategy in prose — what the athlete sees as the long-term direction. */
+  /** The strategy in prose — what the athlete sees as the long-term direction. */
   strategy: string;
 };
 
@@ -1680,20 +1680,20 @@ export interface SaveTrainingPlanParams {
 
 
 /**
- * Search the Coach Store for PUBLISHED coaches matching a phrase, e.g. 'ultra trail' or 'vegetarian nutrition'. Searches the whole marketplace, unlike `search_coaches`, which searches only the athlete's own library. Install a result with `install_coach_from_store`.
+ * Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or 'vegetarian nutrition'. Searches the whole marketplace, unlike `search_coaches`, which searches only the athlete's own library. Install a result with `install_coach_from_store`.
  */
 export interface SearchCoachStoreParams {
 
   /** Max results (1-100, default 20). */
   limit?: number;
 
-  /** Text to match against a published coach's title, description or tags. Required. */
+  /** Text to match against a published agent's title, description or tags. Required. */
   query: string;
 }
 
 
 /**
- * Search for coaches by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.
+ * Search for agents by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.
  */
 export interface SearchCoachesParams {
 
@@ -1822,11 +1822,11 @@ export interface SetPhysiologyParams {
 
 
 /**
- * Show a previously hidden coach
+ * Show a previously hidden agent
  */
 export interface ShowCoachParams {
 
-  /** ID of the coach to show */
+  /** ID of the agent to show */
   coach_id: string;
 }
 
@@ -1902,11 +1902,11 @@ export interface SuggestYogaSequenceParams {
 
 
 /**
- * Toggle the favorite status of a coach
+ * Toggle the favorite status of an agent
  */
 export interface ToggleCoachFavoriteParams {
 
-  /** ID of the coach */
+  /** ID of the agent */
   coach_id: string;
 }
 
@@ -1948,14 +1948,14 @@ export interface TrackSleepTrendsParams {
 
 
 /**
- * Update an existing coach's settings
+ * Update an existing agent's settings
  */
 export interface UpdateCoachParams {
 
   /** New category */
   category?: string;
 
-  /** ID of the coach to update */
+  /** ID of the agent to update */
   coach_id: string;
 
   /** New description */
@@ -2032,7 +2032,7 @@ export interface VerifyClaimParams {
   /** The factual proposition to verify, as a single sentence. */
   claim: string;
 
-  /** Optional coach id for the verdict row. */
+  /** Optional agent id for the verdict row. */
   coach_id?: string;
 
   /** Optional conversation id to attach the verdict row to. */

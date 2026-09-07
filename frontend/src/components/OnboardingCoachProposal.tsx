@@ -23,7 +23,7 @@ const COACH_PROPOSAL_QUERY_KEY = ['coaches', 'proposal'] as const;
  * Shown once, right after the user connects their first provider and before the
  * dashboard. On mount it calls `GET /api/coaches/proposal`, which scans the
  * user's recent activities, infers a sport profile, and asks the LLM to pick the
- * best ≤3 coaches with a rationale each. While that runs we show an "analyzing
+ * best ≤3 agents with a rationale each. While that runs we show an "analyzing
  * your data" spinner — the deliberate pause in the
  * `connect → analyzing → profile → coaches` flow.
  *
@@ -58,13 +58,13 @@ export default function OnboardingCoachProposal({
   const handleStart = async (coachId: string, coachTitle: string) => {
     setSelecting(coachId);
     try {
-      // Mark the chosen coach as used so it surfaces first on the dashboard.
+      // Mark the chosen agent as used so it surfaces first on the dashboard.
       await coachesApi.recordUsage(coachId);
     } catch {
-      // Non-fatal: the choice below still opens the coach's thread.
+      // Non-fatal: the choice below still opens the agent's thread.
     }
     try {
-      // « Démarrer » means start talking to this coach: open a thread bound to
+      // « Démarrer » means start talking to this agent: open a thread bound to
       // it and land inside it. The dashboard reads `#chat/<id>` when it mounts,
       // so the hash is set before onboarding hands over to it.
       const conversation = await chatApi.createConversation({
@@ -174,7 +174,7 @@ export default function OnboardingCoachProposal({
   );
 }
 
-/** A single proposed-coach card with its match rationale and a start CTA. */
+/** A single proposed-agent card with its match rationale and a start CTA. */
 function CoachProposalCard({
   proposed,
   selecting,

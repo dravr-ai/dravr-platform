@@ -50,7 +50,7 @@ export interface ClaimVerdict {
   conversation_id: string | null;
   /** Message the claim was made in, when it came from chat. */
   message_id: string | null;
-  /** Coach whose reply carried the claim. */
+  /** Agent whose reply carried the claim. */
   coach_id: string | null;
   /** The claim's own sentence, verbatim. */
   claim_text: string;

@@ -1,12 +1,12 @@
 // ABOUTME: Shared react-markdown component overrides for every chat surface
-// ABOUTME: Opens links safely and lets a wide coach table scroll instead of squashing
+// ABOUTME: Opens links safely and lets a wide agent table scroll instead of squashing
 
 import type { Components } from 'react-markdown';
 
 /**
  * Component overrides passed to every `<Markdown>` in the chat surface.
  *
- * Two overrides, both about content the coach can now legitimately produce:
+ * Two overrides, both about content the agent can now legitimately produce:
  *
  * - `a` opens in a new tab with `noopener noreferrer`, and breaks long URLs so
  *   a bare link cannot widen the message bubble.

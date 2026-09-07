@@ -37,7 +37,7 @@ export class LocalePersisterMissingError extends Error {
  * Push `language` to the server.
  *
  * Rejects rather than swallowing: a language change the server never heard
- * about leaves the coach answering in the old language, and the switcher
+ * about leaves the agent answering in the old language, and the switcher
  * surfaces that to the user instead of showing a success it cannot vouch for.
  */
 export async function persistLocaleToServer(language: SupportedLanguage): Promise<void> {

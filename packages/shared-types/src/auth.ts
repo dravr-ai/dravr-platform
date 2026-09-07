@@ -13,7 +13,7 @@ export type UserStatus = 'pending' | 'active' | 'suspended';
 export type UserTier = 'starter' | 'professional' | 'enterprise';
 
 /**
- * Coaching persona — orthogonal to the chosen coach personality.
+ * Coaching persona — orthogonal to the chosen agent's personality.
  *
  * Controls output format / citation density / notification cadence:
  * - `casual` — friend-texting prose, no jargon, P0-only push

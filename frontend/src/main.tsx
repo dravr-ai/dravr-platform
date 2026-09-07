@@ -13,7 +13,7 @@ import { persistLocale } from './i18n/localePersister'
 import { i18nApi } from './services/api'
 
 // One preference, two owners: i18next renders the chrome, `users.locale`
-// decides the language the coach answers in. Registering the writer here — the
+// decides the language the agent answers in. Registering the writer here — the
 // only place the app is constructed — means every language change made
 // anywhere in the app reaches the server, instead of stopping at localStorage.
 // The fetcher is the other direction: the live catalogue overlays the embedded

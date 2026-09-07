@@ -50,8 +50,8 @@ interface MessageItemProps {
   blocks?: ReplyBlock[];
   /** Claim verdicts attached to this message, if any. */
   verdicts?: ClaimVerdict[];
-  /** Label shown above assistant turns — the active coach's name, or
-   *  'Dravr' when the conversation has no coach attached. */
+  /** Label shown above assistant turns — the active agent's name, or
+   *  'Dravr' when the conversation has no agent attached. */
   assistantLabel?: string;
   /** The clock inside the bubble, already formatted for the reader. */
   timestamp?: string;

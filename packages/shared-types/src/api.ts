@@ -28,12 +28,12 @@ export interface Conversation {
   title: string | null;
   /** Model used for this conversation */
   model?: string;
-  /** Coach ID if conversation uses a coach; resolves to the coach's
+  /** Coach ID if conversation uses an agent; resolves to the agent's
    *  system_prompt at runtime via the coaches table. */
   coach_id?: string | null;
-  /** The attached coach's catalogue `@handle`, when it has one. List rows only. */
+  /** The attached agent's catalogue `@handle`, when it has one. List rows only. */
   coach_handle?: string | null;
-  /** The attached coach's title, when the coach still exists. List rows only. */
+  /** The attached agent's title, when the agent still exists. List rows only. */
   coach_title?: string | null;
   /** Coaching group ID if the conversation is group-scoped. When set,
    *  prompt assembly injects group context (members, peer training data

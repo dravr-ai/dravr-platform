@@ -5,7 +5,7 @@
 export * from './onboarding';
 export * from './brands';
 
-// Coach tuning bounds (mirrors the server-side range checks)
+// Agent tuning bounds (mirrors the server-side range checks)
 export {
   MIN_MAX_TOOL_ITERATIONS,
   MAX_MAX_TOOL_ITERATIONS,

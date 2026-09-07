@@ -11,11 +11,11 @@ import { Button } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface CoachInfoPanelProps {
-  /** The coach bound to the conversation. */
+  /** The agent bound to the conversation. */
   coach: Coach;
   /** Send a turn in the open conversation — how `/agent remove` is issued. */
   onSendCommand: (text: string) => void;
-  /** Open this coach's Discover edit sheet, `discover/<coachId>`. */
+  /** Open this agent's Discover edit sheet, `discover/<coachId>`. */
   onEditCoach: (coachId: string) => void;
 }
 
@@ -25,7 +25,7 @@ interface CoachInfoPanelProps {
  * The agent is not managed from chat: t('chat.removeFromChat') sends
  * `/agent remove` down the same command pipeline a typed command takes, and
  * editing leaves for the agent's Discover detail, which owns the edit sheet.
- * A system coach belongs to the catalogue, so it offers no edit.
+ * A system agent belongs to the catalogue, so it offers no edit.
  */
 export default function CoachInfoPanel({
   coach,

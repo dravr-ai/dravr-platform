@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Discover edit sheet for one of the athlete's own coaches — loads it, saves it, deletes it
-// ABOUTME: The only coach editor left outside the admin console; coach creation is the /coach create command
+// ABOUTME: The Discover edit sheet for one of the athlete's own agents — loads it, saves it, deletes it
+// ABOUTME: The only agent editor left outside the admin console; agent creation is the /agent create command
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,11 +14,11 @@ import { coachToFormData, formDataToUpdateRequest } from './coachForm';
 import type { CoachFormData } from './coachForm';
 import { useTranslation } from '@pierre/i18n';
 
-/** Cache slot for one coach, under the `coaches` prefix every coach mutation invalidates. */
+/** Cache slot for one agent, under the `coaches` prefix every agent mutation invalidates. */
 const coachKey = (coachId: string) => [...QUERY_KEYS.coaches.all, 'coach', coachId] as const;
 
 export interface CoachEditSheetProps {
-  /** The athlete's own coach — a personal coach or a copy installed from the store. */
+  /** The athlete's own agent — a personal agent or a copy installed from the store. */
   coachId: string;
   /** Called when the sheet is done: after a save, after a delete, or on cancel. */
   onClose: () => void;
@@ -39,7 +39,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
     queryFn: () => coachesApi.get(coachId),
   });
 
-  // Hydrate once from the first coach that arrives, so a background refetch
+  // Hydrate once from the first agent that arrives, so a background refetch
   // never overwrites what the athlete has already typed.
   useEffect(() => {
     if (coach && formData === null) {
@@ -54,7 +54,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
   const save = useMutation({
     mutationFn: (data: CoachFormData) => coachesApi.update(coachId, formDataToUpdateRequest(data)),
     onSuccess: (updated) => {
-      // The response is the stored coach, so the next open hydrates from it
+      // The response is the stored agent, so the next open hydrates from it
       // rather than from the copy this sheet was opened on.
       queryClient.setQueryData(coachKey(coachId), updated);
       invalidateCoaches();

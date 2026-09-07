@@ -1,5 +1,5 @@
 // ABOUTME: Onboarding step — the PAR-Q+ pre-participation screen, finally wired to a client
-// ABOUTME: A "yes" raises a coach-visible flag and never blocks sign-up; the endpoints already existed
+// ABOUTME: A "yes" raises an agent-visible flag and never blocks sign-up; the endpoints already existed
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,8 +17,8 @@ import { useTranslation } from '@pierre/i18n';
  * The endpoints have existed and worked for months with no client calling them —
  * a finished safety feature behind a door nobody opened. This is the door.
  *
- * A "yes" never blocks sign-up. It writes a coach-visible medical flag with a
- * 12-month freshness horizon, so the coach heeds it and the athlete gets
+ * A "yes" never blocks sign-up. It writes an agent-visible medical flag with a
+ * 12-month freshness horizon, so the agent heeds it and the athlete gets
  * re-screened rather than being interrogated on every conversation.
  */
 export default function OnboardingParq({
@@ -50,7 +50,7 @@ export default function OnboardingParq({
       );
     } catch {
       // Non-fatal: a failed write must not trap someone on a health screen that
-      // is explicitly not a gate. The coach simply has one fewer flag.
+      // is explicitly not a gate. The agent simply has one fewer flag.
     }
     onComplete('complete');
   };

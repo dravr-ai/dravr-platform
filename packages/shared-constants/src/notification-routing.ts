@@ -29,12 +29,12 @@ export interface NotificationDestination {
   /** The registry surface the notification points at. */
   surface: UserSurface;
   /**
-   * Conversation to preselect, for a coach message that carries one.
+   * Conversation to preselect, for an agent message that carries one.
    *
    * `dravr-commere`'s `trigger_coach_message` sends
    * `{ screen: "coach", action: "chat", id: <conversation_id> }`. Routing on
-   * `screen` alone strands the athlete on the empty coach picker instead of
-   * the thread they were replying to.
+   * `screen` alone strands the athlete on the chat surface with no thread
+   * open instead of the thread they were replying to.
    */
   conversationId?: string;
 }
@@ -77,7 +77,7 @@ export function resolveNotificationDestination(
 
 /**
  * The Dashboard route a notification opens on web: a `tab`, or `tab/subview`
- * for a coach message that names its conversation.
+ * for an agent message that names its conversation.
  */
 export function webNotificationRoute(
   data: Record<string, unknown> | null | undefined,
@@ -95,12 +95,12 @@ export function webNotificationRoute(
 /** An expo-router navigation target: a grouped pathname plus optional params. */
 export interface NotificationNavTarget {
   /**
-   * The grouped pathname, e.g. `/(app)/(tabs)/(chat)` — or, for a coach
+   * The grouped pathname, e.g. `/(app)/(tabs)/(chat)` — or, for an agent
    * message that names its conversation, the thread route beneath it,
    * `/(app)/(tabs)/(chat)/[conversationId]`.
    */
   pathname: string;
-  /** Route params, e.g. the conversation a coach message reopens. */
+  /** Route params, e.g. the conversation an agent message reopens. */
   params?: Record<string, string>;
 }
 

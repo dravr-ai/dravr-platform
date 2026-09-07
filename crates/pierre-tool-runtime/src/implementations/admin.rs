@@ -156,7 +156,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Maximum number of coaches to return. Default: 50".to_owned()),
+                description: Some("Maximum number of agents to return. Default: 50".to_owned()),
                 ..Default::default()
             },
         );
@@ -171,7 +171,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
         let schema = object_schema(properties, None);
         tool_definition(
             "admin_list_system_coaches",
-            "List all system coaches in the tenant (admin only)",
+            "List all system agents in the tenant (admin only)",
             schema,
             Some(read_only_annotations()),
         )
@@ -272,7 +272,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             "title".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Display title for the coach".to_owned()),
+                description: Some("Display title for the agent".to_owned()),
                 ..Default::default()
             },
         );
@@ -288,7 +288,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             "description".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Description explaining the coach's purpose".to_owned()),
+                description: Some("Description explaining the agent's purpose".to_owned()),
                 ..Default::default()
             },
         );
@@ -329,7 +329,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
         );
         tool_definition(
             "admin_create_system_coach",
-            "Create a new system coach visible to all tenant users (admin only)",
+            "Create a new system agent visible to all tenant users (admin only)",
             schema,
             Some(write_annotations()),
         )
@@ -416,14 +416,14 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the system coach to retrieve".to_owned()),
+                description: Some("ID of the system agent to retrieve".to_owned()),
                 ..Default::default()
             },
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_get_system_coach",
-            "Get detailed information about a system coach (admin only)",
+            "Get detailed information about a system agent (admin only)",
             schema,
             Some(read_only_annotations()),
         )
@@ -504,7 +504,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the system coach to update".to_owned()),
+                description: Some("ID of the system agent to update".to_owned()),
                 ..Default::default()
             },
         );
@@ -556,7 +556,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_update_system_coach",
-            "Update an existing system coach (admin only)",
+            "Update an existing system agent (admin only)",
             schema,
             Some(write_annotations()),
         )
@@ -675,14 +675,14 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the system coach to delete".to_owned()),
+                description: Some("ID of the system agent to delete".to_owned()),
                 ..Default::default()
             },
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_delete_system_coach",
-            "Delete a system coach and remove all assignments (admin only)",
+            "Delete a system agent and remove all assignments (admin only)",
             schema,
             Some(destructive_annotations()),
         )
@@ -751,7 +751,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the system coach to assign".to_owned()),
+                description: Some("ID of the system agent to assign".to_owned()),
                 ..Default::default()
             },
         );
@@ -759,7 +759,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
             "user_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the user to assign the coach to".to_owned()),
+                description: Some("ID of the user to assign the agent to".to_owned()),
                 ..Default::default()
             },
         );
@@ -769,7 +769,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
         );
         tool_definition(
             "admin_assign_coach",
-            "Assign a system coach to a specific user (admin only)",
+            "Assign a system agent to a specific user (admin only)",
             schema,
             Some(write_annotations()),
         )
@@ -858,7 +858,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the system coach to unassign".to_owned()),
+                description: Some("ID of the system agent to unassign".to_owned()),
                 ..Default::default()
             },
         );
@@ -876,7 +876,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
         );
         tool_definition(
             "admin_unassign_coach",
-            "Remove a coach assignment from a user (admin only)",
+            "Remove an agent assignment from a user (admin only)",
             schema,
             Some(destructive_annotations()),
         )
@@ -964,14 +964,14 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach to list assignments for".to_owned()),
+                description: Some("ID of the agent to list assignments for".to_owned()),
                 ..Default::default()
             },
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
         tool_definition(
             "admin_list_coach_assignments",
-            "List all assignments for a system coach (admin only)",
+            "List all assignments for a system agent (admin only)",
             schema,
             Some(read_only_annotations()),
         )

@@ -234,7 +234,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg) : null,
   );
 
-  // The coach whose Discover edit sheet is open, from `#discover/<coachId>`.
+  // The agent whose Discover edit sheet is open, from `#discover/<coachId>`.
   const [editingCoachId, setEditingCoachId] = useState<string | null>(
     initialTabSeg === 'discover' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
   );
@@ -286,7 +286,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // sub-view. An emptied route resets to the role default rather than
   // stranding the previous view. Shared by the hashchange listener
   // (back/forward, external hash edits) and in-app navigators — e.g. the
-  // notifications panel, which deep-links a coach "Reply" to
+  // notifications panel, which deep-links an agent "Reply" to
   // `chat/<conversationId>` so the reply opens that thread.
   const applyRoute = useCallback((raw: string) => {
     const slash = raw.indexOf('/');
@@ -476,7 +476,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
     ), badge: unreadConversationsCount > 0 ? unreadConversationsCount : undefined },
-    // The coach library is a pinned section of Discover, not a tab of its own.
+    // The agent library is a pinned section of Discover, not a tab of its own.
     { id: 'discover', name: t('nav.discover'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -508,7 +508,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const [drawerOpen, setDrawerOpen] = useState(false);
   // For regular users, pin Chat / Discover / Notifications to the bottom bar
   // and route the rest through the drawer. For admin users we use the first
-  // three tabs (Users / Coaches / Coach Store) as the primary slots.
+  // three tabs (Users / Agents / Agent Store) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
     if (isAdminUser) {
       return ['users', 'coaches', 'coach-store'];
@@ -641,7 +641,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                   <button
                     onClick={() => {
                       setActiveTab(tab.id);
-                      // Reset conversation selection when clicking Chat tab to show coach selection
+                      // Reset conversation selection when clicking Chat tab to show agent selection
                       if (tab.id === 'chat') {
                         setSelectedConversation(null);
                       }

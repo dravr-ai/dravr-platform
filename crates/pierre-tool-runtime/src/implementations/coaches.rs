@@ -72,7 +72,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
             "include_system".to_owned(),
             PropertySchema {
                 property_type: "boolean".to_owned(),
-                description: Some("Include system coaches. Default: true".to_owned()),
+                description: Some("Include system agents. Default: true".to_owned()),
                 ..Default::default()
             },
         );
@@ -104,7 +104,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
 
         tool_definition(
             "list_coaches",
-            "List available AI coaches for personalized training guidance",
+            "List available AI agents for personalized training guidance",
             schema,
             Some(read_only_annotations()),
         )
@@ -232,7 +232,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
             "title".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Display title for the coach".to_owned()),
+                description: Some("Display title for the agent".to_owned()),
                 ..Default::default()
             },
         );
@@ -248,7 +248,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
             "description".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Description of the coach".to_owned()),
+                description: Some("Description of the agent".to_owned()),
                 ..Default::default()
             },
         );
@@ -295,7 +295,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
 
         tool_definition(
             "create_coach",
-            "Create a custom AI coach with personalized training guidance",
+            "Create a custom AI agent with personalized training guidance",
             schema,
             Some(write_annotations()),
         )
@@ -416,7 +416,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach to retrieve".to_owned()),
+                description: Some("ID of the agent to retrieve".to_owned()),
                 ..Default::default()
             },
         );
@@ -424,7 +424,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
 
         tool_definition(
             "get_coach",
-            "Get detailed information about a specific coach",
+            "Get detailed information about a specific agent",
             schema,
             Some(read_only_annotations()),
         )
@@ -480,7 +480,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
                     Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
                 }
                 None => Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
+                    "error": format!("Agent not found: {coach_id}"),
                 }))),
             }
         }
@@ -504,7 +504,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach to update".to_owned()),
+                description: Some("ID of the agent to update".to_owned()),
                 ..Default::default()
             },
         );
@@ -557,7 +557,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
 
         tool_definition(
             "update_coach",
-            "Update an existing coach's settings",
+            "Update an existing agent's settings",
             schema,
             Some(write_annotations()),
         )
@@ -648,7 +648,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
                     "updated_at": c.updated_at.to_rfc3339(),
                 }))),
                 None => Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
+                    "error": format!("Agent not found: {coach_id}"),
                 }))),
             }
         }
@@ -672,7 +672,7 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach to delete".to_owned()),
+                description: Some("ID of the agent to delete".to_owned()),
                 ..Default::default()
             },
         );
@@ -680,7 +680,7 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
 
         tool_definition(
             "delete_coach",
-            "Delete a coach",
+            "Delete an agent",
             schema,
             Some(destructive_annotations()),
         )
@@ -723,7 +723,7 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
                 })))
             } else {
                 Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
+                    "error": format!("Agent not found: {coach_id}"),
                 })))
             }
         }
@@ -747,7 +747,7 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach".to_owned()),
+                description: Some("ID of the agent".to_owned()),
                 ..Default::default()
             },
         );
@@ -755,7 +755,7 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
 
         tool_definition(
             "toggle_coach_favorite",
-            "Toggle the favorite status of a coach",
+            "Toggle the favorite status of an agent",
             schema,
             Some(write_annotations()),
         )
@@ -794,7 +794,7 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
             is_favorite.map_or_else(
                 || {
                     Ok(ToolResult::error(json!({
-                        "error": format!("Coach not found: {coach_id}"),
+                        "error": format!("Agent not found: {coach_id}"),
                     })))
                 },
                 |fav| {
@@ -857,7 +857,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
 
         tool_definition(
             "search_coaches",
-            "Search for coaches by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
+            "Search for agents by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
             schema,
             Some(read_only_annotations()),
         )
@@ -956,7 +956,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach to activate".to_owned()),
+                description: Some("ID of the agent to activate".to_owned()),
                 ..Default::default()
             },
         );
@@ -964,7 +964,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
 
         tool_definition(
             "activate_coach",
-            "Activate a coach for personalized training guidance",
+            "Activate an agent for personalized training guidance",
             schema,
             Some(write_annotations()),
         )
@@ -1011,7 +1011,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
                     "token_count": c.token_count,
                 }))),
                 None => Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
+                    "error": format!("Agent not found: {coach_id}"),
                 }))),
             }
         }
@@ -1039,7 +1039,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
 
         tool_definition(
             "deactivate_coach",
-            "Deactivate the current coach and return to default AI guidance",
+            "Deactivate the current agent and return to default AI guidance",
             schema,
             Some(write_annotations()),
         )
@@ -1098,7 +1098,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
 
         tool_definition(
             "get_active_coach",
-            "Get the currently active coach",
+            "Get the currently active agent",
             schema,
             Some(read_only_annotations()),
         )
@@ -1172,7 +1172,7 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach to hide".to_owned()),
+                description: Some("ID of the agent to hide".to_owned()),
                 ..Default::default()
             },
         );
@@ -1180,7 +1180,7 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
 
         tool_definition(
             "hide_coach",
-            "Hide a coach from listings",
+            "Hide an agent from listings",
             schema,
             Some(write_annotations()),
         )
@@ -1248,7 +1248,7 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
             "coach_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("ID of the coach to show".to_owned()),
+                description: Some("ID of the agent to show".to_owned()),
                 ..Default::default()
             },
         );
@@ -1256,7 +1256,7 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
 
         tool_definition(
             "show_coach",
-            "Show a previously hidden coach",
+            "Show a previously hidden agent",
             schema,
             Some(write_annotations()),
         )
@@ -1321,7 +1321,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
 
         tool_definition(
             "list_hidden_coaches",
-            "List all hidden coaches",
+            "List all hidden agents",
             schema,
             Some(read_only_annotations()),
         )

@@ -15,7 +15,7 @@ export interface Message {
   /**
    * Resolved visual blocks, a JSON-encoded `RenderBlock[]`. Index-aligned with
    * the `⟦viz:N⟧` markers in `content`. Resolved server-side on every read, so
-   * this is geometry rather than the spec the coach wrote.
+   * this is geometry rather than the spec the agent wrote.
    */
   scene_blocks?: string;
   /**
