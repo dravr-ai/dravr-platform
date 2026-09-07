@@ -231,7 +231,7 @@ pub async fn get_viz_png(
     let png = resources
         .common
         .photograveur
-        .press(&block, &parsed.theme)
+        .press(&block, &parsed.theme, &parsed.locale)
         .await
         .inspect_err(|e| warn!(error = %e, "photograveur press failed"))?;
 

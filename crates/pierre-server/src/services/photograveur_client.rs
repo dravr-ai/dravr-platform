@@ -173,11 +173,22 @@ impl PhotograveurClient {
 
     /// Press one resolved block into PNG bytes.
     ///
+    /// `locale` reaches the press as a BCP-47 tag for the text it originates
+    /// itself. A chart's labels are already localised when its Scene is
+    /// resolved here; a route's legend is not, because nothing on a route
+    /// names the track, so the press chooses the words and needs to know
+    /// which language.
+    ///
     /// # Errors
     ///
     /// Returns [`AppError`] when the service is unconfigured, unreachable, or
     /// answers with a non-success status.
-    pub async fn press(&self, block: &RenderBlock, theme: &str) -> Result<Vec<u8>, AppError> {
+    pub async fn press(
+        &self,
+        block: &RenderBlock,
+        theme: &str,
+        locale: &str,
+    ) -> Result<Vec<u8>, AppError> {
         let base = self.base_url.as_ref().ok_or_else(|| {
             AppError::new(
                 ErrorCode::ConfigError,
@@ -209,7 +220,7 @@ impl PhotograveurClient {
             .http
             .post(format!("{base}/render"))
             .timeout(PRESS_TIMEOUT)
-            .json(&json!({ "block": block, "theme": theme }));
+            .json(&json!({ "block": block, "theme": theme, "locale": locale }));
         let request = match token.as_deref() {
             Some(token) => request.bearer_auth(token),
             None => request,

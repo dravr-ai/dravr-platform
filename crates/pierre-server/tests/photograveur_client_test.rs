@@ -19,7 +19,10 @@ use pierre_mcp_server::services::photograveur_client::{
     PhotograveurClient, PHOTOGRAVEUR_AUDIENCE_ENV, PHOTOGRAVEUR_URL_ENV,
 };
 use reqwest::Client;
+use serde_json::Value;
 use serial_test::serial;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 /// Clear both variables so each case starts from a known environment.
 fn clear() {
@@ -142,7 +145,7 @@ async fn a_loopback_press_call_is_not_refused_for_lacking_a_token() {
         ],
         source_tool: "get_activities".to_owned(),
     });
-    let message = match client.press(&block, "dark").await {
+    let message = match client.press(&block, "dark", "fr").await {
         Ok(bytes) => {
             clear();
             panic!(
@@ -160,6 +163,60 @@ async fn a_loopback_press_call_is_not_refused_for_lacking_a_token() {
     assert!(
         message.contains("unreachable"),
         "expected the transport failure that proves the request was sent: {message}"
+    );
+    clear();
+}
+
+/// The locale has to reach the press, because a route's legend is worded
+/// there: nothing on a route names the track, so the press picks the words
+/// and needs the language. A one-shot listener reads what was actually sent.
+#[tokio::test]
+#[serial]
+async fn the_press_request_carries_the_locale() {
+    clear();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("an ephemeral loopback port"); // Safe: test harness
+    let port = listener.local_addr().expect("bound").port(); // Safe: just bound
+    env::set_var(PHOTOGRAVEUR_URL_ENV, format!("http://127.0.0.1:{port}"));
+    let client = PhotograveurClient::from_env(Client::new());
+
+    let captured = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("one request"); // Safe: test harness
+        let mut buf = vec![0u8; 16 * 1024];
+        let n = socket.read(&mut buf).await.expect("readable"); // Safe: test harness
+        let _ = socket
+            .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
+            .await;
+        String::from_utf8_lossy(&buf[..n]).into_owned()
+    });
+
+    let block = photograveur::RenderBlock::Table(photograveur::TableView {
+        title: None,
+        columns: vec!["a".to_owned(), "b".to_owned()],
+        rows: vec![vec!["1".to_owned(), "2".to_owned()]],
+        alignments: vec![
+            photograveur::ColumnAlignment::Left,
+            photograveur::ColumnAlignment::Right,
+        ],
+        source_tool: "get_activities".to_owned(),
+    });
+    let _ = client.press(&block, "light", "de").await;
+
+    let request = captured.await.expect("the listener task finishes"); // Safe: test harness
+    let body = request
+        .split("\r\n\r\n")
+        .nth(1)
+        .expect("a body after the headers"); // Safe: the client always posts JSON
+    let json: Value = serde_json::from_str(body).expect("the body is JSON"); // Safe: test harness
+    assert_eq!(
+        json["locale"], "de",
+        "the locale must be on the wire, verbatim"
+    );
+    assert_eq!(json["theme"], "light", "and the theme beside it");
+    assert_eq!(
+        json["block"]["kind"], "table",
+        "with the block it applies to"
     );
     clear();
 }
