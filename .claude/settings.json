@@ -79,7 +79,7 @@
           {
             "type": "command",
             "timeout": 20,
-            "command": "[ -f .agents/skills/carnet/hooks/auto-claim.sh ] && bash .agents/skills/carnet/hooks/auto-claim.sh || true"
+            "command": "[ -f .agents/skills/carnet/hooks/auto-claim.sh ] || exit 0; bash .agents/skills/carnet/hooks/auto-claim.sh"
           }
         ]
       }

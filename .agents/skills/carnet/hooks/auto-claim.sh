@@ -7,7 +7,7 @@
 # Wire it in .claude/settings.json:
 #   "PreToolUse": [{ "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash", "hooks": [{ "type": "command",
 #     "timeout": 20,
-#     "command": "[ -f .agents/skills/carnet/hooks/auto-claim.sh ] && bash .agents/skills/carnet/hooks/auto-claim.sh || true" }]}]
+#     "command": "[ -f .agents/skills/carnet/hooks/auto-claim.sh ] || exit 0; bash .agents/skills/carnet/hooks/auto-claim.sh" }]}]
 #
 # The rule was "claim before the first edit", and a rule the model has to remember is one it
 # will sometimes forget -- which is the whole failure the claim exists to prevent. So the

@@ -535,6 +535,42 @@ auto_claim "$(edit_payload)"
 assert_eq "an hour-old list is dropped, not claimed" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
 [ -f "$pending_dir/$ME.txt" ] && bad "stale list removed" || ok "stale list removed"
 
+# ================================================== PreToolUse wiring
+# The script above is only half the mechanism. `.claude/settings.json` is what Claude Code
+# actually runs, and a wiring that swallows the script's exit status turns the block back into
+# the advisory rule the hook exists to replace. Assert the wiring itself, from the real file.
+section "PreToolUse wiring (.claude/settings.json)"
+
+root=$(cd "$here/../../.." && pwd)
+wiring=$(python3 - "$root/.claude/settings.json" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for entry in d.get("hooks", {}).get("PreToolUse", []):
+    for h in entry.get("hooks", []):
+        c = h.get("command", "")
+        if "auto-claim.sh" in c:
+            print(c)
+            raise SystemExit(0)
+raise SystemExit("no PreToolUse hook wires auto-claim.sh")
+PYEOF
+)
+
+# A hook that decides to block exits 2. The wiring must deliver that verbatim.
+wire=$tmp/wire
+mkdir -p "$wire/.agents/skills/carnet/hooks"
+printf '#!/usr/bin/env bash\nexit 2\n' > "$wire/.agents/skills/carnet/hooks/auto-claim.sh"
+chmod +x "$wire/.agents/skills/carnet/hooks/auto-claim.sh"
+rc=0; ( cd "$wire" && sh -c "$wiring" ) >/dev/null 2>&1 || rc=$?
+assert_eq "the wiring delivers a block (exit 2) to Claude Code" "$rc" 2
+
+# Every other outcome must leave the tool alone, including no script at all.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$wire/.agents/skills/carnet/hooks/auto-claim.sh"
+rc=0; ( cd "$wire" && sh -c "$wiring" ) >/dev/null 2>&1 || rc=$?
+assert_eq "the wiring passes a clean run through" "$rc" 0
+
+rc=0; ( cd "$tmp" && sh -c "$wiring" ) >/dev/null 2>&1 || rc=$?
+assert_eq "a missing hook script leaves the tool alone" "$rc" 0
+
 # ================================================================== summary
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
