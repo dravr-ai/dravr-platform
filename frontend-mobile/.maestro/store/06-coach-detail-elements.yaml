@@ -1,5 +1,5 @@
-# ABOUTME: Test agent detail screen elements
-# ABOUTME: Converted from store.test.js "coach detail screen" tests
+# ABOUTME: The agent detail screen shows title, category, install count and the prompt section
+# ABOUTME: The first card is asserted, not guarded, so an empty store fails instead of skipping
 
 appId: ai.dravr.app
 
@@ -14,34 +14,31 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Navigate to an agent detail if possible
-- runFlow:
-    when:
-      visible:
-        id: "coach-card-0"
-    commands:
-      - tapOn:
-          id: "coach-card-0"
-      - extendedWaitUntil:
-          visible:
-            id: "store-coach-detail-screen"
-          timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
 
-      # Test: should show agent title
-      - assertVisible:
-          id: "coach-title"
+- tapOn:
+    id: "coach-card-0"
+- extendedWaitUntil:
+    visible:
+      id: "store-coach-detail-screen"
+    timeout: 5000
 
-      # Test: should show category badge
-      - assertVisible:
-          id: "category-badge"
+# Every element the detail screen promises.
+- assertVisible:
+    id: "coach-title"
+- assertVisible:
+    id: "category-badge"
+- assertVisible:
+    id: "install-count"
+- assertVisible: "System Prompt"
 
-      # Test: should show install count
-      - assertVisible:
-          id: "install-count"
-
-      # Test: should show system prompt section
-      - assertVisible: "System Prompt"
-
-      # Navigate back
-      - tapOn:
-          id: "back-button"
+# Navigate back
+- tapOn:
+    id: "back-button"
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 5000

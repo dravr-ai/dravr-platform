@@ -1,5 +1,5 @@
-# ABOUTME: Test agent uninstall flow from the store
-# ABOUTME: Converted from store.test.js "install/uninstall flow" tests
+# ABOUTME: Uninstalling an agent confirms, reports, and returns the listing to installable
+# ABOUTME: The install state is established first, so the assertions below run on every device
 
 appId: ai.dravr.app
 
@@ -14,51 +14,49 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Navigate to an agent detail
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+- tapOn:
+    id: "coach-card-0"
+- extendedWaitUntil:
+    visible:
+      id: "store-coach-detail-screen"
+    timeout: 5000
+
+# SETUP, conditional by necessity: install the agent if this device does not
+# already have it, so there is something to uninstall. Everything after this
+# runs unconditionally — the previous version guarded the uninstall itself and
+# so passed, asserting nothing, on any device where the agent was absent.
 - runFlow:
     when:
-      visible:
-        id: "coach-card-0"
+      visible: "Install Agent"
     commands:
-      - tapOn:
-          id: "coach-card-0"
+      - tapOn: "Install Agent"
       - extendedWaitUntil:
           visible:
-            id: "store-coach-detail-screen"
+            id: "post-install-hint"
           timeout: 5000
 
-      # Check if Uninstall is available
-      - runFlow:
-          when:
-            visible: "Uninstall"
-          commands:
-            # Tap uninstall
-            - tapOn: "Uninstall"
+# The agent is installed, so the listing offers to remove it.
+- extendedWaitUntil:
+    visible: "Uninstall"
+    timeout: 10000
+- tapOn: "Uninstall"
 
-            # Confirm uninstall in alert
-            - extendedWaitUntil:
-                visible:
-                  text: "Uninstall Agent?"
-                timeout: 3000
+# Removal asks before it acts, and says so afterwards.
+- extendedWaitUntil:
+    visible: "Uninstall Agent?"
+    timeout: 3000
+- tapOn: "Uninstall"
+- extendedWaitUntil:
+    visible: "Uninstalled"
+    timeout: 5000
+- tapOn: "OK"
 
-            # Tap the Uninstall button in the dialog
-            - tapOn: "Uninstall"
-
-            # Should show confirmation
-            - extendedWaitUntil:
-                visible:
-                  text: "Uninstalled"
-                timeout: 5000
-
-            # Dismiss alert
-            - tapOn: "OK"
-
-            # Should now show Install button
-            - extendedWaitUntil:
-                visible:
-                  text: "Install Agent"
-                timeout: 5000
-
-      # Navigate back
-      - tapOn:
-          id: "back-button"
+# The listing is installable again, which is the state the removal promised.
+- extendedWaitUntil:
+    visible: "Install Agent"
+    timeout: 10000
+- assertNotVisible: "Uninstall Agent?"

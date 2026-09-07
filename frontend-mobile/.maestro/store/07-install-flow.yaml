@@ -1,5 +1,5 @@
-# ABOUTME: Test agent install flow from the store — install ends with the hint, and Open chat lands in a thread
-# ABOUTME: The hint teaches /agent add @handle; there is no agent library to send the athlete to
+# ABOUTME: Installing an agent ends with the hint teaching /agent add, and Open chat lands in a thread
+# ABOUTME: The install state is established first, so the assertions below run on every device
 
 appId: ai.dravr.app
 
@@ -14,57 +14,75 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Navigate to an agent that can be installed
+# The seeded store publishes system agents: assert the card rather than
+# guarding on it, so an empty store fails here instead of skipping silently.
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+- tapOn:
+    id: "coach-card-0"
+- extendedWaitUntil:
+    visible:
+      id: "store-coach-detail-screen"
+    timeout: 5000
+
+# SETUP, and the only thing that may be conditional here: whether this agent is
+# already installed depends on what previous runs left on the device. Uninstall
+# first so the install path below is reached from a known state. A guard around
+# the setup is honest; a guard around an assertion is not, and this flow used
+# to have the second kind — on a device where the agent was already installed
+# it skipped every assertion and reported success.
 - runFlow:
     when:
-      visible:
-        id: "coach-card-0"
+      visible: "Uninstall"
     commands:
-      - tapOn:
-          id: "coach-card-0"
+      - tapOn: "Uninstall"
       - extendedWaitUntil:
-          visible:
-            id: "store-coach-detail-screen"
+          visible: "Uninstall Agent?"
+          timeout: 3000
+      - tapOn: "Uninstall"
+      - extendedWaitUntil:
+          visible: "Uninstalled"
           timeout: 5000
+      - tapOn: "OK"
 
-      # Check if Install button is visible (not already installed)
-      - runFlow:
-          when:
-            visible: "Install Agent"
-          commands:
-            # Tap install
-            - tapOn: "Install Agent"
+# From here nothing is conditional. The agent is not installed, so the button
+# must be there; if it is not, that is the failure this flow exists to report.
+- extendedWaitUntil:
+    visible: "Install Agent"
+    timeout: 10000
+- tapOn: "Install Agent"
 
-            # The post-install hint replaces the old alert: it names the
-            # command that binds the agent to any chat
-            - extendedWaitUntil:
-                visible:
-                  id: "post-install-hint"
-                timeout: 5000
-            - assertVisible: "Use it in any chat: /agent add @.*"
-            # /coach add still WORKS when an athlete types it — it is a
-            # permanent alias, not a shim — but the hint must teach the
-            # canonical spelling. A half-reverted rename leaves the command
-            # resolving either way and the hint teaching the old one, which no
-            # server test can see: this is the only place that spelling is
-            # asserted where an athlete actually reads it.
-            - assertNotVisible: "Use it in any chat: /coach add @.*"
-            # The two halves of the alert the hint replaced, spelled as that
-            # alert spelled them. Both were hardcoded English literals deleted
-            # in b460057d3; a revert brings them back verbatim, so renaming one
-            # half would leave the pair unable to catch it.
-            - assertNotVisible: "Installed!"
-            - assertNotVisible: "View My Coaches"
+# The post-install hint replaces the old alert: it names the command that binds
+# the agent to any chat.
+- extendedWaitUntil:
+    visible:
+      id: "post-install-hint"
+    timeout: 5000
+- assertVisible: "Use it in any chat: /agent add @.*"
+# /coach add still WORKS when an athlete types it — it is a permanent alias,
+# not a shim — but the hint must teach the canonical spelling. A half-reverted
+# rename leaves the command resolving either way and the hint teaching the old
+# one, which no server test can see: this is the only place that spelling is
+# asserted where an athlete actually reads it.
+- assertNotVisible: "Use it in any chat: /coach add @.*"
+# The two halves of the alert the hint replaced, spelled as that alert spelled
+# them. Both were hardcoded English literals deleted in b460057d3; a revert
+# brings them back verbatim, so renaming one half would leave the pair unable
+# to catch it.
+- assertNotVisible: "Installed!"
+- assertNotVisible: "View My Coaches"
 
-            # The listing is now an installed copy: editable, uninstallable
-            - assertVisible:
-                id: "edit-coach-button"
-            - assertVisible: "Installed"
+# The listing is now an installed copy: editable, uninstallable
+- assertVisible:
+    id: "edit-coach-button"
+- assertVisible: "Installed"
 
-            # Open chat leaves the store for a fresh thread
-            - tapOn:
-                id: "post-install-open-chat"
-            - extendedWaitUntil:
-                visible:
-                  id: "chat-screen"
-                timeout: 10000
+# Open chat leaves the store for a fresh thread
+- tapOn:
+    id: "post-install-open-chat"
+- extendedWaitUntil:
+    visible:
+      id: "chat-screen"
+    timeout: 10000

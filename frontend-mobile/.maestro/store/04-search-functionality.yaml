@@ -1,5 +1,5 @@
-# ABOUTME: Test search functionality in Discover screen
-# ABOUTME: Converted from store.test.js "search functionality" tests
+# ABOUTME: Search in Discover filters the list — a matchless term empties it, clearing restores it
+# ABOUTME: Asserts the effect of searching, not merely that the list container survived it
 
 appId: ai.dravr.app
 
@@ -14,25 +14,51 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Test: should search for agents
+# The seeded store publishes system agents, so a first card is a precondition
+# this environment guarantees. Assert it rather than guarding on it: if it is
+# missing the store is broken and every assertion below is meaningless.
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+
+# A term no agent title or description can match must empty the list. This is
+# the assertion the flow existed for and never made: waiting for `coach-list`
+# proved nothing, because the container is present before the search too.
 - tapOn:
     id: "search-input"
 - eraseText
-- inputText: "training"
+- inputText: "zzqqxx-no-such-agent"
 
-# Wait for search results
-- extendedWaitUntil:
-    visible:
-      id: "coach-list"
-    timeout: 5000
-
-# Test: should clear search
+# Blur the field before asserting: the search bar floats at the bottom, so the
+# keyboard sits over the list. `hideKeyboard` is unreliable in Expo Go v55, so
+# tap a non-interactive area — the workaround helpers/login.yaml documents.
 - tapOn:
-    id: "search-input"
-- eraseText
+    point: "50%,8%"
 
-# Should show all agents again
+# Assert the empty state by testID, not by its English copy. The run that
+# caught this shows the search returning "0 results" in the server log while an
+# assertion on "No agents found" failed three times: the list HAD emptied and
+# the flow was reading for a string whose text depends on the device language.
 - extendedWaitUntil:
     visible:
-      id: "coach-list"
-    timeout: 5000
+      id: "store-empty-state"
+    timeout: 10000
+- assertNotVisible:
+    id: "coach-card-0"
+
+# This flow deliberately stops here rather than clearing the term and asserting
+# the catalogue returns.
+#
+# `tapOn` puts the cursor where it lands, which is the middle of a filled
+# field, and `eraseText` deletes backwards from the cursor — so clearing a
+# 20-character query erased the prefix and left "agent" behind. The server log
+# records the whole slide: 'zzqqxx-no-such-agent' 0 results, then
+# 'zzqqxx-no-suchagent', 'zzqqxx-noagent', 'zzqqagent', and finally 'agent'
+# with 16 results. The field was never empty, so the restore assertion was
+# testing a state the flow had not reached, and repeating eraseText cannot fix
+# it: once the cursor reaches position 0 the suffix stays forever.
+#
+# Filtering is the behaviour this flow is named for and it is asserted above.
+# Restoring needs a reliable way to empty the field, and inventing one here
+# would be the guesswork that made the old version pass without looking.
