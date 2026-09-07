@@ -6,13 +6,7 @@
 
 import React from 'react';
 import { ActivityIndicator, Text, View, type ViewStyle } from 'react-native';
-import { glassCard, useThemeColors } from '../../constants/theme';
-
-const sectionCardStyle: ViewStyle = {
-  borderRadius: 12,
-  padding: 14,
-  ...glassCard,
-};
+import { useCardStyle, useThemeColors } from '../../constants/theme';
 import { useGroupTranscript } from '../../hooks/useGroups';
 import { useTranslation } from '@pierre/i18n';
 
@@ -31,6 +25,11 @@ interface GroupTranscriptSectionProps {
 export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const sectionCardStyle: ViewStyle = {
+    borderRadius: 12,
+    padding: 14,
+    ...useCardStyle(),
+  };
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
   if (isLoading) {

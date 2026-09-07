@@ -16,22 +16,10 @@ import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
 import { personasApi, userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
-
-const cardStyle: ViewStyle = {
-  borderRadius: 16,
-  padding: spacing.md,
-  marginBottom: spacing.md,
-  ...glassCard,
-};
-
-const cardSelectedStyle: ViewStyle = {
-  borderColor: colors.pierre.violet,
-  borderWidth: 1,
-};
 
 /**
  * The persona picker.
@@ -45,8 +33,21 @@ const cardSelectedStyle: ViewStyle = {
  */
 export function CoachingStyleScreen() {
   const { t, language } = useTranslation();
+  const colors = useThemeColors();
   const router = useRouter();
   const { user, updateUser } = useAuth();
+  const cardStyle: ViewStyle = {
+    borderRadius: 16,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...useCardStyle(),
+  };
+  // The selection ring is the primary token, so it stays legible on whichever
+  // fill the card takes.
+  const cardSelectedStyle: ViewStyle = {
+    borderColor: colors.pierre.violet,
+    borderWidth: 1,
+  };
   const [selected, setSelected] = useState<CoachingPersona>('casual');
   const [isPending, setIsPending] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);

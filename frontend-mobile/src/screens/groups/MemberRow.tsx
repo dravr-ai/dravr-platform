@@ -49,15 +49,21 @@ export function MemberRow({
 }: MemberRowProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const roleColors = useMemo<Record<GroupRole, string>>(
+  /**
+   * The badge for each role: `fill` grounds it as a tint of the hue, `ink` is
+   * what the label draws in. A hue set as text on a tint of itself does not
+   * clear AA — `admin` measures 3.58:1 that way — so the label takes the ink
+   * its hue binds, and the primary-backed `owner` takes `onPrimaryContainer`.
+   */
+  const roleBadges = useMemo<Record<GroupRole, { fill: string; ink: string }>>(
     () => ({
-      owner: colors.pierre.violet,
-      admin: colors.pierre.activity,
-      member: colors.pierre.recovery,
+      owner: { fill: colors.pierre.violet, ink: colors.tokens.onPrimaryContainer },
+      admin: { fill: colors.pierre.activity, ink: colors.ink.activity },
+      member: { fill: colors.pierre.recovery, ink: colors.ink.recovery },
     }),
     [colors],
   );
-  const roleColor = roleColors[member.role];
+  const roleBadge = roleBadges[member.role];
   const displayName = member.display_name ?? t(UNKNOWN_MEMBER_KEY);
   // The same initials and the same colour hash the conversation list uses, so
   // one person looks like one person wherever the app draws them.
@@ -71,8 +77,8 @@ export function MemberRow({
           {displayName}
         </Text>
         <View className="flex-row items-center mt-0.5">
-          <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: `${roleColor}20` }}>
-            <Text className="text-[10px] font-semibold" style={{ color: roleColor }}>
+          <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: `${roleBadge.fill}20` }}>
+            <Text className="text-[10px] font-semibold" style={{ color: roleBadge.ink }}>
               {t(ROLE_LABEL_KEYS[member.role])}
             </Text>
           </View>

@@ -7,15 +7,10 @@
 import React from 'react';
 import { View, Text, ActivityIndicator, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { glassCard, useThemeColors } from '../../constants/theme';
+import { useCardStyle, useThemeColors } from '../../constants/theme';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '../../types';
 import { useTranslation } from '@pierre/i18n';
-
-const sectionCardStyle: ViewStyle = {
-  borderRadius: 12,
-  ...glassCard,
-};
 
 /** Corpus key per flag. Module scope, so the section resolves it at render. */
 const FLAG_LABEL_KEYS: Record<MemberFlag, string> = {
@@ -49,14 +44,25 @@ export function GroupInsightsSection({
 }: GroupInsightsSectionProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const sectionCardStyle: ViewStyle = {
+    borderRadius: 12,
+    ...useCardStyle(),
+  };
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
   const { flags, isLoading: isFlagsLoading } = useGroupHealthFlags(groupId, enabled);
 
-  const severityColors: Record<HealthFlagSeverity, string> = {
-    info: colors.text.tertiary,
-    warning: colors.pierre.activity,
-    critical: colors.error,
+  /**
+   * The badge for each severity: `fill` grounds it as a tint of the hue, `ink`
+   * is what the label draws in. A hue set as text on a tint of itself does not
+   * clear AA — `warning` measures 4.28:1 that way — so each label takes the ink
+   * its hue binds. `info` is a hue of its own, the informational slate, rather
+   * than the `outline` text role, which has no bound ink to pair with.
+   */
+  const severityBadges: Record<HealthFlagSeverity, { fill: string; ink: string }> = {
+    info: { fill: colors.info, ink: colors.ink.info },
+    warning: { fill: colors.pierre.activity, ink: colors.ink.activity },
+    critical: { fill: colors.error, ink: colors.tokens.onErrorContainer },
   };
 
   if (!isAdmin) {
@@ -156,11 +162,11 @@ export function GroupInsightsSection({
               </View>
               <View
                 className="px-2 py-0.5 rounded"
-                style={{ backgroundColor: severityColors[flag.severity] + '20' }}
+                style={{ backgroundColor: `${severityBadges[flag.severity].fill}20` }}
               >
                 <Text
                   className="text-[10px] font-semibold"
-                  style={{ color: severityColors[flag.severity] }}
+                  style={{ color: severityBadges[flag.severity].ink }}
                 >
                   {t(FLAG_LABEL_KEYS[flag.flag_type])}
                 </Text>

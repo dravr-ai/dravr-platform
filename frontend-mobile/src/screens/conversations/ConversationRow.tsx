@@ -156,14 +156,21 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
             >
               {row.preview}
             </Text>
+            {/*
+              The mention marker rides an amber tint and draws its `@` in the
+              ink bound to that hue, the same pair the channel badge above uses.
+              The amber is what separates it from the primary unread pill it
+              always sits beside — a mention is only ever badged while unread,
+              so the two circles are on the row together and read as two things.
+            */}
             {mentioned && (
               <View
                 className="w-[18px] h-[18px] rounded-full items-center justify-center ml-2"
-                style={{ backgroundColor: colors.pierre.nutrition }}
+                style={{ backgroundColor: `${colors.pierre.nutrition}26` }}
                 accessibilityLabel={t('app.rowMentionsYou')}
                 testID={`conversation-mention-${row.id}`}
               >
-                <Text className="text-[11px] font-bold" style={{ color: colors.tokens.onPrimary }}>
+                <Text className="text-[11px] font-bold" style={{ color: colors.ink.nutrition }}>
                   {MENTION_PREFIX}
                 </Text>
               </View>

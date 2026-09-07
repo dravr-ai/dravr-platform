@@ -284,20 +284,46 @@ function CollapsibleActivities({
   );
 }
 
-/** Feedback tint for the tone the shared rollup assigns a verdict — the chip's, and each card's in the sheet. */
-export function verdictChipColor(tone: VerdictTone, colors: ThemeColors): string {
+/** The two halves of a verdict chip: what it is filled with, and what reads on that fill. */
+export interface VerdictChipPalette {
+  /** The chip's ground — the tone's own hue at container weight. */
+  fill: string;
+  /** The ink bound to that ground. Label and icon both take it. */
+  ink: string;
+}
+
+/**
+ * Container weight for a feedback tint — 15%, the same fraction the web chip
+ * spells as `/15`. Hex alpha, because these fills are composed as strings.
+ */
+const VERDICT_TINT_ALPHA = '26';
+
+/**
+ * Ground and ink for the tone the shared rollup assigns a verdict — the turn's
+ * chip, and each card's in the sheet.
+ *
+ * One function returns both because they are one decision. A hue drawn as text
+ * on a tint of itself does not clear AA: light `warning` measures 2.73:1 that
+ * way, against 6.41:1 for the ink the token tree binds to that tint. So the
+ * fill stays the tone's hue and the label takes `colors.ink.*` — the same hue
+ * carried along its lightness axis — or the on-colour the tree already names,
+ * where it names one.
+ */
+export function verdictChipPalette(tone: VerdictTone, colors: ThemeColors): VerdictChipPalette {
   switch (tone) {
     case 'success':
-      return colors.success;
+      return { fill: `${colors.success}${VERDICT_TINT_ALPHA}`, ink: colors.ink.success };
     case 'warning':
-      return colors.warning;
+      return { fill: `${colors.warning}${VERDICT_TINT_ALPHA}`, ink: colors.ink.warning };
     case 'error':
-      return colors.error;
+      return { fill: `${colors.error}${VERDICT_TINT_ALPHA}`, ink: colors.tokens.onErrorContainer };
     case 'info':
-      return colors.info;
+      return { fill: `${colors.info}${VERDICT_TINT_ALPHA}`, ink: colors.ink.info };
+    // A toneless verdict has no hue to carry, so its chip is the neutral pair:
+    // a wash of the muted ink under body copy, which is what web draws too.
     case 'secondary':
     default:
-      return colors.text.secondary;
+      return { fill: `${colors.text.secondary}${VERDICT_TINT_ALPHA}`, ink: colors.text.primary };
   }
 }
 
@@ -547,7 +573,7 @@ export function MessageList({
             : block.chips.map(verdictChipSeverity);
         const summary = summarizeVerdicts(severities);
         if (!summary) return null;
-        const tint = verdictChipColor(summary.tone, colors);
+        const chip = verdictChipPalette(summary.tone, colors);
         return (
           <TouchableOpacity
             key={key}
@@ -557,15 +583,18 @@ export function MessageList({
               status: t(VERDICT_STATUS_LABEL_KEY[summary.worstStatus]),
             })}
             className="flex-row items-center self-start mt-2 px-2 py-1 rounded-full"
-            style={{ backgroundColor: `${tint}26` }}
+            style={{ backgroundColor: chip.fill }}
             onPress={() => onShowVerdict?.(context.rows, context.messageId)}
           >
+            {/* The shield is the tone's other carrier — half-filled when the
+                rollup alerts — so it takes the ink the label takes rather than
+                the fill's own hue, which at 12pt reads as a smudge. */}
             <Ionicons
               name={verdictToneAlerts(summary.tone) ? 'shield-half-outline' : 'shield-outline'}
               size={12}
-              color={tint}
+              color={chip.ink}
             />
-            <Text className="text-xs ml-1" style={{ color: tint }}>
+            <Text className="text-xs ml-1" style={{ color: chip.ink }}>
               {verdictChipLabel(t, summary)}
             </Text>
           </TouchableOpacity>

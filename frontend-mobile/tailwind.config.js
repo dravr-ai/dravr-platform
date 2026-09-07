@@ -160,6 +160,20 @@ module.exports = {
         recovery: 'rgb(var(--color-recovery) / <alpha-value>)',
         mobility: 'rgb(var(--color-mobility) / <alpha-value>)',
 
+        // Text that sits ON a tint of the hue above — the bound ink each hue
+        // carries. At the /15 tint the hue drawn as its own label measures
+        // 1.95:1 at worst in light and the ink 4.58:1; DESIGN.md §2 "Bound
+        // ink" carries the envelope. Values in global.css, the same names and
+        // the same triples the web config maps. The runtime path is
+        // `useThemeColors().ink.*`; these are the class path.
+        'on-activity-container': 'rgb(var(--color-on-activity-container) / <alpha-value>)',
+        'on-nutrition-container': 'rgb(var(--color-on-nutrition-container) / <alpha-value>)',
+        'on-recovery-container': 'rgb(var(--color-on-recovery-container) / <alpha-value>)',
+        'on-mobility-container': 'rgb(var(--color-on-mobility-container) / <alpha-value>)',
+        'on-info-container': 'rgb(var(--color-on-info-container) / <alpha-value>)',
+        'on-success-container': 'rgb(var(--color-on-success-container) / <alpha-value>)',
+        'on-warning-container': 'rgb(var(--color-on-warning-container) / <alpha-value>)',
+
         // Provider brand colors — belong to third parties, unchanged across modes.
         providers: {
           strava: '#FC4C02',

@@ -11,26 +11,52 @@ import { useThemeColors } from '../../constants/theme';
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
+/** One avatar slot: the hue tinted behind the initials, and the ink they take on it. */
+interface AvatarSlotPair {
+  /** The hue tinted at {@link TINT_ALPHA} to make the circle. */
+  readonly fill: string;
+  /** The bound ink the initials are drawn in over that tint. */
+  readonly ink: string;
+}
+
 /**
- * The avatar colours, indexed by `avatarSlot`.
+ * The avatar slots, indexed by `avatarSlot` — each a fill and its ink.
  *
- * Every entry is a design token of the active scheme — the primary, the four
- * pillar tints and the tertiary — so an avatar flips with the theme like the
- * rest of the chrome. The list is exactly {@link AVATAR_SLOTS} long; the hash
- * that picks a slot counts on that.
+ * Fill and ink are one entry because they are one decision. A hue drawn as
+ * text on a tint of itself measures as low as 2.35:1 (light `nutrition` over
+ * `surfaceContainerLow`), so every fill here carries the ink that clears
+ * 4.5:1 over it. Two parallel lists would let a seventh slot arrive with a
+ * fill and no ink; one list of pairs cannot.
+ *
+ * Every value is a design token of the active scheme, so an avatar flips with
+ * the theme like the rest of the chrome. Each hue binds the ink of its own
+ * container: the primary takes `onPrimaryContainer`, the four pillars take
+ * `colors.ink.*`. Tertiary inks itself — in light it is `#03231d`, already the
+ * ink end of its own lightness axis, and `onTertiaryContainer` is the pale ink
+ * of a *dark* container, which reads 1.68:1 over this pale tint. That is the
+ * same pairing the web ships in `avatarSlotClass` (`bg-tertiary/15
+ * text-tertiary`).
+ *
+ * The list is exactly {@link AVATAR_SLOTS} long; the hash that picks a slot
+ * counts on that.
  */
-export function avatarSlotColors(colors: ThemeColors): readonly string[] {
+function avatarSlotPairs(colors: ThemeColors): readonly AvatarSlotPair[] {
   return [
-    colors.tokens.primary,
-    colors.pierre.activity,
-    colors.pierre.nutrition,
-    colors.pierre.recovery,
-    colors.pierre.mobility,
-    colors.tokens.tertiary,
+    { fill: colors.tokens.primary, ink: colors.tokens.onPrimaryContainer },
+    { fill: colors.pierre.activity, ink: colors.ink.activity },
+    { fill: colors.pierre.nutrition, ink: colors.ink.nutrition },
+    { fill: colors.pierre.recovery, ink: colors.ink.recovery },
+    { fill: colors.pierre.mobility, ink: colors.ink.mobility },
+    { fill: colors.tokens.tertiary, ink: colors.tokens.tertiary },
   ];
 }
 
-/** Alpha suffix that tints the circle behind same-hue initials. */
+/** The fill of each avatar slot, in slot order — the palette without its inks. */
+export function avatarSlotColors(colors: ThemeColors): readonly string[] {
+  return avatarSlotPairs(colors).map((pair) => pair.fill);
+}
+
+/** Alpha suffix that tints the circle behind the initials. */
 const TINT_ALPHA = '33';
 
 export interface InitialsAvatarProps {
@@ -46,8 +72,8 @@ export interface InitialsAvatarProps {
 /** The circle every conversation-shaped surface draws before a title. */
 export function InitialsAvatar({ initials, slot, size = 40, testID }: InitialsAvatarProps) {
   const colors = useThemeColors();
-  const palette = avatarSlotColors(colors);
-  const tint = palette[((slot % AVATAR_SLOTS) + AVATAR_SLOTS) % AVATAR_SLOTS];
+  const palette = avatarSlotPairs(colors);
+  const { fill, ink } = palette[((slot % AVATAR_SLOTS) + AVATAR_SLOTS) % AVATAR_SLOTS];
 
   return (
     <View
@@ -58,12 +84,22 @@ export function InitialsAvatar({ initials, slot, size = 40, testID }: InitialsAv
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: `${tint}${TINT_ALPHA}`,
+        backgroundColor: `${fill}${TINT_ALPHA}`,
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
-      <Text style={{ color: tint, fontSize: Math.round(size * 0.4), fontWeight: '700' }}>{initials}</Text>
+      {/*
+        The initials take the slot's bound ink, never its fill. Hiding the
+        circle from the accessibility tree settles what VoiceOver announces,
+        not what anyone reads: the two audiences are disjoint, and withholding
+        the initials from the screen reader leaves the pixels as the only way a
+        low-vision athlete gets this thread's identity. So it is visible text
+        under 1.4.3, not decoration, and it takes the 4.5:1 bar — at both
+        shipped sizes, since 0.4x of 40 and of 32 is 16px and 13px, under the
+        18.66px bold that would earn the 3:1 relief.
+      */}
+      <Text style={{ color: ink, fontSize: Math.round(size * 0.4), fontWeight: '700' }}>{initials}</Text>
     </View>
   );
 }

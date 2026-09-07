@@ -12,9 +12,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from '../../components/ui';
-import { spacing, glassCard, gradients } from '../../constants/theme';
+import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { authApi } from '../../services/api';
@@ -26,13 +25,6 @@ const logoStyle: ImageStyle = {
   height: 100,
   borderRadius: 25,
   marginBottom: spacing.md,
-};
-
-// Glassmorphism card style
-const cardStyle: ViewStyle = {
-  ...glassCard,
-  borderRadius: 16,
-  overflow: 'hidden',
 };
 
 // Step badge style
@@ -61,6 +53,12 @@ const stepBadgeStyle: ViewStyle = {
  * switches to confirm-your-email mode.
  */
 export function PendingApprovalScreen() {
+  const colors = useThemeColors();
+  const cardStyle: ViewStyle = {
+    ...useCardStyle(),
+    borderRadius: 16,
+    overflow: 'hidden',
+  };
   const { t } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
@@ -83,16 +81,8 @@ export function PendingApprovalScreen() {
       <ScrollView
         contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
       >
-        {/* Glassmorphism Card Container */}
+        {/* Card container */}
         <View style={cardStyle}>
-          {/* Gradient accent bar at top */}
-          <LinearGradient
-            colors={gradients.violetCyan as [string, string]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={{ height: 3, width: '100%' }}
-          />
-
           <View className="px-6 py-8">
             {/* Pierre Logo */}
             <View className="items-center">
@@ -149,12 +139,9 @@ export function PendingApprovalScreen() {
                 {t('app.whatHappensNext')}
               </Text>
               <View className="flex-row items-center mb-3">
-                <LinearGradient
-                  colors={gradients.violetCyan as [string, string]}
-                  style={stepBadgeStyle}
-                >
-                  <Text className="text-on-surface text-xs font-bold">1</Text>
-                </LinearGradient>
+                <View style={[stepBadgeStyle, { backgroundColor: colors.tokens.primaryContainer }]}>
+                  <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimaryContainer }}>1</Text>
+                </View>
                 <Text className="flex-1 text-sm text-text-secondary">
                   {needsEmailConfirmation
                     ? t('app.openConfirmationLink')
@@ -162,12 +149,9 @@ export function PendingApprovalScreen() {
                 </Text>
               </View>
               <View className="flex-row items-center mb-3">
-                <LinearGradient
-                  colors={gradients.violetCyan as [string, string]}
-                  style={stepBadgeStyle}
-                >
-                  <Text className="text-on-surface text-xs font-bold">2</Text>
-                </LinearGradient>
+                <View style={[stepBadgeStyle, { backgroundColor: colors.tokens.primaryContainer }]}>
+                  <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimaryContainer }}>2</Text>
+                </View>
                 <Text className="flex-1 text-sm text-text-secondary">
                   {needsEmailConfirmation
                     ? t('app.accountActivatesOnConfirm')
@@ -175,12 +159,9 @@ export function PendingApprovalScreen() {
                 </Text>
               </View>
               <View className="flex-row items-center">
-                <LinearGradient
-                  colors={gradients.violetCyan as [string, string]}
-                  style={stepBadgeStyle}
-                >
-                  <Text className="text-on-surface text-xs font-bold">3</Text>
-                </LinearGradient>
+                <View style={[stepBadgeStyle, { backgroundColor: colors.tokens.primaryContainer }]}>
+                  <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimaryContainer }}>3</Text>
+                </View>
                 <Text className="flex-1 text-sm text-text-secondary">
                   {t('app.signInAndConnect')}
                 </Text>

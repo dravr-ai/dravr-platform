@@ -1,11 +1,11 @@
 // ABOUTME: Reusable collapsible accordion section with animated chevron
-// ABOUTME: Glass card styling with smooth expand/collapse transitions on UI thread
+// ABOUTME: Resting-card styling with smooth expand/collapse transitions on UI thread
 
 import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { glassCard, useThemeColors } from '../../constants/theme';
+import { useCardStyle, useThemeColors } from '../../constants/theme';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -21,6 +21,7 @@ export function CollapsibleSection({
   testID,
 }: CollapsibleSectionProps) {
   const colors = useThemeColors();
+  const cardStyle = useCardStyle();
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const toggle = useCallback(() => {
@@ -31,7 +32,7 @@ export function CollapsibleSection({
     <View
       className="mb-5 overflow-hidden"
       style={{
-        ...glassCard,
+        ...cardStyle,
         borderRadius: 12,
       }}
       testID={testID}

@@ -1,46 +1,9 @@
-// ABOUTME: Unit tests for theme constants
-// ABOUTME: Tests color values, spacing, and typography definitions
+// ABOUTME: Unit tests for the mobile scale tokens — spacing, type scale, radius
+// ABOUTME: Colour is not testable from here: it lives in useThemeColors(), which needs a scheme to resolve
 
-import { colors, spacing, fontSize, borderRadius } from '../src/constants/theme';
+import { spacing, fontSize, borderRadius } from '../src/constants/theme';
 
 describe('Theme Constants', () => {
-  describe('colors', () => {
-    it('should have text colors', () => {
-      expect(colors.text.primary).toBeDefined();
-      expect(colors.text.secondary).toBeDefined();
-      expect(colors.text.tertiary).toBeDefined();
-    });
-
-    it('should have text colors as strings (not objects)', () => {
-      expect(typeof colors.text.primary).toBe('string');
-      expect(typeof colors.text.secondary).toBe('string');
-      expect(typeof colors.text.tertiary).toBe('string');
-    });
-
-    it('should have background colors', () => {
-      expect(colors.background.primary).toBeDefined();
-      expect(colors.background.secondary).toBeDefined();
-      expect(colors.background.tertiary).toBeDefined();
-    });
-
-    it('should have primary color palette', () => {
-      expect(colors.primary[400]).toBeDefined();
-      expect(colors.primary[500]).toBeDefined();
-      expect(colors.primary[600]).toBeDefined();
-    });
-
-    it('should have border colors', () => {
-      expect(colors.border.default).toBeDefined();
-      expect(colors.border.subtle).toBeDefined();
-    });
-
-    it('should have semantic colors', () => {
-      expect(colors.success).toBeDefined();
-      expect(colors.error).toBeDefined();
-      expect(colors.warning).toBeDefined();
-    });
-  });
-
   describe('spacing', () => {
     it('should have spacing values', () => {
       expect(spacing.xs).toBeDefined();
@@ -76,10 +39,13 @@ describe('Theme Constants', () => {
   });
 
   describe('borderRadius', () => {
-    it('should have border radius values', () => {
-      expect(borderRadius.sm).toBeDefined();
-      expect(borderRadius.md).toBeDefined();
-      expect(borderRadius.lg).toBeDefined();
+    it('should have increasing border radii, with a pill at the top', () => {
+      expect(borderRadius.md).toBeGreaterThan(borderRadius.sm);
+      expect(borderRadius.lg).toBeGreaterThan(borderRadius.md);
+      expect(borderRadius.xl).toBeGreaterThan(borderRadius.lg);
+      // `full` is a pill, not the next step up — it has to exceed any height
+      // a chip or avatar can take.
+      expect(borderRadius.full).toBeGreaterThan(1000);
     });
   });
 });
