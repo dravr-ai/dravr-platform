@@ -58,8 +58,9 @@ pub const CLOUD_TASKS_API_BASE: &str = "https://cloudtasks.googleapis.com/v2";
 /// that a task never sits in a request for the whole dispatch deadline.
 const DEFAULT_CLAIM_WAIT: Duration = Duration::from_mins(4);
 
-/// Slack added to the turn watchdog for the task's dispatch deadline, so the
-/// deadline never cuts a turn the watchdog would still allow.
+/// Slack added to the claim wait plus the turn watchdog for the task's
+/// dispatch deadline, so the deadline never cuts a delivery that is still
+/// inside every bound it runs under.
 const DISPATCH_DEADLINE_MARGIN: Duration = Duration::from_mins(1);
 
 /// Cloud Tasks caps an HTTP task's dispatch deadline at thirty minutes.
@@ -224,10 +225,16 @@ impl CloudTasksRunner {
         token_provider: Arc<dyn TokenProvider>,
         turn_watchdog: Duration,
     ) -> AppResult<Self> {
-        let dispatch_deadline = turn_watchdog + DISPATCH_DEADLINE_MARGIN;
+        // The claim wait is spent INSIDE the delivery, before the turn starts:
+        // the route waits there for an older turn of the same conversation.
+        // So one request can legitimately hold claim_wait + watchdog, and a
+        // deadline sized on the watchdog alone would cut a turn that is still
+        // within every bound it runs under.
+        let dispatch_deadline = config.claim_wait + turn_watchdog + DISPATCH_DEADLINE_MARGIN;
         if dispatch_deadline > CLOUD_TASKS_MAX_DISPATCH_DEADLINE {
             return Err(AppError::internal(format!(
-                "the turn watchdog ({}s) plus {}s of margin exceeds the {}s dispatch deadline Cloud Tasks accepts; lower MESSAGING_TURN_WATCHDOG_SECS",
+                "the claim wait ({}s) plus the turn watchdog ({}s) plus {}s of margin exceeds the {}s dispatch deadline Cloud Tasks accepts; lower MESSAGING_TURN_WATCHDOG_SECS or PIERRE_TURN_CLAIM_WAIT_SECS",
+                config.claim_wait.as_secs(),
                 turn_watchdog.as_secs(),
                 DISPATCH_DEADLINE_MARGIN.as_secs(),
                 CLOUD_TASKS_MAX_DISPATCH_DEADLINE.as_secs()

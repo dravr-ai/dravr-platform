@@ -210,10 +210,15 @@ module "backend" {
   # default; those come through the frontend, whose nginx proxy_read_timeout
   # (docker/images/frontend/nginx.conf) is 600s and bounds them. A messaging
   # turn delivered by Cloud Tasks (turn_queue.tf) is a request too, never
-  # proxied, and runs up to the turn watchdog — MESSAGING_TURN_WATCHDOG_SECS,
-  # 960 by default — so the service timeout is that plus a minute; below it,
-  # Cloud Run cuts the request and the turn dies without its hand-off.
-  request_timeout = "1020s"
+  # proxied, and holds TWO budgets in sequence: the delivery first waits in
+  # the request for any older turn of the same conversation to finish —
+  # PIERRE_TURN_CLAIM_WAIT_SECS, 240 by default — and only then runs the turn
+  # up to MESSAGING_TURN_WATCHDOG_SECS, 960 by default. So the ceiling is
+  # 240 + 960 plus a minute of margin, matching the task's dispatch deadline,
+  # which CloudTasksRunner::new computes from the same three terms. Sized on
+  # the watchdog alone (the earlier 1020s) Cloud Run cut a legitimately slow
+  # delivery and the turn died without its hand-off.
+  request_timeout = "1260s"
   # Keep CPU always-allocated at 2 vCPU: this service can't be trimmed cheaply.
   # cpu_idle=true throttles CPU between requests and kills long-lived subprocesses
   # — the Copilot ACP LLM runner (chat/insights/coach UI hung, rev 00464) and the

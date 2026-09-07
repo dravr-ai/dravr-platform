@@ -61,7 +61,7 @@ async fn a_turn_is_enqueued_as_a_task_the_run_route_can_verify() {
 
     let task = &call.body["task"];
     assert_eq!(task["name"], runner.task_name("row-7", 0));
-    assert_eq!(task["dispatchDeadline"], "1020s", "watchdog plus a minute");
+    assert_eq!(task["dispatchDeadline"], "1260s", "claim wait plus watchdog plus a minute — the claim wait is spent inside the delivery, so the deadline must cover it");
     let http = &task["httpRequest"];
     assert_eq!(http["url"], format!("{TARGET}/internal/turns/row-7/run"));
     assert_eq!(http["httpMethod"], "POST");

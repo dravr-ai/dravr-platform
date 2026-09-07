@@ -33,19 +33,20 @@ backend_memory = "2Gi"
 # 2026-06-03 cost cut (2676ccfc7). Not worth it for the contremaitre push
 # webhook's cold start: the webhook retries, and prompts sync on startup anyway.
 #
-# LIMITATION(registre#126): scaling to zero also means an idle scaledown can
-# interrupt a live coaching turn. A messaging turn is dispatched AFTER its
-# webhook returned 200, so Cloud Run reads the instance as idle from the
-# athlete's first second and may take it mid-turn with no deploy involved
-# (observed 2026-08-26). registre#109 made that survivable — turns are tracked,
-# SIGTERM drains them, and one that cannot finish closes its status placeholder
-# with an honest notice instead of leaving the athlete waiting forever — but the
-# athlete still loses the answer. min=1 was proposed as the prevention and
-# DECLINED on the cost above (shipped e47ac94ef, reverted 18c031edd before any
-# apply). Next step on #126 is measurement, not spend: `messaging.error` with
-# error_type=shutdown_drain is catalogued and emitting, so count it before
-# choosing between the warm floor, a request-visible turn, or resuming a killed
-# turn on the next instance.
+# Scaling to zero no longer costs the athlete their answer. It used to: a
+# messaging turn was dispatched AFTER its webhook returned 200, so Cloud Run
+# read the instance as idle from the athlete's first second and could take it
+# mid-turn with no deploy involved (observed 2026-08-26). min=1 was proposed as
+# the prevention and DECLINED on the cost above (shipped e47ac94ef, reverted
+# 18c031edd before any apply).
+#
+# Two of the three options that comment left open have since shipped, which is
+# why min stays 0. Every turn is recorded before it runs; on this environment
+# the runner is Cloud Tasks (turn_queue.tf, PIERRE_TURN_* below), so the turn
+# executes INSIDE a request Cloud Run waits for and an idle scaledown does not
+# pick it; and a turn interrupted anyway is resumed on the next instance
+# through the same status placeholder rather than apologised for. See
+# book/src/messaging-gateway.md.
 backend_min_instances = 0
 # Capped at 3 by the DB connection budget (see the concurrency block below):
 # max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. With

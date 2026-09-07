@@ -83,6 +83,16 @@ pub const MAX_TURN_ATTEMPTS: i64 = 2;
 /// is already up answers it within one of these instead.
 pub const SWEEP_INTERVAL: Duration = Duration::from_mins(1);
 
+/// How many times the sweep re-queues a turn that is never claimed before it
+/// gives up on it.
+///
+/// A delivery that fails before the claim leaves the row untouched, so nothing
+/// but this count separates "the queue is briefly unhappy" from a row that
+/// would be re-minted every minute forever. Five passes is five minutes of a
+/// structural fault — a refused token, an unmounted route — which is long
+/// enough to ride out a blip and short enough not to bill a loop.
+pub const MAX_TURN_ENQUEUES: i64 = 5;
+
 /// Upper bound on turns one sweep claims or enqueues.
 ///
 /// Each one is a full LLM dispatch. A scaledown drains a handful of turns at
@@ -643,7 +653,15 @@ async fn sweep_cloud_tasks(
 }
 
 /// Count one more enqueue of a stale row and put it back on the queue under
-/// that sequence.
+/// that sequence — unless it has been put back too many times already.
+///
+/// `attempts` is bumped by the CLAIM, so a delivery that fails BEFORE it — a
+/// refused token, an unmounted route, a 5xx raised on the way in — leaves the
+/// row exactly as the sweep found it. Nothing about it changes, so it matches
+/// the stale predicate on every pass and would be re-minted as a fresh task
+/// every minute for the life of the table, billing a delivery attempt each
+/// time and never reaching either terminal state. The enqueue count is the
+/// only thing that does move, so it is what bounds the loop.
 async fn re_enqueue_stale(
     repo: &dyn ResumableTurnRepository,
     runner: &CloudTasksRunner,
@@ -661,8 +679,37 @@ async fn re_enqueue_stale(
             return;
         }
     };
+    if seq > MAX_TURN_ENQUEUES {
+        drop_unclaimable_turn(repo, tenant_id, row, seq).await;
+        return;
+    }
     info!(row_id = %row.id, seq, "re-enqueuing a stale messaging turn");
     enqueue_turn(runner, tenant_id, &row.id, &row.channel, seq).await;
+}
+
+/// Give up on a row the queue has delivered and delivered and never had
+/// claimed.
+///
+/// Reported the way an exhausted turn is, because it is the same loss: an
+/// athlete who asked a question and will never be answered. A row queued this
+/// many times without a single claim is not waiting on luck, it is waiting on
+/// a fix, and minting another task each minute neither finds one nor is free.
+async fn drop_unclaimable_turn(
+    repo: &dyn ResumableTurnRepository,
+    tenant_id: TenantId,
+    row: &ResumableTurnRow,
+    seq: i64,
+) {
+    error!(
+        row_id = %row.id,
+        seq,
+        channel = %row.channel,
+        max_enqueues = MAX_TURN_ENQUEUES,
+        "turn re-queued past its enqueue ceiling without ever being claimed; dropping it rather than minting another task — the athlete was never told"
+    );
+    if let Err(e) = repo.finish_resumable_turn(tenant_id, &row.id).await {
+        warn!(error = %e, row_id = %row.id, "unclaimable turn could not be dropped; it will be retried");
+    }
 }
 
 /// Run a claimed turn on this instance and report how it closed.

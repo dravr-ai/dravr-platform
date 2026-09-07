@@ -33,7 +33,7 @@ mod swept {
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::services::messaging_ingress::resume::{
-        sweep_resumable_turns, MAX_TURN_ATTEMPTS,
+        sweep_resumable_turns, MAX_TURN_ATTEMPTS, MAX_TURN_ENQUEUES,
     };
     use uuid::Uuid;
 
@@ -118,6 +118,10 @@ mod swept {
                 .collect()
         }
 
+        /// NOT read-only: this CLAIMS the row, so it leases it and bumps its
+        /// attempts. Safe as a final assertion, never inside a loop that
+        /// sweeps again afterwards — a leased row no longer matches the stale
+        /// predicate and the next sweep sees nothing, for the wrong reason.
         async fn still_on_file(&self, row: &ResumableTurnRow) -> bool {
             let tenant = TenantId::parse_str(&row.tenant_id).unwrap();
             // A claim that finds nothing reports the row missing.
@@ -269,6 +273,52 @@ mod swept {
         assert!(
             !swept.still_on_file(&doomed).await,
             "the reap drops it, so the queue and the table both stop carrying it"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_turn_the_queue_can_never_get_claimed_is_dropped_rather_than_minted_forever() {
+        // The row a delivery never reaches: a refused token, an unmounted
+        // route, a 5xx on the way in. `attempts` is bumped by the CLAIM, so
+        // none of those touch it — the row comes back to every sweep looking
+        // exactly as it did, matching the stale predicate forever. Without a
+        // ceiling this mints a fresh Cloud Tasks task every minute for the
+        // life of the table and never reaches either terminal state.
+        let swept = Swept::boot().await;
+        let doomed = swept.record("conv-unclaimable", LONG_AGO_MS).await;
+
+        // Every pass up to the ceiling puts it back, exactly as before.
+        for pass in 1..=MAX_TURN_ENQUEUES {
+            assert_eq!(swept.sweep().await, 1, "pass {pass} still re-queues");
+            assert_eq!(
+                swept.tasks_for(&doomed).len(),
+                usize::try_from(pass).unwrap(),
+                "one task per pass up to the ceiling"
+            );
+            // Deliberately no `still_on_file` here: it claims, and a claimed
+            // row stops matching the stale predicate, so the probe would end
+            // the loop it is meant to observe. That the next pass re-queues at
+            // all is the proof the row survived.
+        }
+
+        // The pass that crosses it drops the row instead of minting again.
+        swept.sweep().await;
+        assert_eq!(
+            swept.tasks_for(&doomed).len(),
+            usize::try_from(MAX_TURN_ENQUEUES).unwrap(),
+            "no task is minted once the ceiling is crossed"
+        );
+        assert!(
+            !swept.still_on_file(&doomed).await,
+            "the row is dropped, so it stops matching the stale predicate"
+        );
+
+        // And it stays dropped: the loop is closed, not merely paused.
+        assert_eq!(swept.sweep().await, 0, "nothing left to sweep");
+        assert_eq!(
+            swept.tasks_for(&doomed).len(),
+            usize::try_from(MAX_TURN_ENQUEUES).unwrap(),
+            "still no further tasks"
         );
     }
 }

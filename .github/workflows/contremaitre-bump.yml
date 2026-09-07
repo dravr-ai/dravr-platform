@@ -174,9 +174,17 @@ jobs:
         if: steps.bump.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Independent, and failing once at the end. `run:` is `bash -e`, so a
+        # bare sequence would let a hiccup on the first dispatch — an API 5xx,
+        # a rate limit, the target workflow disabled — swallow the second and
+        # skip the step after this one. The bump commit is already on main by
+        # then and its push fires nothing, so a dropped dispatch is a commit
+        # with no verdict at all.
         run: |
-          gh workflow run ci-backend.yml --ref main
-          gh workflow run ci-postgres.yml --ref main
+          rc=0
+          gh workflow run ci-backend.yml --ref main || rc=1
+          gh workflow run ci-postgres.yml --ref main || rc=1
+          exit $rc
 
       - name: Run the messaging eval asserters on the bumped prompts
         # A bump lands new coach prompts. Dispatching the eval's Phase 0-3
@@ -184,7 +192,10 @@ jobs:
         # waiting for its 04:00 UTC nightly — the same suppressed-run problem as
         # the step above, and gated on `changed` so the hourly no-op costs
         # nothing. `asserters_only` skips the live Slack round trip.
-        if: steps.bump.outputs.changed == 'true'
+        # `always()` so a dispatch hiccup in the step above cannot cancel this
+        # one: an implicit success() would make the two lanes share a fate they
+        # do not share.
+        if: always() && steps.bump.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run messaging-eval.yml --ref main -f asserters_only=true

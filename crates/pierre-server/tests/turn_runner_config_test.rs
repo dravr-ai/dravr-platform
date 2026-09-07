@@ -81,9 +81,11 @@ fn a_fully_configured_cloud_tasks_runner_knows_its_target_name_and_deadline() {
     assert_eq!(cloud.verifier().audience(), TARGET);
     assert_eq!(cloud.verifier().service_account(), SA);
 
-    // Watchdog plus a minute: Cloud Tasks never gives up on a turn the
-    // watchdog would still let finish.
-    assert_eq!(cloud.dispatch_deadline(), Duration::from_mins(17));
+    // Claim wait plus watchdog plus a minute. The claim wait counts because
+    // it is spent INSIDE the delivery, before the turn starts, so a deadline
+    // sized on the watchdog alone would cut a delivery still inside every
+    // bound it runs under.
+    assert_eq!(cloud.dispatch_deadline(), Duration::from_mins(21));
     assert_eq!(cloud.claim_wait(), Duration::from_mins(4));
 
     let name = cloud.task_name("row-1", 0);
@@ -164,13 +166,14 @@ fn an_unknown_runner_is_refused() {
 
 #[test]
 fn a_watchdog_too_long_for_a_cloud_tasks_deadline_is_refused() {
-    // Thirty minutes is the ceiling Cloud Tasks accepts; the watchdog plus a
-    // minute of margin has to fit under it.
-    let err = parse(&full(), Duration::from_secs(29 * 60 + 1)).unwrap_err();
+    // Thirty minutes is the ceiling Cloud Tasks accepts, and three terms have
+    // to fit under it: the 4-minute default claim wait, the watchdog, and a
+    // minute of margin. So the watchdog's own ceiling is 25 minutes.
+    let err = parse(&full(), Duration::from_secs(25 * 60 + 1)).unwrap_err();
     assert!(
         err.message.contains("MESSAGING_TURN_WATCHDOG_SECS"),
         "the refusal names the knob: {}",
         err.message
     );
-    assert!(parse(&full(), Duration::from_mins(29)).is_ok());
+    assert!(parse(&full(), Duration::from_mins(25)).is_ok());
 }
