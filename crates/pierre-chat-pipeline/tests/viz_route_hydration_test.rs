@@ -215,7 +215,11 @@ fn a_hydrated_block_carries_the_read_geometry() {
     assert_eq!(climbs.len(), 1);
     assert_eq!(climbs[0]["start_index"], json!(0));
     assert_eq!(climbs[0]["end_index"], json!(DRAWN_POINTS - 1));
-    assert_eq!(climbs[0]["category"], json!("hc"));
+    assert_eq!(
+        climbs[0]["category"],
+        json!("HC"),
+        "the grade is carried as the athlete reads it, since the client captions it directly"
+    );
 
     // The reference the coach wrote survives; the question it asked does not,
     // because hydration answered it.

@@ -13,8 +13,58 @@ import type {
   TextRole,
 } from '@pierre/scene-types';
 
+import { useTranslation } from '@pierre/i18n';
+
 import { useThemeColors } from '../../constants/theme';
-import RouteView from './RouteView';
+// Deferred on purpose. `@maplibre/maplibre-react-native` is a NATIVE module, so
+// importing the card at module scope makes every screen that reaches this file
+// pay for it at launch — and a runtime without the native side linked in (Expo
+// Go, and the Android E2E lane that runs on it) fails to start the app at all
+// rather than failing to draw a map. Loading it when a route block is actually
+// rendered keeps the app bootable everywhere and costs a frame only where a map
+// is genuinely being drawn.
+const RouteView = React.lazy(() => import('./RouteView'));
+
+/**
+ * Keeps a missing map from taking the thread down with it.
+ *
+ * The route card needs a native module. Where it is not linked in, loading it
+ * throws — and an unclaimed throw inside a message list unmounts the whole
+ * conversation, so an athlete loses every reply to one undrawable map. This
+ * catches that and prints the same sentence the card prints when an activity
+ * recorded no track: the reply is still readable, and the prose around the map
+ * carries the coaching either way.
+ */
+class RouteBoundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  public constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  public static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  public render(): React.ReactNode {
+    if (this.state.failed) {
+      return <RouteUnavailable />;
+    }
+    return this.props.children;
+  }
+}
+
+/** The prose fallback a surface shows when it cannot draw the map. */
+function RouteUnavailable() {
+  const { t } = useTranslation();
+  return (
+    <View className="my-2 rounded-lg border border-outline-variant p-3">
+      <Text className="text-xs text-on-surface-variant">{t('chat.routeNoTrack')}</Text>
+    </View>
+  );
+}
 
 /** Matches how the other chat components name the palette. */
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -251,7 +301,13 @@ export default function SceneView({ block }: { block: RenderBlock }) {
     return <SceneTable view={block} colors={colors} />;
   }
   if (block.kind === 'route') {
-    return <RouteView route={block} />;
+    return (
+      <RouteBoundary>
+        <React.Suspense fallback={null}>
+          <RouteView route={block} />
+        </React.Suspense>
+      </RouteBoundary>
+    );
   }
   return null;
 }
