@@ -94,51 +94,6 @@ pub const SAVE_RECIPE: &str = "save_recipe";
 /// Tool identifier for validating recipe nutrition
 pub const VALIDATE_RECIPE: &str = "validate_recipe";
 
-/// Coach management tools (custom AI personas)
-pub const LIST_COACHES: &str = "list_coaches";
-/// Tool identifier for creating a new coach
-pub const CREATE_COACH: &str = "create_coach";
-/// Tool identifier for retrieving a specific coach
-pub const GET_COACH: &str = "get_coach";
-/// Tool identifier for updating a coach
-pub const UPDATE_COACH: &str = "update_coach";
-/// Tool identifier for deleting a coach
-pub const DELETE_COACH: &str = "delete_coach";
-/// Tool identifier for toggling coach favorite status
-pub const TOGGLE_COACH_FAVORITE: &str = "toggle_coach_favorite";
-/// Tool identifier for searching coaches
-pub const SEARCH_COACHES: &str = "search_coaches";
-/// Tool identifier for activating a coach for the session
-pub const ACTIVATE_COACH: &str = "activate_coach";
-/// Tool identifier for deactivating the current coach
-pub const DEACTIVATE_COACH: &str = "deactivate_coach";
-/// Tool identifier for getting the currently active coach
-pub const GET_ACTIVE_COACH: &str = "get_active_coach";
-/// Tool identifier for hiding a coach from user's view
-pub const HIDE_COACH: &str = "hide_coach";
-/// Tool identifier for showing (unhiding) a coach
-pub const SHOW_COACH: &str = "show_coach";
-/// Tool identifier for listing hidden coaches
-pub const LIST_HIDDEN_COACHES: &str = "list_hidden_coaches";
-
-/// Admin coach management tools (system agents)
-/// Tool identifier for listing system agents (admin only)
-pub const ADMIN_LIST_SYSTEM_COACHES: &str = "admin_list_system_coaches";
-/// Tool identifier for creating a system agent (admin only)
-pub const ADMIN_CREATE_SYSTEM_COACH: &str = "admin_create_system_coach";
-/// Tool identifier for getting a system agent (admin only)
-pub const ADMIN_GET_SYSTEM_COACH: &str = "admin_get_system_coach";
-/// Tool identifier for updating a system agent (admin only)
-pub const ADMIN_UPDATE_SYSTEM_COACH: &str = "admin_update_system_coach";
-/// Tool identifier for deleting a system agent (admin only)
-pub const ADMIN_DELETE_SYSTEM_COACH: &str = "admin_delete_system_coach";
-/// Tool identifier for assigning a coach to users (admin only)
-pub const ADMIN_ASSIGN_COACH: &str = "admin_assign_coach";
-/// Tool identifier for unassigning a coach from users (admin only)
-pub const ADMIN_UNASSIGN_COACH: &str = "admin_unassign_coach";
-/// Tool identifier for listing coach assignments (admin only)
-pub const ADMIN_LIST_COACH_ASSIGNMENTS: &str = "admin_list_coach_assignments";
-
 /// Mobility tools (stretching exercises, yoga poses)
 /// Tool identifier for listing stretching exercises
 pub const LIST_STRETCHING_EXERCISES: &str = "list_stretching_exercises";

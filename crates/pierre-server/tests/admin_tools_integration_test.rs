@@ -7,14 +7,14 @@
 //! Admin Tool Handler Integration Tests
 //!
 //! Tests the 8 admin MCP tools via the `UniversalToolExecutor`:
-//! - `admin_list_system_coaches`
-//! - `admin_create_system_coach`
-//! - `admin_get_system_coach`
-//! - `admin_update_system_coach`
-//! - `admin_delete_system_coach`
-//! - `admin_assign_coach`
-//! - `admin_unassign_coach`
-//! - `admin_list_coach_assignments`
+//! - `admin_list_system_agents`
+//! - `admin_create_system_agent`
+//! - `admin_get_system_agent`
+//! - `admin_update_system_agent`
+//! - `admin_delete_system_agent`
+//! - `admin_assign_agent`
+//! - `admin_unassign_agent`
+//! - `admin_list_agent_assignments`
 //!
 //! Each tool is exercised with at least: happy path against an admin caller,
 //! a failure path (not-found or missing required arg), and the non-admin
@@ -114,7 +114,7 @@ fn make_request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Un
     }
 }
 
-/// Create a system agent via `admin_create_system_coach` and return its id.
+/// Create a system agent via `admin_create_system_agent` and return its id.
 async fn create_system_coach(
     executor: &UniversalToolExecutor,
     admin_id: Uuid,
@@ -123,7 +123,7 @@ async fn create_system_coach(
 ) -> Result<String> {
     let resp = executor
         .execute_tool(make_request(
-            "admin_create_system_coach",
+            "admin_create_system_agent",
             json!({
                 "title": title,
                 "system_prompt": "You are a helpful test coach.",
@@ -187,14 +187,14 @@ async fn test_admin_tools_registered() -> Result<()> {
         .map(|n| (*n).to_owned())
         .collect();
     for expected in [
-        "admin_list_system_coaches",
-        "admin_create_system_coach",
-        "admin_get_system_coach",
-        "admin_update_system_coach",
-        "admin_delete_system_coach",
-        "admin_assign_coach",
-        "admin_unassign_coach",
-        "admin_list_coach_assignments",
+        "admin_list_system_agents",
+        "admin_create_system_agent",
+        "admin_get_system_agent",
+        "admin_update_system_agent",
+        "admin_delete_system_agent",
+        "admin_assign_agent",
+        "admin_unassign_agent",
+        "admin_list_agent_assignments",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -205,7 +205,7 @@ async fn test_admin_tools_registered() -> Result<()> {
 }
 
 // ============================================================================
-// admin_list_system_coaches
+// admin_list_system_agents
 // ============================================================================
 
 #[tokio::test]
@@ -215,7 +215,7 @@ async fn test_admin_list_system_coaches_empty() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_list_system_coaches",
+            "admin_list_system_agents",
             json!({}),
             admin_id,
             &tenant,
@@ -239,7 +239,7 @@ async fn test_admin_list_system_coaches_after_create() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_list_system_coaches",
+            "admin_list_system_agents",
             json!({}),
             admin_id,
             &tenant,
@@ -267,19 +267,19 @@ async fn test_admin_list_system_coaches_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_list_system_coaches",
+            "admin_list_system_agents",
             json!({}),
             user_id,
             &tenant,
         ))
         .await
         .expect_err("non-admin caller must be rejected");
-    assert_permission_denied(err, "admin_list_system_coaches");
+    assert_permission_denied(err, "admin_list_system_agents");
     Ok(())
 }
 
 // ============================================================================
-// admin_create_system_coach
+// admin_create_system_agent
 // ============================================================================
 
 #[tokio::test]
@@ -289,7 +289,7 @@ async fn test_admin_create_system_coach_happy_path() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_create_system_coach",
+            "admin_create_system_agent",
             json!({
                 "title": "Marathon Agent",
                 "system_prompt": "Periodization expert for marathon runners.",
@@ -317,7 +317,7 @@ async fn test_admin_create_system_coach_missing_title() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_create_system_coach",
+            "admin_create_system_agent",
             json!({ "system_prompt": "no title here" }),
             admin_id,
             &tenant,
@@ -338,19 +338,19 @@ async fn test_admin_create_system_coach_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_create_system_coach",
+            "admin_create_system_agent",
             json!({ "title": "x", "system_prompt": "y" }),
             user_id,
             &tenant,
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(err, "admin_create_system_coach");
+    assert_permission_denied(err, "admin_create_system_agent");
     Ok(())
 }
 
 // ============================================================================
-// admin_get_system_coach
+// admin_get_system_agent
 // ============================================================================
 
 #[tokio::test]
@@ -361,8 +361,8 @@ async fn test_admin_get_system_coach_happy_path() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_get_system_coach",
-            json!({ "coach_id": coach_id }),
+            "admin_get_system_agent",
+            json!({ "agent_id": coach_id }),
             admin_id,
             &tenant,
         ))
@@ -382,8 +382,8 @@ async fn test_admin_get_system_coach_not_found() -> Result<()> {
     let bogus = Uuid::new_v4().to_string();
     let resp = executor
         .execute_tool(make_request(
-            "admin_get_system_coach",
-            json!({ "coach_id": bogus }),
+            "admin_get_system_agent",
+            json!({ "agent_id": bogus }),
             admin_id,
             &tenant,
         ))
@@ -407,19 +407,19 @@ async fn test_admin_get_system_coach_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_get_system_coach",
-            json!({ "coach_id": Uuid::new_v4().to_string() }),
+            "admin_get_system_agent",
+            json!({ "agent_id": Uuid::new_v4().to_string() }),
             user_id,
             &tenant,
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(err, "admin_get_system_coach");
+    assert_permission_denied(err, "admin_get_system_agent");
     Ok(())
 }
 
 // ============================================================================
-// admin_update_system_coach
+// admin_update_system_agent
 // ============================================================================
 
 #[tokio::test]
@@ -430,9 +430,9 @@ async fn test_admin_update_system_coach_happy_path() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_update_system_coach",
+            "admin_update_system_agent",
             json!({
-                "coach_id": coach_id,
+                "agent_id": coach_id,
                 "title": "Renamed Title",
                 "description": "Updated description",
             }),
@@ -445,8 +445,8 @@ async fn test_admin_update_system_coach_happy_path() -> Result<()> {
     // Verify via get
     let get = executor
         .execute_tool(make_request(
-            "admin_get_system_coach",
-            json!({ "coach_id": coach_id }),
+            "admin_get_system_agent",
+            json!({ "agent_id": coach_id }),
             admin_id,
             &tenant,
         ))
@@ -466,8 +466,8 @@ async fn test_admin_update_system_coach_not_found() -> Result<()> {
     let bogus = Uuid::new_v4().to_string();
     let resp = executor
         .execute_tool(make_request(
-            "admin_update_system_coach",
-            json!({ "coach_id": bogus, "title": "x" }),
+            "admin_update_system_agent",
+            json!({ "agent_id": bogus, "title": "x" }),
             admin_id,
             &tenant,
         ))
@@ -488,19 +488,19 @@ async fn test_admin_update_system_coach_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_update_system_coach",
-            json!({ "coach_id": Uuid::new_v4().to_string(), "title": "x" }),
+            "admin_update_system_agent",
+            json!({ "agent_id": Uuid::new_v4().to_string(), "title": "x" }),
             user_id,
             &tenant,
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(err, "admin_update_system_coach");
+    assert_permission_denied(err, "admin_update_system_agent");
     Ok(())
 }
 
 // ============================================================================
-// admin_delete_system_coach
+// admin_delete_system_agent
 // ============================================================================
 
 #[tokio::test]
@@ -511,8 +511,8 @@ async fn test_admin_delete_system_coach_happy_path() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_delete_system_coach",
-            json!({ "coach_id": coach_id }),
+            "admin_delete_system_agent",
+            json!({ "agent_id": coach_id }),
             admin_id,
             &tenant,
         ))
@@ -522,7 +522,7 @@ async fn test_admin_delete_system_coach_happy_path() -> Result<()> {
     // Subsequent list should be empty
     let list = executor
         .execute_tool(make_request(
-            "admin_list_system_coaches",
+            "admin_list_system_agents",
             json!({}),
             admin_id,
             &tenant,
@@ -540,8 +540,8 @@ async fn test_admin_delete_system_coach_not_found() -> Result<()> {
     let bogus = Uuid::new_v4().to_string();
     let resp = executor
         .execute_tool(make_request(
-            "admin_delete_system_coach",
-            json!({ "coach_id": bogus }),
+            "admin_delete_system_agent",
+            json!({ "agent_id": bogus }),
             admin_id,
             &tenant,
         ))
@@ -562,19 +562,19 @@ async fn test_admin_delete_system_coach_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_delete_system_coach",
-            json!({ "coach_id": Uuid::new_v4().to_string() }),
+            "admin_delete_system_agent",
+            json!({ "agent_id": Uuid::new_v4().to_string() }),
             user_id,
             &tenant,
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(err, "admin_delete_system_coach");
+    assert_permission_denied(err, "admin_delete_system_agent");
     Ok(())
 }
 
 // ============================================================================
-// admin_assign_coach
+// admin_assign_agent
 // ============================================================================
 
 #[tokio::test]
@@ -585,9 +585,9 @@ async fn test_admin_assign_coach_happy_path() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_assign_coach",
+            "admin_assign_agent",
             json!({
-                "coach_id": coach_id,
+                "agent_id": coach_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -606,8 +606,8 @@ async fn test_admin_assign_coach_missing_user_id() -> Result<()> {
 
     let result = executor
         .execute_tool(make_request(
-            "admin_assign_coach",
-            json!({ "coach_id": coach_id }),
+            "admin_assign_agent",
+            json!({ "agent_id": coach_id }),
             admin_id,
             &tenant,
         ))
@@ -623,9 +623,9 @@ async fn test_admin_assign_coach_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_assign_coach",
+            "admin_assign_agent",
             json!({
-                "coach_id": Uuid::new_v4().to_string(),
+                "agent_id": Uuid::new_v4().to_string(),
                 "user_id": user_id.to_string(),
             }),
             user_id,
@@ -633,12 +633,12 @@ async fn test_admin_assign_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(err, "admin_assign_coach");
+    assert_permission_denied(err, "admin_assign_agent");
     Ok(())
 }
 
 // ============================================================================
-// admin_unassign_coach
+// admin_unassign_agent
 // ============================================================================
 
 #[tokio::test]
@@ -650,9 +650,9 @@ async fn test_admin_unassign_coach_happy_path() -> Result<()> {
     // Assign first
     let assign = executor
         .execute_tool(make_request(
-            "admin_assign_coach",
+            "admin_assign_agent",
             json!({
-                "coach_id": coach_id,
+                "agent_id": coach_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -664,9 +664,9 @@ async fn test_admin_unassign_coach_happy_path() -> Result<()> {
     // Then unassign
     let unassign = executor
         .execute_tool(make_request(
-            "admin_unassign_coach",
+            "admin_unassign_agent",
             json!({
-                "coach_id": coach_id,
+                "agent_id": coach_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -689,8 +689,8 @@ async fn test_admin_unassign_coach_missing_user_id() -> Result<()> {
 
     let result = executor
         .execute_tool(make_request(
-            "admin_unassign_coach",
-            json!({ "coach_id": coach_id }),
+            "admin_unassign_agent",
+            json!({ "agent_id": coach_id }),
             admin_id,
             &tenant,
         ))
@@ -706,9 +706,9 @@ async fn test_admin_unassign_coach_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_unassign_coach",
+            "admin_unassign_agent",
             json!({
-                "coach_id": Uuid::new_v4().to_string(),
+                "agent_id": Uuid::new_v4().to_string(),
                 "user_id": user_id.to_string(),
             }),
             user_id,
@@ -716,12 +716,12 @@ async fn test_admin_unassign_coach_rejects_non_admin() -> Result<()> {
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(err, "admin_unassign_coach");
+    assert_permission_denied(err, "admin_unassign_agent");
     Ok(())
 }
 
 // ============================================================================
-// admin_list_coach_assignments
+// admin_list_agent_assignments
 // ============================================================================
 
 #[tokio::test]
@@ -732,8 +732,8 @@ async fn test_admin_list_coach_assignments_empty() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_list_coach_assignments",
-            json!({ "coach_id": coach_id }),
+            "admin_list_agent_assignments",
+            json!({ "agent_id": coach_id }),
             admin_id,
             &tenant,
         ))
@@ -760,9 +760,9 @@ async fn test_admin_list_coach_assignments_with_assignment() -> Result<()> {
 
     executor
         .execute_tool(make_request(
-            "admin_assign_coach",
+            "admin_assign_agent",
             json!({
-                "coach_id": coach_id,
+                "agent_id": coach_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -772,8 +772,8 @@ async fn test_admin_list_coach_assignments_with_assignment() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "admin_list_coach_assignments",
-            json!({ "coach_id": coach_id }),
+            "admin_list_agent_assignments",
+            json!({ "agent_id": coach_id }),
             admin_id,
             &tenant,
         ))
@@ -799,13 +799,13 @@ async fn test_admin_list_coach_assignments_rejects_non_admin() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "admin_list_coach_assignments",
-            json!({ "coach_id": Uuid::new_v4().to_string() }),
+            "admin_list_agent_assignments",
+            json!({ "agent_id": Uuid::new_v4().to_string() }),
             user_id,
             &tenant,
         ))
         .await
         .expect_err("non-admin must be rejected");
-    assert_permission_denied(err, "admin_list_coach_assignments");
+    assert_permission_denied(err, "admin_list_agent_assignments");
     Ok(())
 }

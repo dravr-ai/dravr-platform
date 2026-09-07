@@ -7,16 +7,16 @@
 //! Coach Tool Handler Integration Tests
 //!
 //! Tests the 10 coach MCP tools via the `UniversalToolExecutor`:
-//! - `list_coaches`: List user's coaches with filtering
-//! - `create_coach`: Create a new custom coach
-//! - `get_coach`: Get a specific coach by ID
-//! - `update_coach`: Update coach details
-//! - `delete_coach`: Delete a coach
-//! - `toggle_coach_favorite`: Toggle favorite status
-//! - `search_coaches`: Search coaches by query
-//! - `activate_coach`: Set a coach as active
-//! - `deactivate_coach`: Deactivate active coach
-//! - `get_active_coach`: Get currently active coach
+//! - `list_agents`: List user's coaches with filtering
+//! - `create_agent`: Create a new custom coach
+//! - `get_agent`: Get a specific coach by ID
+//! - `update_agent`: Update coach details
+//! - `delete_agent`: Delete a coach
+//! - `toggle_agent_favorite`: Toggle favorite status
+//! - `search_agents`: Search coaches by query
+//! - `activate_agent`: Set a coach as active
+//! - `deactivate_agent`: Deactivate active coach
+//! - `get_active_agent`: Get currently active coach
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -98,16 +98,16 @@ async fn test_coach_tools_registered() -> Result<()> {
         .collect();
 
     let expected_tools = vec![
-        "list_coaches",
-        "create_coach",
-        "get_coach",
-        "update_coach",
-        "delete_coach",
-        "toggle_coach_favorite",
-        "search_coaches",
-        "activate_coach",
-        "deactivate_coach",
-        "get_active_coach",
+        "list_agents",
+        "create_agent",
+        "get_agent",
+        "update_agent",
+        "delete_agent",
+        "toggle_agent_favorite",
+        "search_agents",
+        "activate_agent",
+        "deactivate_agent",
+        "get_active_agent",
     ];
 
     for expected_tool in expected_tools {
@@ -121,7 +121,7 @@ async fn test_coach_tools_registered() -> Result<()> {
 }
 
 // ============================================================================
-// list_coaches Tests
+// list_agents Tests
 // ============================================================================
 
 #[tokio::test]
@@ -129,7 +129,7 @@ async fn test_list_coaches_empty() -> Result<()> {
     let executor = create_coach_test_executor().await?;
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
-    let request = create_test_request("list_coaches", json!({}), user_id, &tenant_id);
+    let request = create_test_request("list_agents", json!({}), user_id, &tenant_id);
 
     let response = executor.execute_tool(request).await?;
 
@@ -150,7 +150,7 @@ async fn test_list_coaches_after_create() -> Result<()> {
 
     // Create a coach first
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Test Marathon Coach",
             "system_prompt": "You are a marathon training specialist.",
@@ -164,7 +164,7 @@ async fn test_list_coaches_after_create() -> Result<()> {
     assert!(create_response.success);
 
     // Now list coaches
-    let list_request = create_test_request("list_coaches", json!({}), user_id, &tenant_id);
+    let list_request = create_test_request("list_agents", json!({}), user_id, &tenant_id);
 
     let response = executor.execute_tool(list_request).await?;
 
@@ -191,7 +191,7 @@ async fn test_list_coaches_with_category_filter() -> Result<()> {
         ("Recovery Coach", "recovery"),
     ] {
         let request = create_test_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": title,
                 "system_prompt": format!("You are a {} specialist.", category),
@@ -205,7 +205,7 @@ async fn test_list_coaches_with_category_filter() -> Result<()> {
 
     // Filter by training category
     let request = create_test_request(
-        "list_coaches",
+        "list_agents",
         json!({
             "category": "training"
         }),
@@ -233,7 +233,7 @@ async fn test_list_coaches_with_pagination() -> Result<()> {
     // Create 5 coaches
     for i in 0..5 {
         let request = create_test_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": format!("Coach {}", i),
                 "system_prompt": "Generic coach prompt."
@@ -246,7 +246,7 @@ async fn test_list_coaches_with_pagination() -> Result<()> {
 
     // Get first 2 coaches
     let request = create_test_request(
-        "list_coaches",
+        "list_agents",
         json!({
             "limit": 2,
             "offset": 0
@@ -274,7 +274,7 @@ async fn test_list_coaches_favorites_only() -> Result<()> {
 
     // Create two coaches
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Favorite Coach",
             "system_prompt": "Prompt"
@@ -289,7 +289,7 @@ async fn test_list_coaches_favorites_only() -> Result<()> {
         .to_owned();
 
     let create_request2 = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Regular Coach",
             "system_prompt": "Prompt"
@@ -301,9 +301,9 @@ async fn test_list_coaches_favorites_only() -> Result<()> {
 
     // Toggle favorite on first coach
     let toggle_request = create_test_request(
-        "toggle_coach_favorite",
+        "toggle_agent_favorite",
         json!({
-            "coach_id": favorite_coach_id
+            "agent_id": favorite_coach_id
         }),
         user_id,
         &tenant_id,
@@ -312,7 +312,7 @@ async fn test_list_coaches_favorites_only() -> Result<()> {
 
     // List favorites only
     let request = create_test_request(
-        "list_coaches",
+        "list_agents",
         json!({
             "favorites_only": true
         }),
@@ -333,7 +333,7 @@ async fn test_list_coaches_favorites_only() -> Result<()> {
 }
 
 // ============================================================================
-// create_coach Tests
+// create_agent Tests
 // ============================================================================
 
 #[tokio::test]
@@ -342,7 +342,7 @@ async fn test_create_coach_success() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Elite Running Coach",
             "description": "Specializes in marathon and ultra training",
@@ -384,7 +384,7 @@ async fn test_create_coach_minimal() -> Result<()> {
 
     // Minimal required fields only
     let request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Simple Coach",
             "system_prompt": "A basic coaching prompt."
@@ -413,7 +413,7 @@ async fn test_create_coach_missing_title() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "system_prompt": "A prompt without a title."
         }),
@@ -434,7 +434,7 @@ async fn test_create_coach_missing_system_prompt() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Coach Without Prompt"
         }),
@@ -450,7 +450,7 @@ async fn test_create_coach_missing_system_prompt() -> Result<()> {
 }
 
 // ============================================================================
-// get_coach Tests
+// get_agent Tests
 // ============================================================================
 
 #[tokio::test]
@@ -460,7 +460,7 @@ async fn test_get_coach_success() -> Result<()> {
 
     // Create a coach first
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Detailed Coach",
             "description": "A coach with full details",
@@ -481,9 +481,9 @@ async fn test_get_coach_success() -> Result<()> {
 
     // Get the coach
     let get_request = create_test_request(
-        "get_coach",
+        "get_agent",
         json!({
-            "coach_id": coach_id
+            "agent_id": coach_id
         }),
         user_id,
         &tenant_id,
@@ -494,7 +494,7 @@ async fn test_get_coach_success() -> Result<()> {
     assert!(response.success);
     let result = response.result.unwrap();
 
-    // Verify all fields including system_prompt (only in get_coach response)
+    // Verify all fields including system_prompt (only in get_agent response)
     assert_eq!(result["id"].as_str().unwrap(), coach_id);
     assert_eq!(result["title"].as_str().unwrap(), "Detailed Coach");
     assert_eq!(
@@ -518,9 +518,9 @@ async fn test_get_coach_not_found() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "get_coach",
+        "get_agent",
         json!({
-            "coach_id": Uuid::new_v4().to_string()
+            "agent_id": Uuid::new_v4().to_string()
         }),
         user_id,
         &tenant_id,
@@ -539,7 +539,7 @@ async fn test_get_coach_missing_id() -> Result<()> {
     let executor = create_coach_test_executor().await?;
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
-    let request = create_test_request("get_coach", json!({}), user_id, &tenant_id);
+    let request = create_test_request("get_agent", json!({}), user_id, &tenant_id);
 
     let result = executor.execute_tool(request).await;
 
@@ -549,7 +549,7 @@ async fn test_get_coach_missing_id() -> Result<()> {
 }
 
 // ============================================================================
-// update_coach Tests
+// update_agent Tests
 // ============================================================================
 
 #[tokio::test]
@@ -559,7 +559,7 @@ async fn test_update_coach_success() -> Result<()> {
 
     // Create a coach first
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Original Title",
             "system_prompt": "Original prompt."
@@ -576,9 +576,9 @@ async fn test_update_coach_success() -> Result<()> {
 
     // Update the coach
     let update_request = create_test_request(
-        "update_coach",
+        "update_agent",
         json!({
-            "coach_id": coach_id,
+            "agent_id": coach_id,
             "title": "Updated Title",
             "description": "Added description",
             "system_prompt": "Updated coaching prompt with more details.",
@@ -612,7 +612,7 @@ async fn test_update_coach_partial() -> Result<()> {
 
     // Create a coach first
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Partial Update Test",
             "system_prompt": "Original prompt.",
@@ -630,9 +630,9 @@ async fn test_update_coach_partial() -> Result<()> {
 
     // Partial update - only title
     let update_request = create_test_request(
-        "update_coach",
+        "update_agent",
         json!({
-            "coach_id": coach_id,
+            "agent_id": coach_id,
             "title": "Only Title Updated"
         }),
         user_id,
@@ -657,9 +657,9 @@ async fn test_update_coach_not_found() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "update_coach",
+        "update_agent",
         json!({
-            "coach_id": Uuid::new_v4().to_string(),
+            "agent_id": Uuid::new_v4().to_string(),
             "title": "New Title"
         }),
         user_id,
@@ -675,7 +675,7 @@ async fn test_update_coach_not_found() -> Result<()> {
 }
 
 // ============================================================================
-// delete_coach Tests
+// delete_agent Tests
 // ============================================================================
 
 #[tokio::test]
@@ -685,7 +685,7 @@ async fn test_delete_coach_success() -> Result<()> {
 
     // Create a coach first
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Coach to Delete",
             "system_prompt": "This coach will be deleted."
@@ -702,9 +702,9 @@ async fn test_delete_coach_success() -> Result<()> {
 
     // Delete the coach
     let delete_request = create_test_request(
-        "delete_coach",
+        "delete_agent",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user_id,
         &tenant_id,
@@ -719,9 +719,9 @@ async fn test_delete_coach_success() -> Result<()> {
 
     // Verify it's gone
     let get_request = create_test_request(
-        "get_coach",
+        "get_agent",
         json!({
-            "coach_id": coach_id
+            "agent_id": coach_id
         }),
         user_id,
         &tenant_id,
@@ -739,9 +739,9 @@ async fn test_delete_coach_not_found() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "delete_coach",
+        "delete_agent",
         json!({
-            "coach_id": Uuid::new_v4().to_string()
+            "agent_id": Uuid::new_v4().to_string()
         }),
         user_id,
         &tenant_id,
@@ -760,7 +760,7 @@ async fn test_delete_coach_missing_id() -> Result<()> {
     let executor = create_coach_test_executor().await?;
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
-    let request = create_test_request("delete_coach", json!({}), user_id, &tenant_id);
+    let request = create_test_request("delete_agent", json!({}), user_id, &tenant_id);
 
     let result = executor.execute_tool(request).await;
 
@@ -770,7 +770,7 @@ async fn test_delete_coach_missing_id() -> Result<()> {
 }
 
 // ============================================================================
-// toggle_coach_favorite Tests
+// toggle_agent_favorite Tests
 // ============================================================================
 
 #[tokio::test]
@@ -780,7 +780,7 @@ async fn test_toggle_coach_favorite_on() -> Result<()> {
 
     // Create a coach
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Favorite Toggle Test",
             "system_prompt": "Test prompt."
@@ -797,9 +797,9 @@ async fn test_toggle_coach_favorite_on() -> Result<()> {
 
     // Toggle favorite on
     let toggle_request = create_test_request(
-        "toggle_coach_favorite",
+        "toggle_agent_favorite",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user_id,
         &tenant_id,
@@ -822,7 +822,7 @@ async fn test_toggle_coach_favorite_off() -> Result<()> {
 
     // Create a coach and toggle favorite on
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Double Toggle Test",
             "system_prompt": "Test prompt."
@@ -839,9 +839,9 @@ async fn test_toggle_coach_favorite_off() -> Result<()> {
 
     // First toggle - on
     let toggle_request1 = create_test_request(
-        "toggle_coach_favorite",
+        "toggle_agent_favorite",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user_id,
         &tenant_id,
@@ -851,9 +851,9 @@ async fn test_toggle_coach_favorite_off() -> Result<()> {
 
     // Second toggle - off
     let toggle_request2 = create_test_request(
-        "toggle_coach_favorite",
+        "toggle_agent_favorite",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user_id,
         &tenant_id,
@@ -870,9 +870,9 @@ async fn test_toggle_coach_favorite_not_found() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "toggle_coach_favorite",
+        "toggle_agent_favorite",
         json!({
-            "coach_id": Uuid::new_v4().to_string()
+            "agent_id": Uuid::new_v4().to_string()
         }),
         user_id,
         &tenant_id,
@@ -887,7 +887,7 @@ async fn test_toggle_coach_favorite_not_found() -> Result<()> {
 }
 
 // ============================================================================
-// search_coaches Tests
+// search_agents Tests
 // ============================================================================
 
 #[tokio::test]
@@ -898,7 +898,7 @@ async fn test_search_coaches_by_title() -> Result<()> {
     // Create coaches with different titles
     for title in ["Marathon Runner", "Sprint Coach", "Recovery Expert"] {
         let request = create_test_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": title,
                 "system_prompt": format!("Specialist in {}.", title.to_lowercase())
@@ -911,7 +911,7 @@ async fn test_search_coaches_by_title() -> Result<()> {
 
     // Search for "marathon"
     let request = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "marathon"
         }),
@@ -940,7 +940,7 @@ async fn test_search_coaches_by_tag() -> Result<()> {
 
     // Create coaches with tags
     let request1 = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "HIIT Coach",
             "system_prompt": "High intensity training.",
@@ -952,7 +952,7 @@ async fn test_search_coaches_by_tag() -> Result<()> {
     executor.execute_tool(request1).await?;
 
     let request2 = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Yoga Coach",
             "system_prompt": "Flexibility and mindfulness.",
@@ -965,7 +965,7 @@ async fn test_search_coaches_by_tag() -> Result<()> {
 
     // Search for "hiit" tag
     let request = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "hiit"
         }),
@@ -989,7 +989,7 @@ async fn test_search_coaches_no_results() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "nonexistent_coach_xyz"
         }),
@@ -1013,7 +1013,7 @@ async fn test_search_coaches_missing_query() -> Result<()> {
     let executor = create_coach_test_executor().await?;
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
-    let request = create_test_request("search_coaches", json!({}), user_id, &tenant_id);
+    let request = create_test_request("search_agents", json!({}), user_id, &tenant_id);
 
     let result = executor.execute_tool(request).await;
 
@@ -1030,7 +1030,7 @@ async fn test_search_coaches_with_limit() -> Result<()> {
     // Create 10 coaches with "test" in the title
     for i in 0..10 {
         let request = create_test_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": format!("Test Coach {}", i),
                 "system_prompt": "A test coach."
@@ -1043,7 +1043,7 @@ async fn test_search_coaches_with_limit() -> Result<()> {
 
     // Search with limit
     let request = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "test",
             "limit": 3
@@ -1070,7 +1070,7 @@ async fn test_search_coaches_pagination_has_more_true() -> Result<()> {
     // Create 5 coaches
     for i in 0..5 {
         let request = create_test_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": format!("Pagination Coach {}", i),
                 "system_prompt": "Testing pagination."
@@ -1083,7 +1083,7 @@ async fn test_search_coaches_pagination_has_more_true() -> Result<()> {
 
     // Search with limit=3, expecting has_more=true (5 coaches, returning 3)
     let request = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "pagination",
             "limit": 3
@@ -1116,7 +1116,7 @@ async fn test_search_coaches_pagination_has_more_false() -> Result<()> {
     // Create 2 coaches
     for i in 0..2 {
         let request = create_test_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": format!("Limited Coach {}", i),
                 "system_prompt": "Testing has_more false."
@@ -1129,7 +1129,7 @@ async fn test_search_coaches_pagination_has_more_false() -> Result<()> {
 
     // Search with limit=10, expecting has_more=false (only 2 coaches)
     let request = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "limited",
             "limit": 10
@@ -1160,7 +1160,7 @@ async fn test_search_coaches_pagination_with_offset() -> Result<()> {
     // Create 5 coaches with sequential titles for deterministic ordering
     for i in 0..5 {
         let request = create_test_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": format!("Offset Coach {}", i),
                 "system_prompt": "Testing offset pagination."
@@ -1173,7 +1173,7 @@ async fn test_search_coaches_pagination_with_offset() -> Result<()> {
 
     // First page: offset=0, limit=2
     let request1 = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "offset",
             "limit": 2,
@@ -1193,7 +1193,7 @@ async fn test_search_coaches_pagination_with_offset() -> Result<()> {
 
     // Second page: offset=2, limit=2
     let request2 = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "offset",
             "limit": 2,
@@ -1213,7 +1213,7 @@ async fn test_search_coaches_pagination_with_offset() -> Result<()> {
 
     // Third page: offset=4, limit=2 (only 1 remaining)
     let request3 = create_test_request(
-        "search_coaches",
+        "search_agents",
         json!({
             "query": "offset",
             "limit": 2,
@@ -1238,7 +1238,7 @@ async fn test_search_coaches_pagination_with_offset() -> Result<()> {
 }
 
 // ============================================================================
-// activate_coach / deactivate_coach / get_active_coach Tests
+// activate_agent / deactivate_agent / get_active_agent Tests
 // ============================================================================
 
 #[tokio::test]
@@ -1248,7 +1248,7 @@ async fn test_activate_coach_success() -> Result<()> {
 
     // Create a coach
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Coach to Activate",
             "system_prompt": "This coach will be activated."
@@ -1265,9 +1265,9 @@ async fn test_activate_coach_success() -> Result<()> {
 
     // Activate the coach
     let activate_request = create_test_request(
-        "activate_coach",
+        "activate_agent",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user_id,
         &tenant_id,
@@ -1290,9 +1290,9 @@ async fn test_activate_coach_not_found() -> Result<()> {
     let (user_id, tenant_id) = create_test_user_for_coaches(&executor).await?;
 
     let request = create_test_request(
-        "activate_coach",
+        "activate_agent",
         json!({
-            "coach_id": Uuid::new_v4().to_string()
+            "agent_id": Uuid::new_v4().to_string()
         }),
         user_id,
         &tenant_id,
@@ -1313,7 +1313,7 @@ async fn test_deactivate_coach_success() -> Result<()> {
 
     // Create and activate a coach
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Coach to Deactivate",
             "system_prompt": "This coach will be deactivated."
@@ -1330,9 +1330,9 @@ async fn test_deactivate_coach_success() -> Result<()> {
 
     // Activate first
     let activate_request = create_test_request(
-        "activate_coach",
+        "activate_agent",
         json!({
-            "coach_id": coach_id
+            "agent_id": coach_id
         }),
         user_id,
         &tenant_id,
@@ -1341,7 +1341,7 @@ async fn test_deactivate_coach_success() -> Result<()> {
 
     // Now deactivate
     let deactivate_request =
-        create_test_request("deactivate_coach", json!({}), user_id, &tenant_id);
+        create_test_request("deactivate_agent", json!({}), user_id, &tenant_id);
 
     let response = executor.execute_tool(deactivate_request).await?;
 
@@ -1359,7 +1359,7 @@ async fn test_deactivate_coach_when_none_active() -> Result<()> {
 
     // Deactivate when nothing is active
     let deactivate_request =
-        create_test_request("deactivate_coach", json!({}), user_id, &tenant_id);
+        create_test_request("deactivate_agent", json!({}), user_id, &tenant_id);
 
     let response = executor.execute_tool(deactivate_request).await?;
 
@@ -1377,10 +1377,10 @@ async fn test_get_active_coach_when_active() -> Result<()> {
 
     // Create and activate a coach
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Active Coach Test",
-            "description": "Testing get_active_coach",
+            "description": "Testing get_active_agent",
             "system_prompt": "This is the active coach prompt."
         }),
         user_id,
@@ -1394,9 +1394,9 @@ async fn test_get_active_coach_when_active() -> Result<()> {
         .to_owned();
 
     let activate_request = create_test_request(
-        "activate_coach",
+        "activate_agent",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user_id,
         &tenant_id,
@@ -1405,7 +1405,7 @@ async fn test_get_active_coach_when_active() -> Result<()> {
 
     // Get active coach
     let get_active_request =
-        create_test_request("get_active_coach", json!({}), user_id, &tenant_id);
+        create_test_request("get_active_agent", json!({}), user_id, &tenant_id);
 
     let response = executor.execute_tool(get_active_request).await?;
 
@@ -1431,7 +1431,7 @@ async fn test_get_active_coach_when_none_active() -> Result<()> {
 
     // Get active coach when none is active
     let get_active_request =
-        create_test_request("get_active_coach", json!({}), user_id, &tenant_id);
+        create_test_request("get_active_agent", json!({}), user_id, &tenant_id);
 
     let response = executor.execute_tool(get_active_request).await?;
 
@@ -1450,7 +1450,7 @@ async fn test_activate_replaces_previous_active() -> Result<()> {
 
     // Create two coaches
     let create_request1 = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "First Coach",
             "system_prompt": "First coach prompt."
@@ -1465,7 +1465,7 @@ async fn test_activate_replaces_previous_active() -> Result<()> {
         .to_owned();
 
     let create_request2 = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Second Coach",
             "system_prompt": "Second coach prompt."
@@ -1481,9 +1481,9 @@ async fn test_activate_replaces_previous_active() -> Result<()> {
 
     // Activate first coach
     let activate_request1 = create_test_request(
-        "activate_coach",
+        "activate_agent",
         json!({
-            "coach_id": coach1_id
+            "agent_id": coach1_id
         }),
         user_id,
         &tenant_id,
@@ -1492,7 +1492,7 @@ async fn test_activate_replaces_previous_active() -> Result<()> {
 
     // Verify first is active
     let get_active_request1 =
-        create_test_request("get_active_coach", json!({}), user_id, &tenant_id);
+        create_test_request("get_active_agent", json!({}), user_id, &tenant_id);
     let response1 = executor.execute_tool(get_active_request1).await?;
     assert_eq!(
         response1.result.unwrap()["coach"]["title"]
@@ -1503,9 +1503,9 @@ async fn test_activate_replaces_previous_active() -> Result<()> {
 
     // Activate second coach (should replace first)
     let activate_request2 = create_test_request(
-        "activate_coach",
+        "activate_agent",
         json!({
-            "coach_id": coach2_id
+            "agent_id": coach2_id
         }),
         user_id,
         &tenant_id,
@@ -1514,7 +1514,7 @@ async fn test_activate_replaces_previous_active() -> Result<()> {
 
     // Verify second is now active
     let get_active_request2 =
-        create_test_request("get_active_coach", json!({}), user_id, &tenant_id);
+        create_test_request("get_active_agent", json!({}), user_id, &tenant_id);
     let response2 = executor.execute_tool(get_active_request2).await?;
     assert_eq!(
         response2.result.unwrap()["coach"]["title"]
@@ -1540,7 +1540,7 @@ async fn test_coach_user_isolation() -> Result<()> {
 
     // User 1 creates a coach
     let create_request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "User 1 Secret Coach",
             "system_prompt": "User 1's private coaching prompt."
@@ -1557,7 +1557,7 @@ async fn test_coach_user_isolation() -> Result<()> {
         .to_owned();
 
     // User 2 should not see User 1's coach in list
-    let list_request = create_test_request("list_coaches", json!({}), user2_id, &tenant2_id);
+    let list_request = create_test_request("list_agents", json!({}), user2_id, &tenant2_id);
 
     let response = executor.execute_tool(list_request).await?;
     let result = response.result.unwrap();
@@ -1570,9 +1570,9 @@ async fn test_coach_user_isolation() -> Result<()> {
 
     // User 2 should not be able to get User 1's coach
     let get_request = create_test_request(
-        "get_coach",
+        "get_agent",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user2_id,
         &tenant2_id,
@@ -1586,9 +1586,9 @@ async fn test_coach_user_isolation() -> Result<()> {
 
     // User 2 should not be able to delete User 1's coach
     let delete_request = create_test_request(
-        "delete_coach",
+        "delete_agent",
         json!({
-            "coach_id": coach_id.clone()
+            "agent_id": coach_id.clone()
         }),
         user2_id,
         &tenant2_id,
@@ -1602,9 +1602,9 @@ async fn test_coach_user_isolation() -> Result<()> {
 
     // User 2 should not be able to activate User 1's coach
     let activate_request = create_test_request(
-        "activate_coach",
+        "activate_agent",
         json!({
-            "coach_id": coach_id
+            "agent_id": coach_id
         }),
         user2_id,
         &tenant2_id,
@@ -1636,7 +1636,7 @@ async fn test_coach_token_count_calculated() -> Result<()> {
         goals, and available training time when creating personalized plans.";
 
     let request = create_test_request(
-        "create_coach",
+        "create_agent",
         json!({
             "title": "Token Count Test Coach",
             "description": "Testing token count calculation",
@@ -1668,8 +1668,8 @@ async fn test_coach_token_count_calculated() -> Result<()> {
 // Hidden-set Tenant Gate Tests
 // ============================================================================
 
-/// `show_coach` refuses a caller with no resolved tenant exactly as
-/// `hide_coach` does. The hidden-set row is keyed per user, so the tenant is a
+/// `show_agent` refuses a caller with no resolved tenant exactly as
+/// `hide_agent` does. The hidden-set row is keyed per user, so the tenant is a
 /// gate on the handler rather than a key on the row — and a refused call must
 /// leave the row alone, where a tenant-bearing caller removes it.
 #[tokio::test]
@@ -1697,14 +1697,14 @@ async fn test_show_coach_without_tenant_is_refused_and_keeps_the_coach_hidden() 
         )
         .await?;
     let coach_id = system_coach.id.to_string();
-    let args = json!({ "coach_id": coach_id });
+    let args = json!({ "agent_id": coach_id });
 
-    let mut tenantless_hide = create_test_request("hide_coach", args.clone(), user_id, &tenant_id);
+    let mut tenantless_hide = create_test_request("hide_agent", args.clone(), user_id, &tenant_id);
     tenantless_hide.tenant_id = None;
     let refused = executor
         .execute_tool(tenantless_hide)
         .await
-        .expect_err("hide_coach must refuse a caller with no tenant");
+        .expect_err("hide_agent must refuse a caller with no tenant");
     assert!(
         refused.to_string().contains("Tenant context required"),
         "unexpected hide refusal: {refused}"
@@ -1712,20 +1712,20 @@ async fn test_show_coach_without_tenant_is_refused_and_keeps_the_coach_hidden() 
 
     let hidden = executor
         .execute_tool(create_test_request(
-            "hide_coach",
+            "hide_agent",
             args.clone(),
             user_id,
             &tenant_id,
         ))
         .await?;
-    assert!(hidden.success, "hide_coach failed: {:?}", hidden.error);
+    assert!(hidden.success, "hide_agent failed: {:?}", hidden.error);
 
-    let mut tenantless_show = create_test_request("show_coach", args.clone(), user_id, &tenant_id);
+    let mut tenantless_show = create_test_request("show_agent", args.clone(), user_id, &tenant_id);
     tenantless_show.tenant_id = None;
     let refused = executor
         .execute_tool(tenantless_show)
         .await
-        .expect_err("show_coach must refuse a caller with no tenant");
+        .expect_err("show_agent must refuse a caller with no tenant");
     assert!(
         refused.to_string().contains("Tenant context required"),
         "unexpected show refusal: {refused}"
@@ -1734,7 +1734,7 @@ async fn test_show_coach_without_tenant_is_refused_and_keeps_the_coach_hidden() 
     // The refusal wrote nothing: the coach is still in the hidden-set.
     let still_hidden = executor
         .execute_tool(create_test_request(
-            "list_hidden_coaches",
+            "list_hidden_agents",
             json!({}),
             user_id,
             &tenant_id,
@@ -1751,16 +1751,16 @@ async fn test_show_coach_without_tenant_is_refused_and_keeps_the_coach_hidden() 
 
     // The tenant-bearing caller removes the preference and the coach is back.
     let shown = executor
-        .execute_tool(create_test_request("show_coach", args, user_id, &tenant_id))
+        .execute_tool(create_test_request("show_agent", args, user_id, &tenant_id))
         .await?;
-    assert!(shown.success, "show_coach failed: {:?}", shown.error);
+    assert!(shown.success, "show_agent failed: {:?}", shown.error);
     let shown = shown.result.unwrap();
     assert_eq!(shown["removed_preference"], json!(true));
     assert_eq!(shown["is_hidden"], json!(false));
 
     let none_hidden = executor
         .execute_tool(create_test_request(
-            "list_hidden_coaches",
+            "list_hidden_agents",
             json!({}),
             user_id,
             &tenant_id,

@@ -223,8 +223,8 @@ pub mod weather_forecast;
 #[cfg(feature = "tools-sleep")]
 pub mod sleep;
 
-/// Coach Store tools: `browse_coach_store`, `search_coach_store`,
-/// `install_coach_from_store` (`tools-coaches` feature).
+/// Agent Store tools: `browse_agent_store`, `search_agent_store`,
+/// `install_agent_from_store` (`tools-coaches` feature).
 #[cfg(feature = "tools-coaches")]
 pub mod store;
 

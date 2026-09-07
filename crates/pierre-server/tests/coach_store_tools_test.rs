@@ -145,9 +145,9 @@ fn store_tools_are_chat_callable() {
         .collect();
 
     for tool in [
-        "browse_coach_store",
-        "search_coach_store",
-        "install_coach_from_store",
+        "browse_agent_store",
+        "search_agent_store",
+        "install_agent_from_store",
     ] {
         assert!(
             chat_callable.iter().any(|n| n == tool),
@@ -163,9 +163,9 @@ fn store_tools_are_chat_callable() {
     assert_eq!(
         in_category,
         vec![
-            "browse_coach_store",
-            "install_coach_from_store",
-            "search_coach_store"
+            "browse_agent_store",
+            "install_agent_from_store",
+            "search_agent_store"
         ],
         "the store category must hold exactly the three browse/search/install tools"
     );
@@ -186,7 +186,7 @@ async fn browse_coach_store_returns_published_coaches() -> Result<()> {
 
     let payload = run(
         &executor,
-        "browse_coach_store",
+        "browse_agent_store",
         json!({}),
         user_id,
         tenant_id,
@@ -229,7 +229,7 @@ async fn search_coach_store_matches_published_titles() -> Result<()> {
 
     let hit = run(
         &executor,
-        "search_coach_store",
+        "search_agent_store",
         json!({ "query": "Fuelling" }),
         user_id,
         tenant_id,
@@ -243,7 +243,7 @@ async fn search_coach_store_matches_published_titles() -> Result<()> {
 
     let miss = run(
         &executor,
-        "search_coach_store",
+        "search_agent_store",
         json!({ "query": "kayaking" }),
         user_id,
         tenant_id,
@@ -274,8 +274,8 @@ async fn install_coach_from_store_creates_the_athletes_own_copy() -> Result<()> 
     let (events, _guard) = helpers::notify_capture::capture_notify();
     let payload = run(
         &executor,
-        "install_coach_from_store",
-        json!({ "coach_id": published.to_string() }),
+        "install_agent_from_store",
+        json!({ "agent_id": published.to_string() }),
         installer_id,
         tenant_id,
     )

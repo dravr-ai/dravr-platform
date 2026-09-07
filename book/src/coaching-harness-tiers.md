@@ -149,7 +149,7 @@ LLM-external concern.
 **Key files**
 
 - `crates/pierre-server/src/tools/implementations/memory.rs` — four
-  new MCP tools: `coach_note_add`, `coach_followup_schedule`,
+  new MCP tools: `agent_note_add`, `agent_followup_schedule`,
   `remember_fact`, `recall_user_memory`. All are `McpTool` impls with
   zero trait edits (the trait is wide enough to absorb them cleanly).
 - `crates/pierre-server/src/tools/registry.rs` — tool registration
@@ -165,8 +165,8 @@ LLM-external concern.
 
 | Tool | What it persists | When the agent calls it |
 |---|---|---|
-| `coach_note_add` | `CoachNote` rows | To record a private observation about the user |
-| `coach_followup_schedule` | `CoachFollowup` rows | To promise a future check-in ("ask about the achilles tomorrow") |
+| `agent_note_add` | `CoachNote` rows | To record a private observation about the user |
+| `agent_followup_schedule` | `CoachFollowup` rows | To promise a future check-in ("ask about the achilles tomorrow") |
 | `remember_fact` | `UserFact` rows | To capture a durable user preference or constraint |
 | `recall_user_memory` | read-only fact lookup | To pull earlier facts into the current turn |
 

@@ -40,7 +40,7 @@ use uuid::Uuid;
 
 /// An `UNTRUSTED_OUTPUT` read with no provider requirement, so it reaches the
 /// Guardian gate on a bare test account and taints the turn.
-const TAINT_SOURCE: &str = "list_coaches";
+const TAINT_SOURCE: &str = "list_agents";
 
 /// An `IRREVERSIBLE` tool, the sink the taint policy guards.
 const DESTRUCTIVE: &str = "disconnect_provider";

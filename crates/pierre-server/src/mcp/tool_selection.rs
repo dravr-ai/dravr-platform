@@ -45,8 +45,8 @@ fn category_from_registry(category: Option<&str>, caps: ToolCapabilities) -> Too
 
 /// Convert a `snake_case` tool name to Title Case display name.
 ///
-/// `"get_activities"` becomes `"Get Activities"`, `"admin_list_system_coaches"`
-/// becomes `"Admin List System Coaches"`.
+/// `"get_activities"` becomes `"Get Activities"`, `"admin_list_system_agents"`
+/// becomes `"Admin List System Agents"`.
 fn display_name_from_tool_name(name: &str) -> String {
     name.split('_')
         .map(|word| {

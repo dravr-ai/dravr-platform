@@ -94,7 +94,7 @@ struct Listing {
 /// Handler for `/discover [query|category]` and `/discover more <offset> [category]`.
 ///
 /// Reads the Store through the same service the web Discover tab and the
-/// `browse_coach_store` / `search_coach_store` tools use, so a coach ranks
+/// `browse_agent_store` / `search_agent_store` tools use, so a coach ranks
 /// the same everywhere. Every coach on the card gets an install button;
 /// only a browse pages, since a search already returns its best matches.
 pub struct DiscoverHandler;
@@ -214,7 +214,7 @@ impl CommandHandler for DiscoverHandler {
 ///
 /// Resolves the handle against the published catalogue — the origin coach,
 /// never an athlete's copy — and installs it through the one path the REST
-/// route and the `install_coach_from_store` tool share, so `coach.installed`
+/// route and the `install_agent_from_store` tool share, so `coach.installed`
 /// counts the install once. The reply is the post-install hint: how to bring
 /// the coach into a chat (`/coach add @handle`) or borrow it for one turn
 /// (`@handle` in a message). A coach already on the caller's list gets the

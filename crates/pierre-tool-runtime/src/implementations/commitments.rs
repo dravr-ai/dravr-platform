@@ -218,7 +218,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
             },
         );
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Agent the athlete made the promise to.".to_owned()),
@@ -231,7 +231,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
                 "statement".to_owned(),
                 "sessions".to_owned(),
                 "due_date".to_owned(),
-                "coach_id".to_owned(),
+                "agent_id".to_owned(),
             ]),
         );
         answers_with::<CommitmentCreateResult>(tool_definition(
@@ -301,7 +301,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
                 )));
             }
 
-            let coach_id = require_string_field(&args, "coach_id")?;
+            let coach_id = require_string_field(&args, "agent_id")?;
             let sport = sanitize_sport_slug(args.get("sport").and_then(Value::as_str));
 
             let commitment = Commitment {

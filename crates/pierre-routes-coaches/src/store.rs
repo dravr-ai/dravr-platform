@@ -373,7 +373,7 @@ async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
 /// Handle POST /api/store/agents/{id}/install - Install a coach from the Store
 ///
 /// `coach.installed` is emitted by `install_store_coach`, the one install
-/// path this route shares with the `install_coach_from_store` tool and
+/// path this route shares with the `install_agent_from_store` tool and
 /// `/discover install`, so it fires once per install on every surface.
 #[tracing::instrument(
     skip(ctx, auth),

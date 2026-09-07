@@ -106,33 +106,33 @@ fn test_recipe_tools_registered() {
 #[test]
 fn test_user_coach_tools_registered() {
     assert_tools_registered(&[
-        "list_coaches",
-        "create_coach",
-        "get_coach",
-        "update_coach",
-        "delete_coach",
-        "toggle_coach_favorite",
-        "search_coaches",
-        "activate_coach",
-        "deactivate_coach",
-        "get_active_coach",
-        "hide_coach",
-        "show_coach",
-        "list_hidden_coaches",
+        "list_agents",
+        "create_agent",
+        "get_agent",
+        "update_agent",
+        "delete_agent",
+        "toggle_agent_favorite",
+        "search_agents",
+        "activate_agent",
+        "deactivate_agent",
+        "get_active_agent",
+        "hide_agent",
+        "show_agent",
+        "list_hidden_agents",
     ]);
 }
 
 #[test]
 fn test_admin_coach_tools_registered() {
     assert_tools_registered(&[
-        "admin_list_system_coaches",
-        "admin_create_system_coach",
-        "admin_get_system_coach",
-        "admin_update_system_coach",
-        "admin_delete_system_coach",
-        "admin_assign_coach",
-        "admin_unassign_coach",
-        "admin_list_coach_assignments",
+        "admin_list_system_agents",
+        "admin_create_system_agent",
+        "admin_get_system_agent",
+        "admin_update_system_agent",
+        "admin_delete_system_agent",
+        "admin_assign_agent",
+        "admin_unassign_agent",
+        "admin_list_agent_assignments",
     ]);
 }
 

@@ -748,7 +748,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             },
         );
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Optional agent id stamped onto the audit row.".to_owned()),
@@ -814,7 +814,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
                 .map_err(|e| AppError::invalid_input(format!("date must be YYYY-MM-DD: {e}")))?;
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
 

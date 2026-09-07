@@ -182,7 +182,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
@@ -244,7 +244,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             let user_id = context.user_id;
             let user_str = user_id.to_string();
             let arg_coach = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .filter(|s| !s.trim().is_empty());

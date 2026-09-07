@@ -218,10 +218,10 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
         let schema = object_schema_with_format(properties, None);
 
         answers_with::<Formatted<BrowseCoachStoreResult>>(tool_definition(
-            "browse_coach_store",
+            "browse_agent_store",
             "Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use \
              this when the athlete asks what agents exist, or for an agent of a given kind they \
-             do not already have. Distinct from `list_coaches`, which lists only the agents \
+             do not already have. Distinct from `list_agents`, which lists only the agents \
              ALREADY in their library. Returns a page plus a `next_cursor` for the following one.",
             schema,
             Some(read_only_annotations()),
@@ -270,7 +270,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
                 has_more: page.has_more,
                 next_cursor: page.next_cursor,
             };
-            ok_typed("browse_coach_store", apply_format(payload, format))
+            ok_typed("browse_agent_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -307,9 +307,9 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
         let schema = object_schema_with_format(properties, Some(vec!["query".to_owned()]));
 
         answers_with::<Formatted<SearchCoachStoreResult>>(tool_definition(
-            "search_coach_store",
+            "search_agent_store",
             "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or \
-             'vegetarian nutrition'. Searches the whole marketplace, unlike `search_coaches`, \
+             'vegetarian nutrition'. Searches the whole marketplace, unlike `search_agents`, \
              which searches only the athlete's own library. Install a result with \
              `install_coach_from_store`.",
             schema,
@@ -354,7 +354,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
                 count: rendered.len(),
                 coaches: rendered,
             };
-            ok_typed("search_coach_store", apply_format(payload, format))
+            ok_typed("search_agent_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -369,7 +369,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
@@ -380,14 +380,14 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<Formatted<InstallCoachFromStoreResult>>(tool_definition(
-            "install_coach_from_store",
+            "install_agent_from_store",
             "Install a published Agent Store agent into the athlete's own library, creating their \
              personal copy. Call it only once the athlete has asked for that specific agent — \
              pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, \
-             `activate_coach` makes it the agent that answers.",
+             `activate_agent` makes it the agent that answers.",
             schema,
             Some(write_annotations()),
         ))
@@ -411,7 +411,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             let Some(coach_id) = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|c| !c.is_empty())
@@ -444,7 +444,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 ),
                 coach: project(&installed),
             };
-            ok_typed("install_coach_from_store", apply_format(payload, format))
+            ok_typed("install_agent_from_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)

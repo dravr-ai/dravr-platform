@@ -577,7 +577,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             string_prop(
                 "Agent persona slug asking; falls back to the athlete's agent-agnostic plan.",
             ),
@@ -616,7 +616,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         let result: AppResult<ToolResult> = async move {
             let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
             let requester = ctx_user_id(&context);
-            let arg_coach = optional_string_field(&args, "coach_id");
+            let arg_coach = optional_string_field(&args, "agent_id");
             let athlete = optional_string_field(&args, "athlete");
             let include_history = args
                 .get("include_history")
@@ -721,7 +721,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             string_prop("Coach persona slug saving the plan."),
         );
         properties.insert("outline".to_owned(), outline_schema());
@@ -762,7 +762,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let result: AppResult<ToolResult> = async move {
             let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
             let requester = ctx_user_id(&context);
-            let arg_coach = optional_string_field(&args, "coach_id");
+            let arg_coach = optional_string_field(&args, "agent_id");
             let athlete = optional_string_field(&args, "athlete");
             let conversation_id = optional_string_field(&args, "conversation_id");
             let mut goal_fact_id = optional_string_field(&args, "goal_fact_id");

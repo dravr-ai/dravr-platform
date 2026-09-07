@@ -146,12 +146,14 @@ ADDED="$(git diff "$MERGE_BASE"...HEAD --unified=0 -- \
     2>/dev/null | rg '^\+' | rg -v '^\+\+\+' || true)"
 
 # A line that also names an identifier keeping the old spelling is describing
-# that identifier, which is correct and stays. Route literals are no longer
-# among them — carnet#384 renamed the wire paths to the agent spelling — so
-# the route entry that used to sit in this list is gone, not retargeted.
+# that identifier, which is correct and stays: a database column, a source
+# filename, a CSS class, the catalogue namespace. Wire-visible names are not
+# among them — carnet#384 renames the routes and the MCP tools to the agent
+# spelling — so an entry whose identifier is renamed leaves this list rather
+# than being retargeted.
 OFFENDERS="$(printf '%s\n' "$ADDED" \
     | rg "$PHRASES" 2>/dev/null \
-    | rg -v 'coach_id|coach_slug|coach_visuals|coaches\.rs|list_coaches|coach-card|CoachA-Z|humanCoach' \
+    | rg -v 'coach_id|coach_slug|coach_visuals|coaches\.rs|coach-card|CoachA-Z|humanCoach' \
     || true)"
 
 if [[ -n "$OFFENDERS" ]]; then

@@ -974,7 +974,7 @@ async fn call_admin_only_tool(
         "id": 1,
         "method": "tools/call",
         "params": {
-            "name": "admin_list_system_coaches",
+            "name": "admin_list_system_agents",
             "arguments": {}
         }
     });

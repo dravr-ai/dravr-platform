@@ -62,7 +62,7 @@ fn fake_registry() -> FakeLabels {
     FakeLabels::new()
         .with("get_activities", SecurityLabels::UNTRUSTED_OUTPUT, false)
         .with("set_goal", SecurityLabels::empty(), true)
-        .with("delete_coach", SecurityLabels::IRREVERSIBLE, true)
+        .with("delete_agent", SecurityLabels::IRREVERSIBLE, true)
         .with("send_email", SecurityLabels::EXTERNAL_SEND, false)
 }
 
@@ -136,12 +136,12 @@ fn benign_read_then_write_plan_is_accepted() {
 
 #[test]
 fn tainted_irreversible_respects_policy() {
-    // delete_coach with an arg derived (via JSON pointer) from the untrusted source.
+    // delete_agent with an arg derived (via JSON pointer) from the untrusted source.
     let wf = parse(
         r#"{ "steps": [
             { "id": 0, "tool": "get_activities", "args": { "limit": 5 } },
-            { "id": 1, "tool": "delete_coach",
-              "args": { "coach_id": { "$ref": { "step": 0, "path": "/activities/0/coach" } } } }
+            { "id": 1, "tool": "delete_agent",
+              "args": { "agent_id": { "$ref": { "step": 0, "path": "/activities/0/coach" } } } }
         ] }"#,
     );
     // Under Log, the precise dataflow rule does NOT block (graduated telemetry).

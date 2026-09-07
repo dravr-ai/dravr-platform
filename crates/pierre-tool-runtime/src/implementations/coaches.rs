@@ -111,7 +111,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
         let schema = object_schema_with_format(properties, None);
 
         answers_with::<Formatted<ListCoachesResult>>(tool_definition(
-            "list_coaches",
+            "list_agents",
             "List available AI agents for personalized training guidance",
             schema,
             Some(read_only_annotations()),
@@ -186,7 +186,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
                 .map_err(|e| AppError::internal(format!("Failed to count coaches: {e}")))?;
 
             let payload = list_coaches_payload(&coaches, total, offset, limit);
-            ok_typed("list_coaches", apply_format(payload, format))
+            ok_typed("list_agents", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -270,7 +270,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
         );
 
         answers_with::<CreateCoachResult>(tool_definition(
-            "create_coach",
+            "create_agent",
             "Create a custom AI agent with personalized training guidance",
             schema,
             Some(write_annotations()),
@@ -362,7 +362,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to create coach: {e}")))?;
 
-            ok_typed("create_coach", create_coach_payload(&coach))
+            ok_typed("create_agent", create_coach_payload(&coach))
         }
         .await;
         tool_result_to_response(result)
@@ -381,17 +381,17 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent to retrieve".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<Formatted<GetCoachResult>>(tool_definition(
-            "get_coach",
+            "get_agent",
             "Get detailed information about a specific agent",
             schema,
             Some(read_only_annotations()),
@@ -419,7 +419,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
@@ -435,7 +435,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
                         "error": format!("Agent not found: {coach_id}"),
                     })))
                 },
-                |c| ok_typed("get_coach", apply_format(get_coach_payload(&c), format)),
+                |c| ok_typed("get_agent", apply_format(get_coach_payload(&c), format)),
             )
         }
         .await;
@@ -455,7 +455,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent to update".to_owned()),
@@ -507,10 +507,10 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<UpdateCoachResult>(tool_definition(
-            "update_coach",
+            "update_agent",
             "Update an existing agent's settings",
             schema,
             Some(write_annotations()),
@@ -537,7 +537,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
@@ -596,7 +596,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
                         "error": format!("Agent not found: {coach_id}"),
                     })))
                 },
-                |c| ok_typed("update_coach", update_coach_payload(&c)),
+                |c| ok_typed("update_agent", update_coach_payload(&c)),
             )
         }
         .await;
@@ -616,17 +616,17 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent to delete".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<DeleteCoachResult>(tool_definition(
-            "delete_coach",
+            "delete_agent",
             "Delete an agent",
             schema,
             Some(destructive_annotations()),
@@ -653,7 +653,7 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
@@ -665,10 +665,10 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
 
             if deleted {
                 ok_typed(
-                    "delete_coach",
+                    "delete_agent",
                     DeleteCoachResult {
                         deleted: true,
-                        coach_id: coach_id.to_owned(),
+                        agent_id: coach_id.to_owned(),
                     },
                 )
             } else {
@@ -694,17 +694,17 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<ToggleCoachFavoriteResult>(tool_definition(
-            "toggle_coach_favorite",
+            "toggle_agent_favorite",
             "Toggle the favorite status of an agent",
             schema,
             Some(write_annotations()),
@@ -731,7 +731,7 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
@@ -749,9 +749,9 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
                 },
                 |fav| {
                     ok_typed(
-                        "toggle_coach_favorite",
+                        "toggle_agent_favorite",
                         ToggleCoachFavoriteResult {
-                            coach_id: coach_id.to_owned(),
+                            agent_id: coach_id.to_owned(),
                             is_favorite: fav,
                         },
                     )
@@ -809,7 +809,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
         let schema = object_schema_with_format(properties, Some(vec!["query".to_owned()]));
 
         answers_with::<Formatted<SearchCoachesResult>>(tool_definition(
-            "search_coaches",
+            "search_agents",
             "Search for agents by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
             schema,
             Some(read_only_annotations()),
@@ -860,7 +860,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
                 .map_err(|e| AppError::internal(format!("Failed to search coaches: {e}")))?;
 
             let payload = search_coaches_payload(query, &coaches, offset, limit);
-            ok_typed("search_coaches", apply_format(payload, format))
+            ok_typed("search_agents", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -879,17 +879,17 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent to activate".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<ActivateCoachResult>(tool_definition(
-            "activate_coach",
+            "activate_agent",
             "Activate an agent for personalized training guidance",
             schema,
             Some(write_annotations()),
@@ -916,7 +916,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
@@ -932,7 +932,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
                         "error": format!("Agent not found: {coach_id}"),
                     })))
                 },
-                |c| ok_typed("activate_coach", activate_coach_payload(&c)),
+                |c| ok_typed("activate_agent", activate_coach_payload(&c)),
             )
         }
         .await;
@@ -958,7 +958,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
         };
 
         answers_with::<DeactivateCoachResult>(tool_definition(
-            "deactivate_coach",
+            "deactivate_agent",
             "Deactivate the current agent and return to default AI guidance",
             schema,
             Some(write_annotations()),
@@ -990,7 +990,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to deactivate coach: {e}")))?;
 
-            ok_typed("deactivate_coach", DeactivateCoachResult { deactivated })
+            ok_typed("deactivate_agent", DeactivateCoachResult { deactivated })
         }
         .await;
         tool_result_to_response(result)
@@ -1015,7 +1015,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
         };
 
         answers_with::<Formatted<GetActiveCoachResult>>(tool_definition(
-            "get_active_coach",
+            "get_active_agent",
             "Get the currently active agent",
             schema,
             Some(read_only_annotations()),
@@ -1049,7 +1049,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to get active coach: {e}")))?;
 
             let payload = active_coach_payload(coach.as_ref());
-            ok_typed("get_active_coach", apply_format(payload, format))
+            ok_typed("get_active_agent", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -1068,17 +1068,17 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent to hide".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<HideCoachResult>(tool_definition(
-            "hide_coach",
+            "hide_agent",
             "Hide an agent from listings",
             schema,
             Some(write_annotations()),
@@ -1104,7 +1104,7 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
         let user_id = ctx.user_id;
 
         let coach_id = args
-            .get("coach_id")
+            .get("agent_id")
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
@@ -1116,16 +1116,16 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
 
         if success {
             ok_typed(
-                "hide_coach",
+                "hide_agent",
                 HideCoachResult {
-                    coach_id: coach_id.to_owned(),
+                    agent_id: coach_id.to_owned(),
                     is_hidden: true,
                 },
             )
         } else {
             Ok(ToolResult::error(json!({
                 "error": "Agent cannot be hidden (only system or assigned agents can be hidden)",
-                "coach_id": coach_id,
+                "agent_id": coach_id,
                 "is_hidden": false,
             })))
         }
@@ -1147,17 +1147,17 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent to show".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
 
         answers_with::<ShowCoachResult>(tool_definition(
-            "show_coach",
+            "show_agent",
             "Show a previously hidden agent",
             schema,
             Some(write_annotations()),
@@ -1183,7 +1183,7 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
             ctx.require_tenant()?; // A gate, not a key — see `CoachesRepository::show_coach`.
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
@@ -1194,9 +1194,9 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to show coach: {e}")))?;
 
             ok_typed(
-                "show_coach",
+                "show_agent",
                 ShowCoachResult {
-                    coach_id: coach_id.to_owned(),
+                    agent_id: coach_id.to_owned(),
                     is_hidden: false,
                     removed_preference: success,
                 },
@@ -1225,7 +1225,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
         };
 
         answers_with::<Formatted<ListHiddenCoachesResult>>(tool_definition(
-            "list_hidden_coaches",
+            "list_hidden_agents",
             "List all hidden agents",
             schema,
             Some(read_only_annotations()),
@@ -1259,7 +1259,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
                 .map_err(|e| AppError::internal(format!("Failed to list hidden coaches: {e}")))?;
 
             let payload = list_hidden_coaches_payload(&coaches);
-            ok_typed("list_hidden_coaches", apply_format(payload, format))
+            ok_typed("list_hidden_agents", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)

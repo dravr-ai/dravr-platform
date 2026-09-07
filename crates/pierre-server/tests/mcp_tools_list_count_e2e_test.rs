@@ -566,7 +566,7 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
 
     // Uncatalogued-merge sanity check: specific feature-flag tool categories
     // must be present (these come from the uncatalogued branch).
-    for expected in &["list_coaches", "get_connection_status"] {
+    for expected in &["list_agents", "get_connection_status"] {
         assert!(
             returned.contains(*expected),
             "Tenant member missing uncatalogued feature-flag tool '{expected}'. \

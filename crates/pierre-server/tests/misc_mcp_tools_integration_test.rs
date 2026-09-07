@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for misc MCP tool handlers driven through UniversalToolExecutor
-// ABOUTME: Covers coach_note_add, coach_followup_schedule, remember_fact, recall_user_memory, verify_claim, analyze_weather_impact
+// ABOUTME: Covers agent_note_add, agent_followup_schedule, remember_fact, recall_user_memory, verify_claim, analyze_weather_impact
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! Tests the 6 remaining MCP tools that previously had only schema/registry
 //! coverage:
-//! - `coach_note_add`, `coach_followup_schedule` — coach-authored memory writes
+//! - `agent_note_add`, `agent_followup_schedule` — coach-authored memory writes
 //! - `remember_fact`, `recall_user_memory` — Letta-style active memory
 //! - `verify_claim` — bullshit detector
 //! - `analyze_weather_impact` — weather-correlation analytics (provider-gated)
@@ -108,7 +108,7 @@ async fn seed_coach(
 ) -> Result<String> {
     let resp = executor
         .execute_tool(make_request(
-            "create_coach",
+            "create_agent",
             json!({
                 "title": title,
                 "system_prompt": "test coach system prompt",
@@ -140,8 +140,8 @@ async fn test_misc_tools_registered() -> Result<()> {
         .map(|n| (*n).to_owned())
         .collect();
     for expected in [
-        "coach_note_add",
-        "coach_followup_schedule",
+        "agent_note_add",
+        "agent_followup_schedule",
         "remember_fact",
         "recall_user_memory",
         "verify_claim",
@@ -156,7 +156,7 @@ async fn test_misc_tools_registered() -> Result<()> {
 }
 
 // ============================================================================
-// coach_note_add
+// agent_note_add
 // ============================================================================
 
 #[tokio::test]
@@ -167,10 +167,10 @@ async fn test_coach_note_add_happy_path() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "coach_note_add",
+            "agent_note_add",
             json!({
                 "content": "User prefers no scientific jargon when discussing zones.",
-                "coach_id": coach_id,
+                "agent_id": coach_id,
             }),
             user_id,
             Some(&tenant),
@@ -178,7 +178,7 @@ async fn test_coach_note_add_happy_path() -> Result<()> {
         .await?;
     assert!(
         resp.success,
-        "coach_note_add should succeed: {:?}",
+        "agent_note_add should succeed: {:?}",
         resp.error
     );
     let result = resp.result.unwrap();
@@ -194,17 +194,17 @@ async fn test_coach_note_add_empty_content() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "coach_note_add",
+            "agent_note_add",
             json!({
                 "content": "   ",
-                "coach_id": "test-coach-1",
+                "agent_id": "test-coach-1",
             }),
             user_id,
             Some(&tenant),
         ))
         .await
         .expect_err("empty content must be rejected");
-    assert_invalid_request(&err, "coach_note_add");
+    assert_invalid_request(&err, "agent_note_add");
     Ok(())
 }
 
@@ -215,14 +215,14 @@ async fn test_coach_note_add_missing_coach_id() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "coach_note_add",
+            "agent_note_add",
             json!({ "content": "without coach_id" }),
             user_id,
             Some(&tenant),
         ))
         .await
         .expect_err("missing coach_id must be rejected");
-    assert_invalid_request(&err, "coach_note_add");
+    assert_invalid_request(&err, "agent_note_add");
     Ok(())
 }
 
@@ -233,22 +233,22 @@ async fn test_coach_note_add_rejects_no_tenant() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "coach_note_add",
+            "agent_note_add",
             json!({
                 "content": "x",
-                "coach_id": "test-coach-1",
+                "agent_id": "test-coach-1",
             }),
             user_id,
             None,
         ))
         .await
         .expect_err("no-tenant call must be rejected");
-    assert_tenant_refused(&err, "coach_note_add");
+    assert_tenant_refused(&err, "agent_note_add");
     Ok(())
 }
 
 // ============================================================================
-// coach_followup_schedule
+// agent_followup_schedule
 // ============================================================================
 
 #[tokio::test]
@@ -259,10 +259,10 @@ async fn test_coach_followup_schedule_happy_path() -> Result<()> {
 
     let resp = executor
         .execute_tool(make_request(
-            "coach_followup_schedule",
+            "agent_followup_schedule",
             json!({
                 "content": "check on Achilles pain after long run",
-                "coach_id": coach_id,
+                "agent_id": coach_id,
                 "due_at": "2026-06-15T10:00:00Z",
             }),
             user_id,
@@ -271,7 +271,7 @@ async fn test_coach_followup_schedule_happy_path() -> Result<()> {
         .await?;
     assert!(
         resp.success,
-        "coach_followup_schedule should succeed: {:?}",
+        "agent_followup_schedule should succeed: {:?}",
         resp.error
     );
     let result = resp.result.unwrap();
@@ -287,10 +287,10 @@ async fn test_coach_followup_schedule_invalid_due_at() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "coach_followup_schedule",
+            "agent_followup_schedule",
             json!({
                 "content": "x",
-                "coach_id": "test-coach-1",
+                "agent_id": "test-coach-1",
                 "due_at": "not-a-real-date",
             }),
             user_id,
@@ -298,7 +298,7 @@ async fn test_coach_followup_schedule_invalid_due_at() -> Result<()> {
         ))
         .await
         .expect_err("invalid due_at must be rejected");
-    assert_invalid_request(&err, "coach_followup_schedule");
+    assert_invalid_request(&err, "agent_followup_schedule");
     Ok(())
 }
 
@@ -309,17 +309,17 @@ async fn test_coach_followup_schedule_rejects_no_tenant() -> Result<()> {
 
     let err = executor
         .execute_tool(make_request(
-            "coach_followup_schedule",
+            "agent_followup_schedule",
             json!({
                 "content": "x",
-                "coach_id": "test-coach-1",
+                "agent_id": "test-coach-1",
             }),
             user_id,
             None,
         ))
         .await
         .expect_err("no-tenant call must be rejected");
-    assert_tenant_refused(&err, "coach_followup_schedule");
+    assert_tenant_refused(&err, "agent_followup_schedule");
     Ok(())
 }
 

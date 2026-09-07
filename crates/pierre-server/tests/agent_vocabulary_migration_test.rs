@@ -1,14 +1,14 @@
-// ABOUTME: The two agent-vocabulary migrations, proven on a real database rather than read from the SQL
+// ABOUTME: The two agent-vocabulary text rewrites, proven on a real database rather than read from the SQL
 // ABOUTME: Catalogue display text becomes agent; a generated persona's opening sentence loses its role noun
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! ADR-026 splits the two senses the word "coach" carried: the persona an
-//! athlete talks to is an agent, a coach is a human. Two migrations carry that
-//! into rows that already exist — the `tool_catalog` display text an operator
-//! reads, and the opening sentence of every persona the old
-//! `coach_generation` mandate produced.
+//! athlete talks to is an agent, a coach is a human. Two migrations rewrite
+//! the text of rows that already exist — the `tool_catalog` display text an
+//! operator reads, and the opening sentence of every persona the old
+//! `coach_generation` mandate produced. This file proves both.
 //!
 //! Both are rewrites of live data, so they are proven by replaying each lane's
 //! migrations up to the cutover, planting the shape the mandate produced, and
@@ -45,9 +45,11 @@ static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 static PG_MIGRATOR: Migrator = sqlx::migrate!("../../migrations_pg");
 
 /// (`tool_name`, `category`, `display_name`, `description`) the operator reads
-/// after the migration. `tool_name` is the MCP wire name every override row
-/// points at and `category` is one of the values the CHECK constraint admits —
-/// both are asserted here because the migration must leave them alone.
+/// once the display-text migration has run. The replay stops on that
+/// migration, so `tool_name` here is the spelling the catalogue holds at that
+/// point — the key each of its `UPDATE` statements reads, and the key every
+/// override row points at. Both `tool_name` and `category` are asserted
+/// because the display-text migration must leave them alone.
 const CATALOGUE: [(&str, &str, &str, &str); 8] = [
     (
         "list_coaches",

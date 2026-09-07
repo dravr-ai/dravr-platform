@@ -142,6 +142,13 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
             },
         );
         let schema = object_schema(properties, None);
+        // LIMITATION(registre#389): list_coaching_playbooks keeps the coaching
+        // word while its 26 sibling tools became agents. A playbook is a learned
+        // pattern about the ACTIVITY of coaching — a trigger, an intervention and
+        // its success record — not the AI persona and not a human, which is the
+        // sense ADR-026 D2 reserves the word for. It also reads the
+        // `coaching_playbooks` table and its `coach_slug` column, so renaming the
+        // tool alone would split the tool and its storage across two vocabularies.
         answers_with::<ListCoachingPlaybooksResult>(tool_definition(
             "list_coaching_playbooks",
             "List the coaching playbooks the harness has learned for this athlete — the trigger→intervention patterns and how well each has worked (success/failure counts + confidence). Use this to tell the athlete what you have learned about what works for them.",

@@ -63,7 +63,7 @@ fn denial_renders_localized_reply_and_short_circuits() {
 fn denial_respects_resolved_locale() {
     let registry = Arc::new(MessagingStringsRegistry::new());
     let mut result = loop_result(Some(GuardianDenial {
-        tool_name: "delete_coach".to_owned(),
+        tool_name: "delete_agent".to_owned(),
         reason: "tainted_sink".to_owned(),
     }));
 

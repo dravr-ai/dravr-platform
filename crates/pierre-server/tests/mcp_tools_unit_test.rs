@@ -63,7 +63,7 @@ mod coaches_tests {
     #[test]
     fn test_list_coaches_tool_metadata() {
         let tool = ListCoachesTool;
-        assert_eq!(tool.definition().name, "list_coaches");
+        assert_eq!(tool.definition().name, "list_agents");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -77,7 +77,7 @@ mod coaches_tests {
     #[test]
     fn test_create_coach_tool_metadata() {
         let tool = CreateCoachTool;
-        assert_eq!(tool.definition().name, "create_coach");
+        assert_eq!(tool.definition().name, "create_agent");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -96,7 +96,7 @@ mod coaches_tests {
     #[test]
     fn test_get_coach_tool_metadata() {
         let tool = GetCoachTool;
-        assert_eq!(tool.definition().name, "get_coach");
+        assert_eq!(tool.definition().name, "get_agent");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -104,7 +104,7 @@ mod coaches_tests {
             .required
             .as_ref()
             .expect("Should have required fields");
-        assert!(required.contains(&"coach_id".to_owned()));
+        assert!(required.contains(&"agent_id".to_owned()));
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -114,7 +114,7 @@ mod coaches_tests {
     #[test]
     fn test_update_coach_tool_metadata() {
         let tool = UpdateCoachTool;
-        assert_eq!(tool.definition().name, "update_coach");
+        assert_eq!(tool.definition().name, "update_agent");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -122,7 +122,7 @@ mod coaches_tests {
             .required
             .as_ref()
             .expect("Should have required fields");
-        assert!(required.contains(&"coach_id".to_owned()));
+        assert!(required.contains(&"agent_id".to_owned()));
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -132,7 +132,7 @@ mod coaches_tests {
     #[test]
     fn test_delete_coach_tool_metadata() {
         let tool = DeleteCoachTool;
-        assert_eq!(tool.definition().name, "delete_coach");
+        assert_eq!(tool.definition().name, "delete_agent");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -140,7 +140,7 @@ mod coaches_tests {
             .required
             .as_ref()
             .expect("Should have required fields");
-        assert!(required.contains(&"coach_id".to_owned()));
+        assert!(required.contains(&"agent_id".to_owned()));
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -150,7 +150,7 @@ mod coaches_tests {
     #[test]
     fn test_toggle_coach_favorite_tool_metadata() {
         let tool = ToggleCoachFavoriteTool;
-        assert_eq!(tool.definition().name, "toggle_coach_favorite");
+        assert_eq!(tool.definition().name, "toggle_agent_favorite");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -158,7 +158,7 @@ mod coaches_tests {
             .required
             .as_ref()
             .expect("Should have required fields");
-        assert!(required.contains(&"coach_id".to_owned()));
+        assert!(required.contains(&"agent_id".to_owned()));
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -168,7 +168,7 @@ mod coaches_tests {
     #[test]
     fn test_search_coaches_tool_metadata() {
         let tool = SearchCoachesTool;
-        assert_eq!(tool.definition().name, "search_coaches");
+        assert_eq!(tool.definition().name, "search_agents");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -179,7 +179,7 @@ mod coaches_tests {
     #[test]
     fn test_activate_coach_tool_metadata() {
         let tool = ActivateCoachTool;
-        assert_eq!(tool.definition().name, "activate_coach");
+        assert_eq!(tool.definition().name, "activate_agent");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -187,7 +187,7 @@ mod coaches_tests {
             .required
             .as_ref()
             .expect("Should have required fields");
-        assert!(required.contains(&"coach_id".to_owned()));
+        assert!(required.contains(&"agent_id".to_owned()));
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -197,7 +197,7 @@ mod coaches_tests {
     #[test]
     fn test_deactivate_coach_tool_metadata() {
         let tool = DeactivateCoachTool;
-        assert_eq!(tool.definition().name, "deactivate_coach");
+        assert_eq!(tool.definition().name, "deactivate_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -208,7 +208,7 @@ mod coaches_tests {
     #[test]
     fn test_get_active_coach_tool_metadata() {
         let tool = GetActiveCoachTool;
-        assert_eq!(tool.definition().name, "get_active_coach");
+        assert_eq!(tool.definition().name, "get_active_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -219,7 +219,7 @@ mod coaches_tests {
     #[test]
     fn test_hide_coach_tool_metadata() {
         let tool = HideCoachTool;
-        assert_eq!(tool.definition().name, "hide_coach");
+        assert_eq!(tool.definition().name, "hide_agent");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -227,7 +227,7 @@ mod coaches_tests {
             .required
             .as_ref()
             .expect("Should have required fields");
-        assert!(required.contains(&"coach_id".to_owned()));
+        assert!(required.contains(&"agent_id".to_owned()));
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -237,7 +237,7 @@ mod coaches_tests {
     #[test]
     fn test_show_coach_tool_metadata() {
         let tool = ShowCoachTool;
-        assert_eq!(tool.definition().name, "show_coach");
+        assert_eq!(tool.definition().name, "show_agent");
         assert!(!tool.definition().description.is_empty());
 
         let schema = tool_input_schema(&tool);
@@ -245,7 +245,7 @@ mod coaches_tests {
             .required
             .as_ref()
             .expect("Should have required fields");
-        assert!(required.contains(&"coach_id".to_owned()));
+        assert!(required.contains(&"agent_id".to_owned()));
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -255,7 +255,7 @@ mod coaches_tests {
     #[test]
     fn test_list_hidden_coaches_tool_metadata() {
         let tool = ListHiddenCoachesTool;
-        assert_eq!(tool.definition().name, "list_hidden_coaches");
+        assert_eq!(tool.definition().name, "list_hidden_agents");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -272,19 +272,19 @@ mod coaches_tests {
 
         let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
         let expected_names = [
-            "list_coaches",
-            "create_coach",
-            "get_coach",
-            "update_coach",
-            "delete_coach",
-            "toggle_coach_favorite",
-            "search_coaches",
-            "activate_coach",
-            "deactivate_coach",
-            "get_active_coach",
-            "hide_coach",
-            "show_coach",
-            "list_hidden_coaches",
+            "list_agents",
+            "create_agent",
+            "get_agent",
+            "update_agent",
+            "delete_agent",
+            "toggle_agent_favorite",
+            "search_agents",
+            "activate_agent",
+            "deactivate_agent",
+            "get_active_agent",
+            "hide_agent",
+            "show_agent",
+            "list_hidden_agents",
         ];
 
         for expected in expected_names {
@@ -1283,7 +1283,7 @@ mod admin_tests {
     #[test]
     fn test_admin_list_system_coaches_tool_metadata() {
         let tool = AdminListSystemCoachesTool;
-        assert_eq!(tool.definition().name, "admin_list_system_coaches");
+        assert_eq!(tool.definition().name, "admin_list_system_agents");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1294,7 +1294,7 @@ mod admin_tests {
     #[test]
     fn test_admin_create_system_coach_tool_metadata() {
         let tool = AdminCreateSystemCoachTool;
-        assert_eq!(tool.definition().name, "admin_create_system_coach");
+        assert_eq!(tool.definition().name, "admin_create_system_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1305,7 +1305,7 @@ mod admin_tests {
     #[test]
     fn test_admin_get_system_coach_tool_metadata() {
         let tool = AdminGetSystemCoachTool;
-        assert_eq!(tool.definition().name, "admin_get_system_coach");
+        assert_eq!(tool.definition().name, "admin_get_system_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1316,7 +1316,7 @@ mod admin_tests {
     #[test]
     fn test_admin_update_system_coach_tool_metadata() {
         let tool = AdminUpdateSystemCoachTool;
-        assert_eq!(tool.definition().name, "admin_update_system_coach");
+        assert_eq!(tool.definition().name, "admin_update_system_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1327,7 +1327,7 @@ mod admin_tests {
     #[test]
     fn test_admin_delete_system_coach_tool_metadata() {
         let tool = AdminDeleteSystemCoachTool;
-        assert_eq!(tool.definition().name, "admin_delete_system_coach");
+        assert_eq!(tool.definition().name, "admin_delete_system_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1338,7 +1338,7 @@ mod admin_tests {
     #[test]
     fn test_admin_assign_coach_tool_metadata() {
         let tool = AdminAssignCoachTool;
-        assert_eq!(tool.definition().name, "admin_assign_coach");
+        assert_eq!(tool.definition().name, "admin_assign_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1349,7 +1349,7 @@ mod admin_tests {
     #[test]
     fn test_admin_unassign_coach_tool_metadata() {
         let tool = AdminUnassignCoachTool;
-        assert_eq!(tool.definition().name, "admin_unassign_coach");
+        assert_eq!(tool.definition().name, "admin_unassign_agent");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1360,7 +1360,7 @@ mod admin_tests {
     #[test]
     fn test_admin_list_coach_assignments_tool_metadata() {
         let tool = AdminListCoachAssignmentsTool;
-        assert_eq!(tool.definition().name, "admin_list_coach_assignments");
+        assert_eq!(tool.definition().name, "admin_list_agent_assignments");
         assert!(!tool.definition().description.is_empty());
 
         let caps = tool.capabilities();
@@ -1377,14 +1377,14 @@ mod admin_tests {
 
         let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
         let expected_names = [
-            "admin_list_system_coaches",
-            "admin_create_system_coach",
-            "admin_get_system_coach",
-            "admin_update_system_coach",
-            "admin_delete_system_coach",
-            "admin_assign_coach",
-            "admin_unassign_coach",
-            "admin_list_coach_assignments",
+            "admin_list_system_agents",
+            "admin_create_system_agent",
+            "admin_get_system_agent",
+            "admin_update_system_agent",
+            "admin_delete_system_agent",
+            "admin_assign_agent",
+            "admin_unassign_agent",
+            "admin_list_agent_assignments",
         ];
 
         for expected in expected_names {
