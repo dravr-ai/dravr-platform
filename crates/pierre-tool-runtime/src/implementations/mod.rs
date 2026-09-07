@@ -146,6 +146,8 @@ pub mod guided_flow;
 #[cfg(feature = "tools-memory")]
 pub mod memory;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
+/// recommend_plan_flavour — the profile through the selection rule, and the season it implies.
+pub mod plan_flavour;
 pub mod plan_scope;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]

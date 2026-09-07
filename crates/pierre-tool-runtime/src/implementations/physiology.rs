@@ -44,6 +44,7 @@ use crate::implementations::configuration::{
 };
 use crate::implementations::data_helpers::read_only_annotations;
 use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
+use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -958,6 +959,7 @@ pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(SetPhysiologyTool),
         Box::new(EstimateVo2maxTool),
         Box::new(EstimateLactateThresholdsTool),
+        Box::new(RecommendPlanFlavourTool),
     ]
 }
 

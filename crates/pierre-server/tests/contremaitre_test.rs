@@ -775,6 +775,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "prescribe_workout",
     "push_training_plan",
     "recall_user_memory",
+    "recommend_plan_flavour",
     "refresh_provider_data",
     "remember_fact",
     "save_recipe",

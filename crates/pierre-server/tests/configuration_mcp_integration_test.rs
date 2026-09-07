@@ -243,12 +243,14 @@ async fn test_configuration_tools_count_in_total() {
     // search_coach_store and install_coach_from_store added (99→102, total
     // 105→108) — the marketplace had no chat-callable surface at all.
     assert_eq!(
-        fitness_tools, 106,
-        "Expected exactly 106 non-configuration tools"
+        fitness_tools, 107,
+        "Expected exactly 107 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
     // 2026-09-05: estimate_lactate_thresholds added (105→106, total 111→112) — the
     // lactate step-test capture path, carnet#357.
-    assert_eq!(tools.len(), 112, "Expected total of 112 tools"); // 106 non-configuration + 6 configuration
+    // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
+    // profile through the selection rule and the season it implies, carnet#343.
+    assert_eq!(tools.len(), 113, "Expected total of 113 tools"); // 107 non-configuration + 6 configuration
 }

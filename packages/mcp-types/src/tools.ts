@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 112
+// Tool count: 113
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -1351,6 +1351,52 @@ export interface RecallUserMemoryParams {
 
 
 /**
+ * Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome — including any override the athlete or coach makes, with its reason — through save_training_plan. This only recommends; it writes nothing.
+ */
+export interface RecommendPlanFlavourParams {
+
+  /** A human coach reading a consenting athlete's profile from their own direct chat. */
+  athlete?: string;
+
+  /** A flavour id the coach's package pins. Outranks the table when the athlete can run it. */
+  coach_preference?: string;
+
+  /** The goal event. Omit to derive from the active plan's goal race. One of: run_5k, run_10k, half_marathon, marathon, ultra, crit, road_race, time_trial, gran_fondo, sprint_tri, olympic_tri, half_iron, ironman, open_water_swim, no_race. */
+  event_class?: string;
+
+  /** Hours the athlete trains in a typical week, from /calibrate Availability. */
+  hours_per_week: number;
+
+  /** From /calibrate Injury. One of: none, last_12_months. */
+  injury_load?: string;
+
+  /** Structured interval history. Omitted means none — the safe reading for an athlete about whom nothing is known. One of: none, some, two_seasons. */
+  interval_experience?: string;
+
+  /** What the athlete can steer intensity by. Omit to derive from stored thresholds; an athlete with none is read as effort. Entries from: lactate, power, pace, hr, rpe. */
+  measurements?: string[];
+
+  /** From /calibrate RecoverySpeed. Masters-style loading triggers on this, never on age. One of: fast, typical, limited. */
+  recovery_speed?: string;
+
+  /** Where in the season the athlete stands, if known. One of: off_season, base, pre_competition, competition. */
+  season_phase?: string;
+
+  /** Sessions in a typical week. */
+  sessions_per_week: number;
+
+  /** The sports trained. Omit to derive from the profile's primary sport. One of: running, cycling, triathlon, swimming, mixed. */
+  sport_mix?: string;
+
+  /** Years of structured training as a band. Omit to derive from the stored profile. One of: novice, recreational, trained, elite. */
+  training_age?: string;
+
+  /** Weeks until the goal race. Omit to derive from the active plan. */
+  weeks_to_goal?: number;
+}
+
+
+/**
  * Trigger a data refresh from a connected fitness provider. Use when the user's data seems outdated, when they ask about recent activities that aren't showing, or when they explicitly request a sync. Set wait=true to block until sync completes.
  */
 export interface RefreshProviderDataParams {
@@ -2175,6 +2221,7 @@ export const TOOL_NAMES = [
   "prescribe_workout",
   "push_training_plan",
   "recall_user_memory",
+  "recommend_plan_flavour",
   "refresh_provider_data",
   "remember_fact",
   "save_recipe",
@@ -2298,6 +2345,7 @@ export interface ToolParamsMap {
   "prescribe_workout": PrescribeWorkoutParams;
   "push_training_plan": PushTrainingPlanParams;
   "recall_user_memory": RecallUserMemoryParams;
+  "recommend_plan_flavour": RecommendPlanFlavourParams;
   "refresh_provider_data": RefreshProviderDataParams;
   "remember_fact": RememberFactParams;
   "save_recipe": SaveRecipeParams;

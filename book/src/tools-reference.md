@@ -68,8 +68,27 @@ Tools for setting fitness goals, tracking progress, and receiving AI-powered goa
 | `suggest_goals` | Get AI-suggested fitness goals based on activity history | `provider` (string) | `goal_category` (string) |
 | `analyze_goal_feasibility` | Analyze whether a goal is achievable given current fitness level | `goal_id` (string) | - |
 | `track_progress` | Track progress towards fitness goals | `goal_id` (string) | - |
+| `recommend_plan_flavour` | Choose the training flavour an athlete should run this season and lay the season out; ranks every flavour they can run with reasons and evidence, names every one they cannot with the reason, and lays the phases backward from the goal race | `hours_per_week` (number), `sessions_per_week` (integer) | `training_age` (string), `event_class` (string), `weeks_to_goal` (integer), `measurements` (array), `recovery_speed` (string), `injury_load` (string), `interval_experience` (string), `sport_mix` (string), `season_phase` (string), `coach_preference` (string), `athlete` (string) |
 
 ### Parameter Details
+
+**`recommend_plan_flavour` Parameters**:
+- Every closed-vocabulary parameter names its accepted words in its description;
+  a word outside the vocabulary is rejected with the real ones listed.
+- Omitted inputs are filled from storage where they can be: `training_age` from
+  the profile's fitness level, `measurements` from the thresholds on file (FTP →
+  power, threshold pace → pace, max HR → hr; none → effort), `sport_mix` from the
+  primary sport, `event_class` and `weeks_to_goal` from the active plan's goal
+  race. `interval_experience` omitted reads as `none`, the safe reading.
+- The response carries `verdict` (ranked, excluded with reasons, confidence,
+  missing inputs), `season` (the phases laid out, or `null` without a goal), and
+  `inputs` — every resolved value with its provenance (`argument`, `profile`,
+  `plan`, `default`) so the coach confirms before saving.
+- `athlete` names a coached athlete by roster display name; it goes through the
+  same consent gate as `get_training_plan`, so a human coach in a direct chat
+  reads that athlete's profile rather than their own.
+- The tool only recommends. The outcome — including any override and its reason
+  — is saved through `save_training_plan`.
 
 **`set_goal` Parameters**:
 - `goal_type`: Type of goal - `distance`, `time`, `frequency`, `performance`, or `custom`
