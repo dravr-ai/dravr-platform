@@ -220,6 +220,26 @@ if { [[ "$HAS_RUST_CHANGES" == "true" ]] || [[ "$HAS_MCP_TYPES_CHANGES" == "true
 fi
 
 # ============================================================================
+# TIER 1b-vocab: Agent Vocabulary (compile-free)
+# ============================================================================
+# carnet#366. The coach->agent rename audited clean and then drifted back the
+# same day: a route-block change landed on main carrying ten comments calling
+# the persona a coach. Not carelessness — decision D6 kept every identifier
+# spelling coach on purpose, so the code reads coach while the product speaks
+# agent, and each new line is written next to something pulling the wrong way.
+# A rename enforced by reading once is a snapshot; this is the fence.
+if [[ -f "$PROJECT_ROOT/scripts/ci/check-agent-vocabulary.sh" ]]; then
+    echo "Tier 1b-vocab: Agent Vocabulary"
+    echo "--------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-agent-vocabulary.sh"; then
+        echo ""
+        echo "FAIL: the AI persona is called a coach again!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1c: Phantom Surface Detection (compile-free)
 # ============================================================================
 # The dual rule says a capability nothing implements or calls is a phantom
