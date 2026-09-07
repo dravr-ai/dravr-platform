@@ -383,73 +383,63 @@ jobs:
 
     steps:
       - name: Install git
-        # The lockbud image's Debian mirrors fail intermittently: apt exits
-        # before checkout, so the job reds main with no analysis run — and
-        # because `publish-images.yml` gates on this workflow's conclusion, a
-        # red here also skips the dev deploy. Three shapes so far.
+        # The job needs git for checkout and for cargo's git dependencies,
+        # and the lockbud image ships without it. Its Debian mirrors fail in
+        # more ways than one, apt exits before checkout, the job reds main
+        # with no analysis run — and because `publish-images.yml` gates on
+        # this workflow's conclusion, a red here also skips the dev deploy.
         #
-        # A slow or refused mirror (2026-09-04/05): retry with backoff.
+        # What the image is: Debian 11.6 built from snapshot.debian.org at
+        # 20230411T000000Z — its own /etc/apt/sources.list still names that
+        # timestamp, commented out beside the live mirrors — with no apt
+        # lists baked in and perl-base 5.32.1-4+deb11u2 installed.
         #
-        # A cached 404 on deb.debian.org's CDN edges (2026-09-05, c2964a0fd):
-        # the perl deb11u5 files 404'd from every Fastly edge, http and https
-        # alike, while security.debian.org — the same archive under another
-        # hostname, so another cache key — served them. Retrying the same host
-        # cannot clear an edge's negative cache, so attempt 3 moves the
-        # security source.
+        # What went wrong, in order. A slow or refused mirror (2026-09-04/05):
+        # a retry. A cached 404 on deb.debian.org's Fastly edges (2026-09-05,
+        # c2964a0fd): security.debian.org is the same archive under another
+        # cache key. An index naming a perl revision the pool no longer serves
+        # (2026-09-06, 7e5df744e): bullseye left LTS on 2026-08-31 and its
+        # security pool is rotating off the live CDN edge by edge, so the
+        # 404 moved from one hostname to both on 2026-09-07 and no live host
+        # can be trusted to carry the file the index names. `--fix-missing`
+        # (2026-09-07) made it worse: it installs the subset it could fetch,
+        # which leaves dpkg half-configured, and the snapshot stage after it
+        # then died on "Unmet dependencies" without ever fetching a pool
+        # file. And snapshot.debian.org itself answers 429 and 503 under
+        # load (run 34142457669) — GitHub-hosted runners share egress IPs.
         #
-        # An index naming files the pool no longer carries (2026-09-06,
-        # 7e5df744e onward): every E: came from the INSTALL stage, never from
-        # update, and switching hosts changed which package 404'd rather than
-        # fixing it — libperl5.32 deb11u5 on deb.debian.org, then libexpat1
-        # deb11u7 on security.debian.org. `apt-get update` exits 0 when only
-        # some sources fail, and its per-source failures are warnings that
-        # `-qq` hides, so a partial refresh leaves the image's baked-in index
-        # in place and install then asks for versions that are gone. Hence:
-        # drop the cached lists so the index is genuinely rebuilt, make a
-        # partial refresh a hard failure with Error-Mode=any, and keep update's
-        # output. `--fix-missing` is apt's own suggestion and is the last
-        # resort before erroring.
+        # So: one attempt per live host (the fast path when they are
+        # healthy), then the image's OWN snapshot. At that timestamp the
+        # index names exactly the perl already installed, so git pulls no
+        # perl upgrade — fewer files to fetch, no index/pool skew possible,
+        # and a pin that never rotates. Rate limiting is the one failure the
+        # snapshot has left, and it is answered with backoff, not another
+        # mirror. The snapshot date is read from the image's sources.list so
+        # an image rebuild moves it; the literal is the fallback.
         run: |
           install_git() {
             rm -rf /var/lib/apt/lists/*
             apt-get update -o APT::Update::Error-Mode=any \
               && apt-get install -y -qq --no-install-recommends git
           }
-          for attempt in 1 2; do
-            install_git && exit 0
-            echo "apt attempt ${attempt} on deb.debian.org failed; retrying in $((attempt * 15))s"
-            sleep $((attempt * 15))
-          done
-          echo "deb.debian.org failed twice; moving the security source to security.debian.org"
+          install_git && exit 0
+          echo "deb.debian.org failed; moving the security source to security.debian.org"
           for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
             [ -f "$f" ] && sed -i 's|http://deb.debian.org/debian-security|http://security.debian.org/debian-security|g' "$f"
           done
           install_git && exit 0
-          echo "apt attempt 3 on security.debian.org failed; retrying in 30s"
-          sleep 30
-          install_git && exit 0
-          echo "both mirrors failed; trying --fix-missing, which apt itself suggests"
-          rm -rf /var/lib/apt/lists/*
-          apt-get update -o APT::Update::Error-Mode=any || true
-          apt-get install -y -qq --no-install-recommends --fix-missing git && exit 0
-          # Last resort: snapshot.debian.org. Everything above assumes the
-          # named revision still exists somewhere; on 2026-09-07 it did not.
-          # Debian drops a superseded point revision from the pool when the
-          # next lands, so an index naming deb11u5 against a pool holding
-          # deb11u7 404s from EVERY mirror — switching hosts finds the same
-          # absence, and rebuilding the index does not help while the mirror's
-          # own index lags its pool. snapshot.debian.org archives every
-          # revision permanently and each timestamp is internally consistent,
-          # so it is the one source that cannot 404 for this reason. Pinned
-          # rather than "latest" because a moving snapshot reintroduces the
-          # skew; bump the date when it ages out of usefulness.
-          echo "the pool no longer carries the revision the index names; falling back to snapshot.debian.org"
-          SNAP=20260901T000000Z
+          SNAP=$(sed -n 's|^# deb http://snapshot.debian.org/archive/debian/\([0-9TZ]*\) bullseye main.*|\1|p' /etc/apt/sources.list | head -1)
+          SNAP=${SNAP:-20230411T000000Z}
+          echo "both live mirrors failed; falling back to the image's own snapshot ${SNAP}"
           printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s bullseye main\ndeb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s bullseye-security main\n' "$SNAP" "$SNAP" > /etc/apt/sources.list
-          rm -rf /etc/apt/sources.list.d/* /var/lib/apt/lists/*
-          apt-get update -o Acquire::Check-Valid-Until=false && \
-            apt-get install -y -qq --no-install-recommends git && exit 0
-          echo "::error::git could not be installed in the lockbud container: deb.debian.org (2), security.debian.org (2), --fix-missing and snapshot.debian.org ${SNAP} all failed"
+          rm -rf /etc/apt/sources.list.d/*
+          for delay in 0 30 60 120; do
+            [ "$delay" -gt 0 ] && { echo "snapshot.debian.org attempt failed (it rate-limits shared runner egress); retrying in ${delay}s"; sleep "$delay"; }
+            rm -rf /var/lib/apt/lists/*
+            apt-get update -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 \
+              && apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 git && exit 0
+          done
+          echo "::error::git could not be installed in the lockbud container: deb.debian.org, security.debian.org, and snapshot.debian.org ${SNAP} (4 attempts) all failed — read the E: lines above to tell a 404 from a 429"
           exit 1
 
       - name: Checkout code
