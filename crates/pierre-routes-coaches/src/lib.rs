@@ -8,7 +8,7 @@
 //!
 //! Hosts three related REST surfaces:
 //!
-//! - `/api/coaches/{...}` + `/api/admin/coaches/{...}` — user-facing and
+//! - `/api/agents/{...}` + `/api/admin/agents/{...}` — user-facing and
 //!   admin-only coach CRUD, import/export (markdown + URL), import preview,
 //!   LLM-driven generation from a conversation, favorites, usage tracking,
 //!   hide/show, fork, version history, version diff, version revert.

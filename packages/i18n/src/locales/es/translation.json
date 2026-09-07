@@ -1134,6 +1134,21 @@
       "removed": "{0} ya no responde en esta conversación.",
       "user_updated": "Agente seleccionado: {0}."
     },
+    "agent-add": {
+      "description": "Traer uno de tus agentes instalados a esta conversación"
+    },
+    "agent-assign": {
+      "description": "Asignar un agente a un grupo concreto"
+    },
+    "agent-create": {
+      "description": "Redactar un nuevo agente a partir de esta conversación y confirmar para crearlo"
+    },
+    "agent-list": {
+      "description": "Listar tus agentes instalados — menciona @handle para un solo turno, /agent add @handle para vincularlo"
+    },
+    "agent-remove": {
+      "description": "Desvincular el agente de esta conversación"
+    },
     "answered_privately": "Te he respondido en privado: está en nuestro chat directo. Una sala puede reunir a varios atletas, así que las respuestas personales no se publican aquí.",
     "calibrate": {
       "complete_header": "Calibrado terminado — he retenido {0} respuestas de {1}.",
@@ -1147,23 +1162,8 @@
       "topic_injury": "tus lesiones y molestias recientes",
       "topic_recovery": "tu velocidad de recuperación"
     },
-    "coach-add": {
-      "description": "Traer uno de tus agentes instalados a esta conversación"
-    },
-    "coach-assign": {
-      "description": "Asignar un agente a un grupo concreto"
-    },
-    "coach-create": {
-      "description": "Redactar un nuevo agente a partir de esta conversación y confirmar para crearlo"
-    },
     "coach-invite": {
       "description": "Emitir el código de invitación del coach humano de este grupo"
-    },
-    "coach-list": {
-      "description": "Listar tus agentes instalados — menciona @handle para un solo turno, /agent add @handle para vincularlo"
-    },
-    "coach-remove": {
-      "description": "Desvincular el agente de esta conversación"
     },
     "confirm": {
       "description": "Aprobar una acción que el guardián de seguridad dejó en espera"
@@ -1258,6 +1258,7 @@
       "description": "Mostrar los comandos disponibles",
       "domain": {
         "account": "Cuenta",
+        "agent": "Agentes",
         "coach": "Coaching",
         "data": "Datos de actividad",
         "discover": "Catálogo de agentes",

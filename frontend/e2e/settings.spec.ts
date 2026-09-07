@@ -227,7 +227,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
   });
 
   // Mock coaches (the chat header and the @handle palette read this list)
-  await page.route('**/api/coaches**', async (route) => {
+  await page.route('**/api/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

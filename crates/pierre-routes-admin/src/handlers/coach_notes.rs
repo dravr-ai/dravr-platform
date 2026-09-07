@@ -91,7 +91,7 @@ impl From<CoachNote> for CoachNoteAuditRow {
     }
 }
 
-/// Response envelope for `GET /admin/coach-notes/audit`.
+/// Response envelope for `GET /admin/agent-notes/audit`.
 #[derive(Debug, Serialize)]
 pub struct CoachNoteAuditResponse {
     /// Audit rows for this page.
@@ -100,7 +100,7 @@ pub struct CoachNoteAuditResponse {
     pub total: usize,
 }
 
-/// Handle `GET /admin/coach-notes/audit`.
+/// Handle `GET /admin/agent-notes/audit`.
 ///
 /// Requires [`AdminPermission::ViewAuditLogs`] — coach notes contain
 /// user profile information the coach has derived from conversations,
@@ -169,7 +169,7 @@ pub struct SuppressResponse {
     pub changed: bool,
 }
 
-/// Handle `POST /api/admin/coach-notes/{note_id}/suppress`.
+/// Handle `POST /api/admin/agent-notes/{note_id}/suppress`.
 ///
 /// Flips `suppressed=true`. The chat pipeline's memory recall skips
 /// suppressed rows so the coach won't re-inject the note into a future
@@ -184,7 +184,7 @@ pub(crate) async fn handle_suppress_note(
     set_suppressed(context, admin_token, note_id, params, true).await
 }
 
-/// Handle `POST /api/admin/coach-notes/{note_id}/unsuppress`.
+/// Handle `POST /api/admin/agent-notes/{note_id}/unsuppress`.
 ///
 /// Inverse of [`handle_suppress_note`] — flips `suppressed=false` so the
 /// note becomes recallable again. Same idempotency contract.

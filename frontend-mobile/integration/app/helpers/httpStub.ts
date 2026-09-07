@@ -67,7 +67,7 @@ export const STAGE_PROGRESS = [
 /** A route answers with a fixed response, or computes one per request. */
 export type StubRoute = StubbedResponse | ((request: RecordedRequest) => StubbedResponse);
 
-/** Routes keyed by `"GET /api/coaches/abc/versions?limit=50"`. */
+/** Routes keyed by `"GET /api/agents/abc/versions?limit=50"`. */
 export type StubRoutes = Record<string, StubRoute>;
 
 /** Handle returned by {@link installHttpStub}. */

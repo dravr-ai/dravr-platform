@@ -171,8 +171,8 @@ breakdown. 3 SQLite integration tests + 4 frontend tests.
 
 Backend: new repository methods
 `list_pending_followups_for_tenant` + `cancel_followup`. Admin
-routes `GET /admin/coach-followups/pending` (ViewConfiguration) and
-`POST /admin/coach-followups/{id}/cancel` (ManageConfiguration).
+routes `GET /admin/agent-followups/pending` (ViewConfiguration) and
+`POST /admin/agent-followups/{id}/cancel` (ManageConfiguration).
 Frontend: overdue counter, agent/user filters, `ConfirmDialog`-
 guarded cancel.
 
@@ -183,7 +183,7 @@ guarded cancel.
 | `aad987a5` | Phase B Sprint C8 — `CoachNotesAuditTab` compliance audit log |
 
 Backend: `list_coach_notes_for_tenant` + admin route
-`GET /admin/coach-notes/audit` gated on
+`GET /admin/agent-notes/audit` gated on
 `AdminPermission::ViewAuditLogs` (stronger than `ViewConfiguration`
 because agent notes contain personal data the agent derived).
 Frontend: content search, scope/agent/user filters, per-scope

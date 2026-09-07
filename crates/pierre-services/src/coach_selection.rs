@@ -7,7 +7,7 @@
 //! Coach-selection recording.
 //!
 //! Four surfaces bind a coach to a conversation — `POST
-//! /api/coaches/{id}/usage` (what the web Coaches UI and onboarding
+//! /api/agents/{id}/usage` (what the web Coaches UI and onboarding
 //! proposal call when the athlete picks one), web chat conversation
 //! creation, the `/coach add` slash command, and messaging session
 //! creation. All four bump the same `coach_assignments.use_count`, so all
@@ -42,7 +42,7 @@ use uuid::Uuid;
 /// without changing its contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoachSelectionSource {
-    /// `POST /api/coaches/{id}/usage` — the web Coaches UI and the
+    /// `POST /api/agents/{id}/usage` — the web Coaches UI and the
     /// onboarding proposal. An explicit pick.
     Rest,
     /// The `/coach add` (or `/coach assign`) slash command on any chat

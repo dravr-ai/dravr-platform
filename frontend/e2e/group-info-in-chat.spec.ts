@@ -344,7 +344,7 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
 
-  await page.route('**/api/coaches**', async (route) => {
+  await page.route('**/api/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

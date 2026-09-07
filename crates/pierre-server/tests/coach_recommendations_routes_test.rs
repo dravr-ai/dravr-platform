@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests for GET /api/coaches?personalize=true end-to-end
+// ABOUTME: Integration tests for GET /api/agents?personalize=true end-to-end
 // ABOUTME: Verifies match_score/recommended wiring, serialization, and cold-start behavior
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -32,7 +32,7 @@ async fn setup() -> (axum::Router, String) {
 
 /// Create a coach via the API so the list has something to score.
 async fn create_coach(router: &axum::Router, auth: &str, title: &str) {
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .header("authorization", auth)
         .json(&json!({
             "title": title,
@@ -52,7 +52,7 @@ async fn personalize_true_tags_coaches_with_score_and_recommended() {
     let (router, auth) = setup().await;
     create_coach(&router, &auth, "Personalize Coach").await;
 
-    let response = AxumTestRequest::get("/api/coaches?personalize=true")
+    let response = AxumTestRequest::get("/api/agents?personalize=true")
         .header("authorization", &auth)
         .send(router)
         .await;
@@ -85,7 +85,7 @@ async fn personalize_absent_omits_recommendation_fields() {
     let (router, auth) = setup().await;
     create_coach(&router, &auth, "Plain Coach").await;
 
-    let response = AxumTestRequest::get("/api/coaches")
+    let response = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth)
         .send(router)
         .await;
@@ -105,7 +105,7 @@ async fn personalize_absent_omits_recommendation_fields() {
 /// A coach carrying the `coach-tool` tag is a coach-facing builder: it stays
 /// hidden from a default (athlete) user's library and only appears once the
 /// user switches to the Coach persona. Gates the library list for both the
-/// `/api/coaches` and `/api/coaches/proposal` paths, which share the same
+/// `/api/agents` and `/api/agents/proposal` paths, which share the same
 /// `user_sees_coach_tools` filter.
 #[tokio::test]
 async fn coach_tool_tagged_coach_hidden_from_athletes_shown_to_coaches() {
@@ -117,7 +117,7 @@ async fn coach_tool_tagged_coach_hidden_from_athletes_shown_to_coaches() {
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // A coach-facing builder (carries the coach-tool tag).
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Taper Builder",
@@ -129,7 +129,7 @@ async fn coach_tool_tagged_coach_hidden_from_athletes_shown_to_coaches() {
     assert_eq!(response.status_code(), StatusCode::CREATED);
 
     // Athlete (default Casual persona) must not see the coach-facing builder.
-    let list: ListCoachesResponse = AxumTestRequest::get("/api/coaches")
+    let list: ListCoachesResponse = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth)
         .send(router.clone())
         .await
@@ -145,7 +145,7 @@ async fn coach_tool_tagged_coach_hidden_from_athletes_shown_to_coaches() {
         .set_coaching_persona(user_id, CoachingPersona::Coach)
         .await
         .unwrap();
-    let list: ListCoachesResponse = AxumTestRequest::get("/api/coaches")
+    let list: ListCoachesResponse = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth)
         .send(router)
         .await

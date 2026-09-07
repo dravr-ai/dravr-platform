@@ -25,7 +25,7 @@ use super::types::{
     RevertVersionResponse,
 };
 
-/// Handle GET /api/coaches/:id/versions - List version history
+/// Handle GET /api/agents/:id/versions - List version history
 pub(super) async fn handle_list_versions<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -72,7 +72,7 @@ pub(super) async fn handle_list_versions<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /api/coaches/:id/versions/:version/revert - Revert to a version
+/// Handle POST /api/agents/:id/versions/:version/revert - Revert to a version
 pub(super) async fn handle_revert_version<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -97,7 +97,7 @@ pub(super) async fn handle_revert_version<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/coaches/:id/versions/:v1/diff/:v2 - Compare two versions
+/// Handle GET /api/agents/:id/versions/:v1/diff/:v2 - Compare two versions
 pub(super) async fn handle_diff_versions<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,

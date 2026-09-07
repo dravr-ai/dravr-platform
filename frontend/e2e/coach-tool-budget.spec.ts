@@ -105,14 +105,14 @@ async function setupCoachMocks(
   const metadata = () => ({ timestamp: new Date().toISOString(), api_version: '1.0' });
 
   // The catalogue: one listing, no next page.
-  await page.route(/\/api\/store\/coaches(\?.*)?$/, async (route) => {
+  await page.route(/\/api\/store\/agents(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ coaches: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
     });
   });
-  await page.route(`**/api/store/coaches/${STORE_ID}`, async (route) => {
+  await page.route(`**/api/store/agents/${STORE_ID}`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -125,8 +125,8 @@ async function setupCoachMocks(
     });
   });
 
-  // List (with or without query string) — never the /api/coaches/<id> sub-path.
-  await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
+  // List (with or without query string) — never the /api/agents/<id> sub-path.
+  await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') {
       await route.fallback();
       return;
@@ -140,7 +140,7 @@ async function setupCoachMocks(
 
   // Single coach: the GET the sheet loads with, the PUT it sends, plus the
   // hidden-coaches sibling.
-  await page.route(/\/api\/coaches\/[^/?]+(\?.*)?$/, async (route) => {
+  await page.route(/\/api\/agents\/[^/?]+(\?.*)?$/, async (route) => {
     const request = route.request();
     if (request.url().includes('/coaches/hidden')) {
       await route.fulfill({
@@ -204,7 +204,7 @@ async function saveCoach(page: Page) {
   // round-trip assertions a genuine server round-trip.
   const listRefetched = page.waitForResponse(
     (response) =>
-      response.request().method() === 'GET' && /\/api\/coaches(\?.*)?$/.test(response.url()),
+      response.request().method() === 'GET' && /\/api\/agents(\?.*)?$/.test(response.url()),
     { timeout: 10000 },
   );
   await page.getByRole('button', { name: 'Save Changes' }).click();

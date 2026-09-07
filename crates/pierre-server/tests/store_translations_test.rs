@@ -92,7 +92,7 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
         .update_locale(user_id, "en")
         .await
         .expect("set en");
-    let browse = get_json(&resources, &token, "/api/store/coaches").await;
+    let browse = get_json(&resources, &token, "/api/store/agents").await;
     assert_eq!(
         title_of(browse["coaches"].as_array().unwrap(), &id),
         "Marathon Coach"
@@ -104,13 +104,13 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
         .update_locale(user_id, "fr")
         .await
         .expect("set fr");
-    let browse = get_json(&resources, &token, "/api/store/coaches").await;
+    let browse = get_json(&resources, &token, "/api/store/agents").await;
     assert_eq!(
         title_of(browse["coaches"].as_array().unwrap(), &id),
         "Coach marathon"
     );
 
-    let detail = get_json(&resources, &token, &format!("/api/store/coaches/{id}")).await;
+    let detail = get_json(&resources, &token, &format!("/api/store/agents/{id}")).await;
     assert_eq!(detail["title"], "Coach marathon");
     assert_eq!(detail["description"], "Pour courir loin, longtemps.");
     // The tag chips are the locale's own words, not the English fixture's.
@@ -180,12 +180,7 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
         .update_locale(user_id, "fr")
         .await
         .expect("set fr");
-    let detail = get_json(
-        &resources,
-        &token,
-        &format!("/api/store/coaches/{coach_id}"),
-    )
-    .await;
+    let detail = get_json(&resources, &token, &format!("/api/store/agents/{coach_id}")).await;
     assert_eq!(detail["title"], "Coach récupération");
     assert_eq!(
         detail["tags"]
@@ -261,7 +256,7 @@ async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
         .expect("set fr");
 
     // The chip she reads.
-    let detail = get_json(&resources, &token, &format!("/api/store/coaches/{id}")).await;
+    let detail = get_json(&resources, &token, &format!("/api/store/agents/{id}")).await;
     assert_eq!(
         detail["tags"]
             .as_array()

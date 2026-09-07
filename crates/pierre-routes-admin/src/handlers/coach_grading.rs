@@ -40,7 +40,7 @@ pub struct CoachGradingQuery {
     pub limit: Option<i64>,
 }
 
-/// Handle `GET /admin/coach-grading/summary`.
+/// Handle `GET /admin/agent-grading/summary`.
 pub(crate) async fn handle_get_summary(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,

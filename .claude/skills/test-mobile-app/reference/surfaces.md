@@ -67,7 +67,7 @@ route. Users cannot navigate out; they exit by completing the step.
 |---|---|---|---|---|
 | Profile type | `/(onboarding)/profile-type` | `OnboardingProfileTypeScreen` | `profile-type-screen` | Athlete vs coach choice. Completion is AsyncStorage: `dravr.profile_type_chosen.<userId>` = `'1'`. |
 | Connect provider | `/(onboarding)/connect` | `OnboardingConnectScreen` | `onboarding-screen` | Provider cards from `/api/providers`. "Welcome" heading. A user with a live connection must pass through, not hard-gate. |
-| Coach proposal | `/(onboarding)/coach-proposal` | `OnboardingCoachProposalScreen` | `coach-proposal-screen` | Proposed coaches, non-empty for a user with activities. Completion: `dravr.coach_proposal_done.<userId>` = `'1'`. |
+| Coach proposal | `/(onboarding)/agent-proposal` | `OnboardingCoachProposalScreen` | `coach-proposal-screen` | Proposed coaches, non-empty for a user with activities. Completion: `dravr.coach_proposal_done.<userId>` = `'1'`. |
 | Messaging channel | `/(onboarding)/messaging-channel` | `OnboardingMessagingChannelScreen` | `messaging-channel-screen` | Channel list from `messagingApi.getAvailableChannels`. |
 | Messaging configure | `/(onboarding)/messaging-configure` | `OnboardingMessagingConfigureScreen` | `messaging-configure-screen` | `messaging-qr` renders a real link token, not a placeholder. |
 

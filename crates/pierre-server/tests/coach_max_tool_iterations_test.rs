@@ -61,7 +61,7 @@ async fn setup() -> (axum::Router, String, Arc<ServerContext>, TenantId) {
 async fn create_coach_persists_max_tool_iterations_to_the_turn_path() {
     let (router, auth, resources, tenant_id) = setup().await;
 
-    let created: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let created: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Deep Analysis Coach",
@@ -74,7 +74,7 @@ async fn create_coach_persists_max_tool_iterations_to_the_turn_path() {
 
     assert_eq!(created.max_tool_iterations, Some(27));
 
-    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .send(router)
         .await
@@ -98,7 +98,7 @@ async fn create_coach_persists_max_tool_iterations_to_the_turn_path() {
 async fn create_coach_without_a_budget_leaves_the_coach_inheriting() {
     let (router, auth, resources, tenant_id) = setup().await;
 
-    let created: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let created: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Inheriting Coach",
@@ -126,7 +126,7 @@ async fn create_coach_without_a_budget_leaves_the_coach_inheriting() {
 async fn update_coach_writes_a_new_budget_and_keeps_it_when_omitted() {
     let (router, auth, _resources, _tenant_id) = setup().await;
 
-    let created: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let created: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Adjustable Coach",
@@ -138,7 +138,7 @@ async fn update_coach_writes_a_new_budget_and_keeps_it_when_omitted() {
         .json();
     assert_eq!(created.max_tool_iterations, Some(12));
 
-    let updated: CoachResponse = AxumTestRequest::put(&format!("/api/coaches/{}", created.id))
+    let updated: CoachResponse = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .json(&json!({ "max_tool_iterations": 7 }))
         .send(router.clone())
@@ -147,7 +147,7 @@ async fn update_coach_writes_a_new_budget_and_keeps_it_when_omitted() {
     assert_eq!(updated.max_tool_iterations, Some(7));
 
     // An update that says nothing about the budget leaves the stored value.
-    let renamed: CoachResponse = AxumTestRequest::put(&format!("/api/coaches/{}", created.id))
+    let renamed: CoachResponse = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .json(&json!({ "title": "Renamed Coach" }))
         .send(router)
@@ -161,7 +161,7 @@ async fn update_coach_writes_a_new_budget_and_keeps_it_when_omitted() {
 async fn update_coach_omitting_the_budget_keeps_the_stored_one_on_the_turn_path() {
     let (router, auth, resources, tenant_id) = setup().await;
 
-    let created: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let created: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Pinned Coach",
@@ -175,7 +175,7 @@ async fn update_coach_omitting_the_budget_keeps_the_stored_one_on_the_turn_path(
 
     // The web form omits an untouched field. Absent must mean preserve, all the
     // way down to the column the chat turn reads.
-    let renamed: CoachResponse = AxumTestRequest::put(&format!("/api/coaches/{}", created.id))
+    let renamed: CoachResponse = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .json(&json!({ "title": "Renamed Pinned Coach" }))
         .send(router)
@@ -200,7 +200,7 @@ async fn update_coach_omitting_the_budget_keeps_the_stored_one_on_the_turn_path(
 async fn update_coach_with_an_explicit_null_clears_the_budget_back_to_the_admin_value() {
     let (router, auth, resources, tenant_id) = setup().await;
 
-    let created: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let created: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Unpinnable Coach",
@@ -214,7 +214,7 @@ async fn update_coach_with_an_explicit_null_clears_the_budget_back_to_the_admin_
 
     // An explicit null is the form clearing the box: it must reset the pin,
     // which an absent field (preserve) can never do.
-    let cleared: CoachResponse = AxumTestRequest::put(&format!("/api/coaches/{}", created.id))
+    let cleared: CoachResponse = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .json(&json!({ "max_tool_iterations": null }))
         .send(router.clone())
@@ -222,7 +222,7 @@ async fn update_coach_with_an_explicit_null_clears_the_budget_back_to_the_admin_
         .json();
     assert_eq!(cleared.max_tool_iterations, None);
 
-    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .send(router)
         .await
@@ -258,7 +258,7 @@ async fn update_coach_with_an_explicit_null_clears_the_budget_back_to_the_admin_
 async fn create_coach_accepts_both_ends_of_the_band() {
     let (router, auth, _resources, _tenant_id) = setup().await;
 
-    let floor: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let floor: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Floor Coach",
@@ -270,7 +270,7 @@ async fn create_coach_accepts_both_ends_of_the_band() {
         .json();
     assert_eq!(floor.max_tool_iterations, Some(1));
 
-    let ceiling: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let ceiling: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Ceiling Coach",
@@ -291,7 +291,7 @@ async fn create_coach_accepts_both_ends_of_the_band() {
 async fn create_coach_rejects_a_budget_above_the_ceiling() {
     let (router, auth, _resources, _tenant_id) = setup().await;
 
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Runaway Coach",
@@ -304,7 +304,7 @@ async fn create_coach_rejects_a_budget_above_the_ceiling() {
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
 
     // The rejected create left no coach behind.
-    let listed: serde_json::Value = AxumTestRequest::get("/api/coaches")
+    let listed: serde_json::Value = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth)
         .send(router)
         .await
@@ -316,7 +316,7 @@ async fn create_coach_rejects_a_budget_above_the_ceiling() {
 async fn create_coach_rejects_a_budget_below_the_floor() {
     let (router, auth, _resources, _tenant_id) = setup().await;
 
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Zero Coach",
@@ -333,7 +333,7 @@ async fn create_coach_rejects_a_budget_below_the_floor() {
 async fn update_coach_rejects_an_explicit_budget_above_the_ceiling() {
     let (router, auth, _resources, _tenant_id) = setup().await;
 
-    let created: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let created: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Capped Coach",
@@ -346,14 +346,14 @@ async fn update_coach_rejects_an_explicit_budget_above_the_ceiling() {
 
     // Clearing is the only way past the bounds check; a supplied number is
     // still range-checked exactly as before.
-    let response = AxumTestRequest::put(&format!("/api/coaches/{}", created.id))
+    let response = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .json(&json!({ "max_tool_iterations": i32::from(MAX_MAX_TOOL_ITERATIONS) + 1 }))
         .send(router.clone())
         .await;
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
 
-    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .send(router)
         .await
@@ -365,7 +365,7 @@ async fn update_coach_rejects_an_explicit_budget_above_the_ceiling() {
 async fn update_coach_rejects_an_out_of_range_budget_and_keeps_the_stored_one() {
     let (router, auth, _resources, _tenant_id) = setup().await;
 
-    let created: CoachResponse = AxumTestRequest::post("/api/coaches")
+    let created: CoachResponse = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth)
         .json(&json!({
             "title": "Guarded Coach",
@@ -376,14 +376,14 @@ async fn update_coach_rejects_an_out_of_range_budget_and_keeps_the_stored_one() 
         .await
         .json();
 
-    let response = AxumTestRequest::put(&format!("/api/coaches/{}", created.id))
+    let response = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .json(&json!({ "max_tool_iterations": -4 }))
         .send(router.clone())
         .await;
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
 
-    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let fetched: CoachResponse = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)
         .send(router)
         .await

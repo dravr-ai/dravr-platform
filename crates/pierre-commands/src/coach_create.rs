@@ -218,7 +218,7 @@ async fn park(ctx: &PlatformCommandContext, proposal: CoachProposal) -> Result<S
 /// conversation.
 ///
 /// Reached from the claim path once the athlete's `confirm` won the
-/// single-use claim. The per-user coach quota is the one `POST /api/coaches`
+/// single-use claim. The per-user coach quota is the one `POST /api/agents`
 /// enforces, read at this moment rather than at drafting time so a coach
 /// deleted in between counts. The new coach is given its catalogue handle
 /// right away — `@handle` and `/coach add @handle` reach it from its first

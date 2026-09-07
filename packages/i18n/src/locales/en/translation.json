@@ -1134,6 +1134,21 @@
       "removed": "{0} no longer answers in this conversation.",
       "user_updated": "Agent selected: {0}."
     },
+    "agent-add": {
+      "description": "Bring one of your installed agents into this conversation"
+    },
+    "agent-assign": {
+      "description": "Assign an agent to a specific group"
+    },
+    "agent-create": {
+      "description": "Draft a new agent from this conversation, then confirm to create it"
+    },
+    "agent-list": {
+      "description": "List your installed agents — mention @handle for one turn, /agent add @handle to bind"
+    },
+    "agent-remove": {
+      "description": "Detach this conversation's agent"
+    },
     "answered_privately": "I've answered you privately — it's in our direct chat. A room can hold several athletes, so personal answers aren't posted here.",
     "calibrate": {
       "complete_header": "Calibration done — I captured {0} of {1} answers.",
@@ -1147,23 +1162,8 @@
       "topic_injury": "your recent injuries and niggles",
       "topic_recovery": "how fast you recover"
     },
-    "coach-add": {
-      "description": "Bring one of your installed agents into this conversation"
-    },
-    "coach-assign": {
-      "description": "Assign an agent to a specific group"
-    },
-    "coach-create": {
-      "description": "Draft a new agent from this conversation, then confirm to create it"
-    },
     "coach-invite": {
       "description": "Issue this group's human-coach invite code"
-    },
-    "coach-list": {
-      "description": "List your installed agents — mention @handle for one turn, /agent add @handle to bind"
-    },
-    "coach-remove": {
-      "description": "Detach this conversation's agent"
     },
     "confirm": {
       "description": "Approve an action the security guardian put on hold"
@@ -1258,6 +1258,7 @@
       "description": "Show available commands",
       "domain": {
         "account": "Account",
+        "agent": "Agents",
         "coach": "Coaching",
         "data": "Fitness data",
         "discover": "Agent catalogue",

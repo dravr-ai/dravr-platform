@@ -65,7 +65,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
 
   // For non-admin users, mock the user coaches endpoint the chat mention palette reads
   if (!isAdmin) {
-    await page.route('**/api/coaches', async (route) => {
+    await page.route('**/api/agents', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -76,7 +76,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
   }
 
   // Mock admin coaches endpoints
-  await page.route('**/api/admin/coaches', async (route) => {
+  await page.route('**/api/admin/agents', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -119,7 +119,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
   });
 
   // Individual coach operations
-  await page.route('**/api/admin/coaches/*', async (route) => {
+  await page.route('**/api/admin/agents/*', async (route) => {
     const url = route.request().url();
 
     // Skip assignment endpoints
@@ -155,7 +155,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
   });
 
   // Assignment endpoints
-  await page.route('**/api/admin/coaches/*/assign', async (route) => {
+  await page.route('**/api/admin/agents/*/assign', async (route) => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
       await route.fulfill({
@@ -183,7 +183,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
   });
 
   // Assignments list endpoint
-  await page.route('**/api/admin/coaches/*/assignments', async (route) => {
+  await page.route('**/api/admin/agents/*/assignments', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -333,7 +333,7 @@ test.describe('Create Agent Form', () => {
 
     let createCalled = false;
     let createdData: Record<string, unknown> = {};
-    await page.route('**/api/admin/coaches', async (route) => {
+    await page.route('**/api/admin/agents', async (route) => {
       if (route.request().method() === 'POST') {
         createCalled = true;
         createdData = route.request().postDataJSON();
@@ -502,7 +502,7 @@ test.describe('Edit Agent Form', () => {
     await setupCoachesMocks(page, { isAdmin: true });
 
     let updateCalled = false;
-    await page.route('**/api/admin/coaches/*', async (route) => {
+    await page.route('**/api/admin/agents/*', async (route) => {
       const url = route.request().url();
       if (url.includes('/assign') || url.includes('/assignments')) {
         await route.continue();
@@ -580,7 +580,7 @@ test.describe('Delete Agent', () => {
     await setupCoachesMocks(page, { isAdmin: true });
 
     let deleteCalled = false;
-    await page.route('**/api/admin/coaches/*', async (route) => {
+    await page.route('**/api/admin/agents/*', async (route) => {
       const url = route.request().url();
       if (url.includes('/assign') || url.includes('/assignments')) {
         await route.continue();
@@ -676,7 +676,7 @@ test.describe('User Assignments', () => {
 
     let assignCalled = false;
     let assignedUserIds: string[] = [];
-    await page.route('**/api/admin/coaches/*/assign', async (route) => {
+    await page.route('**/api/admin/agents/*/assign', async (route) => {
       if (route.request().method() === 'POST') {
         assignCalled = true;
         const body = route.request().postDataJSON();
@@ -723,7 +723,7 @@ test.describe('User Assignments', () => {
     // Override assignments mock to return empty
     await setupDashboardMocks(page, { role: 'admin' });
 
-    await page.route('**/api/admin/coaches', async (route) => {
+    await page.route('**/api/admin/agents', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -731,7 +731,7 @@ test.describe('User Assignments', () => {
       });
     });
 
-    await page.route('**/api/admin/coaches/*', async (route) => {
+    await page.route('**/api/admin/agents/*', async (route) => {
       const url = route.request().url();
       if (url.includes('/assignments')) {
         await route.fulfill({
@@ -766,7 +766,7 @@ test.describe('Error Handling', () => {
   test('shows error when failing to load agents', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    await page.route('**/api/admin/coaches', async (route) => {
+    await page.route('**/api/admin/agents', async (route) => {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -786,7 +786,7 @@ test.describe('Error Handling', () => {
   test('shows error when create fails', async ({ page }) => {
     await setupCoachesMocks(page, { isAdmin: true });
 
-    await page.route('**/api/admin/coaches', async (route) => {
+    await page.route('**/api/admin/agents', async (route) => {
       if (route.request().method() === 'POST') {
         await route.fulfill({
           status: 400,

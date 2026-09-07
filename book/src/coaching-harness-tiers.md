@@ -434,7 +434,7 @@ A–F letter grade. Weighting: `supported +1`, `unsupported +0.25`,
 `contradicted -1`. Agents with fewer than 3 scored verdicts get a
 `Provisional` grade. Sorted worst-first so admins can review the
 bottom of the leaderboard. Admin route
-`GET /admin/coach-grading/summary` exposes it to the
+`GET /admin/agent-grading/summary` exposes it to the
 `CoachGradingTab`. The score is intended to feed store ranking in a
 follow-up integration sprint.
 

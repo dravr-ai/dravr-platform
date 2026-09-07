@@ -20,7 +20,7 @@ vi.mock('../../services/api', () => ({
 }));
 
 /**
- * What `GET /api/coaches` hands the composer: the athlete's two installed
+ * What `GET /api/agents` hands the composer: the athlete's two installed
  * coaches, a personal coach with no handle (never addressable), and a
  * catalogue coach they never installed — which the server would refuse to
  * resolve, so the palette must not offer it either.

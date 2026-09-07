@@ -95,7 +95,7 @@ test.describe('Conversation Management Actions', () => {
         body: JSON.stringify({ providers: [] }),
       });
     });
-    await page.route('**/api/coaches**', async (route) => {
+    await page.route('**/api/agents**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

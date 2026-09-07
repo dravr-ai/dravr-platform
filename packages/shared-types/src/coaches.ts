@@ -102,7 +102,7 @@ export interface Coach {
   max_tool_iterations?: number;
 }
 
-// -- Onboarding coach proposal (GET /api/coaches/proposal) --
+// -- Onboarding coach proposal (GET /api/agents/proposal) --
 
 /** One sport's share of the user's recent activity mix. */
 export interface SportShare {
@@ -138,7 +138,7 @@ export interface ProposedCoach {
   reason: string;
 }
 
-/** Response for GET /api/coaches/proposal. */
+/** Response for GET /api/agents/proposal. */
 export interface CoachProposalResponse {
   /** The inferred sport profile shown before the agent list */
   profile: SportProfileSummary;

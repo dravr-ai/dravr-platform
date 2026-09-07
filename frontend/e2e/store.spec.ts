@@ -61,7 +61,7 @@ const mockCoachDetail = {
 };
 
 // Installing a store coach mints a personal copy: a fresh id with `forked_from`
-// pointing back at the store listing. Both GET /api/coaches and
+// pointing back at the store listing. Both GET /api/agents and
 // GET /api/store/installations return those copies, never the listing itself.
 function personalCopyOf(storeCoach: (typeof mockStoreCoaches)[number]) {
   return {
@@ -129,8 +129,8 @@ async function setupStoreMocks(
   // Mock user coaches endpoint (required for sidebar, and the source of the
   // `forked_from` mapping the store uses to recognize an installed coach).
   // The regex also matches the `?include_hidden=true&personalize=true` variant
-  // while leaving sub-paths like /api/coaches/<id> to the mocks below.
-  await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
+  // while leaving sub-paths like /api/agents/<id> to the mocks below.
+  await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -142,7 +142,7 @@ async function setupStoreMocks(
     });
   });
 
-  // Mock store installations endpoint (must come before /api/store/coaches/*)
+  // Mock store installations endpoint (must come before /api/store/agents/*)
   await page.route('**/api/store/installations', async (route) => {
     await route.fulfill({
       status: 200,
@@ -181,10 +181,10 @@ async function setupStoreMocks(
   });
 
   // Mock individual coach detail and install/uninstall endpoints
-  // This pattern matches /api/store/coaches/{id} and /api/store/coaches/{id}/install
-  await page.route('**/api/store/coaches/*/**', async (route) => {
+  // This pattern matches /api/store/agents/{id} and /api/store/agents/{id}/install
+  await page.route('**/api/store/agents/*/**', async (route) => {
     const url = route.request().url();
-    const pathId = url.split('/api/store/coaches/')[1]?.split('/')[0] ?? '';
+    const pathId = url.split('/api/store/agents/')[1]?.split('/')[0] ?? '';
 
     // Install takes the store listing id and rejects a second install
     if (url.includes('/install') && route.request().method() === 'POST') {
@@ -247,7 +247,7 @@ async function setupStoreMocks(
   });
 
   // Mock individual coach GET endpoint (must be separate for single segment match)
-  await page.route(/\/api\/store\/coaches\/[^/]+$/, async (route) => {
+  await page.route(/\/api\/store\/agents\/[^/]+$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -256,7 +256,7 @@ async function setupStoreMocks(
   });
 
   // Mock store browse endpoint (handles query params)
-  await page.route(/\/api\/store\/coaches(\?.*)?$/, async (route) => {
+  await page.route(/\/api\/store\/agents(\?.*)?$/, async (route) => {
     if (failStore) {
       await route.fulfill({
         status: 500,
@@ -440,7 +440,7 @@ test.describe('Agent Store Pagination', () => {
     await setupDashboardMocks(page, { role: 'user' });
 
     // Mock user coaches endpoint
-    await page.route('**/api/coaches', async (route) => {
+    await page.route('**/api/agents', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -465,7 +465,7 @@ test.describe('Agent Store Pagination', () => {
     let requestCount = 0;
 
     // Mock store browse endpoint with cursor pagination
-    await page.route(/\/api\/store\/coaches(\?.*)?$/, async (route) => {
+    await page.route(/\/api\/store\/agents(\?.*)?$/, async (route) => {
       const url = new URL(route.request().url());
       const cursor = url.searchParams.get('cursor');
       requestCount++;
@@ -888,7 +888,7 @@ test.describe('Agent Store Add/Remove', () => {
     await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
 
     expect(deleteUrls).toHaveLength(1);
-    expect(deleteUrls[0]).toContain('/api/store/coaches/installed-copy-of-store-coach-1/install');
+    expect(deleteUrls[0]).toContain('/api/store/agents/installed-copy-of-store-coach-1/install');
   });
 });
 
@@ -913,7 +913,7 @@ test.describe('Agent Store Failures', () => {
   test('surfaces a failed install instead of showing nothing', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     // Registered after setupStoreMocks so it wins over the success handler
-    await page.route('**/api/store/coaches/store-coach-1/install', async (route) => {
+    await page.route('**/api/store/agents/store-coach-1/install', async (route) => {
       if (route.request().method() === 'POST') {
         await route.fulfill({
           status: 400,
@@ -974,7 +974,7 @@ test.describe('Agent Store Navigation', () => {
     // Start with the agent already installed
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
     const copy = personalCopyOf(mockStoreCoaches[0]);
-    await page.route(`**/api/coaches/${copy.id}`, async (route) => {
+    await page.route(`**/api/agents/${copy.id}`, async (route) => {
       if (route.request().method() === 'GET') {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(copy) });
         return;

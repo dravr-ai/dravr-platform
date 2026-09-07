@@ -18,7 +18,7 @@
 //! their stamp, the same rule the coaching prompt applies on replay.
 //!
 //! Creation itself goes through `CoachesRepository::create` under the same
-//! per-user quota `POST /api/coaches` enforces, read here by [`coach_quota`]
+//! per-user quota `POST /api/agents` enforces, read here by [`coach_quota`]
 //! so the two creation surfaces cannot drift.
 
 use std::sync::Arc;
@@ -270,7 +270,7 @@ impl CoachQuota {
 
 /// Read the user's coach count against `usage_quotas.max_coaches_per_user`.
 ///
-/// One read for `POST /api/coaches` and `/coach create confirm`, so the two
+/// One read for `POST /api/agents` and `/coach create confirm`, so the two
 /// creation surfaces enforce the same cap. Resolved per user, then tenant,
 /// then system-wide; a missing value — or no admin config at all — falls to
 /// [`DEFAULT_MAX_COACHES_PER_USER`].

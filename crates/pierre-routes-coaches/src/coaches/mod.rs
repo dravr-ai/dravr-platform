@@ -44,59 +44,59 @@ pub use types::{
 /// auto-send so both surfaces propose identically.
 pub use user::build_coach_proposal;
 
-/// Build the user-facing coaches router under `/api/coaches/{...}`.
+/// Build the user-facing coaches router under `/api/agents/{...}`.
 pub fn build_coaches_router<C>() -> Router<Arc<C>>
 where
     C: CoachesCtx + MiddlewareCtx + ToolRuntime,
 {
     Router::new()
-        .route("/api/coaches", get(user::handle_list::<C>))
-        .route("/api/coaches", post(user::handle_create::<C>))
-        .route("/api/coaches/search", get(user::handle_search::<C>))
-        .route("/api/coaches/proposal", get(user::handle_proposal::<C>))
-        .route("/api/coaches/hidden", get(user::handle_list_hidden::<C>))
-        .route("/api/coaches/import", post(user::handle_import::<C>))
+        .route("/api/agents", get(user::handle_list::<C>))
+        .route("/api/agents", post(user::handle_create::<C>))
+        .route("/api/agents/search", get(user::handle_search::<C>))
+        .route("/api/agents/proposal", get(user::handle_proposal::<C>))
+        .route("/api/agents/hidden", get(user::handle_list_hidden::<C>))
+        .route("/api/agents/import", post(user::handle_import::<C>))
         .route(
-            "/api/coaches/import/preview",
+            "/api/agents/import/preview",
             post(user::handle_import_preview::<C>),
         )
         .route(
-            "/api/coaches/import/url",
+            "/api/agents/import/url",
             post(user::handle_import_from_url::<C>),
         )
         .route(
-            "/api/coaches/by-handle/{handle}",
+            "/api/agents/by-handle/{handle}",
             get(handle::handle_get_by_handle::<C>),
         )
-        .route("/api/coaches/{id}", get(user::handle_get::<C>))
-        .route("/api/coaches/{id}", put(user::handle_update::<C>))
-        .route("/api/coaches/{id}", delete(user::handle_delete::<C>))
-        .route("/api/coaches/{id}/export", get(user::handle_export::<C>))
+        .route("/api/agents/{id}", get(user::handle_get::<C>))
+        .route("/api/agents/{id}", put(user::handle_update::<C>))
+        .route("/api/agents/{id}", delete(user::handle_delete::<C>))
+        .route("/api/agents/{id}/export", get(user::handle_export::<C>))
         .route(
-            "/api/coaches/{id}/favorite",
+            "/api/agents/{id}/favorite",
             post(user::handle_toggle_favorite::<C>),
         )
         .route(
-            "/api/coaches/{id}/usage",
+            "/api/agents/{id}/usage",
             post(user::handle_record_usage::<C>),
         )
-        .route("/api/coaches/{id}/hide", post(user::handle_hide_coach::<C>))
+        .route("/api/agents/{id}/hide", post(user::handle_hide_coach::<C>))
         .route(
-            "/api/coaches/{id}/hide",
+            "/api/agents/{id}/hide",
             delete(user::handle_show_coach::<C>),
         )
-        .route("/api/coaches/{id}/fork", post(user::handle_fork::<C>))
+        .route("/api/agents/{id}/fork", post(user::handle_fork::<C>))
         // Version history routes
         .route(
-            "/api/coaches/{id}/versions",
+            "/api/agents/{id}/versions",
             get(versions::handle_list_versions::<C>),
         )
         .route(
-            "/api/coaches/{id}/versions/{version}/revert",
+            "/api/agents/{id}/versions/{version}/revert",
             post(versions::handle_revert_version::<C>),
         )
         .route(
-            "/api/coaches/{id}/versions/{v1}/diff/{v2}",
+            "/api/agents/{id}/versions/{v1}/diff/{v2}",
             get(versions::handle_diff_versions::<C>),
         )
 }
@@ -107,21 +107,18 @@ where
     C: CoachesCtx + MiddlewareCtx,
 {
     Router::new()
-        .route("/coaches", get(admin::handle_admin_list::<C>))
-        .route("/coaches", post(admin::handle_admin_create::<C>))
-        .route("/coaches/{id}", get(admin::handle_admin_get::<C>))
-        .route("/coaches/{id}", put(admin::handle_admin_update::<C>))
-        .route("/coaches/{id}", delete(admin::handle_admin_delete::<C>))
+        .route("/agents", get(admin::handle_admin_list::<C>))
+        .route("/agents", post(admin::handle_admin_create::<C>))
+        .route("/agents/{id}", get(admin::handle_admin_get::<C>))
+        .route("/agents/{id}", put(admin::handle_admin_update::<C>))
+        .route("/agents/{id}", delete(admin::handle_admin_delete::<C>))
+        .route("/agents/{id}/assign", post(admin::handle_admin_assign::<C>))
         .route(
-            "/coaches/{id}/assign",
-            post(admin::handle_admin_assign::<C>),
-        )
-        .route(
-            "/coaches/{id}/assign",
+            "/agents/{id}/assign",
             delete(admin::handle_admin_unassign::<C>),
         )
         .route(
-            "/coaches/{id}/assignments",
+            "/agents/{id}/assignments",
             get(admin::handle_admin_list_assignments::<C>),
         )
         // Store management routes
@@ -133,15 +130,15 @@ where
         .route("/store/published", get(admin::handle_admin_published::<C>))
         .route("/store/rejected", get(admin::handle_admin_rejected::<C>))
         .route(
-            "/store/coaches/{id}/approve",
+            "/store/agents/{id}/approve",
             post(admin::handle_admin_approve::<C>),
         )
         .route(
-            "/store/coaches/{id}/reject",
+            "/store/agents/{id}/reject",
             post(admin::handle_admin_reject::<C>),
         )
         .route(
-            "/store/coaches/{id}/unpublish",
+            "/store/agents/{id}/unpublish",
             post(admin::handle_admin_unpublish::<C>),
         )
 }

@@ -143,12 +143,12 @@ pub struct StoreMetadata {
 ///
 /// # Endpoints
 ///
-/// - `GET /api/store/coaches` - Browse published coaches
-/// - `GET /api/store/coaches/{id}` - Get coach details by ID
+/// - `GET /api/store/agents` - Browse published coaches
+/// - `GET /api/store/agents/{id}` - Get coach details by ID
 /// - `GET /api/store/categories` - List categories with counts
 /// - `GET /api/store/search` - Search coaches
-/// - `POST /api/store/coaches/{id}/install` - Install a coach
-/// - `DELETE /api/store/coaches/{id}/install` - Uninstall a coach
+/// - `POST /api/store/agents/{id}/install` - Install a coach
+/// - `DELETE /api/store/agents/{id}/install` - Uninstall a coach
 /// - `GET /api/store/installations` - List user's installed coaches
 pub fn build_store_router<C>() -> Router<Arc<C>>
 where
@@ -156,10 +156,10 @@ where
 {
     Router::new()
         .route("/api/store/health", get(store_health))
-        .route("/api/store/coaches", get(handle_browse::<C>))
-        .route("/api/store/coaches/{id}", get(handle_get_coach::<C>))
+        .route("/api/store/agents", get(handle_browse::<C>))
+        .route("/api/store/agents/{id}", get(handle_get_coach::<C>))
         .route(
-            "/api/store/coaches/{id}/install",
+            "/api/store/agents/{id}/install",
             post(handle_install::<C>).delete(handle_uninstall::<C>),
         )
         .route("/api/store/categories", get(handle_categories::<C>))
@@ -193,7 +193,7 @@ fn build_metadata() -> StoreMetadata {
     }
 }
 
-/// Handle GET /api/store/coaches - Browse published coaches with cursor pagination
+/// Handle GET /api/store/agents - Browse published coaches with cursor pagination
 async fn handle_browse<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -239,7 +239,7 @@ async fn handle_browse<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/store/coaches/{id} - Get coach details
+/// Handle GET /api/store/agents/{id} - Get coach details
 async fn handle_get_coach<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -370,7 +370,7 @@ async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /api/store/coaches/{id}/install - Install a coach from the Store
+/// Handle POST /api/store/agents/{id}/install - Install a coach from the Store
 ///
 /// `coach.installed` is emitted by `install_store_coach`, the one install
 /// path this route shares with the `install_coach_from_store` tool and
@@ -410,7 +410,7 @@ async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle DELETE /api/store/coaches/{id}/install - Uninstall a coach
+/// Handle DELETE /api/store/agents/{id}/install - Uninstall a coach
 #[tracing::instrument(
     skip(ctx, auth),
     fields(

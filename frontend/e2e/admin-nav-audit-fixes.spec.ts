@@ -72,7 +72,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
   }) => {
     await setupAndLoginAsAdmin(page);
     // Need at least one system agent so the leaderboard table renders.
-    await page.route('**/api/admin/coaches**', (r) =>
+    await page.route('**/api/admin/agents**', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -125,7 +125,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
   test('Coach Notes Audit help references coach_note_add not memory.write_note (audit #12)', async ({
     page,
   }) => {
-    await page.route('**/api/admin/coach-notes**', (r) =>
+    await page.route('**/api/admin/agent-notes**', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -162,7 +162,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
   test('Nav click updates URL hash (audit cross-cutting: deep links)', async ({ page }) => {
     await setupAndLoginAsAdmin(page);
     await navigateToTab(page, 'Agents');
-    await expect(page).toHaveURL(/#coaches$/);
+    await expect(page).toHaveURL(/#agents$/);
     await navigateToTab(page, 'Activity');
     await expect(page).toHaveURL(/#activity$/);
     // Reload preserves the section.
@@ -185,7 +185,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
         }),
       }),
     );
-    await page.route('**/api/admin/coaches**', (r) =>
+    await page.route('**/api/admin/agents**', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

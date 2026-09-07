@@ -98,7 +98,7 @@ pub struct CoachGrade {
     pub grade: LetterGrade,
 }
 
-/// Top-level wire response for `GET /admin/coach-grading/summary`.
+/// Top-level wire response for `GET /admin/agent-grading/summary`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoachGradingSummary {
     /// Tenant the summary was computed for.

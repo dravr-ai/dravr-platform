@@ -30,18 +30,18 @@ pub const KEY_COMMAND_DESC_PRIVACY: &str = "commands.privacy.description";
 pub const KEY_COMMAND_DESC_TIMEZONE: &str = "commands.timezone.description";
 /// Key: one-line description of the `reset` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_RESET: &str = "commands.reset.description";
-/// Key: one-line description of the `coach-add` catalogue command — `/help`, the command palette and the Telegram menu.
-pub const KEY_COMMAND_DESC_COACH_ADD: &str = "commands.coach-add.description";
-/// Key: one-line description of the `coach-assign` catalogue command — `/help`, the command palette and the Telegram menu.
-pub const KEY_COMMAND_DESC_COACH_ASSIGN: &str = "commands.coach-assign.description";
-/// Key: one-line description of the `coach-create` catalogue command — `/help`, the command palette and the Telegram menu.
-pub const KEY_COMMAND_DESC_COACH_CREATE: &str = "commands.coach-create.description";
+/// Key: one-line description of the `agent-add` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_AGENT_ADD: &str = "commands.agent-add.description";
+/// Key: one-line description of the `agent-assign` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_AGENT_ASSIGN: &str = "commands.agent-assign.description";
+/// Key: one-line description of the `agent-create` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_AGENT_CREATE: &str = "commands.agent-create.description";
+/// Key: one-line description of the `agent-list` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_AGENT_LIST: &str = "commands.agent-list.description";
+/// Key: one-line description of the `agent-remove` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_AGENT_REMOVE: &str = "commands.agent-remove.description";
 /// Key: one-line description of the `coach-invite` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_COACH_INVITE: &str = "commands.coach-invite.description";
-/// Key: one-line description of the `coach-list` catalogue command — `/help`, the command palette and the Telegram menu.
-pub const KEY_COMMAND_DESC_COACH_LIST: &str = "commands.coach-list.description";
-/// Key: one-line description of the `coach-remove` catalogue command — `/help`, the command palette and the Telegram menu.
-pub const KEY_COMMAND_DESC_COACH_REMOVE: &str = "commands.coach-remove.description";
 /// Key: one-line description of the `discover-install` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_DISCOVER_INSTALL: &str = "commands.discover-install.description";
 /// Key: one-line description of the `discover` catalogue command — `/help`, the command palette and the Telegram menu.
@@ -84,7 +84,7 @@ pub const KEY_COMMAND_DESC_PLAN_SHARE: &str = "commands.plan-share.description";
 pub const KEY_COMMAND_DESC_PLAN: &str = "commands.plan.description";
 
 /// The catalogue key holding a slash command's one-line description, from the
-/// command's catalogue `name:` — `coach-add` reads `commands.coach-add.description`.
+/// command's catalogue `name:` — `agent-add` reads `commands.agent-add.description`.
 ///
 /// Computed rather than matched so a command added to `commands/**/*.md`
 /// needs exactly one thing: its five catalogue rows. The `KEY_COMMAND_DESC_*`

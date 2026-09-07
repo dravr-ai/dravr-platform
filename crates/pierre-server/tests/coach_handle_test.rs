@@ -297,14 +297,14 @@ async fn by_handle_route_returns_the_installed_coach_and_404s_otherwise() {
     let router = build_coaches_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Not installed yet: the catalogue does not leak through the route.
-    let response = AxumTestRequest::get("/api/coaches/by-handle/mobility-coach")
+    let response = AxumTestRequest::get("/api/agents/by-handle/mobility-coach")
         .header("authorization", &auth)
         .send(router.clone())
         .await;
     assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
 
     // A malformed handle is rejected before any lookup.
-    let response = AxumTestRequest::get("/api/coaches/by-handle/Not%20A%20Handle")
+    let response = AxumTestRequest::get("/api/agents/by-handle/Not%20A%20Handle")
         .header("authorization", &auth)
         .send(router.clone())
         .await;
@@ -316,7 +316,7 @@ async fn by_handle_route_returns_the_installed_coach_and_404s_otherwise() {
         .await
         .unwrap();
 
-    let response = AxumTestRequest::get("/api/coaches/by-handle/mobility-coach")
+    let response = AxumTestRequest::get("/api/agents/by-handle/mobility-coach")
         .header("authorization", &auth)
         .send(router)
         .await;

@@ -392,11 +392,11 @@ impl CommandHandler for CoachRemoveHandler {
     }
 }
 
-/// Handler for `/agent invite` — the `/agent`-domain spelling of
+/// Handler for `/coach invite` — the `/coach`-domain spelling of
 /// `/group invite coach`.
 ///
 /// Both run [`issue_group_invite`], so whoever redeems the code is attached
-/// as the group's human coach either way. Bringing a Dravr coach into a
+/// as the group's human coach either way. Bringing a Dravr agent into a
 /// conversation is `/agent add`, not this.
 pub struct CoachInviteHandler;
 
@@ -501,7 +501,7 @@ impl CommandHandler for CoachAssignHandler {
 /// catalogued `coach.selected` event through the shared recorder.
 ///
 /// `/agent add` is the chat equivalent of picking an agent on Discover, so it
-/// is the same product event as `POST /api/coaches/{id}/usage` — before this
+/// is the same product event as `POST /api/agents/{id}/usage` — before this
 /// call existed, the slash command was the one selection surface that emitted
 /// nothing, and it is the surface most Dravr users actually have.
 ///

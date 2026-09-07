@@ -759,8 +759,8 @@ jobs:
             -d "grant_type=password&username=mobiletest@pierre.dev&password=MobileTest1234" 2>&1 | jq -r '.access_token // empty') || true
           if [ -n "$JWT" ]; then
             echo "Got JWT token (length: ${#JWT})"
-            echo "Testing GET /api/coaches with JWT:"
-            curl -sf -w "HTTP %{http_code}" http://127.0.0.1:8081/api/coaches \
+            echo "Testing GET /api/agents with JWT:"
+            curl -sf -w "HTTP %{http_code}" http://127.0.0.1:8081/api/agents \
               -H "Authorization: Bearer $JWT" 2>&1 | tail -1 || echo "FAILED"
             echo ""
             echo "Testing GET /api/conversations with JWT:"

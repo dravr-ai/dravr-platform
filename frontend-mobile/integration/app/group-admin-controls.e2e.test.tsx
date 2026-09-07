@@ -204,7 +204,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
       'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
-      'GET /api/coaches': { data: { coaches: [] } },
+      'GET /api/agents': { data: { coaches: [] } },
       'PUT /api/groups/group-1/members/me/consent': (request) => {
         ownerConsent = (request.body as { consent: boolean }).consent;
         return { data: { success: true } };
@@ -313,7 +313,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
       'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
-      'GET /api/coaches': { data: { coaches: [] } },
+      'GET /api/agents': { data: { coaches: [] } },
       'PUT /api/groups/group-1': { data: { ...GROUP, respond_mode: 'mentions' } },
     });
 

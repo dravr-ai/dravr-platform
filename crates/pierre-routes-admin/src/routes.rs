@@ -178,7 +178,7 @@ impl AdminRoutes {
     fn coach_grading_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
-                "/api/admin/coach-grading/summary",
+                "/api/admin/agent-grading/summary",
                 get(coach_grading::handle_get_summary),
             )
             .with_state(context)
@@ -202,15 +202,15 @@ impl AdminRoutes {
     fn coach_note_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
-                "/api/admin/coach-notes/{note_id}/suppress",
+                "/api/admin/agent-notes/{note_id}/suppress",
                 post(coach_notes::handle_suppress_note),
             )
             .route(
-                "/api/admin/coach-notes/{note_id}/unsuppress",
+                "/api/admin/agent-notes/{note_id}/unsuppress",
                 post(coach_notes::handle_unsuppress_note),
             )
             .route(
-                "/api/admin/coach-notes/audit",
+                "/api/admin/agent-notes/audit",
                 get(coach_notes::handle_list_audit),
             )
             .with_state(context)
@@ -220,11 +220,11 @@ impl AdminRoutes {
     fn coach_followup_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
-                "/api/admin/coach-followups/pending",
+                "/api/admin/agent-followups/pending",
                 get(coach_followups::handle_list_pending_followups),
             )
             .route(
-                "/api/admin/coach-followups/{followup_id}/cancel",
+                "/api/admin/agent-followups/{followup_id}/cancel",
                 post(coach_followups::handle_cancel_followup),
             )
             .with_state(context)

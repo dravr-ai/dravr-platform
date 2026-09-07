@@ -27,7 +27,7 @@ test.describe('Insights and Friends are retired', () => {
         body: JSON.stringify({ providers: [] }),
       });
     });
-    await page.route('**/api/coaches**', async (route) => {
+    await page.route('**/api/agents**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

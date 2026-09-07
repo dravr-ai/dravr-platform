@@ -35,7 +35,7 @@ use std::sync::Arc;
 // ============================================================================
 
 async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
-    let resp = AxumTestRequest::post("/api/coaches")
+    let resp = AxumTestRequest::post("/api/agents")
         .header("authorization", auth)
         .json(&json!({"title":"Test Coach","system_prompt":"Test.","category":"training","tags":["run"]}))
         .send(router.clone())

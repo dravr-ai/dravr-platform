@@ -105,7 +105,7 @@ async fn create_published_coach(
 async fn test_browse_store_empty() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::get("/api/store/coaches")
+    let response = AxumTestRequest::get("/api/store/agents")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -158,7 +158,7 @@ async fn test_browse_store_with_published_coaches() {
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    let response = AxumTestRequest::get("/api/store/coaches")
+    let response = AxumTestRequest::get("/api/store/agents")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -208,7 +208,7 @@ async fn test_browse_store_with_category_filter() {
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    let response = AxumTestRequest::get("/api/store/coaches?category=training")
+    let response = AxumTestRequest::get("/api/store/agents?category=training")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -258,7 +258,7 @@ async fn test_browse_store_with_cursor_pagination() {
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get first page
-    let response = AxumTestRequest::get("/api/store/coaches?limit=2")
+    let response = AxumTestRequest::get("/api/store/agents?limit=2")
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -271,7 +271,7 @@ async fn test_browse_store_with_cursor_pagination() {
 
     // Get second page using cursor
     let cursor = page1.next_cursor.unwrap();
-    let response = AxumTestRequest::get(&format!("/api/store/coaches?limit=2&cursor={cursor}"))
+    let response = AxumTestRequest::get(&format!("/api/store/agents?limit=2&cursor={cursor}"))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -293,7 +293,7 @@ async fn test_browse_store_with_cursor_pagination() {
 
     // Get third page (should have only 1 coach)
     let cursor = page2.next_cursor.unwrap();
-    let response = AxumTestRequest::get(&format!("/api/store/coaches?limit=2&cursor={cursor}"))
+    let response = AxumTestRequest::get(&format!("/api/store/agents?limit=2&cursor={cursor}"))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -380,8 +380,8 @@ async fn cursor_pagination_survives_same_millisecond_published_at() {
     let mut cursor: Option<String> = None;
     loop {
         let uri = cursor.as_ref().map_or_else(
-            || "/api/store/coaches?limit=2".to_owned(),
-            |c| format!("/api/store/coaches?limit=2&cursor={c}"),
+            || "/api/store/agents?limit=2".to_owned(),
+            |c| format!("/api/store/agents?limit=2&cursor={c}"),
         );
         let response = AxumTestRequest::get(&uri)
             .header("authorization", &auth_token)
@@ -460,7 +460,7 @@ async fn test_cursor_pagination_with_popular_sort() {
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get first page sorted by popular
-    let response = AxumTestRequest::get("/api/store/coaches?limit=2&sort_by=popular")
+    let response = AxumTestRequest::get("/api/store/agents?limit=2&sort_by=popular")
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -479,7 +479,7 @@ async fn test_cursor_pagination_with_popular_sort() {
     // Get second page using cursor
     let cursor = page1.next_cursor.unwrap();
     let response = AxumTestRequest::get(&format!(
-        "/api/store/coaches?limit=2&sort_by=popular&cursor={cursor}"
+        "/api/store/agents?limit=2&sort_by=popular&cursor={cursor}"
     ))
     .header("authorization", &auth_token)
     .send(router)
@@ -531,7 +531,7 @@ async fn test_cursor_pagination_with_title_sort() {
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get first page sorted by title
-    let response = AxumTestRequest::get("/api/store/coaches?limit=2&sort_by=title")
+    let response = AxumTestRequest::get("/api/store/agents?limit=2&sort_by=title")
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -548,7 +548,7 @@ async fn test_cursor_pagination_with_title_sort() {
     // Get second page using cursor
     let cursor = page1.next_cursor.unwrap();
     let response = AxumTestRequest::get(&format!(
-        "/api/store/coaches?limit=2&sort_by=title&cursor={cursor}"
+        "/api/store/agents?limit=2&sort_by=title&cursor={cursor}"
     ))
     .header("authorization", &auth_token)
     .send(router)
@@ -596,7 +596,7 @@ async fn test_cursor_invalid_for_different_sort_order() {
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get cursor from newest sort
-    let response = AxumTestRequest::get("/api/store/coaches?limit=1&sort_by=newest")
+    let response = AxumTestRequest::get("/api/store/agents?limit=1&sort_by=newest")
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -606,7 +606,7 @@ async fn test_cursor_invalid_for_different_sort_order() {
 
     // Try to use newest cursor with popular sort - should fail
     let response = AxumTestRequest::get(&format!(
-        "/api/store/coaches?limit=1&sort_by=popular&cursor={newest_cursor}"
+        "/api/store/agents?limit=1&sort_by=popular&cursor={newest_cursor}"
     ))
     .header("authorization", &auth_token)
     .send(router)
@@ -664,7 +664,7 @@ async fn test_browse_store_sort_by_popular() {
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    let response = AxumTestRequest::get("/api/store/coaches?sort_by=popular")
+    let response = AxumTestRequest::get("/api/store/agents?sort_by=popular")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -678,9 +678,7 @@ async fn test_browse_store_sort_by_popular() {
 async fn test_browse_store_unauthorized() {
     let (router, _) = setup_test_environment().await;
 
-    let response = AxumTestRequest::get("/api/store/coaches")
-        .send(router)
-        .await;
+    let response = AxumTestRequest::get("/api/store/agents").send(router).await;
 
     assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED);
 }
@@ -718,7 +716,7 @@ async fn test_get_coach_detail() {
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    let response = AxumTestRequest::get(&format!("/api/store/coaches/{}", coach.id))
+    let response = AxumTestRequest::get(&format!("/api/store/agents/{}", coach.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -736,7 +734,7 @@ async fn test_get_coach_detail_not_found() {
     let (router, auth_token) = setup_test_environment().await;
 
     let fake_id = Uuid::new_v4();
-    let response = AxumTestRequest::get(&format!("/api/store/coaches/{fake_id}"))
+    let response = AxumTestRequest::get(&format!("/api/store/agents/{fake_id}"))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -748,7 +746,7 @@ async fn test_get_coach_detail_not_found() {
 async fn test_get_coach_detail_invalid_id() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::get("/api/store/coaches/invalid-uuid")
+    let response = AxumTestRequest::get("/api/store/agents/invalid-uuid")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -967,7 +965,7 @@ async fn test_install_coach() {
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
     let (events, _guard) = capture_notify();
 
-    let response = AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{}/install", coach.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -1022,13 +1020,13 @@ async fn test_install_coach_already_installed() {
     let (events, _guard) = capture_notify();
 
     // Install once
-    AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
+    AxumTestRequest::post(&format!("/api/store/agents/{}/install", coach.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
 
     // Try to install again
-    let response = AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{}/install", coach.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -1046,7 +1044,7 @@ async fn test_install_coach_not_found() {
     let (router, auth_token) = setup_test_environment().await;
 
     let fake_id = Uuid::new_v4();
-    let response = AxumTestRequest::post(&format!("/api/store/coaches/{fake_id}/install"))
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{fake_id}/install"))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -1090,13 +1088,13 @@ async fn test_install_increments_install_count() {
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
+    AxumTestRequest::post(&format!("/api/store/agents/{}/install", coach.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
 
     // Verify install count increased
-    let response = AxumTestRequest::get(&format!("/api/store/coaches/{}", coach.id))
+    let response = AxumTestRequest::get(&format!("/api/store/agents/{}", coach.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -1145,7 +1143,7 @@ async fn test_uninstall_coach() {
 
     // Install first
     let install_response =
-        AxumTestRequest::post(&format!("/api/store/coaches/{}/install", source_coach.id))
+        AxumTestRequest::post(&format!("/api/store/agents/{}/install", source_coach.id))
             .header("authorization", &auth_token)
             .send(router.clone())
             .await;
@@ -1154,7 +1152,7 @@ async fn test_uninstall_coach() {
 
     // Uninstall the installed copy
     let response =
-        AxumTestRequest::delete(&format!("/api/store/coaches/{installed_coach_id}/install"))
+        AxumTestRequest::delete(&format!("/api/store/agents/{installed_coach_id}/install"))
             .header("authorization", &auth_token)
             .send(router)
             .await;
@@ -1202,7 +1200,7 @@ async fn test_uninstall_coach_not_from_store() {
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    let response = AxumTestRequest::delete(&format!("/api/store/coaches/{}/install", coach.id))
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{}/install", coach.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -1225,7 +1223,7 @@ async fn test_uninstall_coach_not_found() {
     let (router, auth_token) = setup_test_environment().await;
 
     let fake_id = Uuid::new_v4();
-    let response = AxumTestRequest::delete(&format!("/api/store/coaches/{fake_id}/install"))
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{fake_id}/install"))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -1295,11 +1293,11 @@ async fn test_list_installations() {
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Install both coaches
-    AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach1.id))
+    AxumTestRequest::post(&format!("/api/store/agents/{}/install", coach1.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
-    AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach2.id))
+    AxumTestRequest::post(&format!("/api/store/agents/{}/install", coach2.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -1358,7 +1356,7 @@ async fn test_published_coaches_visible_cross_tenant() {
     let auth_token2 = format!("Bearer {token2}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    let response = AxumTestRequest::get("/api/store/coaches")
+    let response = AxumTestRequest::get("/api/store/agents")
         .header("authorization", &auth_token2)
         .send(router.clone())
         .await;
@@ -1408,7 +1406,7 @@ async fn test_installations_isolated_per_user() {
     let auth_token2 = format!("Bearer {token2}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
-    AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
+    AxumTestRequest::post(&format!("/api/store/agents/{}/install", coach.id))
         .header("authorization", &auth_token2)
         .send(router.clone())
         .await;

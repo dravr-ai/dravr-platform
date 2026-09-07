@@ -404,7 +404,7 @@ test.describe('Dashboard Content Loading', () => {
     await setupFullDashboardMocks(page, { isAdmin: true });
 
     // Mock system coaches and users for engagement tab
-    await page.route('**/api/admin/coaches', async (route) => {
+    await page.route('**/api/admin/agents', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

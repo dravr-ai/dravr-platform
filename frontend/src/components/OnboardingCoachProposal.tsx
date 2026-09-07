@@ -1,5 +1,5 @@
 // ABOUTME: Post-connect onboarding step — "analyzing your data" then an inferred profile + top-3 coach proposal
-// ABOUTME: Renders between OnboardingConnectProvider and the dashboard; backed by GET /api/coaches/proposal
+// ABOUTME: Renders between OnboardingConnectProvider and the dashboard; backed by GET /api/agents/proposal
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -21,7 +21,7 @@ const COACH_PROPOSAL_QUERY_KEY = ['coaches', 'proposal'] as const;
  * Onboarding coach proposal.
  *
  * Shown once, right after the user connects their first provider and before the
- * dashboard. On mount it calls `GET /api/coaches/proposal`, which scans the
+ * dashboard. On mount it calls `GET /api/agents/proposal`, which scans the
  * user's recent activities, infers a sport profile, and asks the LLM to pick the
  * best ≤3 agents with a rationale each. While that runs we show an "analyzing
  * your data" spinner — the deliberate pause in the

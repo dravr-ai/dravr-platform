@@ -200,7 +200,7 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
     await route.fallback();
   });
 
-  await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
+  await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

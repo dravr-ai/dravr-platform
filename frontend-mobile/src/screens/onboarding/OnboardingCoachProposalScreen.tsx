@@ -1,5 +1,5 @@
 // ABOUTME: Post-connect onboarding step (mobile) — "analyzing your data" then inferred profile + top-3 coaches
-// ABOUTME: Mirrors the web OnboardingCoachProposal; backed by GET /api/coaches/proposal
+// ABOUTME: Mirrors the web OnboardingCoachProposal; backed by GET /api/agents/proposal
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,7 +24,7 @@ import { threadHref } from '../../navigation/routes';
  * Onboarding coach proposal (mobile).
  *
  * Reached only via RootLayoutNav when the user has a connected provider but
- * hasn't completed this step. On mount it calls `GET /api/coaches/proposal`
+ * hasn't completed this step. On mount it calls `GET /api/agents/proposal`
  * (activity scan + LLM re-rank) and shows an "analyzing your data" spinner
  * while it runs, then the inferred sport profile and up-to-3 coaches with a
  * rationale each. Completing the step flips the shared `useCoachProposalSeen`

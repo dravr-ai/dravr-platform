@@ -48,7 +48,7 @@ pub fn admin_routes(context: Arc<AdminApiContext>) -> Router {
         .route("/api/admin/contremaitre/status", get(handle_status))
         .route("/api/admin/contremaitre/sync", post(handle_manual_sync))
         .route(
-            "/api/admin/contremaitre/coaches/{id}/promote",
+            "/api/admin/contremaitre/agents/{id}/promote",
             post(handle_promote_coach),
         )
         .with_state(context)
@@ -376,7 +376,7 @@ struct PromoteCoachResponse {
     commit_sha: Option<String>,
 }
 
-/// POST /api/admin/contremaitre/coaches/{id}/promote — promote a coach to contremaitre.
+/// POST /api/admin/contremaitre/agents/{id}/promote — promote a coach to contremaitre.
 ///
 /// Reads the coach from the database, generates a markdown file, and commits it
 /// to the contremaitre GitHub repository. Updates the coach's `source` to "contremaitre".

@@ -2445,15 +2445,16 @@ mod command_tests {
         registry
     }
 
-    /// `commands/coach/coach-list.md` aliases `/coach` as `/coaches` and
-    /// `/coach list`. The matcher used to greedy-match over commands and
-    /// aliases alike, so `/coaches invite` matched the shorter `/coaches`, ran
-    /// the list handler and silently dropped `invite`. Every `/coach`
-    /// subcommand must be reachable through the alias, with its arguments
-    /// intact — which is also why the bare `/coach` is the canonical spelling
-    /// and `/coach list` the alias: canot canonicalises an alias by rewriting
-    /// it to the definition's command string, and a spaced canonical would
-    /// turn `/coaches add @tempo` into `/coach list add @tempo`.
+    /// `commands/agent/agent-list.md` takes the bare `/agent` as its command
+    /// and aliases `/agent list`, `/coach`, `/coaches` and `/coach list` onto
+    /// it. The matcher used to greedy-match over commands and aliases alike, so
+    /// `/coaches invite` matched the shorter `/coaches`, ran the list handler
+    /// and silently dropped `invite`. Every subcommand must be reachable
+    /// through every alias, with its arguments intact — which is also why the
+    /// bare `/agent` is the canonical spelling and `/agent list` an alias:
+    /// canot canonicalises an alias by rewriting it to the definition's command
+    /// string, and a spaced canonical would turn `/coaches add @tempo` into
+    /// `/agent list add @tempo`.
     #[test]
     fn coaches_alias_reaches_every_coach_subcommand() {
         use pierre_messaging::commands::CommandMatcher;
@@ -2463,27 +2464,27 @@ mod command_tests {
 
         for (text, expected_name, expected_args) in [
             ("/coaches invite", "coach-invite", vec![]),
-            ("/coaches add @tempo", "coach-add", vec!["@tempo"]),
-            ("/coach add @tempo", "coach-add", vec!["@tempo"]),
-            ("/coaches remove", "coach-remove", vec![]),
-            ("/coaches create", "coach-create", vec![]),
+            ("/coaches add @tempo", "agent-add", vec!["@tempo"]),
+            ("/coach add @tempo", "agent-add", vec!["@tempo"]),
+            ("/coaches remove", "agent-remove", vec![]),
+            ("/coaches create", "agent-create", vec![]),
             (
                 "/coach create confirm 0123456789abcdef0123456789abcdef",
-                "coach-create",
+                "agent-create",
                 vec!["confirm", "0123456789abcdef0123456789abcdef"],
             ),
             (
                 "/coaches assign 11111111-2222-3333-4444-555555555555 66666666-7777-8888-9999-000000000000",
-                "coach-assign",
+                "agent-assign",
                 vec![
                     "11111111-2222-3333-4444-555555555555",
                     "66666666-7777-8888-9999-000000000000",
                 ],
             ),
             ("/coach invite", "coach-invite", vec![]),
-            ("/coaches", "coach-list", vec![]),
-            ("/coach", "coach-list", vec![]),
-            ("/coach list", "coach-list", vec![]),
+            ("/coaches", "agent-list", vec![]),
+            ("/coach", "agent-list", vec![]),
+            ("/coach list", "agent-list", vec![]),
         ] {
             let parsed = matcher
                 .try_match(text, &registry)
@@ -2724,7 +2725,7 @@ mod command_tests {
 
         let command_registry = Arc::new(real_command_registry());
         let mut handlers = CommandHandlerRegistry::new();
-        handlers.register("coach-list", Arc::new(CoachListHandler));
+        handlers.register("agent-list", Arc::new(CoachListHandler));
         handlers.register("coach-invite", Arc::new(CoachInviteHandler));
         let handlers = Arc::new(handlers);
         let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
@@ -3012,8 +3013,8 @@ mod command_tests {
 
         let command_registry = Arc::new(real_command_registry());
         let mut handlers = CommandHandlerRegistry::new();
-        handlers.register("coach-list", Arc::new(CoachListHandler));
-        handlers.register("coach-add", Arc::new(CoachAddHandler));
+        handlers.register("agent-list", Arc::new(CoachListHandler));
+        handlers.register("agent-add", Arc::new(CoachAddHandler));
         let handlers = Arc::new(handlers);
         let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
         let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
@@ -3045,7 +3046,7 @@ mod command_tests {
         else {
             panic!("/coaches add @recovery-coach must execute a registered command");
         };
-        assert_eq!(command_name, "coach-add");
+        assert_eq!(command_name, "agent-add");
         assert_eq!(response.text, "Agent selected: Recovery Coach.");
         assert_eq!(
             conversation_coach(&resources, &conversation_id, user_id, tenant_id)

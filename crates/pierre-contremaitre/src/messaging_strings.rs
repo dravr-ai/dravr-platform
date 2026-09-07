@@ -457,7 +457,9 @@ pub const KEY_HELP_HEADER: &str = "commands.help.header";
 pub const KEY_HELP_DOMAIN_GENERAL: &str = "commands.help.domain.general";
 /// Key: `/help` domain heading — group coaching commands.
 pub const KEY_HELP_DOMAIN_GROUP: &str = "commands.help.domain.group";
-/// Key: `/help` domain heading — coaching selection commands.
+/// Key: `/help` domain heading — agent selection commands.
+pub const KEY_HELP_DOMAIN_AGENT: &str = "commands.help.domain.agent";
+/// Key: `/help` domain heading — human-coach commands.
 pub const KEY_HELP_DOMAIN_COACH: &str = "commands.help.domain.coach";
 /// Key: `/help` domain heading — fitness data commands.
 pub const KEY_HELP_DOMAIN_DATA: &str = "commands.help.domain.data";

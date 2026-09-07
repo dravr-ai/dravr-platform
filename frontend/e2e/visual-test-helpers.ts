@@ -189,7 +189,7 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
   });
 
   // Mock system coaches (Admin Coaches tab) - correct field names
-  await page.route('**/api/admin/coaches**', async (route) => {
+  await page.route('**/api/admin/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -254,7 +254,7 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
  */
 async function setupCatalogueMocks(page: Page): Promise<void> {
   // Mock coaches list - matches ListCoachesResponse interface
-  await page.route('**/api/coaches**', async (route) => {
+  await page.route('**/api/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -285,7 +285,7 @@ async function setupCatalogueMocks(page: Page): Promise<void> {
   });
 
   // Mock store coaches - matches BrowseCoachesResponse interface
-  await page.route('**/api/store/coaches**', async (route) => {
+  await page.route('**/api/store/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

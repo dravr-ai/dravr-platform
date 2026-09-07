@@ -153,7 +153,7 @@ async function setupShellMocks(page: Page): Promise<ShellTraffic> {
   // The athlete's coach list: one installed coach (a system coach with an assignment
   // row — the resolver admits those), one personal coach with no handle, and one
   // catalogue coach that is listed but never installed, so `@` must not offer it.
-  await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
+  await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

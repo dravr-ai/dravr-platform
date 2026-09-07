@@ -903,7 +903,7 @@ pub struct ProposedCoach {
     pub reason: String,
 }
 
-/// Response for `GET /api/coaches/proposal`.
+/// Response for `GET /api/agents/proposal`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoachProposalResponse {
     /// The inferred sport profile shown before the coach list.

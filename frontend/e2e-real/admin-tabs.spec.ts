@@ -73,7 +73,7 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
   test('coach grading summary returns 200', async () => {
     const { ctx, tenantId } = await loginAndAuthedRequest();
     const r = await ctx.get(
-      `/api/admin/coach-grading/summary?tenant_id=${tenantId}&limit=100`,
+      `/api/admin/agent-grading/summary?tenant_id=${tenantId}&limit=100`,
     );
     expect(r.status()).toBe(200);
     const body = await r.json();
@@ -97,7 +97,7 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
   test('coach followups pending list returns 200', async () => {
     const { ctx, tenantId } = await loginAndAuthedRequest();
     const r = await ctx.get(
-      `/api/admin/coach-followups/pending?tenant_id=${tenantId}&limit=10`,
+      `/api/admin/agent-followups/pending?tenant_id=${tenantId}&limit=10`,
     );
     expect(r.status()).toBe(200);
     await ctx.dispose();
@@ -106,7 +106,7 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
   test('coach notes audit returns 200', async () => {
     const { ctx, tenantId } = await loginAndAuthedRequest();
     const r = await ctx.get(
-      `/api/admin/coach-notes/audit?tenant_id=${tenantId}&limit=10`,
+      `/api/admin/agent-notes/audit?tenant_id=${tenantId}&limit=10`,
     );
     expect(r.status()).toBe(200);
     await ctx.dispose();

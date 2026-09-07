@@ -35,7 +35,7 @@ use uuid::Uuid;
 
 /// Create an AI coach persona via the REST API and return its id.
 async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
-    let resp = AxumTestRequest::post("/api/coaches")
+    let resp = AxumTestRequest::post("/api/agents")
         .header("authorization", auth)
         .json(
             &json!({"title":"Coach","system_prompt":"Test.","category":"training","tags":["run"]}),

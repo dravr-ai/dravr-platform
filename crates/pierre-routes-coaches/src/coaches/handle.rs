@@ -1,4 +1,4 @@
-// ABOUTME: GET /api/coaches/by-handle/{handle} — resolve an installed coach by its catalogue handle
+// ABOUTME: GET /api/agents/by-handle/{handle} — resolve an installed coach by its catalogue handle
 // ABOUTME: The @handle route that later chat surfaces use to invite a coach into a conversation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -19,7 +19,7 @@ use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
 
 use super::types::CoachResponse;
 
-/// Handle GET /api/coaches/by-handle/:handle - Resolve an installed coach by
+/// Handle GET /api/agents/by-handle/:handle - Resolve an installed coach by
 /// its catalogue handle (the `@handle` a user types to invite it).
 ///
 /// Only a coach on the caller's own list resolves; a handle that exists in

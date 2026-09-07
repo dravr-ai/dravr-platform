@@ -1147,7 +1147,7 @@ async fn deny_discards_a_coach_draft() {
     assert_eq!(coach_count(&resources, user_id, tenant_id).await, 0);
 }
 
-/// The confirm step enforces the same per-user coach cap as `POST /api/coaches`:
+/// The confirm step enforces the same per-user coach cap as `POST /api/agents`:
 /// at the cap, the draft is refused with the numbers and nothing is created.
 #[tokio::test]
 async fn coach_create_confirm_is_refused_at_the_coach_quota() {

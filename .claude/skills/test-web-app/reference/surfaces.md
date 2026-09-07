@@ -56,8 +56,8 @@ Logged in as the resolved `$ADMIN_EMAIL`. Because that account is created `--sup
 
 | # | Tab | id | Component | Must verify |
 |---|---|---|---|---|
-| 5 | Coaches | `coaches` | `SystemCoachesTab` | Coach catalogue non-empty and matching the contremaitre checkout. Each coach opens a detail view with a real persona/prompt, not a placeholder. |
-| 6 | Coach Store | `coach-store` | `CoachStoreManagement` | Listings render; pending-moderation badge matches the queue. Approve/reject changes state and survives reload. |
+| 5 | Coaches | `agents` | `SystemCoachesTab` | Coach catalogue non-empty and matching the contremaitre checkout. Each coach opens a detail view with a real persona/prompt, not a placeholder. |
+| 6 | Coach Store | `agent-store` | `CoachStoreManagement` | Listings render; pending-moderation badge matches the queue. Approve/reject changes state and survives reload. |
 | 7 | Groups | `groups` | `GroupManagement` → `GroupDetail` | Create a group, open it (`#groups/<id>`), reload — the detail view restores. Invite link generates. Member list correct. Back returns to the list, not to login. |
 
 ### Configuration
@@ -71,10 +71,10 @@ Logged in as the resolved `$ADMIN_EMAIL`. Because that account is created `--sup
 | 12 | Claim Verdicts | `claim-verdicts` | `ClaimVerdictsTab` | Loads without error; empty state is explicit ("no verdicts"), never a silent blank. |
 | 13 | Harness Config | `harness-config` | `HarnessConfigTab` | Config loads and saves. |
 | 14 | Memory Worker | `memory-worker` | `MemoryExtractionMonitorTab` | Worker status renders a real state, not a hardcoded "healthy". |
-| 15 | Coach Followups | `coach-followups` | `CoachFollowupsTab` | Loads; list or explicit empty state. |
-| 16 | Coach Notes Audit | `coach-notes-audit` | `CoachNotesAuditTab` | Loads; audit rows or explicit empty state. |
+| 15 | Coach Followups | `agent-followups` | `CoachFollowupsTab` | Loads; list or explicit empty state. |
+| 16 | Coach Notes Audit | `agent-notes-audit` | `CoachNotesAuditTab` | Loads; audit rows or explicit empty state. |
 | 17 | Myth Busting | `myth-busting` | `MythBustingTab` | Loads; content renders. |
-| 18 | Coach Grades | `coach-grading` | `CoachGradingTab` | Loads; grades render numerically. |
+| 18 | Coach Grades | `agent-grading` | `CoachGradingTab` | Loads; grades render numerically. |
 | 19 | Eval Harness | `eval-harness` | `EvalHarnessTab` | Loads. Do **not** launch a long eval run during a sweep unless ChefFamille asks — note it as load-only coverage. |
 
 ### Developer

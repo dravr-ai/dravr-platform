@@ -99,7 +99,7 @@ const endpoints = {
   oauthToken: '/oauth/token',
   dashboardOverview: '/api/dashboard/overview',
   chatConversations: '/api/chat/conversations',
-  coaches: '/api/coaches',
+  coaches: '/api/agents',
   connections: '/api/connections',
   adminSetupStatus: '/admin/setup/status',
   // Activity endpoints

@@ -101,7 +101,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
             <p className="text-lg mb-2 text-on-surface">No agent activity yet</p>
             <p className="mb-6">Create system agents to get started. Engagement data will appear as users interact with agents.</p>
             <button
-              onClick={() => onNavigate?.('coaches')}
+              onClick={() => onNavigate?.('agents')}
               className="px-6 py-2.5 rounded-lg bg-primary/20 text-primary font-medium hover:bg-primary/30 transition-colors border border-primary/30"
             >
               Go to Agents

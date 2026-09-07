@@ -78,7 +78,7 @@ describe('Coaches Integration Tests', () => {
   describe('Agent Store', () => {
     it('should fetch coach store/catalog', async () => {
       const result = await authenticatedRequest(
-        '/api/store/coaches',
+        '/api/store/agents',
         accessToken
       );
 
@@ -92,7 +92,7 @@ describe('Coaches Integration Tests', () => {
 
     it('should fetch featured coaches', async () => {
       const result = await authenticatedRequest(
-        '/api/store/coaches/featured',
+        '/api/store/agents/featured',
         accessToken
       );
 
@@ -102,7 +102,7 @@ describe('Coaches Integration Tests', () => {
 
     it('should support coach search/filtering', async () => {
       const result = await authenticatedRequest(
-        '/api/store/coaches?search=fitness',
+        '/api/store/agents?search=fitness',
         accessToken
       );
 
@@ -162,7 +162,7 @@ describe('Coaches Integration Tests', () => {
   describe('User Coaches (My Coaches)', () => {
     it('should fetch user assigned coaches', async () => {
       const result = await authenticatedRequest(
-        '/api/user/coaches',
+        '/api/user/agents',
         accessToken
       );
 
@@ -179,7 +179,7 @@ describe('Coaches Integration Tests', () => {
 
     it('should return empty coaches for new user', async () => {
       const result = await authenticatedRequest(
-        '/api/user/coaches',
+        '/api/user/agents',
         accessToken
       );
 
@@ -198,7 +198,7 @@ describe('Coaches Integration Tests', () => {
     it('should handle coach assignment request', async () => {
       // Try to assign a coach (may fail if no coaches available)
       const result = await authenticatedRequest(
-        '/api/user/coaches',
+        '/api/user/agents',
         accessToken,
         {
           method: 'POST',
@@ -213,7 +213,7 @@ describe('Coaches Integration Tests', () => {
     });
 
     it('should reject coach assignment without auth', async () => {
-      const result = await authenticatedRequest('/api/user/coaches', '', {
+      const result = await authenticatedRequest('/api/user/agents', '', {
         method: 'POST',
         body: JSON.stringify({
           coach_id: 'test-coach-id',
@@ -240,7 +240,7 @@ describe('Coaches Integration Tests', () => {
     it('should handle malformed coach assignment request', async () => {
       const backendUrl = getBackendUrl();
 
-      const response = await fetch(`${backendUrl}/api/user/coaches`, {
+      const response = await fetch(`${backendUrl}/api/user/agents`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

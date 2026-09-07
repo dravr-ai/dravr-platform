@@ -14,8 +14,8 @@ is wrong, because routers are mounted two different ways:
     app.merge(build_store_router())                  # routes stay as written
     app.nest("/api/admin", build_coaches_admin_router())   # routes gain a prefix
 
-``build_coaches_admin_router`` declares ``.route("/coaches", …)`` but serves
-``/api/admin/coaches``. A first-segment grep reports ``/coaches`` as an unrouted
+``build_coaches_admin_router`` declares ``.route("/agents", …)`` but serves
+``/api/admin/agents``. A first-segment grep reports ``/agents`` as an unrouted
 top-level family and cries wolf; a first draft of this guard produced 14 such
 false positives, which is worse than no guard at all — people learn to ignore it
 and then it misses the real one.

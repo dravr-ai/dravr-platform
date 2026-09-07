@@ -32,10 +32,10 @@ import {
  * route handler that needs them.
  */
 const ADMIN_ONLY_TABS = new Set([
-  'users', 'coaches', 'coach-store', 'configuration', 'user-tools', 'prompts',
+  'users', 'agents', 'agent-store', 'configuration', 'user-tools', 'prompts',
   'platform-settings', 'claim-verdicts', 'harness-config', 'guardian-config',
-  'memory-worker', 'coach-followups', 'coach-notes-audit', 'myth-busting',
-  'coach-grading', 'eval-harness', 'activity', 'engagement', 'connections',
+  'memory-worker', 'agent-followups', 'agent-notes-audit', 'myth-busting',
+  'agent-grading', 'eval-harness', 'activity', 'engagement', 'connections',
   'analytics', 'admin-tokens', 'billing',
 ]);
 
@@ -118,7 +118,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Default tab depends on user role: admin sees 'users', regular users see 'chat'
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const isSuperAdmin = user?.role === 'super_admin';
-  // Initialize from URL hash so deep links (#users, #coaches, …) survive
+  // Initialize from URL hash so deep links (#users, #agents, …) survive
   // page reloads and bookmarks. Falls back to role default.
   // Route = `tab[/subview]` encoded in the URL hash (e.g. #groups/<id>,
   // #chat/<conversationId>) so sub-views are deep-linkable and the browser /
@@ -345,12 +345,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ), badge: pendingUsersCount > 0 ? pendingUsersCount : undefined },
-    { id: 'coaches', name: t('chat.agentsHeading'), section: 'Coaching', icon: (
+    { id: 'agents', name: t('chat.agentsHeading'), section: 'Coaching', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ) },
-    { id: 'coach-store', name: t('shell.navAgentStore'), section: 'Coaching', icon: (
+    { id: 'agent-store', name: t('shell.navAgentStore'), section: 'Coaching', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
@@ -397,12 +397,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7l8 6 8-6" />
       </svg>
     ) },
-    { id: 'coach-followups', name: t('shell.navAgentFollowups'), section: 'Configuration', icon: (
+    { id: 'agent-followups', name: t('shell.navAgentFollowups'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ) },
-    { id: 'coach-notes-audit', name: t('shell.navAgentNotesAudit'), section: 'Configuration', icon: (
+    { id: 'agent-notes-audit', name: t('shell.navAgentNotesAudit'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
@@ -412,7 +412,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l1.664 1.664M21 21l-1.5-1.5m-5.485-1.242L12 17l-3.5-1L9 13.5 7 11l1-2 3 1 2-3.5L15 8l3 1-1.5 2.5L18 14l-3 1 1 3.258m0 0L11 21M3 3l8 8m4 4l4 4M3 3l18 18" />
       </svg>
     ) },
-    { id: 'coach-grading', name: t('shell.navAgentGrades'), section: 'Configuration', icon: (
+    { id: 'agent-grading', name: t('shell.navAgentGrades'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
       </svg>
@@ -511,7 +511,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // three tabs (Users / Agents / Agent Store) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
     if (isAdminUser) {
-      return ['users', 'coaches', 'coach-store'];
+      return ['users', 'agents', 'agent-store'];
     }
     return ['chat', 'discover', 'notifications'];
   }, [isAdminUser, t]);
@@ -903,12 +903,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <MemoryExtractionMonitorTab />
           </Suspense>
         )}
-        {activeTab === 'coach-followups' && (
+        {activeTab === 'agent-followups' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachFollowupsTab />
           </Suspense>
         )}
-        {activeTab === 'coach-notes-audit' && (
+        {activeTab === 'agent-notes-audit' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachNotesAuditTab />
           </Suspense>
@@ -918,7 +918,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <MythBustingTab />
           </Suspense>
         )}
-        {activeTab === 'coach-grading' && (
+        {activeTab === 'agent-grading' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachGradingTab />
           </Suspense>
@@ -933,12 +933,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <SystemPromptsTab />
           </Suspense>
         )}
-        {activeTab === 'coaches' && (
+        {activeTab === 'agents' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <SystemCoachesTab />
           </Suspense>
         )}
-        {activeTab === 'coach-store' && (
+        {activeTab === 'agent-store' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachStoreManagement />
           </Suspense>

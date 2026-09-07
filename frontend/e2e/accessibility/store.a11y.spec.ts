@@ -12,9 +12,9 @@ test.describe('Store Pages Accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user' });
 
-    // The athlete's coach list, as GET /api/coaches serialises it. Discover
+    // The athlete's coach list, as GET /api/agents serialises it. Discover
     // pins these above the store, so the cards under test are real ones.
-    await page.route('**/api/coaches**', async (route) => {
+    await page.route('**/api/agents**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

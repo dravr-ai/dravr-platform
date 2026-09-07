@@ -162,7 +162,7 @@ Log in as the `$ADMIN_EMAIL` / `$ADMIN_PASSWORD` you resolved in Phase 1 — **n
 Landing tab is `users`.
 
 Navigate **by clicking the sidebar** — that exercises the nav itself. Hash routes
-(`#users`, `#coaches`, `#groups/<id>`, `#chat/<conversationId>`) exist and `navigate_page`
+(`#users`, `#agents`, `#groups/<id>`, `#chat/<conversationId>`) exist and `navigate_page`
 to them works via the `hashchange` listener; use that only to recover from a stuck nav, and
 file the stuck nav as a finding.
 
@@ -199,7 +199,7 @@ Run these in both roles unless noted.
 1. **Theme.** Toggle dark ⇄ light. Every surface stays legible; no unstyled flash, no
    hardcoded light-mode color surviving into dark. localStorage key `dravr.theme`.
 2. **Mobile breakpoint.** `resize_page` 393×851 (<768px). Bottom tab bar shows the primary
-   4 (`users/coaches/coach-store/groups` admin; `chat/my-coaches/insights/groups` user);
+   4 (`users/agents/agent-store/groups` admin; `chat/my-coaches/insights/groups` user);
    everything else is in the off-canvas drawer, and the drawer badge aggregates.
    No horizontal scroll, no clipped content, touch targets ≥44×44.
 3. **Back/forward.** `press_key` browser-back across visited tabs — the app pushes history

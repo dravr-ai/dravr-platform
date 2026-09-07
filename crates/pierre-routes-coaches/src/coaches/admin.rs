@@ -30,7 +30,7 @@ use super::types::{
     UnassignCoachResponse, UpdateCoachBody,
 };
 
-/// Handle GET /admin/coaches - List all system coaches in tenant
+/// Handle GET /admin/agents - List all system coaches in tenant
 pub(super) async fn handle_admin_list<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -51,7 +51,7 @@ pub(super) async fn handle_admin_list<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /admin/coaches - Create a system coach
+/// Handle POST /admin/agents - Create a system coach
 pub(super) async fn handle_admin_create<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -70,7 +70,7 @@ pub(super) async fn handle_admin_create<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle GET /admin/coaches/:id - Get a system coach
+/// Handle GET /admin/agents/:id - Get a system coach
 pub(super) async fn handle_admin_get<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -90,7 +90,7 @@ pub(super) async fn handle_admin_get<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle PUT /admin/coaches/:id - Update a system coach
+/// Handle PUT /admin/agents/:id - Update a system coach
 pub(super) async fn handle_admin_update<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -130,7 +130,7 @@ pub(super) async fn handle_admin_update<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle DELETE /admin/coaches/:id - Delete a system coach
+/// Handle DELETE /admin/agents/:id - Delete a system coach
 pub(super) async fn handle_admin_delete<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -150,7 +150,7 @@ pub(super) async fn handle_admin_delete<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::NO_CONTENT, ()).into_response())
 }
 
-/// Handle POST /admin/coaches/:id/assign - Assign coach to users
+/// Handle POST /admin/agents/:id/assign - Assign coach to users
 ///
 /// Delegates tenant membership verification and bulk operations to
 /// `services::coaches::bulk_assign_coach`.
@@ -211,7 +211,7 @@ pub(super) async fn handle_admin_assign<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle DELETE /admin/coaches/:id/assign - Remove coach assignment from users
+/// Handle DELETE /admin/agents/:id/assign - Remove coach assignment from users
 ///
 /// Delegates tenant membership verification and bulk operations to
 /// `services::coaches::bulk_unassign_coach`.
@@ -250,7 +250,7 @@ pub(super) async fn handle_admin_unassign<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /admin/coaches/:id/assignments - List users assigned to a coach
+/// Handle GET /admin/agents/:id/assignments - List users assigned to a coach
 pub(super) async fn handle_admin_list_assignments<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -392,7 +392,7 @@ pub(super) async fn handle_admin_rejected<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /admin/store/coaches/:id/approve - Approve a coach
+/// Handle POST /admin/store/agents/:id/approve - Approve a coach
 pub(super) async fn handle_admin_approve<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -416,7 +416,7 @@ pub(super) async fn handle_admin_approve<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /admin/store/coaches/:id/reject - Reject a coach
+/// Handle POST /admin/store/agents/:id/reject - Reject a coach
 pub(super) async fn handle_admin_reject<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -444,7 +444,7 @@ pub(super) async fn handle_admin_reject<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /admin/store/coaches/:id/unpublish - Unpublish a coach
+/// Handle POST /admin/store/agents/:id/unpublish - Unpublish a coach
 pub(super) async fn handle_admin_unpublish<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,

@@ -86,7 +86,7 @@ async fn setup_test_environment() -> (axum::Router, String) {
 async fn test_import_valid_markdown() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/import")
+    let response = AxumTestRequest::post("/api/agents/import")
         .header("authorization", &auth_token)
         .text(VALID_COACH_MARKDOWN)
         .send(router)
@@ -115,7 +115,7 @@ async fn test_import_valid_markdown() {
 async fn test_import_invalid_markdown_no_frontmatter() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/import")
+    let response = AxumTestRequest::post("/api/agents/import")
         .header("authorization", &auth_token)
         .text(NO_FRONTMATTER_MARKDOWN)
         .send(router)
@@ -128,7 +128,7 @@ async fn test_import_invalid_markdown_no_frontmatter() {
 async fn test_import_invalid_markdown_missing_sections() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/import")
+    let response = AxumTestRequest::post("/api/agents/import")
         .header("authorization", &auth_token)
         .text(MISSING_SECTIONS_MARKDOWN)
         .send(router)
@@ -142,7 +142,7 @@ async fn test_import_duplicate_content_hash() {
     let (router, auth_token) = setup_test_environment().await;
 
     // First import succeeds
-    let first = AxumTestRequest::post("/api/coaches/import")
+    let first = AxumTestRequest::post("/api/agents/import")
         .header("authorization", &auth_token)
         .text(VALID_COACH_MARKDOWN)
         .send(router.clone())
@@ -153,7 +153,7 @@ async fn test_import_duplicate_content_hash() {
     let first_coach_id = first_body["coach"]["id"].as_str().unwrap().to_owned();
 
     // Second import of identical content should be rejected as duplicate (409)
-    let second = AxumTestRequest::post("/api/coaches/import")
+    let second = AxumTestRequest::post("/api/agents/import")
         .header("authorization", &auth_token)
         .text(VALID_COACH_MARKDOWN)
         .send(router.clone())
@@ -175,7 +175,7 @@ async fn test_import_duplicate_content_hash() {
 async fn test_preview_valid_markdown() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/import/preview")
+    let response = AxumTestRequest::post("/api/agents/import/preview")
         .header("authorization", &auth_token)
         .text(VALID_COACH_MARKDOWN)
         .send(router.clone())
@@ -196,7 +196,7 @@ async fn test_preview_valid_markdown() {
     assert!(parsed["has_example_inputs"].as_bool().unwrap());
 
     // Verify no side effect: list coaches should be empty
-    let list = AxumTestRequest::get("/api/coaches")
+    let list = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -209,7 +209,7 @@ async fn test_preview_valid_markdown() {
 async fn test_preview_invalid_markdown() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/import/preview")
+    let response = AxumTestRequest::post("/api/agents/import/preview")
         .header("authorization", &auth_token)
         .text(NO_FRONTMATTER_MARKDOWN)
         .send(router)
@@ -230,7 +230,7 @@ async fn test_preview_detects_duplicate() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Import a coach first
-    let import = AxumTestRequest::post("/api/coaches/import")
+    let import = AxumTestRequest::post("/api/agents/import")
         .header("authorization", &auth_token)
         .text(VALID_COACH_MARKDOWN)
         .send(router.clone())
@@ -238,7 +238,7 @@ async fn test_preview_detects_duplicate() {
     assert_eq!(import.status_code(), StatusCode::CREATED);
 
     // Preview the same markdown -- should detect the duplicate
-    let preview = AxumTestRequest::post("/api/coaches/import/preview")
+    let preview = AxumTestRequest::post("/api/agents/import/preview")
         .header("authorization", &auth_token)
         .text(VALID_COACH_MARKDOWN)
         .send(router)
@@ -259,7 +259,7 @@ async fn test_preview_detects_duplicate() {
 async fn test_import_url_rejects_http() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/import/url")
+    let response = AxumTestRequest::post("/api/agents/import/url")
         .header("authorization", &auth_token)
         .json(&json!({
             "url": "http://example.com/coach.md",
@@ -275,7 +275,7 @@ async fn test_import_url_rejects_http() {
 async fn test_import_url_rejects_private_ip() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/import/url")
+    let response = AxumTestRequest::post("/api/agents/import/url")
         .header("authorization", &auth_token)
         .json(&json!({
             "url": "https://127.0.0.1/coach.md",
@@ -314,7 +314,7 @@ async fn test_import_url_rejects_ipv6_and_metadata_ssrf_vectors() {
     ];
 
     for (label, url) in blocked {
-        let response = AxumTestRequest::post("/api/coaches/import/url")
+        let response = AxumTestRequest::post("/api/agents/import/url")
             .header("authorization", &auth_token)
             .json(&json!({ "url": url, "save": true }))
             .send(router.clone())

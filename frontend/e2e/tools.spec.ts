@@ -20,7 +20,7 @@ async function setupEngagementMocks(
   await setupDashboardMocks(page, { role: 'admin' });
 
   // Mock system coaches endpoint (used by the agent leaderboard)
-  await page.route('**/api/admin/coaches', async (route) => {
+  await page.route('**/api/admin/agents', async (route) => {
     if (!hasData) {
       await route.fulfill({
         status: 200,
@@ -276,7 +276,7 @@ test.describe('Engagement Tab - Loading State', () => {
   test('shows loading spinner while data loads', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    await page.route('**/api/admin/coaches', async (route) => {
+    await page.route('**/api/admin/agents', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       await route.fulfill({
         status: 200,

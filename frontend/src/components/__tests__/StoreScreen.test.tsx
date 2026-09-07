@@ -135,7 +135,7 @@ vi.mock('../../services/api', () => ({
 import { storeApi, coachesApi, chatApi } from '../../services/api';
 
 // A coach installed from the store is a personal copy: fresh id, `forked_from`
-// pointing at the store listing. Mirrors GET /api/coaches on a live server.
+// pointing at the store listing. Mirrors GET /api/agents on a live server.
 const installedCopyOfCoach1 = {
   id: 'installed-copy-1',
   title: 'Marathon Training Coach',

@@ -671,7 +671,7 @@ export const adminApi = {
     total: number;
     metadata: { timestamp: string; api_version: string };
   }> {
-    const response = await axios.get('/api/admin/coaches');
+    const response = await axios.get('/api/admin/agents');
     return response.data;
   },
 
@@ -689,12 +689,12 @@ export const adminApi = {
     example_outputs?: string;
     success_criteria?: string;
   }): Promise<Coach> {
-    const response = await axios.post('/api/admin/coaches', data);
+    const response = await axios.post('/api/admin/agents', data);
     return response.data;
   },
 
   async getSystemCoach(coachId: string): Promise<Coach> {
-    const response = await axios.get(`/api/admin/coaches/${coachId}`);
+    const response = await axios.get(`/api/admin/agents/${coachId}`);
     return response.data;
   },
 
@@ -711,12 +711,12 @@ export const adminApi = {
     example_outputs?: string;
     success_criteria?: string;
   }): Promise<Coach> {
-    const response = await axios.put(`/api/admin/coaches/${coachId}`, data);
+    const response = await axios.put(`/api/admin/agents/${coachId}`, data);
     return response.data;
   },
 
   async deleteSystemCoach(coachId: string): Promise<void> {
-    await axios.delete(`/api/admin/coaches/${coachId}`);
+    await axios.delete(`/api/admin/agents/${coachId}`);
   },
 
   async assignCoachToUsers(coachId: string, userIds: string[]): Promise<{
@@ -724,7 +724,7 @@ export const adminApi = {
     assigned_count: number;
     total_requested: number;
   }> {
-    const response = await axios.post(`/api/admin/coaches/${coachId}/assign`, { user_ids: userIds });
+    const response = await axios.post(`/api/admin/agents/${coachId}/assign`, { user_ids: userIds });
     return response.data;
   },
 
@@ -733,7 +733,7 @@ export const adminApi = {
     removed_count: number;
     total_requested: number;
   }> {
-    const response = await axios.delete(`/api/admin/coaches/${coachId}/assign`, {
+    const response = await axios.delete(`/api/admin/agents/${coachId}/assign`, {
       data: { user_ids: userIds },
     });
     return response.data;
@@ -748,7 +748,7 @@ export const adminApi = {
       assigned_by?: string;
     }>;
   }> {
-    const response = await axios.get(`/api/admin/coaches/${coachId}/assignments`);
+    const response = await axios.get(`/api/admin/agents/${coachId}/assignments`);
     return response.data;
   },
 
@@ -1010,7 +1010,7 @@ export const adminApi = {
     message: string;
     coach_id: string;
   }> {
-    const response = await axios.post(`/api/admin/store/coaches/${coachId}/approve`);
+    const response = await axios.post(`/api/admin/store/agents/${coachId}/approve`);
     return response.data;
   },
 
@@ -1019,7 +1019,7 @@ export const adminApi = {
     message: string;
     coach_id: string;
   }> {
-    const response = await axios.post(`/api/admin/store/coaches/${coachId}/reject`, { reason, notes });
+    const response = await axios.post(`/api/admin/store/agents/${coachId}/reject`, { reason, notes });
     return response.data;
   },
 
@@ -1028,7 +1028,7 @@ export const adminApi = {
     message: string;
     coach_id: string;
   }> {
-    const response = await axios.post(`/api/admin/store/coaches/${coachId}/unpublish`);
+    const response = await axios.post(`/api/admin/store/agents/${coachId}/unpublish`);
     return response.data;
   },
 
@@ -1099,7 +1099,7 @@ export const adminApi = {
     path: string;
     commit_sha: string | null;
   }> {
-    const response = await axios.post(`/api/admin/contremaitre/coaches/${coachId}/promote`);
+    const response = await axios.post(`/api/admin/contremaitre/agents/${coachId}/promote`);
     return response.data;
   },
 
@@ -1176,7 +1176,7 @@ export const adminApi = {
     if (limit !== undefined) {
       query.append('limit', String(limit));
     }
-    const response = await axios.get(`/api/admin/coach-followups/pending?${query.toString()}`);
+    const response = await axios.get(`/api/admin/agent-followups/pending?${query.toString()}`);
     return response.data;
   },
 
@@ -1186,7 +1186,7 @@ export const adminApi = {
   ): Promise<{ cancelled: boolean }> {
     const query = new URLSearchParams({ tenant_id: tenantId });
     const response = await axios.post(
-      `/api/admin/coach-followups/${followupId}/cancel?${query.toString()}`,
+      `/api/admin/agent-followups/${followupId}/cancel?${query.toString()}`,
     );
     return response.data;
   },
@@ -1200,7 +1200,7 @@ export const adminApi = {
     if (limit !== undefined) {
       query.append('limit', String(limit));
     }
-    const response = await axios.get(`/api/admin/coach-notes/audit?${query.toString()}`);
+    const response = await axios.get(`/api/admin/agent-notes/audit?${query.toString()}`);
     return response.data;
   },
 
@@ -1246,7 +1246,7 @@ export const adminApi = {
   ): Promise<{ note_id: string; suppressed: boolean; changed: boolean }> {
     const query = new URLSearchParams({ tenant_id: tenantId });
     const response = await axios.post(
-      `/api/admin/coach-notes/${encodeURIComponent(noteId)}/suppress?${query.toString()}`,
+      `/api/admin/agent-notes/${encodeURIComponent(noteId)}/suppress?${query.toString()}`,
     );
     return response.data;
   },
@@ -1258,7 +1258,7 @@ export const adminApi = {
   ): Promise<{ note_id: string; suppressed: boolean; changed: boolean }> {
     const query = new URLSearchParams({ tenant_id: tenantId });
     const response = await axios.post(
-      `/api/admin/coach-notes/${encodeURIComponent(noteId)}/unsuppress?${query.toString()}`,
+      `/api/admin/agent-notes/${encodeURIComponent(noteId)}/unsuppress?${query.toString()}`,
     );
     return response.data;
   },
@@ -1272,7 +1272,7 @@ export const adminApi = {
     if (limit !== undefined) {
       query.append('limit', String(limit));
     }
-    const response = await axios.get(`/api/admin/coach-grading/summary?${query.toString()}`);
+    const response = await axios.get(`/api/admin/agent-grading/summary?${query.toString()}`);
     return response.data;
   },
 
@@ -1551,7 +1551,7 @@ export interface MythBustingSummary {
 /** Letter grade for an agent based on claim verdict history. */
 export type LetterGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'PROVISIONAL';
 
-/** Per-agent grade row from `GET /admin/coach-grading/summary`. */
+/** Per-agent grade row from `GET /admin/agent-grading/summary`. */
 export interface CoachGrade {
   coach_id: string;
   total_verdicts: number;
@@ -1564,7 +1564,7 @@ export interface CoachGrade {
   grade: LetterGrade;
 }
 
-/** Top-level wire response for `GET /admin/coach-grading/summary`. */
+/** Top-level wire response for `GET /admin/agent-grading/summary`. */
 export interface CoachGradingSummary {
   tenant_id: string;
   verdicts_scanned: number;

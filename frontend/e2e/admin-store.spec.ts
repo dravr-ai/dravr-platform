@@ -154,7 +154,7 @@ async function setupAdminStoreMocks(page: Page) {
   });
 
   // Mock approve endpoint
-  await page.route('**/api/admin/store/coaches/*/approve', async (route) => {
+  await page.route('**/api/admin/store/agents/*/approve', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -167,7 +167,7 @@ async function setupAdminStoreMocks(page: Page) {
   });
 
   // Mock reject endpoint
-  await page.route('**/api/admin/store/coaches/*/reject', async (route) => {
+  await page.route('**/api/admin/store/agents/*/reject', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -180,7 +180,7 @@ async function setupAdminStoreMocks(page: Page) {
   });
 
   // Mock unpublish endpoint
-  await page.route('**/api/admin/store/coaches/*/unpublish', async (route) => {
+  await page.route('**/api/admin/store/agents/*/unpublish', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -193,7 +193,7 @@ async function setupAdminStoreMocks(page: Page) {
   });
 
   // Mock user coaches endpoint (required for sidebar)
-  await page.route('**/api/coaches', async (route) => {
+  await page.route('**/api/agents', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -373,7 +373,7 @@ test.describe('Admin Review Queue', () => {
     });
 
     // CoachReviewQueue now hits /api/admin/store/review-queue (renamed
-    // from the legacy /api/admin/store/coaches?status=pending_review).
+    // from the legacy /api/admin/store/agents?status=pending_review).
     await page.route('**/api/admin/store/review-queue', async (route) => {
       await route.fulfill({
         status: 200,
@@ -386,7 +386,7 @@ test.describe('Admin Review Queue', () => {
       });
     });
 
-    await page.route('**/api/coaches', async (route) => {
+    await page.route('**/api/agents', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -411,7 +411,7 @@ test.describe('Admin Agent Approval', () => {
     await setupAdminStoreMocks(page);
 
     let approveCalled = false;
-    await page.route('**/api/admin/store/coaches/*/approve', async (route) => {
+    await page.route('**/api/admin/store/agents/*/approve', async (route) => {
       approveCalled = true;
       await route.fulfill({
         status: 200,
@@ -494,7 +494,7 @@ test.describe('Admin Agent Rejection', () => {
     await setupAdminStoreMocks(page);
 
     let rejectCalled = false;
-    await page.route('**/api/admin/store/coaches/*/reject', async (route) => {
+    await page.route('**/api/admin/store/agents/*/reject', async (route) => {
       rejectCalled = true;
       await route.fulfill({
         status: 200,

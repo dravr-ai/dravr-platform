@@ -114,8 +114,8 @@ drift: a tenant with 90% `other` facts has a prompt problem.
 
 ### Agent Followups tab (Sprint C7)
 
-**Route:** `GET /admin/coach-followups/pending?tenant_id=...`,
-`POST /admin/coach-followups/{id}/cancel?tenant_id=...`
+**Route:** `GET /admin/agent-followups/pending?tenant_id=...`,
+`POST /admin/agent-followups/{id}/cancel?tenant_id=...`
 **Permissions:** `ViewConfiguration` (list), `ManageConfiguration` (cancel)
 
 Tenant-wide pending followup queue. Each row is a promise the agent
@@ -135,7 +135,7 @@ injected into an agent prompt" holds either way).
 
 ### Agent Notes Audit tab (Sprint C8)
 
-**Route:** `GET /admin/coach-notes/audit?tenant_id=...`
+**Route:** `GET /admin/agent-notes/audit?tenant_id=...`
 **Permission:** `ViewAuditLogs` (**stronger** than `ViewConfiguration`)
 
 Flat tenant-wide feed of every note an agent persona wrote about a
@@ -170,7 +170,7 @@ if they're a pattern or noise.
 
 ### Agent Grades tab (Sprint C14)
 
-**Route:** `GET /admin/coach-grading/summary?tenant_id=...&limit=500`
+**Route:** `GET /admin/agent-grading/summary?tenant_id=...&limit=500`
 **Permission:** `ViewConfiguration`
 
 Per-agent A–F letter grade derived from the verdict history.

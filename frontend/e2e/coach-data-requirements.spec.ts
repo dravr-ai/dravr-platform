@@ -70,14 +70,14 @@ async function setupCoachMocks(page: Page) {
   const metadata = () => ({ timestamp: new Date().toISOString(), api_version: '1.0' });
 
   // The catalogue: the one listing the athlete installed.
-  await page.route(/\/api\/store\/coaches(\?.*)?$/, async (route) => {
+  await page.route(/\/api\/store\/agents(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ coaches: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
     });
   });
-  await page.route(`**/api/store/coaches/${STORE_ID}`, async (route) => {
+  await page.route(`**/api/store/agents/${STORE_ID}`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -90,8 +90,8 @@ async function setupCoachMocks(page: Page) {
     });
   });
 
-  // Mock user coaches list (matches /api/coaches and /api/coaches?...)
-  await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
+  // Mock user coaches list (matches /api/agents and /api/agents?...)
+  await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -109,7 +109,7 @@ async function setupCoachMocks(page: Page) {
 
 
   // Mock individual coach endpoints (GET/PUT/DELETE)
-  await page.route(/\/api\/coaches\/[^/]+$/, async (route) => {
+  await page.route(/\/api\/agents\/[^/]+$/, async (route) => {
     const method = route.request().method();
     if (method === 'GET') {
       await route.fulfill({

@@ -68,13 +68,13 @@ export const ENDPOINTS = {
   // ==================== COACHES ====================
   COACHES: {
     /** List the caller's coaches */
-    LIST: '/api/coaches',
+    LIST: '/api/agents',
     /** Get/update/delete a coach */
-    COACH: (id: string) => `/api/coaches/${id}`,
+    COACH: (id: string) => `/api/agents/${id}`,
     /** Record coach usage */
-    USAGE: (id: string) => `/api/coaches/${id}/usage`,
+    USAGE: (id: string) => `/api/agents/${id}/usage`,
     /** Onboarding coach proposal (inferred profile + top-3 coaches) */
-    PROPOSAL: '/api/coaches/proposal',
+    PROPOSAL: '/api/agents/proposal',
   },
 
   // ==================== OAUTH ====================
@@ -104,13 +104,13 @@ export const ENDPOINTS = {
   // ==================== STORE ====================
   STORE: {
     /** Browse/list store coaches */
-    COACHES: '/api/store/coaches',
+    COACHES: '/api/store/agents',
     /** Get specific store coach */
-    COACH: (id: string) => `/api/store/coaches/${id}`,
+    COACH: (id: string) => `/api/store/agents/${id}`,
     /** Search store coaches */
     SEARCH: '/api/store/search',
     /** Install/uninstall a coach */
-    INSTALL: (id: string) => `/api/store/coaches/${id}/install`,
+    INSTALL: (id: string) => `/api/store/agents/${id}/install`,
     /** List installed coaches */
     INSTALLATIONS: '/api/store/installations',
   },

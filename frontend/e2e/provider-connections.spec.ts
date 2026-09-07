@@ -94,7 +94,7 @@ async function setupProviderMocks(page: Page) {
   });
 
   // Coaches (needed by sidebar)
-  await page.route('**/api/coaches**', async (route) => {
+  await page.route('**/api/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -285,7 +285,7 @@ test.describe('Provider Connections - Error Handling', () => {
       });
     });
 
-    await page.route('**/api/coaches**', async (route) => {
+    await page.route('**/api/agents**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

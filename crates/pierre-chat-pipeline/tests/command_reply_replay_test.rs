@@ -173,7 +173,7 @@ fn a_shared_room_persists_only_what_it_saw() {
         );
         assert!(CommandPersistence::RoomVisibleOnly.persists(Some(name)));
     }
-    assert!(ROOM_VISIBLE_COMMANDS.contains(&"coach-add"));
+    assert!(ROOM_VISIBLE_COMMANDS.contains(&"agent-add"));
     // `/plan share` is the consent to post the caller's plan; bare `/plan` is
     // not, and listing it here would publish every member's plan.
     assert!(ROOM_VISIBLE_COMMANDS.contains(&"plan-share"));
@@ -182,7 +182,7 @@ fn a_shared_room_persists_only_what_it_saw() {
         "status",
         "group-invite",
         "group-consent",
-        "coach-list",
+        "agent-list",
         "plan",
     ] {
         assert!(!is_room_visible(Some(private)));

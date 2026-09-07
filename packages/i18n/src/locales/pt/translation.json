@@ -1134,6 +1134,21 @@
       "removed": "{0} já não responde nesta conversa.",
       "user_updated": "Agente selecionado: {0}."
     },
+    "agent-add": {
+      "description": "Trazer um dos teus agentes instalados para esta conversa"
+    },
+    "agent-assign": {
+      "description": "Atribuir um agente a um grupo específico"
+    },
+    "agent-create": {
+      "description": "Esboçar um novo agente a partir desta conversa e confirmar para o criar"
+    },
+    "agent-list": {
+      "description": "Listar os teus agentes instalados — menciona @handle para uma só vez, /agent add @handle para o vincular"
+    },
+    "agent-remove": {
+      "description": "Desvincular o agente desta conversa"
+    },
     "answered_privately": "Respondi-te em privado — está na nossa conversa direta. Uma sala pode juntar vários atletas, por isso as respostas pessoais não aparecem aqui.",
     "calibrate": {
       "complete_header": "Calibração terminada — retive {0} respostas de {1}.",
@@ -1147,23 +1162,8 @@
       "topic_injury": "as tuas lesões e queixas recentes",
       "topic_recovery": "a tua velocidade de recuperação"
     },
-    "coach-add": {
-      "description": "Trazer um dos teus agentes instalados para esta conversa"
-    },
-    "coach-assign": {
-      "description": "Atribuir um agente a um grupo específico"
-    },
-    "coach-create": {
-      "description": "Esboçar um novo agente a partir desta conversa e confirmar para o criar"
-    },
     "coach-invite": {
       "description": "Emitir o código de convite do coach humano deste grupo"
-    },
-    "coach-list": {
-      "description": "Listar os teus agentes instalados — menciona @handle para uma só vez, /agent add @handle para o vincular"
-    },
-    "coach-remove": {
-      "description": "Desvincular o agente desta conversa"
     },
     "confirm": {
       "description": "Aprovar uma ação que o guardião de segurança deixou em espera"
@@ -1258,6 +1258,7 @@
       "description": "Mostrar os comandos disponíveis",
       "domain": {
         "account": "Conta",
+        "agent": "Agentes",
         "coach": "Coaching",
         "data": "Dados de atividade",
         "discover": "Catálogo de agentes",

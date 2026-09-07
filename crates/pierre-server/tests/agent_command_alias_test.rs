@@ -109,25 +109,28 @@ mod agent_alias {
     /// Every agent subcommand the catalogue declares keeps a `/coach` twin.
     ///
     /// Enumerated from `commands/**/*.md`, not from a list in this file: a
-    /// seventh subcommand added canonically but never given its legacy
+    /// sixth subcommand added canonically but never given its legacy
     /// spelling fails here rather than surprising an athlete.
+    ///
+    /// `coach-invite` is not among them: it attaches a human coach, so it
+    /// lives in the `coach` domain under `/coach invite` and is covered by
+    /// [`the_human_coach_invite_is_issued_under_both_spellings`].
     #[tokio::test]
     async fn every_agent_subcommand_declares_its_legacy_coach_spelling() {
         let (_registry, definitions) = catalogue();
 
         let declared: BTreeMap<String, String> = definitions
             .iter()
-            .filter(|d| d.domain == "coach")
+            .filter(|d| d.domain == "agent")
             .map(|d| (d.name.clone(), d.command.clone()))
             .collect();
 
         let expected: BTreeMap<String, String> = [
-            ("coach-list", "/agent"),
-            ("coach-add", "/agent add"),
-            ("coach-create", "/agent create"),
-            ("coach-remove", "/agent remove"),
-            ("coach-assign", "/agent assign"),
-            ("coach-invite", "/agent invite"),
+            ("agent-list", "/agent"),
+            ("agent-add", "/agent add"),
+            ("agent-create", "/agent create"),
+            ("agent-remove", "/agent remove"),
+            ("agent-assign", "/agent assign"),
         ]
         .into_iter()
         .map(|(name, command)| (name.to_owned(), command.to_owned()))
@@ -154,8 +157,8 @@ mod agent_alias {
 
         let list = definitions
             .iter()
-            .find(|d| d.name == "coach-list")
-            .expect("coach-list is in the catalogue");
+            .find(|d| d.name == "agent-list")
+            .expect("agent-list is in the catalogue");
         let aliases: BTreeSet<&str> = list.aliases.iter().map(String::as_str).collect();
         assert_eq!(
             aliases,
@@ -179,38 +182,38 @@ mod agent_alias {
         let matcher = CommandMatcher::from_registry(&registry);
 
         let cases: [(&str, &str, &[&str]); 18] = [
-            ("/agent", "coach-list", &[]),
-            ("/coach", "coach-list", &[]),
-            ("/coaches", "coach-list", &[]),
-            ("/agent list", "coach-list", &[]),
-            ("/coach list", "coach-list", &[]),
+            ("/agent", "agent-list", &[]),
+            ("/coach", "agent-list", &[]),
+            ("/coaches", "agent-list", &[]),
+            ("/agent list", "agent-list", &[]),
+            ("/coach list", "agent-list", &[]),
             (
                 "/agent add @recovery-coach",
-                "coach-add",
+                "agent-add",
                 &["@recovery-coach"],
             ),
             (
                 "/coach add @recovery-coach",
-                "coach-add",
+                "agent-add",
                 &["@recovery-coach"],
             ),
             (
                 "/coaches add @recovery-coach",
-                "coach-add",
+                "agent-add",
                 &["@recovery-coach"],
             ),
-            ("/agent remove", "coach-remove", &[]),
-            ("/coach remove", "coach-remove", &[]),
-            ("/agent create", "coach-create", &[]),
-            ("/coach create", "coach-create", &[]),
-            ("/agent assign aaa bbb", "coach-assign", &["aaa", "bbb"]),
-            ("/coach assign aaa bbb", "coach-assign", &["aaa", "bbb"]),
+            ("/agent remove", "agent-remove", &[]),
+            ("/coach remove", "agent-remove", &[]),
+            ("/agent create", "agent-create", &[]),
+            ("/coach create", "agent-create", &[]),
+            ("/agent assign aaa bbb", "agent-assign", &["aaa", "bbb"]),
+            ("/coach assign aaa bbb", "agent-assign", &["aaa", "bbb"]),
             ("/agent invite", "coach-invite", &[]),
             ("/coach invite", "coach-invite", &[]),
             ("/coaches invite", "coach-invite", &[]),
             (
                 "/COACH ADD @recovery-coach",
-                "coach-add",
+                "agent-add",
                 &["@recovery-coach"],
             ),
         ];
@@ -247,7 +250,7 @@ mod agent_alias {
             }
         }
         assert_eq!(
-            checked, 23,
+            checked, 24,
             "the catalogue's alias inventory changed; read the new one and update this \
              count, so an alias silently dropped from a definition cannot pass here"
         );
@@ -266,6 +269,7 @@ mod agent_alias {
             "/coachess",
             "/agentlist",
             "/coach-add",
+            "/agent-add",
         ] {
             assert!(
                 matcher.try_match(typo, &registry).is_none(),
@@ -278,7 +282,7 @@ mod agent_alias {
                 .try_match("/coach", &registry)
                 .expect("/coach resolves")
                 .name,
-            "coach-list"
+            "agent-list"
         );
     }
 
@@ -854,12 +858,13 @@ mod agent_alias {
         );
     }
 
-    /// `/coach invite` issues the same human-coach invite `/agent invite`
+    /// `/agent invite` issues the same human-coach invite `/coach invite`
     /// issues — a second `group_invites` row of kind `Coach`, and a body that
     /// differs from the canonical one only by its own code.
     ///
     /// This is the one B-sense subcommand in the tree: the invite attaches a
-    /// human coach, and only the command's spelling was renamed.
+    /// human coach, so `/coach invite` is the canonical spelling and the
+    /// `/agent` one is the alias every other subcommand has in reverse.
     #[tokio::test]
     async fn the_human_coach_invite_is_issued_under_both_spellings() {
         let resources = create_test_server_resources().await.unwrap();
@@ -872,8 +877,8 @@ mod agent_alias {
         let conv_id =
             group_conversation(&resources, router.clone(), &auth, tenant_id, group_id).await;
 
-        let canonical = send_command(router.clone(), &auth, &conv_id, "/agent invite").await;
-        let legacy = send_command(router.clone(), &auth, &conv_id, "/coach invite").await;
+        let canonical = send_command(router.clone(), &auth, &conv_id, "/coach invite").await;
+        let legacy = send_command(router.clone(), &auth, &conv_id, "/agent invite").await;
 
         let invites = resources
             .common
@@ -911,7 +916,7 @@ mod agent_alias {
         assert_eq!(
             body_of(&legacy.assistant.message.content),
             body_of(&canonical.assistant.message.content),
-            "/coach invite answered differently from /agent invite"
+            "/agent invite answered differently from /coach invite"
         );
     }
 

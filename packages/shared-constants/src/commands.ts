@@ -89,6 +89,7 @@ export function commandDraftFor(entry: CommandEntry): string {
  */
 export const COMMAND_DOMAIN_LABEL_KEY: Record<string, string> = {
   account: 'commands.help.domain.account',
+  agent: 'commands.help.domain.agent',
   coach: 'commands.help.domain.coach',
   data: 'commands.help.domain.data',
   discover: 'commands.help.domain.discover',

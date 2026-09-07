@@ -67,7 +67,7 @@ async fn user_sees_coach_tools<C: MiddlewareCtx>(ctx: &Arc<C>, user_id: Uuid) ->
         .is_some_and(|user| user.coaching_persona == CoachingPersona::Coach)
 }
 
-/// Handle GET /api/coaches - List coaches for a user
+/// Handle GET /api/agents - List coaches for a user
 pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -253,7 +253,7 @@ async fn load_sport_profile<C: ToolRuntime>(
     Some(profile)
 }
 
-/// Handle GET /api/coaches/proposal - Onboarding coach proposal.
+/// Handle GET /api/agents/proposal - Onboarding coach proposal.
 ///
 /// Drives the post-onboarding "we analyzed your data → here are your coaches"
 /// screen in one call: infers the user's recent sport profile, deterministically
@@ -579,7 +579,7 @@ fn check_prerequisites(
     (result.met, missing)
 }
 
-/// Handle POST /api/coaches - Create a new coach
+/// Handle POST /api/agents - Create a new coach
 pub(super) async fn handle_create<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -616,7 +616,7 @@ pub(super) async fn handle_create<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle GET /api/coaches/search - Search coaches
+/// Handle GET /api/agents/search - Search coaches
 pub(super) async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -639,7 +639,7 @@ pub(super) async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/coaches/:id - Get a specific coach
+/// Handle GET /api/agents/:id - Get a specific coach
 pub(super) async fn handle_get<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -666,7 +666,7 @@ pub(super) async fn handle_get<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/coaches/:id/export - Export coach as markdown
+/// Handle GET /api/agents/:id/export - Export coach as markdown
 pub(super) async fn handle_export<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -708,7 +708,7 @@ pub(super) async fn handle_export<C: CoachesCtx + MiddlewareCtx>(
         .into_response())
 }
 
-/// Handle POST /api/coaches/import - Import coach from markdown
+/// Handle POST /api/agents/import - Import coach from markdown
 ///
 /// Parses markdown content, checks for duplicate content hashes, and
 /// creates a new coach. Returns 409 Conflict if a coach with the same
@@ -755,7 +755,7 @@ pub(super) async fn handle_import<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle POST /api/coaches/import/preview - Preview a markdown import without saving
+/// Handle POST /api/agents/import/preview - Preview a markdown import without saving
 ///
 /// Parses the markdown content and returns validation results, warnings,
 /// and duplicate detection information without creating a coach.
@@ -822,7 +822,7 @@ pub(super) async fn handle_import_preview<C: CoachesCtx + MiddlewareCtx>(
     }
 }
 
-/// Handle POST /api/coaches/import/url - Import coach from a URL
+/// Handle POST /api/agents/import/url - Import coach from a URL
 ///
 /// Fetches markdown content from the given HTTPS URL with SSRF protection,
 /// then either saves as a new coach or returns a preview depending on the
@@ -904,7 +904,7 @@ pub(super) async fn handle_import_from_url<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle PUT /api/coaches/:id - Update a coach
+/// Handle PUT /api/agents/:id - Update a coach
 pub(super) async fn handle_update<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -931,7 +931,7 @@ pub(super) async fn handle_update<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle DELETE /api/coaches/:id - Delete a coach
+/// Handle DELETE /api/agents/:id - Delete a coach
 pub(super) async fn handle_delete<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -950,7 +950,7 @@ pub(super) async fn handle_delete<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::NO_CONTENT, ()).into_response())
 }
 
-/// Handle POST /api/coaches/:id/favorite - Toggle favorite status
+/// Handle POST /api/agents/:id/favorite - Toggle favorite status
 pub(super) async fn handle_toggle_favorite<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -969,7 +969,7 @@ pub(super) async fn handle_toggle_favorite<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /api/coaches/:id/usage - Record coach usage
+/// Handle POST /api/agents/:id/usage - Record coach usage
 #[tracing::instrument(
     skip(ctx, auth),
     fields(
@@ -1006,7 +1006,7 @@ pub(super) async fn handle_record_usage<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /api/coaches/:id/hide - Hide a coach from user's view
+/// Handle POST /api/agents/:id/hide - Hide a coach from user's view
 pub(super) async fn handle_hide_coach<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -1025,7 +1025,7 @@ pub(super) async fn handle_hide_coach<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle DELETE /api/coaches/:id/hide - Show (unhide) a coach
+/// Handle DELETE /api/agents/:id/hide - Show (unhide) a coach
 pub(super) async fn handle_show_coach<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -1047,7 +1047,7 @@ pub(super) async fn handle_show_coach<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /api/coaches/:id/fork - Fork a system coach to create a user copy
+/// Handle POST /api/agents/:id/fork - Fork a system coach to create a user copy
 pub(super) async fn handle_fork<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -1066,7 +1066,7 @@ pub(super) async fn handle_fork<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle GET /api/coaches/hidden - List hidden coaches for user
+/// Handle GET /api/agents/hidden - List hidden coaches for user
 pub(super) async fn handle_list_hidden<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,

@@ -91,7 +91,7 @@ async fn setup() -> Fixture {
         .merge(GroupRoutes::routes(Arc::clone(&res)))
         .merge(ChatRoutes::routes(Arc::clone(&res)));
 
-    let coach_resp = AxumTestRequest::post("/api/coaches")
+    let coach_resp = AxumTestRequest::post("/api/agents")
         .header("authorization", &owner_auth)
         .json(&json!({
             "title": "Squad Coach",

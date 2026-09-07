@@ -95,7 +95,7 @@ impl From<CoachFollowup> for FollowupRow {
     }
 }
 
-/// Response envelope for `GET /admin/coach-followups/pending`.
+/// Response envelope for `GET /admin/agent-followups/pending`.
 #[derive(Debug, Serialize)]
 pub struct FollowupListResponse {
     /// Followup rows for this page.
@@ -104,7 +104,7 @@ pub struct FollowupListResponse {
     pub total: usize,
 }
 
-/// Response envelope for `POST /admin/coach-followups/{id}/cancel`.
+/// Response envelope for `POST /admin/agent-followups/{id}/cancel`.
 #[derive(Debug, Serialize)]
 pub struct CancelFollowupResponse {
     /// `true` when the row transitioned `pending -> cancelled`, `false` if
@@ -118,7 +118,7 @@ fn parse_tenant(raw: &str) -> AppResult<TenantId> {
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {raw}")))
 }
 
-/// Handle `GET /admin/coach-followups/pending`.
+/// Handle `GET /admin/agent-followups/pending`.
 pub(crate) async fn handle_list_pending_followups(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -158,7 +158,7 @@ pub(crate) async fn handle_list_pending_followups(
     ))
 }
 
-/// Handle `POST /admin/coach-followups/{followup_id}/cancel`.
+/// Handle `POST /admin/agent-followups/{followup_id}/cancel`.
 ///
 /// Transitions the followup from `pending` to `cancelled` so the harness
 /// will not inject it into the next coach system prompt. Requires

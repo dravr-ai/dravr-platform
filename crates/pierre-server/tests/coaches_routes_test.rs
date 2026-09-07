@@ -52,7 +52,7 @@ async fn setup_test_environment() -> (axum::Router, String) {
 async fn test_create_coach() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Marathon Coach",
@@ -86,7 +86,7 @@ async fn test_create_coach() {
 async fn test_create_coach_minimal() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Simple Coach",
@@ -110,7 +110,7 @@ async fn test_list_coaches() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create a coach first
-    let create_response = AxumTestRequest::post("/api/coaches")
+    let create_response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Test Coach",
@@ -122,7 +122,7 @@ async fn test_list_coaches() {
     assert_eq!(create_response.status_code(), StatusCode::CREATED);
 
     // List coaches
-    let list_response = AxumTestRequest::get("/api/coaches")
+    let list_response = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -140,7 +140,7 @@ async fn test_get_coach() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create a coach first
-    let create_response = AxumTestRequest::post("/api/coaches")
+    let create_response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Get Test Coach",
@@ -152,7 +152,7 @@ async fn test_get_coach() {
     let created: CoachResponse = create_response.json();
 
     // Get the coach
-    let get_response = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let get_response = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -169,7 +169,7 @@ async fn test_update_coach() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create a coach first
-    let create_response = AxumTestRequest::post("/api/coaches")
+    let create_response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Original Title",
@@ -181,7 +181,7 @@ async fn test_update_coach() {
     let created: CoachResponse = create_response.json();
 
     // Update the coach
-    let update_response = AxumTestRequest::put(&format!("/api/coaches/{}", created.id))
+    let update_response = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Updated Title",
@@ -194,7 +194,7 @@ async fn test_update_coach() {
     assert_eq!(update_response.status_code(), StatusCode::OK);
 
     // Verify the update
-    let get_response = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let get_response = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -210,7 +210,7 @@ async fn test_delete_coach() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create a coach first
-    let create_response = AxumTestRequest::post("/api/coaches")
+    let create_response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "To Delete",
@@ -222,7 +222,7 @@ async fn test_delete_coach() {
     let created: CoachResponse = create_response.json();
 
     // Delete the coach
-    let delete_response = AxumTestRequest::delete(&format!("/api/coaches/{}", created.id))
+    let delete_response = AxumTestRequest::delete(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -230,7 +230,7 @@ async fn test_delete_coach() {
     assert_eq!(delete_response.status_code(), StatusCode::NO_CONTENT);
 
     // Verify deletion - should return 404
-    let get_response = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let get_response = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -247,7 +247,7 @@ async fn test_toggle_favorite() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create a coach
-    let create_response = AxumTestRequest::post("/api/coaches")
+    let create_response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Favorite Test",
@@ -260,7 +260,7 @@ async fn test_toggle_favorite() {
     assert!(!created.is_favorite);
 
     // Toggle favorite ON
-    let toggle_response = AxumTestRequest::post(&format!("/api/coaches/{}/favorite", created.id))
+    let toggle_response = AxumTestRequest::post(&format!("/api/agents/{}/favorite", created.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -270,7 +270,7 @@ async fn test_toggle_favorite() {
     assert!(toggle_result.is_favorite);
 
     // Toggle favorite OFF
-    let toggle_response = AxumTestRequest::post(&format!("/api/coaches/{}/favorite", created.id))
+    let toggle_response = AxumTestRequest::post(&format!("/api/agents/{}/favorite", created.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -285,7 +285,7 @@ async fn test_list_favorites_only() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create two coaches
-    let create1 = AxumTestRequest::post("/api/coaches")
+    let create1 = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Coach 1",
@@ -295,7 +295,7 @@ async fn test_list_favorites_only() {
         .await;
     let coach1: CoachResponse = create1.json();
 
-    AxumTestRequest::post("/api/coaches")
+    AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Coach 2",
@@ -305,13 +305,13 @@ async fn test_list_favorites_only() {
         .await;
 
     // Mark coach1 as favorite
-    AxumTestRequest::post(&format!("/api/coaches/{}/favorite", coach1.id))
+    AxumTestRequest::post(&format!("/api/agents/{}/favorite", coach1.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
 
     // List only favorites
-    let list_response = AxumTestRequest::get("/api/coaches?favorites_only=true")
+    let list_response = AxumTestRequest::get("/api/agents?favorites_only=true")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -334,7 +334,7 @@ async fn test_record_usage() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create a coach
-    let create_response = AxumTestRequest::post("/api/coaches")
+    let create_response = AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Usage Test",
@@ -347,7 +347,7 @@ async fn test_record_usage() {
     assert_eq!(created.use_count, 0);
 
     // Record usage
-    let usage_response = AxumTestRequest::post(&format!("/api/coaches/{}/usage", created.id))
+    let usage_response = AxumTestRequest::post(&format!("/api/agents/{}/usage", created.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -357,7 +357,7 @@ async fn test_record_usage() {
     assert!(usage_result.success);
 
     // Verify use_count increased
-    let get_response = AxumTestRequest::get(&format!("/api/coaches/{}", created.id))
+    let get_response = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -375,7 +375,7 @@ async fn test_search_coaches() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create coaches with different content
-    AxumTestRequest::post("/api/coaches")
+    AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Marathon Training Expert",
@@ -385,7 +385,7 @@ async fn test_search_coaches() {
         .send(router.clone())
         .await;
 
-    AxumTestRequest::post("/api/coaches")
+    AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Nutrition Advisor",
@@ -396,7 +396,7 @@ async fn test_search_coaches() {
         .await;
 
     // Search for "marathon"
-    let search_response = AxumTestRequest::get("/api/coaches/search?q=marathon")
+    let search_response = AxumTestRequest::get("/api/agents/search?q=marathon")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -417,7 +417,7 @@ async fn test_list_by_category() {
     let (router, auth_token) = setup_test_environment().await;
 
     // Create coaches in different categories
-    AxumTestRequest::post("/api/coaches")
+    AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Training Coach",
@@ -427,7 +427,7 @@ async fn test_list_by_category() {
         .send(router.clone())
         .await;
 
-    AxumTestRequest::post("/api/coaches")
+    AxumTestRequest::post("/api/agents")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Nutrition Coach",
@@ -438,7 +438,7 @@ async fn test_list_by_category() {
         .await;
 
     // List only training coaches
-    let list_response = AxumTestRequest::get("/api/coaches?category=training")
+    let list_response = AxumTestRequest::get("/api/agents?category=training")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -462,7 +462,7 @@ async fn test_list_coaches_pagination() {
 
     // Create 3 coaches (max_coaches_per_user default quota is 3)
     for i in 1..=3 {
-        AxumTestRequest::post("/api/coaches")
+        AxumTestRequest::post("/api/agents")
             .header("authorization", &auth_token)
             .json(&json!({
                 "title": format!("Coach {}", i),
@@ -473,7 +473,7 @@ async fn test_list_coaches_pagination() {
     }
 
     // Get first page (limit=2)
-    let page1_response = AxumTestRequest::get("/api/coaches?limit=2&offset=0")
+    let page1_response = AxumTestRequest::get("/api/agents?limit=2&offset=0")
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -483,7 +483,7 @@ async fn test_list_coaches_pagination() {
     assert_eq!(page1.total, 3);
 
     // Get second page
-    let page2_response = AxumTestRequest::get("/api/coaches?limit=2&offset=2")
+    let page2_response = AxumTestRequest::get("/api/agents?limit=2&offset=2")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -500,7 +500,7 @@ async fn test_list_coaches_pagination() {
 async fn test_create_coach_unauthorized() {
     let (router, _) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .json(&json!({
             "title": "Test Coach",
             "system_prompt": "Test"
@@ -515,7 +515,7 @@ async fn test_create_coach_unauthorized() {
 async fn test_create_coach_invalid_token() {
     let (router, _) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches")
+    let response = AxumTestRequest::post("/api/agents")
         .header("authorization", "Bearer invalid_token")
         .json(&json!({
             "title": "Test Coach",
@@ -535,7 +535,7 @@ async fn test_create_coach_invalid_token() {
 async fn test_get_nonexistent_coach() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::get("/api/coaches/nonexistent-id")
+    let response = AxumTestRequest::get("/api/agents/nonexistent-id")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -547,7 +547,7 @@ async fn test_get_nonexistent_coach() {
 async fn test_update_nonexistent_coach() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::put("/api/coaches/nonexistent-id")
+    let response = AxumTestRequest::put("/api/agents/nonexistent-id")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "New Title"
@@ -562,7 +562,7 @@ async fn test_update_nonexistent_coach() {
 async fn test_delete_nonexistent_coach() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::delete("/api/coaches/nonexistent-id")
+    let response = AxumTestRequest::delete("/api/agents/nonexistent-id")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -574,7 +574,7 @@ async fn test_delete_nonexistent_coach() {
 async fn test_toggle_favorite_nonexistent() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/nonexistent-id/favorite")
+    let response = AxumTestRequest::post("/api/agents/nonexistent-id/favorite")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -586,7 +586,7 @@ async fn test_toggle_favorite_nonexistent() {
 async fn test_record_usage_nonexistent() {
     let (router, auth_token) = setup_test_environment().await;
 
-    let response = AxumTestRequest::post("/api/coaches/nonexistent-id/usage")
+    let response = AxumTestRequest::post("/api/agents/nonexistent-id/usage")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -639,7 +639,7 @@ async fn test_system_coaches_visible_in_list() {
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // List coaches via the API - should include the system coach
-    let list_response = AxumTestRequest::get("/api/coaches")
+    let list_response = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -699,7 +699,7 @@ async fn test_get_system_coach_by_id() {
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // Get the system coach by ID via the API
-    let get_response = AxumTestRequest::get(&format!("/api/coaches/{}", system_coach.id))
+    let get_response = AxumTestRequest::get(&format!("/api/agents/{}", system_coach.id))
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -753,7 +753,7 @@ async fn test_hide_system_coach_via_api() {
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // Hide the system coach via the API
-    let hide_response = AxumTestRequest::post(&format!("/api/coaches/{}/hide", system_coach.id))
+    let hide_response = AxumTestRequest::post(&format!("/api/agents/{}/hide", system_coach.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -761,7 +761,7 @@ async fn test_hide_system_coach_via_api() {
     assert_eq!(hide_response.status_code(), StatusCode::OK);
 
     // Verify the coach is hidden by listing (without include_hidden)
-    let list_response = AxumTestRequest::get("/api/coaches")
+    let list_response = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -820,7 +820,7 @@ async fn test_show_hidden_coach_via_api() {
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // Show (unhide) the coach via the API - DELETE removes the hide preference
-    let show_response = AxumTestRequest::delete(&format!("/api/coaches/{}/hide", system_coach.id))
+    let show_response = AxumTestRequest::delete(&format!("/api/agents/{}/hide", system_coach.id))
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
@@ -828,7 +828,7 @@ async fn test_show_hidden_coach_via_api() {
     assert_eq!(show_response.status_code(), StatusCode::OK);
 
     // Verify the coach is now visible by listing
-    let list_response = AxumTestRequest::get("/api/coaches")
+    let list_response = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -889,14 +889,14 @@ async fn test_show_coach_without_tenant_is_refused_via_api() {
 
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
-    let show_response = AxumTestRequest::delete(&format!("/api/coaches/{}/hide", system_coach.id))
+    let show_response = AxumTestRequest::delete(&format!("/api/agents/{}/hide", system_coach.id))
         .header("authorization", &tenantless_auth)
         .send(router.clone())
         .await;
     assert_eq!(show_response.status_code(), StatusCode::UNAUTHORIZED);
 
     // The refusal wrote nothing: the coach is still hidden for a tenant-bearing session.
-    let list_response = AxumTestRequest::get("/api/coaches")
+    let list_response = AxumTestRequest::get("/api/agents")
         .header("authorization", &tenant_auth)
         .send(router)
         .await;
@@ -951,7 +951,7 @@ async fn test_list_with_include_hidden() {
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // List with include_hidden=true
-    let list_response = AxumTestRequest::get("/api/coaches?include_hidden=true")
+    let list_response = AxumTestRequest::get("/api/agents?include_hidden=true")
         .header("authorization", &auth_token)
         .send(router)
         .await;
@@ -1011,7 +1011,7 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // Owner creates a private coach.
-    let create = AxumTestRequest::post("/api/coaches")
+    let create = AxumTestRequest::post("/api/agents")
         .header("authorization", &owner_token)
         .json(&json!({
             "title": "Private Coach",
@@ -1023,7 +1023,7 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
     let coach: CoachResponse = create.json();
 
     // Owner updates it to produce version 1 (snapshot of the original state).
-    let update = AxumTestRequest::put(&format!("/api/coaches/{}", coach.id))
+    let update = AxumTestRequest::put(&format!("/api/agents/{}", coach.id))
         .header("authorization", &owner_token)
         .json(&json!({
             "title": "Private Coach v2",
@@ -1034,7 +1034,7 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
     assert_eq!(update.status_code(), StatusCode::OK);
 
     // Attacker (same tenant) must NOT list the version history.
-    let attacker_list = AxumTestRequest::get(&format!("/api/coaches/{}/versions", coach.id))
+    let attacker_list = AxumTestRequest::get(&format!("/api/agents/{}/versions", coach.id))
         .header("authorization", &attacker_token)
         .send(router.clone())
         .await;
@@ -1045,7 +1045,7 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
     );
 
     // Positive control: the legitimate owner CAN read the history on the same URL.
-    let owner_list = AxumTestRequest::get(&format!("/api/coaches/{}/versions", coach.id))
+    let owner_list = AxumTestRequest::get(&format!("/api/agents/{}/versions", coach.id))
         .header("authorization", &owner_token)
         .send(router)
         .await;

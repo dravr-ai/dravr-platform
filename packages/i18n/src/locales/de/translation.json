@@ -1134,6 +1134,21 @@
       "removed": "{0} antwortet in dieser Unterhaltung nicht mehr.",
       "user_updated": "Agent gewählt: {0}."
     },
+    "agent-add": {
+      "description": "Einen deiner installierten Agenten in dieses Gespräch holen"
+    },
+    "agent-assign": {
+      "description": "Einer bestimmten Gruppe einen Agenten zuweisen"
+    },
+    "agent-create": {
+      "description": "Aus diesem Gespräch einen neuen Agenten entwerfen und ihn dann per Bestätigung anlegen"
+    },
+    "agent-list": {
+      "description": "Deine installierten Agenten auflisten — @handle erwähnen für einen Zug, /agent add @handle zum Binden"
+    },
+    "agent-remove": {
+      "description": "Den Agenten dieses Gesprächs lösen"
+    },
     "answered_privately": "Ich habe dir privat geantwortet — es steht in unserem Direktchat. In einem Raum können mehrere Athleten sein, deshalb erscheinen persönliche Antworten hier nicht.",
     "calibrate": {
       "complete_header": "Kalibrierung fertig — ich habe {0} von {1} Antworten aufgenommen.",
@@ -1147,23 +1162,8 @@
       "topic_injury": "deine jüngsten Verletzungen und Wehwehchen",
       "topic_recovery": "wie schnell du dich erholst"
     },
-    "coach-add": {
-      "description": "Einen deiner installierten Agenten in dieses Gespräch holen"
-    },
-    "coach-assign": {
-      "description": "Einer bestimmten Gruppe einen Agenten zuweisen"
-    },
-    "coach-create": {
-      "description": "Aus diesem Gespräch einen neuen Agenten entwerfen und ihn dann per Bestätigung anlegen"
-    },
     "coach-invite": {
       "description": "Den Einladungscode für den menschlichen Coach dieser Gruppe ausgeben"
-    },
-    "coach-list": {
-      "description": "Deine installierten Agenten auflisten — @handle erwähnen für einen Zug, /agent add @handle zum Binden"
-    },
-    "coach-remove": {
-      "description": "Den Agenten dieses Gesprächs lösen"
     },
     "confirm": {
       "description": "Eine vom Sicherheitswächter zurückgehaltene Aktion freigeben"
@@ -1258,6 +1258,7 @@
       "description": "Verfügbare Befehle anzeigen",
       "domain": {
         "account": "Konto",
+        "agent": "Agenten",
         "coach": "Coaching",
         "data": "Trainingsdaten",
         "discover": "Agenten-Katalog",

@@ -263,18 +263,18 @@ async fn catalogue_entries_carry_the_frontmatter_verbatim() {
 
     // The palette shows the argument hint the standard calls for: the athlete
     // learns `/agent add @handle` from the entry itself.
-    let coach_add = entries
+    let agent_add = entries
         .iter()
         .find(|e| e.command == "/agent add")
         .expect("/agent add has no precondition and must always be listed");
-    assert_eq!(coach_add.name, "coach-add");
-    assert_eq!(coach_add.domain, "coach");
-    assert_eq!(coach_add.args.as_deref(), Some("@handle"));
-    let coach_list = entries
+    assert_eq!(agent_add.name, "agent-add");
+    assert_eq!(agent_add.domain, "agent");
+    assert_eq!(agent_add.args.as_deref(), Some("@handle"));
+    let agent_list = entries
         .iter()
         .find(|e| e.command == "/agent")
         .expect("/agent is the list and must always be listed");
-    assert_eq!(coach_list.name, "coach-list");
+    assert_eq!(agent_list.name, "agent-list");
 }
 
 /// Turns red if the catalogue answers for the caller's memberships instead

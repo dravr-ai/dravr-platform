@@ -35,9 +35,9 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 ///
 /// A slash reply usually carries the caller's own account state, so a shared
 /// room delivers it privately. These change a setting every member then
-/// experiences — the respond mode, the group's coach, the coach bound to the
+/// experiences — the respond mode, the group's agent, the agent bound to the
 /// thread — so announcing the change in the room is the point: a member who
-/// watches the coach fall silent after someone ran `/group respond mentions`
+/// watches the agent fall silent after someone ran `/group respond mentions`
 /// privately has no way to know why. The same set decides what a shared room
 /// persists, because what the room saw is what its transcript holds.
 ///
@@ -66,7 +66,7 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 pub const ROOM_VISIBLE_COMMANDS: [&str; 7] = [
     "group-respond",
     "group-coach",
-    "coach-add",
+    "agent-add",
     "plan-share",
     "calibrate",
     "season",

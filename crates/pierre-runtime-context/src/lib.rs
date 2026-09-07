@@ -240,7 +240,7 @@ pub trait CommandCtx: Send + Sync + 'static {
     /// Admin config lookup — `/coach create confirm` enforces
     /// `usage_quotas.max_coaches_per_user` through it and `/group create`
     /// reads the tenant's `group_creation_policy`, the same reads
-    /// `POST /api/coaches` and the REST group-create route perform.
+    /// `POST /api/agents` and the REST group-create route perform.
     ///
     /// `None` when admin config is not wired into the running server; both
     /// then degrade to their documented defaults rather than being skipped.
@@ -391,7 +391,7 @@ pub fn default_admin_config() -> &'static dyn AdminConfigLookup {
 
 /// Slice of runtime state the coaches/roster/store route layer needs.
 ///
-/// Covers `/api/coaches/*`, `/api/admin/coaches/*`, `/api/admin/store/*`,
+/// Covers `/api/agents/*`, `/api/admin/agents/*`, `/api/admin/store/*`,
 /// `/api/roster/*`, and `/api/store/*`. Pulls the repository registry
 /// (coaches + store-listings + roster + tenants + users repos), the
 /// platform's `Database` handle (for the version-history author lookup),
