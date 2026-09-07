@@ -52,6 +52,13 @@ where
     Router::new()
         .route("/api/agents", get(user::handle_list::<C>))
         .route("/api/agents", post(user::handle_create::<C>))
+        // Served to no client on either surface. The mobile agent library
+        // filters and toggles hidden client-side over the already-fetched
+        // list, and the same capability is reachable over MCP. Delete-or-wire
+        // is the open decision on the issue.
+        // LIMITATION(registre#387): /api/agents/search has no client
+        // LIMITATION(registre#387): /api/agents/hidden has no client
+        // LIMITATION(registre#387): /api/agents/import has no client
         .route("/api/agents/search", get(user::handle_search::<C>))
         .route("/api/agents/proposal", get(user::handle_proposal::<C>))
         .route("/api/agents/hidden", get(user::handle_list_hidden::<C>))

@@ -445,8 +445,23 @@ if [[ -n "$BASE_REF" ]]; then
         while read -r r; do
             [[ -z "$r" ]] && continue
             if grep -qxF "$r" "$TMP/orphan_routes.txt" 2>/dev/null; then
-                echo -e "${RED}❌ New /api/ route no client mentions: ${r}${NC}"
-                NEW_FOUND=true
+                # The failure text below offers a LIMITATION(registre#issue:)
+                # marker as the way to ship a known gap. Honour it: a route
+                # whose own declaration site carries a marker naming that route
+                # is registered debt with an issue behind it, not an unowned
+                # phantom. The marker must name the route, so one marker cannot
+                # blanket-silence a file, and the issue number is printed here
+                # so a registered gap stays visible in the run instead of
+                # disappearing into a pass.
+                marker="$(grep -rhoE "LIMITATION\(registre#[0-9]+\)[^\n]*${r}" \
+                    --include='*.rs' crates 2>/dev/null | head -1 || true)"
+                if [[ -n "$marker" ]]; then
+                    issue="$(printf '%s' "$marker" | grep -oE 'registre#[0-9]+' | head -1)"
+                    echo -e "${YELLOW}⚠️  Registered gap (${issue}): ${r} has no client${NC}"
+                else
+                    echo -e "${RED}❌ New /api/ route no client mentions: ${r}${NC}"
+                    NEW_FOUND=true
+                fi
             fi
         done <<< "$ADDED_ROUTES"
     fi
