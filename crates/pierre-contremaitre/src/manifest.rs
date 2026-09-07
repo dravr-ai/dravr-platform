@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use tracing::warn;
+
 use super::errors::ContremaitreError;
 
 /// Top-level manifest structure for the contremaitre repository.
@@ -181,6 +183,19 @@ pub fn parse_manifest(json: &str) -> Result<Manifest, ContremaitreError> {
             "unsupported manifest version: {} (expected 5)",
             manifest.version
         )));
+    }
+
+    // `ManifestPrompts::personas` is `#[serde(default)]`, so a manifest with no
+    // `prompts.personas` section parses cleanly into an empty map. Every later
+    // stage then behaves correctly on nothing: the sync loop runs zero times
+    // and reports success, and the persona voice blocks serve their compiled-in
+    // content while every other prompt hot-reloads. Silence is the whole defect
+    // (carnet#385), so the absence is stated once, here, where the shape is
+    // decided rather than where it is consumed.
+    if manifest.prompts.personas.is_empty() {
+        warn!(
+            "contremaitre manifest declares no prompts.personas — the coaching-persona voice blocks cannot hot-reload and will serve their compiled-in content",
+        );
     }
 
     Ok(manifest)
