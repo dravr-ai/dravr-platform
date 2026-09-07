@@ -23,6 +23,7 @@ rows:
     value: from_4_to_6
     prefer:
       - { id: pyramidal-base, weight: 3 }
+      - { id: pyramidal-long-course, weight: 3 }
       - { id: polarized-classic, weight: 3 }
       - { id: time-crunched-threshold, weight: 1 }
     exclude:
@@ -40,6 +41,7 @@ rows:
     prefer:
       - { id: pyramidal-to-polarized, weight: 4 }
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
       - { id: polarized-classic, weight: 2 }
     exclude:
       - { id: norwegian-threshold-density, reason: "needs eight or more sessions and ten hours a week" }
@@ -53,6 +55,7 @@ rows:
     prefer:
       - { id: norwegian-threshold-density, weight: 3 }
       - { id: pyramidal-base, weight: 3 }
+      - { id: pyramidal-long-course, weight: 3 }
       - { id: pyramidal-to-polarized, weight: 2 }
     exclude: []
     tier: rct
@@ -83,6 +86,7 @@ rows:
     value: recreational
     prefer:
       - { id: pyramidal-base, weight: 4 }
+      - { id: pyramidal-long-course, weight: 4 }
       - { id: hvlit-foundation, weight: 1 }
     exclude: []
     tier: meta_analysis
@@ -107,6 +111,7 @@ rows:
     prefer:
       - { id: norwegian-threshold-density, weight: 4 }
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
       - { id: polarized-classic, weight: 2 }
     exclude: []
     tier: case_series
@@ -306,6 +311,7 @@ rows:
       - { id: pyramidal-to-polarized, weight: 4 }
       - { id: polarized-classic, weight: 2 }
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
       - { id: time-crunched-threshold, weight: 1 }
     exclude: []
     tier: rct
@@ -316,6 +322,7 @@ rows:
     value: over_16
     prefer:
       - { id: pyramidal-base, weight: 4 }
+      - { id: pyramidal-long-course, weight: 4 }
       - { id: pyramidal-to-polarized, weight: 2 }
       - { id: hvlit-foundation, weight: 2 }
     exclude: []
@@ -366,6 +373,7 @@ rows:
     prefer:
       - { id: hvlit-foundation, weight: 3 }
       - { id: pyramidal-base, weight: 3 }
+      - { id: pyramidal-long-course, weight: 3 }
     exclude:
       - { id: polarized-classic, reason: "a polarized distribution cannot be labelled from effort alone" }
       - { id: pyramidal-to-polarized, reason: "its polarized half cannot be labelled from effort alone" }
@@ -383,6 +391,7 @@ rows:
     value: limited
     prefer:
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
       - { id: hvlit-foundation, weight: 2 }
     exclude:
       - { id: norwegian-threshold-density, reason: "built on three or four threshold sessions a week" }
@@ -397,6 +406,7 @@ rows:
     prefer:
       - { id: hvlit-foundation, weight: 4 }
       - { id: pyramidal-base, weight: 1 }
+      - { id: pyramidal-long-course, weight: 1 }
     exclude: []
     tier: cohort
     evidence_refs:
@@ -409,6 +419,7 @@ rows:
     prefer:
       - { id: hvlit-foundation, weight: 2 }
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
     exclude:
       - { id: polarized-classic, reason: "two VO2max sessions a week need interval experience" }
       - { id: pyramidal-to-polarized, reason: "its polarized half needs interval experience" }
@@ -422,6 +433,7 @@ rows:
     value: some
     prefer:
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
       - { id: polarized-classic, weight: 1 }
       - { id: pyramidal-to-polarized, weight: 1 }
     exclude:
@@ -448,6 +460,7 @@ rows:
     value: triathlon
     prefer:
       - { id: pyramidal-base, weight: 3 }
+      - { id: pyramidal-long-course, weight: 3 }
     exclude: []
     tier: case_series
     evidence_refs:
@@ -458,6 +471,7 @@ rows:
     value: cycling
     prefer:
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
       - { id: time-crunched-threshold, weight: 1 }
     exclude: []
     tier: rct
@@ -469,6 +483,7 @@ rows:
     value: running
     prefer:
       - { id: pyramidal-base, weight: 2 }
+      - { id: pyramidal-long-course, weight: 2 }
     exclude: []
     tier: cohort
     evidence_refs:
@@ -478,6 +493,7 @@ rows:
     value: swimming
     prefer:
       - { id: pyramidal-base, weight: 3 }
+      - { id: pyramidal-long-course, weight: 3 }
       - { id: time-crunched-threshold, weight: 1 }
     exclude: []
     tier: cohort
@@ -499,6 +515,7 @@ rows:
     value: base
     prefer:
       - { id: pyramidal-base, weight: 5 }
+      - { id: pyramidal-long-course, weight: 5 }
       - { id: pyramidal-to-polarized, weight: 2 }
       - { id: norwegian-threshold-density, weight: 1 }
     exclude: []
