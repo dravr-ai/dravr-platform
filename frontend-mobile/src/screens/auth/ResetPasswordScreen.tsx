@@ -1,5 +1,5 @@
 // ABOUTME: Password reset screen for entering the emailed reset code and new password
-// ABOUTME: Glass card over the fixed brand gradient — its palette is pinned, not the athlete's scheme
+// ABOUTME: Resting card on the app canvas — its fill and hairline follow the athlete's colour scheme
 
 import React, { useState } from 'react';
 import {
@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
-import { spacing, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
+import { spacing, useCardStyle, buttonGlow, useThemeColors } from '../../constants/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
@@ -89,7 +89,7 @@ export function ResetPasswordScreen() {
   };
 
   const cardStyle: ViewStyle = {
-    ...glassCard,
+    ...useCardStyle(),
     borderRadius: 16,
     overflow: 'hidden',
   };

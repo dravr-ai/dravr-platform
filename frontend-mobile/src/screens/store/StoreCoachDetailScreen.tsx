@@ -13,7 +13,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { PRIMARY_PALETTE, glassCard, buttonGlow, useThemeColors, categoryAccent } from '../../constants/theme';
+import { PRIMARY_PALETTE, useCardStyle, buttonGlow, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
@@ -41,10 +41,10 @@ interface InstalledCopy {
   title: string;
   handle: string | undefined;
 }
-// Coach category colors
 export function StoreCoachDetailScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const cardStyle = useCardStyle();
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
   const { isAuthenticated } = useAuth();
@@ -169,7 +169,11 @@ export function StoreCoachDetailScreen() {
     );
   }
 
-  const categoryColor = categoryAccent(colors, coach.category);
+  // The category's hue as a pair: the accent fills tints, rules and borders,
+  // and every label drawn on one of those tints takes the ink bound to it.
+  // The accent drawn as text on a tint of itself does not clear AA in light.
+  const categoryFill = categoryAccent(colors, coach.category);
+  const categoryLabelInk = categoryInk(colors, coach.category);
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="store-coach-detail-screen">
@@ -194,9 +198,9 @@ export function StoreCoachDetailScreen() {
           <View
             testID="category-badge"
             className="px-3 py-1 rounded-full"
-            style={{ backgroundColor: categoryColor + '20' }}
+            style={{ backgroundColor: categoryFill + '20' }}
           >
-            <Text className="text-sm font-semibold" style={{ color: categoryColor }}>
+            <Text className="text-sm font-semibold" style={{ color: categoryLabelInk }}>
               {t(coachCategoryLabelKey(coach.category))}
             </Text>
           </View>
@@ -225,12 +229,12 @@ export function StoreCoachDetailScreen() {
                   key={tag}
                   className="px-3 py-1.5 rounded-full mr-2 mb-2"
                   style={{
-                    backgroundColor: `${categoryColor}15`,
+                    backgroundColor: `${categoryFill}15`,
                     borderWidth: 1,
-                    borderColor: `${categoryColor}30`,
+                    borderColor: `${categoryFill}30`,
                   }}
                 >
-                  <Text className="text-sm font-medium" style={{ color: categoryColor }}>{tag}</Text>
+                  <Text className="text-sm font-medium" style={{ color: categoryLabelInk }}>{tag}</Text>
                 </View>
               ))}
             </View>
@@ -246,7 +250,7 @@ export function StoreCoachDetailScreen() {
                 key={prompt}
                 className="p-3 rounded-xl mb-2 overflow-hidden"
                 style={{
-                  ...glassCard,
+                  ...cardStyle,
                   borderRadius: 12,
                   borderColor: colors.border.default,
                 }}
@@ -263,13 +267,13 @@ export function StoreCoachDetailScreen() {
           <View
             className="rounded-xl overflow-hidden"
             style={{
-              ...glassCard,
+              ...cardStyle,
               borderRadius: 12,
-              borderColor: `${categoryColor}30`,
+              borderColor: `${categoryFill}30`,
             }}
           >
             <LinearGradient
-              colors={[categoryColor, `${categoryColor}40`] as [string, string]}
+              colors={[categoryFill, `${categoryFill}40`] as [string, string]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={{ height: 2, width: '100%' }}
@@ -293,7 +297,7 @@ export function StoreCoachDetailScreen() {
           <View
             className="rounded-xl overflow-hidden"
             style={{
-              ...glassCard,
+              ...cardStyle,
               borderRadius: 12,
               borderColor: colors.border.default,
             }}
@@ -341,7 +345,7 @@ export function StoreCoachDetailScreen() {
             <TouchableOpacity
               className="flex-1 flex-row items-center justify-center py-3.5 rounded-xl"
               style={{
-                ...glassCard,
+                ...cardStyle,
                 borderRadius: 12,
                 borderColor: colors.border.strong,
               }}
@@ -357,7 +361,7 @@ export function StoreCoachDetailScreen() {
             <TouchableOpacity
               className="flex-1 flex-row items-center justify-center py-3.5 rounded-xl"
               style={{
-                ...glassCard,
+                ...cardStyle,
                 borderRadius: 12,
                 borderColor: colors.border.strong,
               }}

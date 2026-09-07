@@ -269,6 +269,49 @@ export const SEMANTIC_COLORS = {
 } as const;
 
 /**
+ * The ink each pillar and feedback hue binds when it is used as a TINT.
+ *
+ * A hue drawn as text on a tint of itself does not clear AA: the web measured
+ * that pairing at 2.79:1 at worst before these existed (DESIGN.md §8). Each
+ * value is the same hue carried along its own lightness axis until it clears
+ * 4.5:1 as a label on a tint of its partner hue. The measured envelope, both
+ * schemes, all seven hues:
+ *
+ * - tints /10 through /15 clear AA over the whole surface ladder (worst 4.58:1,
+ *   light `recovery` on `surface-container-highest`);
+ * - tints /10 through /20 clear AA over `surface` up to `surface-container-high`
+ *   — the tiers a chip, badge or avatar ground actually sits on (worst 4.63:1,
+ *   light `success` on `surface-container-high`).
+ *
+ * Past that it stops: /25 on `surface-container-highest` measures 4.00:1. A
+ * denser tint on the top tier needs a darker ink, not this one.
+ *
+ * `frontend/src/index.css` has shipped these since Boreal v2; the phone had
+ * only the primary, tertiary and error inks, so any native surface drawing a
+ * pillar label had nothing correct to reach for.
+ */
+export const CONTAINER_INKS = {
+  activity: '#0b5748',
+  nutrition: '#664c16',
+  recovery: '#2d525e',
+  mobility: '#77354e',
+  info: '#2d525e',
+  success: '#20573f',
+  warning: '#664c16',
+} as const;
+
+/** Dark-scheme counterparts, lifted so they read on a near-black ground. */
+export const CONTAINER_INKS_DARK = {
+  activity: '#9abcae',
+  nutrition: '#d8bc81',
+  recovery: '#a9c0c6',
+  mobility: '#d1abb4',
+  info: '#a9c0c6',
+  success: '#9abcae',
+  warning: '#d8bc81',
+} as const;
+
+/**
  * Dark-theme counterparts. DESIGN.md §2 gives every feedback token a light and
  * a dark value; only the light half was ever exported here, so native surfaces
  * that could not read a CSS variable had nothing to switch to.
@@ -332,22 +375,6 @@ export const GRADIENT_COLORS = {
     start: 'rgba(163, 208, 190, 0.08)',
     end: 'rgba(13, 59, 46, 0.6)',
   },
-} as const;
-
-// ========== GLASSMORPHISM ==========
-
-/**
- * Light glassmorphism card from DESIGN.md §2 "Glass & Gradient Rule". Used for
- * floating panels over forest imagery or hero gradients. Export name is
- * preserved for consumer stability.
- */
-export const GLASS_CARD = {
-  background: 'rgba(249, 249, 246, 0.85)',   // boreal-glass from website
-  borderColor: 'rgba(155, 165, 159, 0.40)',  // ghost border, Product Tier
-  borderWidth: 1,
-  shadowColor: BOREAL_LIGHT.onSurface,
-  shadowOpacity: 0.10,
-  shadowRadius: 3,
 } as const;
 
 // ========== AMBIENT SHADOW / AI GLOW ==========
@@ -495,7 +522,6 @@ export const DESIGN_SYSTEM = {
   surfaceHierarchy: SURFACE_HIERARCHY,
   gradients: GRADIENT_COLORS,
   effects: {
-    glassCard: GLASS_CARD,
     ambientShadow: AMBIENT_SHADOW,
     aiGlow: AI_GLOW,
     buttonGlow: BUTTON_GLOW,

@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui';
-import { spacing, glassCard, useThemeColors } from '../../constants/theme';
+import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { authApi } from '../../services/api';
@@ -25,13 +25,6 @@ const logoStyle: ImageStyle = {
   height: 100,
   borderRadius: 25,
   marginBottom: spacing.md,
-};
-
-// Glassmorphism card style
-const cardStyle: ViewStyle = {
-  ...glassCard,
-  borderRadius: 16,
-  overflow: 'hidden',
 };
 
 // Step badge style
@@ -61,6 +54,11 @@ const stepBadgeStyle: ViewStyle = {
  */
 export function PendingApprovalScreen() {
   const colors = useThemeColors();
+  const cardStyle: ViewStyle = {
+    ...useCardStyle(),
+    borderRadius: 16,
+    overflow: 'hidden',
+  };
   const { t } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
@@ -83,7 +81,7 @@ export function PendingApprovalScreen() {
       <ScrollView
         contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
       >
-        {/* Glassmorphism Card Container */}
+        {/* Card container */}
         <View style={cardStyle}>
           <View className="px-6 py-8">
             {/* Pierre Logo */}

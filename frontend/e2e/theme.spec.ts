@@ -263,9 +263,9 @@ test.describe('Boreal Theme — visible layout elements', () => {
   });
 
   // A token that carries its own foreground has to be paired with it. The
-  // aside shipped body ink on the tint — legible at 13.9:1, but the one web
-  // call site not using the bound role, while the same change was pinning
-  // that pairing on the phone's bubble.
+  // aside shipped body ink on the tint — legible at 13.9:1, but reaching for
+  // the page canvas's role instead of the tint's, while the same change was
+  // pinning that pairing on the phone's bubble.
   test('the login aside pairs the tint with its own ink', async ({ page }) => {
     await forceLightTheme(page);
     await setupThemeMocks(page, { isAdmin: true });
@@ -274,13 +274,41 @@ test.describe('Boreal Theme — visible layout elements', () => {
     await page.goto('/');
     await page.waitForSelector('form', { timeout: 10000 });
 
-    const headline = page.locator('aside h2');
-    await expect(headline).toBeVisible();
+    const aside = page.locator('aside');
+    await expect(aside.locator('h2')).toBeVisible();
 
-    // on-primary-container #143d30, the ink primary-container binds.
-    expect(await headline.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(20, 61, 48)');
-    // and NOT on-surface #1a1c1b, the body ink of the page canvas.
-    expect(await headline.evaluate((el) => getComputedStyle(el).color)).not.toBe('rgb(26, 28, 27)');
+    const ink = (locator: typeof aside) => locator.evaluate((el) => getComputedStyle(el).color);
+
+    // on-primary-container #143d30, the ink primary-container binds — not
+    // on-surface #1a1c1b, the body ink of the page canvas.
+    expect(await ink(aside.locator('h2'))).toBe('rgb(20, 61, 48)');
+    // The blurb is that same ink at 85%: 6.6:1 composited on the tint.
+    expect(await ink(aside.locator('p'))).toBe('rgba(20, 61, 48, 0.85)');
+  });
+
+  // The aside swaps ground between schemes, so its ink swaps with it: dark
+  // stands the aside on a grey step, where the tint's forest ink would be
+  // dark-on-dark.
+  test('the login aside carries dark ink on its dark ground', async ({ page }) => {
+    await forceDarkTheme(page);
+    await setupThemeMocks(page, { isAdmin: true });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('form', { timeout: 10000 });
+
+    const aside = page.locator('aside');
+    await expect(aside).toBeVisible();
+
+    // surface-container-low #191c19, not the primary-container tint.
+    expect(await aside.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(25, 28, 25)');
+
+    const ink = (locator: typeof aside) => locator.evaluate((el) => getComputedStyle(el).color);
+
+    // on-surface #e1e3de and on-surface-variant #c0c8c3 — light ink, not the
+    // dark forest on-primary-container carries in this scheme.
+    expect(await ink(aside.locator('h2'))).toBe('rgb(225, 227, 222)');
+    expect(await ink(aside.locator('p'))).toBe('rgb(192, 200, 195)');
   });
 
   test('dashboard renders the editorial layout', async ({ page }) => {

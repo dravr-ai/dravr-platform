@@ -164,6 +164,52 @@ Third-party brand colors are not design-system violations — Strava's orange in
 `SciotteLoginModal` stays as it is. Mark them with a comment so they read as
 deliberate rather than as drift.
 
+### Bound ink — what a hue may be drawn as
+
+**A hue may be a fill, a tint, a dot, a rule or a border. When text sits on
+it, that text takes the bound ink — never the hue itself.** Each of the four
+pillars and the three non-`error` feedback tokens carries one:
+
+| Ink token | Light | Dark | Bound to |
+|---|---|---|---|
+| `on-activity-container` | `#0b5748` | `#9abcae` | `activity` |
+| `on-nutrition-container` | `#664c16` | `#d8bc81` | `nutrition` |
+| `on-recovery-container` | `#2d525e` | `#a9c0c6` | `recovery` |
+| `on-mobility-container` | `#77354e` | `#d1abb4` | `mobility` |
+| `on-info-container` | `#2d525e` | `#a9c0c6` | `info` |
+| `on-success-container` | `#20573f` | `#9abcae` | `success` |
+| `on-warning-container` | `#664c16` | `#d8bc81` | `warning` |
+
+`error` binds `on-error-container`, which the MD3 token set above already
+gives it.
+
+Measured at the `/15` tint over the six tiers of the ladder above, the hue
+drawn as its own label runs 1.95:1 (`nutrition`, `warning` on
+`surface-container-highest`) to 4.87:1 (`mobility` on
+`surface-container-lowest`) in light, and 3.58:1 to 7.77:1 in dark. Its bound
+ink on the same tint runs 4.58:1 to 7.01:1 in light and 4.73:1 to 8.08:1 in
+dark. So the light scheme is where the pairing fails outright and dark is
+where it fails quietly on the upper tiers — one rule covers both.
+
+**Both platforms carry the same seven, byte for byte.** `frontend/src/index.css`
+and `frontend-mobile/global.css` declare the triples; `frontend/tailwind.config.cjs`
+and `frontend-mobile/tailwind.config.js` both map them as
+`rgb(var(--color-on-*-container) / <alpha-value>)`, so `text-on-activity-container`
+and `bg-on-warning-container/40` are real classes on either canvas. The phone's
+runtime path is `useThemeColors().ink.*`, reading `CONTAINER_INKS` /
+`CONTAINER_INKS_DARK` from `@pierre/shared-constants`; `categoryAccent` and
+`categoryInk` in `frontend-mobile/src/constants/theme.ts` hand a coach category's
+fill and its ink out as a pair, which is how a caller is kept from taking one
+without the other. `frontend/src/__tests__/DesignTokens.test.ts` and
+`frontend-mobile/__tests__/CategoryAccent.test.tsx` measure the pairing over
+the ladder in both schemes.
+
+The envelope has an edge, and `CONTAINER_INKS` documents it: these inks clear
+AA on tints from `/10` to `/15` over the whole ladder, and to `/20` over
+`surface` through `surface-container-high` — the tiers a chip, badge or avatar
+ground actually sits on. A denser tint on the top tier needs a darker ink, not
+this one.
+
 ### Outline / borders
 
 | Token | Hex (light) | Role |
@@ -260,6 +306,31 @@ shadow class is a no-op rather than a regression.
 React Native collapses to a single shadow per view. The mobile tokens in
 `packages/shared-constants/src/design-system.ts` export `AMBIENT_SHADOW.card`,
 `.hover`, `.floating`; only `.floating` has a web counterpart.
+
+**The phone's resting card is `useCardStyle()`**
+(`frontend-mobile/src/constants/theme.ts`): a fill, a 1px hairline in
+`colors.border.default`, and no `shadow*` or `elevation` key at all — the same
+rule the web `.card` follows. It is a hook, not a const, because the fill has
+to follow the athlete's appearance setting, and the two schemes do not lift
+from the same tier. Light goes up to `surface-container-lowest` (`#ffffff`,
+1.08:1 over the paper canvas — the exempt row in §2's table, where the hairline
+is what separates the sheet). Dark goes up to `surface-container-high`
+(`#272b27`, 1.30:1 over the `#11130f` canvas). Reaching for
+`surface-container-lowest` in dark *sinks* the card: it is `#0b0e0b`, below the
+canvas, so the "lowest means elevated" reflex from the light ladder inverts.
+
+Two React Native traps sit under that recipe, and both are silent:
+
+- **There is no `background` property.** The fill is `backgroundColor`. A style
+  object naming the former is dropped with nothing logged, and the view renders
+  transparent — which reads as "the card lost its fill", not as a typo.
+- **A fill-less view still casts a shadow on iOS**, taken from the alpha of its
+  *children* rather than from its own box. A transparent card carrying
+  `shadowOffset: { height: 24 }` therefore draws a soft duplicate of its own
+  text 24pt below itself.
+
+Fill and shadow are not independent settings on the phone, and a resting card
+takes the first and none of the second.
 
 No glow. No violet ring. No backdrop-blur on standard cards (reserved for the
 `boreal-overlay` callout pattern used over photographic backgrounds only).
@@ -412,17 +483,19 @@ greys.
 
 **The aside's ink is bound to its ground, in both schemes.** §2 pairs
 `primary-container` with `on-primary-container`, so in light the headline is
-`on-primary-container` (9.8:1) and the blurb and pillar row the same ink at
-85% (6.7:1 composited); in dark the aside is `surface-container-low` and they
-are `on-surface` / `on-surface-variant`. Every role is scheme-qualified.
+`on-primary-container` (9.8:1), the blurb and the pillar row are that same ink
+at 85% (6.6:1 composited) and the separators between the pillar words are it at
+50% (2.7:1 — `aria-hidden` punctuation, not text). In dark the aside is
+`surface-container-low` and those three roles are `on-surface`,
+`on-surface-variant` and `outline`. The one foreground the aside does not bind
+is the lockup's wordmark: it is `primary` ink, the way §1 and §3 set the lockup
+everywhere, and measures 6.1:1 on the tint.
 
-This was briefly an exception. The aside shipped with body ink on the tint —
-13.9:1, comfortably legible, and the only web call site not using the bound
-role while the same change was pinning that exact pairing on the phone's
-bubble. A token that carries its own foreground and is paired with someone
-else's is how a system stops being one, so the rule won: the eleven points of
-contrast it costs are worth less than the consistency. There is no exception
-to the on-color pairing anywhere in the Product Tier.
+The rule is worth what it costs here. Body ink on the tint measures 13.9:1
+against the bound role's 9.8:1, so this is not a legibility fix — it is that a
+token which carries its own foreground and is paired with someone else's is how
+a system stops being one. Anywhere the tint is a *component* fill — the athlete
+bubble, a badge, the avatar ground — the bound ink is not optional.
 
 The other auth pages are one white card with a hairline on `surface`, and
 every onboarding step is a bare column on `surface` under a row of small
@@ -606,6 +679,23 @@ therefore answered with two different ambers for one token depending on
 whether a component read a NativeWind class or `useThemeColors()`. One
 `categoryAccent` helper on the pillar tokens replaces the three maps, and the
 feedback set is read from `SEMANTIC_COLORS` rather than restated.
+
+That accent needed its other half. A category badge drew the accent as its own
+label on a tint of itself, which measures 2.81:1 in light at the `20`-hex tint
+those badges paint — and the phone had nothing correct to reach for instead,
+because the seven `on-*-container` inks the web has carried since Boreal v2
+existed nowhere native: `shared-constants` exported only the primary, tertiary
+and error inks. They are now in `global.css`, in both Tailwind configs as
+`text-on-*-container`, and in `CONTAINER_INKS`/`CONTAINER_INKS_DARK` behind
+`useThemeColors().ink.*`. `categoryInk` is the ink half of the pair, and the
+same label measures 6.58:1. §2 "Bound ink" states the rule and the envelope.
+
+The phone's card recipe came with it. `glassCard` was a const that passed
+`background:` — a property React Native does not implement — so roughly fifteen
+surfaces rendered with no fill at all, and a fill-less view with
+`shadowOffset: { height: 24 }` casts the alpha of its children on iOS, which
+drew a soft ghost of each screen's own text below itself. `useCardStyle()`
+replaces it with a scheme-aware fill, a hairline and no shadow (§4).
 
 Third-party brand colour stays exempt and is not a violation: `SciotteLoginModal`
 draws a provider's own gradient, and Strava's orange is Strava's orange in both

@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { filterRows, type ConversationRowModel } from '@pierre/chat-utils';
-import { glassCard, useThemeColors } from '../../constants/theme';
+import { useCardStyle, useThemeColors } from '../../constants/theme';
 import { BrandLockup, FloatingSearchBar, PromptDialog, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
@@ -31,13 +31,6 @@ import { ConversationRow } from './ConversationRow';
 import { useConversationList } from './useConversationList';
 import { useTranslation } from '@pierre/i18n';
 
-// Glassmorphic menu style
-const menuStyle: ViewStyle = {
-  ...glassCard,
-  borderRadius: 16,
-  borderColor: 'rgba(139, 92, 246, 0.2)',
-};
-
 function describeError(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
@@ -45,6 +38,15 @@ function describeError(err: unknown, fallback: string): string {
 export function ConversationsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  // The long-press menu wears the resting-card recipe, but takes the strong
+  // hairline rather than the recipe's default: it floats over a scrim instead
+  // of sitting on the canvas, and in dark its fill separates from the dimmed
+  // list beneath by only 1.38:1, so the edge is what draws the sheet.
+  const menuStyle: ViewStyle = {
+    ...useCardStyle(),
+    borderRadius: 16,
+    borderColor: colors.border.strong,
+  };
   const router = useRouter();
   const list = useConversationList();
   const [searchQuery, setSearchQuery] = useState('');

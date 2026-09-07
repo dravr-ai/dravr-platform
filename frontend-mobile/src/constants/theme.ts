@@ -1,5 +1,5 @@
 // ABOUTME: Theme constants for the Dravr mobile app — Boreal Editorial tokens
-// ABOUTME: Static `colors` is the dark-mode fallback; live palette lives in ThemeContext
+// ABOUTME: Scale tokens are module constants; every colour comes from useThemeColors(), which follows the appearance setting
 
 // Relative import — mobile is isolated from workspaces for Jest compatibility.
 // Metro resolves @pierre/* via extraNodeModules at runtime.
@@ -15,7 +15,6 @@ import {
   SEMANTIC_COLORS,
   PROVIDER_COLORS,
   GRADIENT_COLORS,
-  GLASS_CARD,
   AMBIENT_SHADOW,
   AI_GLOW,
   BUTTON_GLOW,
@@ -36,83 +35,36 @@ export const typography = TYPOGRAPHY;
 export const brandTracking = BRAND_TRACKING;
 export const surfaceHierarchy = SURFACE_HIERARCHY;
 
-// Combined colors object for mobile (stable API, Boreal DARK semantics).
-// Mobile is dark by default — `pierre.*`, pillar tints, text, and background
-// are all rebased on BOREAL_DARK so JS-driven colors (icons, indicators,
-// inline styles) stay legible on the near-black canvas. The shared
-// PIERRE_COLORS / PILLAR_COLORS constants stay aligned with the light-mode
-// web frontend.
-const MOBILE_PIERRE_COLORS = {
-  violet: BOREAL_DARK.primary,           // #a3d0be — light mint for icons/CTAs
-  cyan: BOREAL_DARK.primaryContainer,    // #234e40 — gradient endpoints
-  dark: BOREAL_DARK.onSurface,           // #e1e3de — body ink on dark canvas
-  slate: BOREAL_DARK.surfaceContainer,   // #1d201d — section fills
-} as const;
-
-const MOBILE_PILLAR_COLORS = {
-  activity: '#79a694',   // brighter sage — readable on near-black
-  nutrition: '#d6b87a',  // warm wheat
-  recovery: '#9bb6bd',   // pale steel
-  mobility: '#c4929e',   // dusty rose
-} as const;
-
-const MOBILE_BACKGROUND_COLORS = {
-  primary: BOREAL_DARK.surface,                  // #11130f — base canvas
-  secondary: BOREAL_DARK.surfaceContainerLow,    // #191c19 — sections
-  tertiary: BOREAL_DARK.surfaceContainer,        // #1d201d — elevated
-  elevated: BOREAL_DARK.surfaceContainerLowest,  // #0b0e0b — floating cards
-} as const;
-
-const MOBILE_TEXT_COLORS = {
-  primary: BOREAL_DARK.onSurface,          // #e1e3de — body copy
-  secondary: BOREAL_DARK.onSurfaceVariant, // #c0c8c3 — secondary copy
-  tertiary: BOREAL_DARK.outline,           // #8a9389 — helper / labels
-  accent: BOREAL_DARK.primary,             // #a3d0be — links, active state
-} as const;
-
-const MOBILE_BORDER_COLORS = {
-  subtle: 'rgba(192, 200, 195, 0.08)',
-  default: 'rgba(192, 200, 195, 0.14)',
-  strong: 'rgba(192, 200, 195, 0.22)',
-} as const;
-
-export const colors = {
-  pierre: {
-    ...MOBILE_PIERRE_COLORS,
-    activity: MOBILE_PILLAR_COLORS.activity,
-    nutrition: MOBILE_PILLAR_COLORS.nutrition,
-    recovery: MOBILE_PILLAR_COLORS.recovery,
-    red: BOREAL_DARK.error,
-  },
-  pillars: MOBILE_PILLAR_COLORS,
-  primary: PRIMARY_PALETTE,
-  background: MOBILE_BACKGROUND_COLORS,
-  text: MOBILE_TEXT_COLORS,
-  border: MOBILE_BORDER_COLORS,
-  success: SEMANTIC_COLORS.success,
-  warning: SEMANTIC_COLORS.warning,
-  error: SEMANTIC_COLORS.error,
-  info: SEMANTIC_COLORS.info,
-  providers: PROVIDER_COLORS,
-  google: PROVIDER_COLORS.google,
-  // Canonical token trees for light/dark runtime switching.
-  boreal: {
-    light: BOREAL_LIGHT,
-    dark: BOREAL_DARK,
-  },
-} as const;
-
-// Boreal light glassmorphism card — RN shadow recipe
-export const glassCard = {
-  background: GLASS_CARD.background,
-  borderColor: GLASS_CARD.borderColor,
-  borderWidth: GLASS_CARD.borderWidth,
-  shadowColor: GLASS_CARD.shadowColor,
-  shadowOffset: { width: 0, height: 24 },
-  shadowOpacity: GLASS_CARD.shadowOpacity,
-  shadowRadius: GLASS_CARD.shadowRadius,
-  elevation: 8,
-} as const;
+/**
+ * The resting-card recipe: a filled sheet with a hairline and no shadow.
+ *
+ * Two traps this exists to hold shut. React Native has no `background`
+ * property — it is `backgroundColor`, and a style object naming the former
+ * silently contributes no fill. And a view with no fill does not cast a box
+ * shadow on iOS: `shadowOffset`/`shadowRadius` there follow the alpha of the
+ * view's CHILDREN, so a transparent card with a shadow draws a soft duplicate
+ * of its own text below itself.
+ *
+ * It is a hook rather than a const because the fill has to follow the
+ * athlete's appearance setting, and the two schemes do not use the same tier:
+ * light lifts a card by going UP to white, dark by going up to
+ * `surfaceContainerHigh`. `surfaceContainerLowest` is `#0b0e0b` in dark —
+ * BELOW the `#11130f` canvas — so the naive "elevated" token sinks the card
+ * into the page, which is the trap DESIGN.md §5 names for the coach bubble.
+ *
+ * No shadow: DESIGN.md §4 is "hairlines lift, shadows float", and a resting
+ * card does not float.
+ */
+export function useCardStyle(): ViewStyle {
+  const { scheme } = useTheme();
+  const colors = useThemeColors();
+  return {
+    backgroundColor:
+      scheme === 'dark' ? colors.tokens.surfaceContainerHigh : colors.tokens.surfaceContainerLowest,
+    borderColor: colors.border.default,
+    borderWidth: 1,
+  };
+}
 
 // Flat button baseline — ambient shadow only
 export const buttonGlow = {
@@ -121,16 +73,6 @@ export const buttonGlow = {
   shadowOpacity: BUTTON_GLOW.shadowOpacity,
   shadowRadius: BUTTON_GLOW.shadowRadius,
   elevation: 4,
-} as const;
-
-// Canonical boreal gradients as LinearGradient color arrays
-export const gradients = {
-  borealHero: [GRADIENT_COLORS.borealHero.start, GRADIENT_COLORS.borealHero.end],
-  // Back-compat aliases — resolve to the boreal hero
-  violetCyan: [GRADIENT_COLORS.violetCyan.start, GRADIENT_COLORS.violetCyan.end],
-  violetIndigo: [GRADIENT_COLORS.violetIndigo.start, GRADIENT_COLORS.violetIndigo.end],
-  darkOverlay: [GRADIENT_COLORS.darkOverlay.start, GRADIENT_COLORS.darkOverlay.end],
-  aiGradient: [GRADIENT_COLORS.aiGradient.start, GRADIENT_COLORS.aiGradient.end],
 } as const;
 
 // Ambient shadow recipes (replaces violet-glow AI_GLOW stack)
@@ -183,7 +125,6 @@ export {
   SEMANTIC_COLORS,
   PROVIDER_COLORS,
   GRADIENT_COLORS,
-  GLASS_CARD,
   AMBIENT_SHADOW,
   AI_GLOW,
   BUTTON_GLOW,
@@ -191,15 +132,16 @@ export {
   BRAND_TRACKING,
 };
 
-// Live palette hook — preferred over the static `colors` const above. Returns
-// an object with the same shape, but values flip when the user toggles
-// appearance from Settings. Components imported as
+// The live palette hook — the one source of colour on the phone. Every value
+// flips when the athlete toggles appearance from Settings, which a module-level
+// `as const` cannot do. Components read it as
 //   `import { useThemeColors } from '../constants/theme';`
 //   const colors = useThemeColors();
-// keep their existing `colors.pierre.*` access patterns and gain runtime
-// reactivity in one swap.
+// and reach `colors.pierre.*`, `colors.tokens.*`, `colors.ink.*` from there.
 export { useTheme, useThemeColors } from '../contexts/ThemeContext';
+import { useTheme, useThemeColors } from '../contexts/ThemeContext';
 import type { ThemeColors } from '../contexts/ThemeContext';
+import type { ViewStyle } from 'react-native';
 export type { AppearancePref } from '../hooks/useAppearancePref';
 
 /**
@@ -212,11 +154,31 @@ export type { AppearancePref } from '../hooks/useAppearancePref';
  * Product tier surface. None of them moved with the athlete's appearance
  * setting, because a module-level hex cannot.
  *
+ * `categoryAccent` is the FILL. Drawn as a label it does not clear AA on a
+ * tint of itself, so text over that fill takes `categoryInk` — the same hue
+ * carried along its lightness axis until it reads. Use them as a pair.
+ *
  * `category` is the English key stored on the coach and sent to the API, so it
  * is matched as data rather than translated. An unknown category falls back to
  * `primary` — the same answer `custom` gets, which is the honest one for "a
  * category this build does not have a pillar for".
  */
+export function categoryInk(colors: ThemeColors, category: string): string {
+  switch (category) {
+    case 'training':
+      return colors.ink.activity;
+    case 'nutrition':
+    case 'recipes':
+      return colors.ink.nutrition;
+    case 'recovery':
+      return colors.ink.recovery;
+    case 'mobility':
+      return colors.ink.mobility;
+    default:
+      return colors.tokens.onPrimaryContainer;
+  }
+}
+
 export function categoryAccent(colors: ThemeColors, category: string): string {
   switch (category) {
     case 'training':

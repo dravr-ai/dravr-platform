@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { PRIMARY_PALETTE, spacing, glassCard, buttonGlow, useThemeColors, categoryAccent } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, useCardStyle, buttonGlow, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import type { UpdateCoachRequest } from '../../types';
@@ -48,6 +48,7 @@ const CONTEXT_WINDOW_SIZE = 128000;
 export function CoachEditorScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const cardStyle = useCardStyle();
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
 
@@ -312,7 +313,7 @@ export function CoachEditorScreen() {
               testID="coach-title-input"
               className="p-3.5 text-text-primary text-base"
               style={{
-                ...glassCard,
+                ...cardStyle,
                 borderRadius: 12,
                 borderColor: errors.title ? colors.error : colors.border.default,
               }}
@@ -338,18 +339,26 @@ export function CoachEditorScreen() {
             <TouchableOpacity
               className="flex-row items-center justify-between p-3.5"
               style={{
-                ...glassCard,
+                ...cardStyle,
                 borderRadius: 12,
               }}
               onPress={showCategoryPicker}
               testID="category-picker"
             >
+              {/* The selected category reads as a TINT of its pillar accent,
+                  labelled in that accent's bound ink. A pillar hue is a fill,
+                  never a ground for `on-surface`: the pale dark-scheme set
+                  under near-white ink measures 1.32-2.11:1, the pairing
+                  DESIGN.md §5 lists under Forbidden. `categoryAccent` at /20
+                  with `categoryInk` on top clears AA for every category in
+                  both schemes. Both read `category`, so an unknown one takes
+                  the primary/on-primary-container pair together. */}
               <View
                 className="px-3 py-1.5 rounded-full"
-                style={{ backgroundColor: currentCategory ? categoryAccent(colors, currentCategory.key) : colors.tokens.primary }}
+                style={{ backgroundColor: `${categoryAccent(colors, category)}20` }}
                 testID="selected-category"
               >
-                <Text className="text-on-surface text-sm font-semibold">
+                <Text className="text-sm font-semibold" style={{ color: categoryInk(colors, category) }}>
                   {currentCategory ? t(currentCategory.labelKey) : undefined}
                 </Text>
               </View>
@@ -364,7 +373,7 @@ export function CoachEditorScreen() {
               testID="coach-description-input"
               className="p-3.5 text-text-primary text-base min-h-[100px]"
               style={{
-                ...glassCard,
+                ...cardStyle,
                 borderRadius: 12,
                 borderColor: errors.description ? colors.error : colors.border.default,
               }}
@@ -407,7 +416,7 @@ export function CoachEditorScreen() {
               testID="system-prompt-input"
               className="p-3.5 text-text-primary text-base min-h-[200px]"
               style={{
-                ...glassCard,
+                ...cardStyle,
                 borderRadius: 12,
                 borderColor: errors.systemPrompt ? colors.error : colors.border.default,
               }}
@@ -427,7 +436,7 @@ export function CoachEditorScreen() {
             {/* Token counter with gradient progress bar */}
             <View
               className="mt-3 p-3 rounded-xl"
-              style={{ ...glassCard, borderRadius: 12 }}
+              style={{ ...cardStyle, borderRadius: 12 }}
               testID="token-counter"
             >
               <Text className="text-text-secondary text-sm mb-2" testID="token-count-text">
@@ -460,7 +469,7 @@ export function CoachEditorScreen() {
                 testID="tag-input"
                 className="flex-1 p-3.5 text-text-primary text-base"
                 style={{
-                  ...glassCard,
+                  ...cardStyle,
                   borderRadius: 12,
                 }}
                 value={newTag}
@@ -524,7 +533,7 @@ export function CoachEditorScreen() {
                 testID="startup-query-input"
                 className="p-3.5 text-text-primary text-base min-h-[80px]"
                 style={{
-                  ...glassCard,
+                  ...cardStyle,
                   borderRadius: 12,
                 }}
                 value={startupQuery}
@@ -564,7 +573,7 @@ export function CoachEditorScreen() {
                     <TextInput
                       testID="activity-count-input"
                       className="p-2.5 text-text-primary text-sm"
-                      style={{ ...glassCard, borderRadius: 10 }}
+                      style={{ ...cardStyle, borderRadius: 10 }}
                       value={String(activityCount)}
                       onChangeText={(v) => setActivityCount(Math.max(1, Math.min(200, Number(v) || 1)))}
                       keyboardType="number-pad"
@@ -574,7 +583,7 @@ export function CoachEditorScreen() {
                     <Text className="text-text-secondary text-xs font-semibold mb-1">{t('app.timeFrame')}</Text>
                     <TouchableOpacity
                       className="p-2.5 flex-row items-center justify-between"
-                      style={{ ...glassCard, borderRadius: 10 }}
+                      style={{ ...cardStyle, borderRadius: 10 }}
                       onPress={() => {
                         const frames = ['3w', '8w', '12w', '16w', '6m'];
                         const idx = frames.indexOf(timeFrame);
@@ -708,9 +717,14 @@ export function CoachEditorScreen() {
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
           onPress={() => setShowCategoryModal(false)}
         >
+          {/* The sheet sits over the page, so it is a raised surface and takes
+              the card recipe: the scheme-correct lifted fill plus a hairline,
+              no shadow. Its title and options are `text-text-primary`, which
+              is on-surface — ink that only reads against a ground the same
+              scheme chose. */}
           <Pressable
             className="rounded-t-2xl p-5 pb-10"
-            style={{ backgroundColor: '#1C1C1E' }}
+            style={cardStyle}
             onPress={() => {/* prevent dismiss when tapping content */}}
           >
             <Text className="text-text-primary text-lg font-bold text-center mb-4">

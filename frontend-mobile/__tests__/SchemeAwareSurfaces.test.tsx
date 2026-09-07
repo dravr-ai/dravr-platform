@@ -27,11 +27,16 @@ function code(file: string): string {
 }
 
 describe('no athlete-facing surface pins a colour the scheme cannot move', () => {
-  it('has no caller of the fixed `gradients.violetCyan` pair', () => {
-    // `gradients` is a module-level `as const`, so any component drawing from
-    // it renders the same colours in light and dark. Seven screens did.
-    const offenders = sources(SRC).filter((f) => /gradients\.violetCyan/.test(code(f)));
-    expect(offenders).toEqual([]);
+  it('offers no module-level palette a screen could reach for', () => {
+    // `gradients` and `colors` were module-level `as const`s, so any component
+    // drawing from either rendered the same colours in light and dark. Seven
+    // screens took `gradients.violetCyan`; the settings screen took `colors`.
+    // Pinning the exports rather than the call sites is the stronger claim: a
+    // palette that does not exist cannot acquire a caller.
+    const theme = code(join(SRC, 'constants', 'theme.ts'));
+    expect(theme).not.toMatch(/export const (gradients|colors)\b/);
+    // The live palette is the one way to a colour that follows the setting.
+    expect(theme).toContain('useThemeColors');
   });
 
   it('draws no 3px gradient strip from the internal palette', () => {

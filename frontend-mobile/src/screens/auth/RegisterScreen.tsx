@@ -1,5 +1,5 @@
 // ABOUTME: Registration screen for new user signup
-// ABOUTME: Professional dark theme UI with glassmorphism matching web design
+// ABOUTME: Resting card on the app canvas — its fill and hairline follow the athlete's colour scheme
 
 import React, { useState } from 'react';
 import {
@@ -16,7 +16,7 @@ import { useAsyncAction } from '@pierre/ui-logic';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
-import { spacing, glassCard, buttonGlow } from '../../constants/theme';
+import { spacing, useCardStyle, buttonGlow } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
@@ -83,9 +83,8 @@ export function RegisterScreen() {
     registerAction.execute();
   };
 
-  // Glassmorphism card style
   const cardStyle: ViewStyle = {
-    ...glassCard,
+    ...useCardStyle(),
     borderRadius: 16,
     overflow: 'hidden',
   };
@@ -103,7 +102,7 @@ export function RegisterScreen() {
           keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets
         >
-          {/* Glassmorphism Card Container */}
+          {/* Card container */}
           <View style={cardStyle}>
             <View className="px-6 py-8">
               {/* Header */}

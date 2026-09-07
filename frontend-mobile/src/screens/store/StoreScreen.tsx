@@ -10,24 +10,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 
-import { PRIMARY_PALETTE, spacing, glassCard, categoryAccent, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, useCardStyle, categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
 import { FloatingSearchBar } from '../../components/ui';
-
-// Shadow styles for coach cards (React Native shadows cannot use className)
-const coachCardShadow: ViewStyle = {
-  shadowColor: glassCard.shadowColor,
-  shadowOffset: glassCard.shadowOffset,
-  shadowOpacity: glassCard.shadowOpacity,
-  shadowRadius: glassCard.shadowRadius,
-  elevation: glassCard.elevation,
-};
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoach, CoachCategory } from '../../types';
@@ -58,6 +48,7 @@ const SORT_OPTIONS: Array<{ key: SortOption; labelKey: string }> = [
 export function StoreScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const cardStyle = useCardStyle();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [coaches, setCoaches] = useState<StoreCoach[]>([]);
@@ -232,11 +223,13 @@ export function StoreScreen() {
   const renderCoachCard = ({ item, index }: { item: StoreCoach; index: number }) => (
     <TouchableOpacity
       testID={`coach-card-${index}`}
-      className="bg-white/[0.03] rounded-lg p-3 mb-3 border border-white/[0.08]"
-      style={coachCardShadow}
+      className="rounded-lg p-3 mb-3"
+      style={cardStyle}
       onPress={() => navigateToCoachDetail(item)}
     >
       <View className="flex-row justify-between items-center mb-1">
+        {/* The accent is the tint; the label takes the ink bound to it. A hue
+            drawn on a tint of itself measures under AA in light. */}
         <View
           testID="category-badge"
           className="px-2 py-0.5 rounded"
@@ -244,7 +237,7 @@ export function StoreScreen() {
         >
           <Text
             className="text-xs font-medium"
-            style={{ color: categoryAccent(colors, item.category) }}
+            style={{ color: categoryInk(colors, item.category) }}
           >
             {t(coachCategoryLabelKey(item.category))}
           </Text>

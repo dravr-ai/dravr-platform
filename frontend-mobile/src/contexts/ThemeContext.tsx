@@ -14,6 +14,8 @@ import {
   PILLARS,
   SEMANTIC_COLORS,
   SEMANTIC_COLORS_DARK,
+  CONTAINER_INKS,
+  CONTAINER_INKS_DARK,
   type ColorScheme,
 } from '../../../packages/shared-constants/src/design-system';
 import { useAppearancePref, type AppearancePref } from '../hooks/useAppearancePref';
@@ -62,6 +64,16 @@ export interface ThemeColors {
   /** Semantic flags. */
   success: string;
   warning: string;
+  /** The ink each pillar and feedback hue binds when drawn as a tint. */
+  ink: {
+    activity: string;
+    nutrition: string;
+    recovery: string;
+    mobility: string;
+    info: string;
+    success: string;
+    warning: string;
+  };
   error: string;
   /** Informational tint (DESIGN.md §2). */
   info: string;
@@ -144,6 +156,10 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
     // same drift DESIGN.md §2 records mobile carrying for months, fixed in the
     // other two mirrors and missed here.
     ...(scheme === 'dark' ? SEMANTIC_COLORS_DARK : SEMANTIC_COLORS),
+    // The ink each of those hues binds when it is drawn as a tint. Without
+    // these a label sits on a tint of its own hue, which measures as low as
+    // 2.79:1 — the pairing DESIGN.md §8 exists to forbid.
+    ink: scheme === 'dark' ? CONTAINER_INKS_DARK : CONTAINER_INKS,
     error: tokens.error,
   };
 }

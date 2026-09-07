@@ -229,9 +229,14 @@ export function AccountScreen() {
                             style={{
                               height: '100%',
                               width: `${pct}%`,
+                              // The bar's LENGTH carries the value; the colour is
+                              // the severity band, and it has to read against the
+                              // track it sits in. The bound inks do — the bare
+                              // amber hue measures 2.57:1 on the light track,
+                              // under the 3:1 a non-text mark owes.
                               backgroundColor: getUsageBarColor(counter.current, counter.limit, {
-                                activity: colors.pierre.activity,
-                                nutrition: colors.pierre.nutrition,
+                                activity: colors.ink.activity,
+                                nutrition: colors.ink.nutrition,
                                 red: colors.pierre.red,
                               }),
                               borderRadius: 4,

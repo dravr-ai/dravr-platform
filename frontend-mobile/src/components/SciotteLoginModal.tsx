@@ -21,7 +21,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key } from 'lucide-react-native';
-import { glassCard, useThemeColors } from '../constants/theme';
+import { useCardStyle, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
 import { StravaLogo, GarminLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
@@ -107,6 +107,7 @@ export function SciotteLoginModal({
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const cardStyle = useCardStyle();
   const [phase, setPhase] = useState<LoginPhase>('choose');
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
@@ -545,7 +546,7 @@ export function SciotteLoginModal({
           {matchNumber && (
             <View
               className="rounded-2xl px-12 py-6 mb-5"
-              style={{ ...glassCard, borderRadius: 20 }}
+              style={{ ...cardStyle, borderRadius: 20 }}
             >
               <Text className="text-5xl font-bold text-center" style={{ color: brandColor.primary }}>
                 {matchNumber}

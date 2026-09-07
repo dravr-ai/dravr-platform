@@ -17,17 +17,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
-import { spacing, glassCard, useThemeColors } from '../../constants/theme';
+import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
-
-// Glass card style with shadow (React Native shadows cannot use className)
-const sectionCardStyle: ViewStyle = {
-  borderRadius: 12,
-  padding: spacing.md,
-  ...glassCard,
-};
 
 // Same lists the web Privacy & Data tab shows, so the two surfaces cannot
 // promise different things about what leaves the device.
@@ -46,6 +39,11 @@ const NEVER_COLLECTED_KEYS = [
 export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const sectionCardStyle: ViewStyle = {
+    borderRadius: 12,
+    padding: spacing.md,
+    ...useCardStyle(),
+  };
   const router = useRouter();
   const { user, updateUser } = useAuth();
 

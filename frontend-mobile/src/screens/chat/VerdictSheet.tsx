@@ -12,7 +12,7 @@ import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
 import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { DragIndicator } from '../../components/ui';
-import { verdictChipColor, type ThemeColors } from './MessageList';
+import { verdictChipPalette, type ThemeColors } from './MessageList';
 import { useTranslation } from '@pierre/i18n';
 
 export interface VerdictSheetProps {
@@ -41,7 +41,7 @@ function VerdictCard({
   onAskAboutClaim: (verdict: ClaimVerdict) => void;
 }) {
   const { t } = useTranslation();
-  const tint = verdictChipColor(VERDICT_STATUS_TONE[verdict.status], colors);
+  const chip = verdictChipPalette(VERDICT_STATUS_TONE[verdict.status], colors);
   const references = (verdict.evidence_refs ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -54,8 +54,8 @@ function VerdictCard({
   return (
     <View testID="verdict-card" className="py-4 border-b border-border-default">
       <View className="flex-row flex-wrap gap-2">
-        <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: `${tint}26` }}>
-          <Text className="text-xs" style={{ color: tint }}>
+        <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: chip.fill }}>
+          <Text className="text-xs" style={{ color: chip.ink }}>
             {t(VERDICT_STATUS_LABEL_KEY[verdict.status])}
           </Text>
         </View>

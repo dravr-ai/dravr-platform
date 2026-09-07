@@ -29,6 +29,15 @@
     --color-error-container: 255 218 214;
     --color-on-error: 255 255 255;
     --color-on-error-container: 147 0 10;
+    /* The ink a pillar or feedback hue binds when drawn as a tint. A hue as
+       text on a tint of itself measures as low as 2.79:1 (DESIGN.md §8). */
+    --color-on-activity-container: 11 87 72;
+    --color-on-nutrition-container: 102 76 22;
+    --color-on-recovery-container: 45 82 94;
+    --color-on-mobility-container: 119 53 78;
+    --color-on-info-container: 45 82 94;
+    --color-on-success-container: 32 87 63;
+    --color-on-warning-container: 102 76 22;
 
     --color-surface: 247 246 242;
     --color-surface-dim: 215 214 209;
@@ -124,6 +133,13 @@
     --color-error-container: 147 0 10;
     --color-on-error: 105 0 5;
     --color-on-error-container: 255 218 214;
+    --color-on-activity-container: 154 188 174;
+    --color-on-nutrition-container: 216 188 129;
+    --color-on-recovery-container: 169 192 198;
+    --color-on-mobility-container: 209 171 180;
+    --color-on-info-container: 169 192 198;
+    --color-on-success-container: 154 188 174;
+    --color-on-warning-container: 216 188 129;
 
     --color-surface: 17 19 15;
     --color-surface-dim: 17 19 15;

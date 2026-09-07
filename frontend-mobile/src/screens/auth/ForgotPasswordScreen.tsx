@@ -1,5 +1,5 @@
 // ABOUTME: Self-service forgot password screen for requesting a reset code
-// ABOUTME: Glass card over the fixed brand gradient — its palette is pinned, not the athlete's scheme
+// ABOUTME: Resting card on the app canvas — its fill and hairline follow the athlete's colour scheme
 
 import React, { useState } from 'react';
 import {
@@ -14,12 +14,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
-import { PRIMARY_PALETTE, spacing, glassCard, buttonGlow } from '../../constants/theme';
+import { spacing, useCardStyle, buttonGlow, useThemeColors } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
 export function ForgotPasswordScreen() {
   const { t } = useTranslation();
+  const colors = useThemeColors();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -57,7 +58,7 @@ export function ForgotPasswordScreen() {
   };
 
   const cardStyle: ViewStyle = {
-    ...glassCard,
+    ...useCardStyle(),
     borderRadius: 16,
     overflow: 'hidden',
   };
@@ -83,8 +84,15 @@ export function ForgotPasswordScreen() {
             <View className="px-6 py-8">
               {/* Header */}
               <View className="items-center mb-6">
+                {/*
+                  The lock is a non-text glyph, so it carries the 3:1 floor on
+                  its own. It takes the scheme's primary, which is the ink the
+                  card's fill is chosen against in both directions: forest on
+                  the white light card at 7.44:1, pale mint on the #272b27 dark
+                  card at 8.43:1.
+                */}
                 <View className="w-14 h-14 rounded-xl items-center justify-center mb-3 bg-primary-500/20">
-                  <Ionicons name="lock-closed-outline" size={28} color={PRIMARY_PALETTE[500]} />
+                  <Ionicons name="lock-closed-outline" size={28} color={colors.tokens.primary} />
                 </View>
                 <Text className="text-xl font-bold text-text-primary mb-1">
                   {t('app.resetYourPassword')}
