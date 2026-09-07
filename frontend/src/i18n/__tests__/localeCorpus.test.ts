@@ -191,9 +191,12 @@ describe('client locale corpus', () => {
     // +10 for the season walk: the eight `commands.season.*` strings and the
     // two horizon predicate sentences, `aim_this_season` and `aim_long_term`.
     // +9 for the flavours' plain-words labels, `messaging.flavour.*` — one per
-    // catalogue flavour, what the coach says instead of "polarized".
+    // catalogue flavour, what the agent says instead of "polarized".
+    // +1 for `commands.help.domain.agent`: the agent commands used to be
+    // grouped under the human coach's `/help` heading, so the identifier
+    // rename gave them a heading of their own rather than renaming his.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2339);
+    expect(reference).toHaveLength(2340);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);
