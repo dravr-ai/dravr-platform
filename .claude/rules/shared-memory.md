@@ -1,6 +1,6 @@
 # Shared platform memory
 
-337 verified facts about this system live in the team vault at
+343 verified facts about this system live in the team vault at
 `../dravr-vault/Claude Memory/platform/` — one file per fact, each with a `description:` line.
 
 **They are NOT in your context.** They are shared across every developer and
@@ -23,7 +23,7 @@ What is covered, by topic:
 - **infra, deploy & cost** (17)
 - **observability & analytics** (9)
 - **frontend, mobile & UX** (15)
-- **data, storage & tenancy** (18)
+- **data, storage & tenancy** (19)
 - **security & secrets** (8)
 - **product, market & planning** (15)
 - **tooling, vault & process** (8)
