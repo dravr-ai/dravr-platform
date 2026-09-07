@@ -432,7 +432,24 @@ jobs:
           rm -rf /var/lib/apt/lists/*
           apt-get update -o APT::Update::Error-Mode=any || true
           apt-get install -y -qq --no-install-recommends --fix-missing git && exit 0
-          echo "::error::git could not be installed in the lockbud container: deb.debian.org (2 attempts), security.debian.org (2 attempts) and --fix-missing all failed"
+          # Last resort: snapshot.debian.org. Everything above assumes the
+          # named revision still exists somewhere; on 2026-09-07 it did not.
+          # Debian drops a superseded point revision from the pool when the
+          # next lands, so an index naming deb11u5 against a pool holding
+          # deb11u7 404s from EVERY mirror — switching hosts finds the same
+          # absence, and rebuilding the index does not help while the mirror's
+          # own index lags its pool. snapshot.debian.org archives every
+          # revision permanently and each timestamp is internally consistent,
+          # so it is the one source that cannot 404 for this reason. Pinned
+          # rather than "latest" because a moving snapshot reintroduces the
+          # skew; bump the date when it ages out of usefulness.
+          echo "the pool no longer carries the revision the index names; falling back to snapshot.debian.org"
+          SNAP=20260901T000000Z
+          printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s bullseye main\ndeb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s bullseye-security main\n' "$SNAP" "$SNAP" > /etc/apt/sources.list
+          rm -rf /etc/apt/sources.list.d/* /var/lib/apt/lists/*
+          apt-get update -o Acquire::Check-Valid-Until=false && \
+            apt-get install -y -qq --no-install-recommends git && exit 0
+          echo "::error::git could not be installed in the lockbud container: deb.debian.org (2), security.debian.org (2), --fix-missing and snapshot.debian.org ${SNAP} all failed"
           exit 1
 
       - name: Checkout code
