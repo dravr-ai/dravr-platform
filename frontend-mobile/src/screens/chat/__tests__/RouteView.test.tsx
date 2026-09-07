@@ -10,12 +10,9 @@ import type { RouteView as RouteBlock } from '@pierre/scene-types';
 
 import RouteView from '../RouteView';
 
-jest.mock('@pierre/i18n', () => ({
-  useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) =>
-      opts ? [key, ...Object.values(opts)].join(' ') : key,
-  }),
-}));
+// The captions are read through the real English bundle jest.setup.js
+// initialises, not a key-echoing stand-in: a climb graded `HC` once rendered
+// "Cat HC", and a mock that printed `chat.routeClimbCategory HC` looked fine.
 
 let mockScheme: 'light' | 'dark' = 'dark';
 
@@ -101,7 +98,7 @@ describe('RouteView track geometry', () => {
     render(<RouteView route={routeBlock({ coordinates: [] })} />);
 
     expect(screen.queryByTestId('maplibre-map')).toBeNull();
-    expect(screen.getByText('chat.routeNoTrack')).toBeTruthy();
+    expect(screen.getByText('This activity recorded no GPS track.')).toBeTruthy();
   });
 });
 
@@ -188,11 +185,49 @@ describe('RouteView climbs', () => {
   it('spells every climb out in words beneath the map', () => {
     render(<RouteView route={climbing} />);
 
-    expect(screen.getByText('chat.routeClimbs')).toBeTruthy();
-    expect(screen.getByText('chat.routeClimbCategory 3')).toBeTruthy();
+    expect(screen.getByText('Climbs')).toBeTruthy();
+    expect(screen.getByText('Cat 3')).toBeTruthy();
     expect(screen.getByText('6.4%')).toBeTruthy();
-    expect(screen.getByText('chat.routeClimbCategory 2')).toBeTruthy();
+    expect(screen.getByText('Cat 2')).toBeTruthy();
     expect(screen.getByText('9.1%')).toBeTruthy();
+  });
+
+  it('captions hors catégorie as HC and a numbered grade as Cat N', () => {
+    render(
+      <RouteView
+        route={routeBlock({
+          climbs: [
+            { start_index: 0, end_index: 3, avg_gradient: 8.9, category: 'HC' },
+            { start_index: 1, end_index: 3, avg_gradient: 6.4, category: '3' },
+          ],
+        })}
+      />,
+    );
+
+    // HC is a name, not a number: no cyclist says "Cat HC".
+    expect(screen.getByText('HC')).toBeTruthy();
+    expect(screen.queryByText('Cat HC')).toBeNull();
+    expect(screen.getByText('Cat 3')).toBeTruthy();
+  });
+
+  it('lists an ungraded climb with its gradient and no invented category', () => {
+    render(
+      <RouteView
+        route={routeBlock({
+          climbs: [
+            { start_index: 0, end_index: 3, avg_gradient: 3.2, category: null },
+            { start_index: 1, end_index: 3, avg_gradient: 6.4, category: '3' },
+          ],
+        })}
+      />,
+    );
+
+    // Below the category threshold the climb is still a climb — its gradient
+    // is listed — but a grade it did not earn is not printed.
+    expect(screen.getByText(/3\.2\s*%/)).toBeTruthy();
+    expect(screen.getByText('Cat 3')).toBeTruthy();
+    expect(screen.queryByText(/Cat null/)).toBeNull();
+    expect(screen.queryByText(/Cat none/)).toBeNull();
   });
 
   it('reads each climb’s kilometre range off the carried distances', () => {
@@ -205,7 +240,7 @@ describe('RouteView climbs', () => {
     render(<RouteView route={routeBlock()} />);
 
     expect(sourceData('route-climbs').coordinates).toEqual([]);
-    expect(screen.queryByText('chat.routeClimbs')).toBeNull();
+    expect(screen.queryByText('Climbs')).toBeNull();
   });
 });
 
@@ -272,12 +307,12 @@ describe('RouteView chrome', () => {
     render(<RouteView route={routeBlock({ title: 'Mont Royal loop' })} />);
 
     expect(screen.getByText('Mont Royal loop')).toBeTruthy();
-    expect(screen.getByLabelText('chat.routeAltTitled Mont Royal loop')).toBeTruthy();
+    expect(screen.getByLabelText('Map of the recorded route: Mont Royal loop')).toBeTruthy();
   });
 
   it('falls back to the untitled label when the block carries no caption', () => {
     render(<RouteView route={routeBlock()} />);
 
-    expect(screen.getByLabelText('chat.routeAlt')).toBeTruthy();
+    expect(screen.getByLabelText('Map of the recorded route')).toBeTruthy();
   });
 });

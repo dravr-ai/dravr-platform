@@ -51,6 +51,16 @@ function climbRange(distances: number[] | null, climb: RouteClimb): string | nul
 }
 
 /**
+ * The grade above the numbered scale, as the platform spells it.
+ *
+ * Hors catégorie is a name, not a number: every cycling culture writes it
+ * `HC` and none says "Cat HC". A climb that carries it is captioned with the
+ * two letters as they arrive; only `1` through `4` go through the `Cat N`
+ * template.
+ */
+const HORS_CATEGORIE = 'HC';
+
+/**
  * One recorded track, drawn.
  *
  * The geometry arrives hydrated — the agent emitted an activity reference and
@@ -182,14 +192,21 @@ export default function RouteView({ view }: { view: RouteViewData }) {
           <ul className="mt-1 space-y-0.5 text-xs text-on-surface-variant">
             {view.climbs.map((climb) => {
               const range = climbRange(distances, climb);
+              // A climb below the category threshold is still drawn on the
+              // map but carries no grade — and a grade it did not earn is not
+              // one to print, so it gets no caption rather than a made-up one.
+              const grade =
+                climb.category === null
+                  ? null
+                  : climb.category === HORS_CATEGORIE
+                    ? climb.category
+                    : t('chat.routeClimbCategory', { category: climb.category });
               return (
                 <li
                   key={`${climb.start_index}-${climb.end_index}`}
                   className="flex flex-wrap items-baseline gap-x-2"
                 >
-                  <span className="font-medium text-on-surface">
-                    {t('chat.routeClimbCategory', { category: climb.category })}
-                  </span>
+                  {grade !== null && <span className="font-medium text-on-surface">{grade}</span>}
                   <span className="font-mono">{climb.avg_gradient.toFixed(1)}%</span>
                   {range && <span className="font-mono">{range}</span>}
                 </li>

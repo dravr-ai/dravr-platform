@@ -47,6 +47,16 @@ fn table() -> Value {
     })
 }
 
+fn route() -> Value {
+    json!({
+        "type": "route",
+        "source_tool": "get_activities",
+        "activity_id": "a1b2c3d4",
+        "title": "Sunday long run",
+        "highlight": "climbs"
+    })
+}
+
 #[test]
 fn accepts_a_well_formed_chart_and_table() {
     let v = validator();
@@ -55,9 +65,53 @@ fn accepts_a_well_formed_chart_and_table() {
 }
 
 #[test]
+fn accepts_a_well_formed_route() {
+    // A route is a reference: the activity id names a recorded track the
+    // platform reads itself, and highlight is the only rendering choice offered.
+    let v = validator();
+    assert!(v.is_valid(&route()), "a well-formed route must validate");
+}
+
+#[test]
+fn rejects_a_route_carrying_coordinates() {
+    // The whole point of reference-not-payload: an agent that transcribes
+    // geometry has invented it, and the block must be refused outright rather
+    // than drawn from whatever it wrote down.
+    let v = validator();
+    let mut block = route();
+    block["coordinates"] = json!([[45.5017, -73.5673], [45.5088, -73.5878]]);
+    assert!(
+        !v.is_valid(&block),
+        "a route carrying coordinates must be rejected — the track comes from the activity, never from the agent"
+    );
+}
+
+#[test]
+fn rejects_a_route_without_activity_id() {
+    let v = validator();
+    let mut block = route();
+    block.as_object_mut().unwrap().remove("activity_id");
+    assert!(
+        !v.is_valid(&block),
+        "a route without activity_id names no track and cannot be drawn"
+    );
+}
+
+#[test]
+fn rejects_route_highlights_outside_the_v1_vocabulary() {
+    let v = validator();
+    let mut block = route();
+    block["highlight"] = json!("elevation");
+    assert!(
+        !v.is_valid(&block),
+        "elevation is not a route highlight; only none and climbs are rendered"
+    );
+}
+
+#[test]
 fn source_tool_is_mandatory() {
     let v = validator();
-    for mut block in [chart(), table()] {
+    for mut block in [chart(), table(), route()] {
         block.as_object_mut().unwrap().remove("source_tool");
         assert!(
             !v.is_valid(&block),
@@ -113,7 +167,10 @@ fn rejects_an_unknown_block_type() {
     let v = validator();
     let mut block = chart();
     block["type"] = json!("sparkline");
-    assert!(!v.is_valid(&block), "only chart and table exist in v1");
+    assert!(
+        !v.is_valid(&block),
+        "sparkline is not a block type; chart, table and route are the whole vocabulary"
+    );
 }
 
 #[test]
@@ -154,10 +211,10 @@ fn generated_contract_states_the_points_minimum() {
     for kind in ["line", "bar", "area"] {
         assert!(contract.contains(kind), "chart kind {kind} must be listed");
     }
-    for kind in ["chart", "table"] {
+    for kind in ["chart", "table", "route"] {
         assert!(
             contract.contains(&format!("**`{kind}`**")),
-            "both block kinds must be described: {contract}"
+            "every block kind must be described, {kind} is missing: {contract}"
         );
     }
 }

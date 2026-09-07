@@ -321,6 +321,54 @@ describe('RouteView', () => {
     ).toBeInTheDocument();
   });
 
+  it('captions hors catégorie as HC and a numbered grade as Cat N', async () => {
+    render(
+      <ThemeProvider>
+        <RouteView
+          view={{
+            ...ROUTE,
+            climbs: [
+              { start_index: 0, end_index: 3, avg_gradient: 8.9, category: 'HC' },
+              { start_index: 1, end_index: 3, avg_gradient: 6.4, category: '3' },
+            ],
+          }}
+        />
+      </ThemeProvider>
+    );
+
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+
+    // HC is a name, not a number: no cyclist says "Cat HC".
+    expect(screen.getByText('HC')).toBeInTheDocument();
+    expect(screen.queryByText('Cat HC')).toBeNull();
+    expect(screen.getByText('Cat 3')).toBeInTheDocument();
+  });
+
+  it('lists an ungraded climb with its gradient and no invented category', async () => {
+    render(
+      <ThemeProvider>
+        <RouteView
+          view={{
+            ...ROUTE,
+            climbs: [
+              { start_index: 0, end_index: 3, avg_gradient: 3.2, category: null },
+              { start_index: 1, end_index: 3, avg_gradient: 6.4, category: '3' },
+            ],
+          }}
+        />
+      </ThemeProvider>
+    );
+
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+
+    // Below the category threshold the climb is still a climb — its gradient
+    // is listed — but a grade it did not earn is not printed.
+    expect(screen.getByText(/3\.2\s*%/)).toBeInTheDocument();
+    expect(screen.getByText('Cat 3')).toBeInTheDocument();
+    expect(screen.queryByText(/Cat null/)).toBeNull();
+    expect(screen.queryByText(/Cat none/)).toBeNull();
+  });
+
   it('drops the kilometre marks rather than inventing them when the series is ragged', async () => {
     render(
       <ThemeProvider>
