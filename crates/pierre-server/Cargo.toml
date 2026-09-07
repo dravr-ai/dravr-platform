@@ -229,7 +229,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 # Assets crate: the workout and viz schemas consumed by the chat pipeline context.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "003fcc0cad8d1ab56a6fa6c9dfa6ca1bd60ccb3e" }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
-photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.2.1" }
+photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.3.0" }
 dravr-tronc = { version = "1.0.1", features = ["notifications", "google-iam"] }
 pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
 pierre-enforme = { path = "../pierre-enforme", version = "0.3.0", optional = true, features = ["provider-whoop"] }
