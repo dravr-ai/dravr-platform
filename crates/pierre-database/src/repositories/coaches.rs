@@ -46,7 +46,7 @@ pub trait CoachesRepository: Send + Sync {
     ///
     /// "Installed" means the coach sits on the user's coach list through a
     /// `coach_assignments` row — a Store install, a fork, or an admin
-    /// assignment — and belongs to the user's tenant or is a system coach.
+    /// assignment — and belongs to the user's tenant or is a system agent.
     /// A coach the user merely *could* browse in the catalogue does not
     /// resolve. When both the user's own copy and the origin answer to the
     /// handle, the user's copy wins; among several copies the oldest wins.
@@ -169,24 +169,24 @@ pub trait CoachesRepository: Send + Sync {
         tenant_id: TenantId,
         request: &CreateSystemCoachRequest,
     ) -> AppResult<Coach>;
-    /// List all system coaches for a tenant
+    /// List all system agents for a tenant
     async fn list_system_coaches(&self, tenant_id: TenantId) -> AppResult<Vec<Coach>>;
-    /// Get a system coach by ID within a tenant
+    /// Get a system agent by ID within a tenant
     async fn get_system_coach(
         &self,
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>>;
-    /// Get a system coach by ID regardless of tenant
+    /// Get a system agent by ID regardless of tenant
     async fn get_system_coach_any_tenant(&self, coach_id: &str) -> AppResult<Option<Coach>>;
-    /// Update a system coach
+    /// Update a system agent
     async fn update_system_coach(
         &self,
         coach_id: &str,
         tenant_id: TenantId,
         request: &UpdateCoachRequest,
     ) -> AppResult<Option<Coach>>;
-    /// Delete a system coach
+    /// Delete a system agent
     async fn delete_system_coach(&self, coach_id: &str, tenant_id: TenantId) -> AppResult<bool>;
 
     // --- Assignment methods ---
@@ -232,7 +232,7 @@ pub trait CoachesRepository: Send + Sync {
     /// Show a previously hidden coach. User-scoped, not tenant-scoped, by
     /// design: `user_coach_preferences` carries no `tenant_id` column because
     /// hiding is a personal preference on a coach the user can already see
-    /// (a system coach, or one assigned to them), so the delete is keyed on
+    /// (a system agent, or one assigned to them), so the delete is keyed on
     /// `(user_id, coach_id)` alone. Each handler still refuses a caller with
     /// no resolved tenant, like every sibling coach handler.
     async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool>;
@@ -282,7 +282,7 @@ pub trait CoachesRepository: Send + Sync {
     /// conversation.
     ///
     /// Tenant-scoped: returns the coach if it belongs to the caller's tenant
-    /// or is a system coach. Returns `None` if no matching coach is found.
+    /// or is a system agent. Returns `None` if no matching coach is found.
     async fn get_coach_runtime_context(
         &self,
         coach_id: &str,

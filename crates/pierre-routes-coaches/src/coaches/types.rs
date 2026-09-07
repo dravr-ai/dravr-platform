@@ -49,7 +49,7 @@ pub struct CoachResponse {
     pub created_at: String,
     /// Last update timestamp
     pub updated_at: String,
-    /// Whether this is a system coach (admin-created)
+    /// Whether this is a system agent (admin-created)
     pub is_system: bool,
     /// Visibility level
     pub visibility: String,
@@ -223,7 +223,7 @@ pub struct ListCoachesQuery {
     pub limit: Option<u32>,
     /// Offset for pagination
     pub offset: Option<u32>,
-    /// Include system coaches (default: true)
+    /// Include system agents (default: true)
     pub include_system: Option<bool>,
     /// Include hidden coaches (default: false)
     pub include_hidden: Option<bool>,
@@ -598,7 +598,7 @@ pub struct ListVersionsQuery {
 // Admin Request/Response Types
 // ============================================
 
-/// Request body for creating a system coach
+/// Request body for creating a system agent
 #[derive(Debug, Deserialize)]
 pub struct AdminCreateCoachBody {
     /// Display title for the coach

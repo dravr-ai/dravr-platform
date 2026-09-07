@@ -637,7 +637,7 @@ impl CommandE2e {
 }
 
 impl RoomE2e {
-    /// Bind a fresh supergroup: a system coach + a `CoachingGroup` pre-bound
+    /// Bind a fresh supergroup: a system agent + a `CoachingGroup` pre-bound
     /// to `chat_id` under the bot tenant in `mode`, with `owner` enrolled.
     pub async fn bind_room(
         base: Arc<CommandE2e>,

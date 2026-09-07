@@ -82,7 +82,7 @@ impl SeedStats {
     }
 }
 
-/// Parse coach markdown definitions and sync them to the database, publishing system coaches to the store.
+/// Parse coach markdown definitions and sync them to the database, publishing system agents to the store.
 ///
 /// # Errors
 ///

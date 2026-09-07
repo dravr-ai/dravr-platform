@@ -925,7 +925,7 @@ impl Database {
 
     /// Get the first admin user in the database
     ///
-    /// Used for system coach seeding - needs an admin user to associate coaches with.
+    /// Used for system agent seeding - needs an admin user to associate coaches with.
     ///
     /// # Errors
     /// Returns error if database operation fails

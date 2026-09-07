@@ -481,7 +481,7 @@ mod cross_tenant_bot_tests {
             create_user_with_own_tenant(&resources, "group_slash_bot@example.com").await;
         assert_ne!(user_tenant, bot_tenant, "fixture must be cross-tenant");
 
-        // The channel-group bootstrap picks a system coach from the BOT tenant;
+        // The channel-group bootstrap picks a system agent from the BOT tenant;
         // without one it declines to create the group and the chat stays
         // ungrouped.
         resources

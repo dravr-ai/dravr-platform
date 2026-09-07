@@ -1047,7 +1047,7 @@ pub(super) async fn handle_show_coach<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /api/agents/:id/fork - Fork a system coach to create a user copy
+/// Handle POST /api/agents/:id/fork - Fork a system agent to create a user copy
 pub(super) async fn handle_fork<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,

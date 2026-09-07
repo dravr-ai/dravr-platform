@@ -57,7 +57,7 @@ Logged in as the resolved `$ADMIN_EMAIL`. Because that account is created `--sup
 | # | Tab | id | Component | Must verify |
 |---|---|---|---|---|
 | 5 | Coaches | `agents` | `SystemCoachesTab` | Coach catalogue non-empty and matching the contremaitre checkout. Each coach opens a detail view with a real persona/prompt, not a placeholder. |
-| 6 | Coach Store | `agent-store` | `CoachStoreManagement` | Listings render; pending-moderation badge matches the queue. Approve/reject changes state and survives reload. |
+| 6 | Agent Store | `agent-store` | `CoachStoreManagement` | Listings render; pending-moderation badge matches the queue. Approve/reject changes state and survives reload. |
 | 7 | Groups | `groups` | `GroupManagement` → `GroupDetail` | Create a group, open it (`#groups/<id>`), reload — the detail view restores. Invite link generates. Member list correct. Back returns to the list, not to login. |
 
 ### Configuration

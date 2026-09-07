@@ -121,16 +121,16 @@ pub const SHOW_COACH: &str = "show_coach";
 /// Tool identifier for listing hidden coaches
 pub const LIST_HIDDEN_COACHES: &str = "list_hidden_coaches";
 
-/// Admin coach management tools (system coaches)
-/// Tool identifier for listing system coaches (admin only)
+/// Admin coach management tools (system agents)
+/// Tool identifier for listing system agents (admin only)
 pub const ADMIN_LIST_SYSTEM_COACHES: &str = "admin_list_system_coaches";
-/// Tool identifier for creating a system coach (admin only)
+/// Tool identifier for creating a system agent (admin only)
 pub const ADMIN_CREATE_SYSTEM_COACH: &str = "admin_create_system_coach";
-/// Tool identifier for getting a system coach (admin only)
+/// Tool identifier for getting a system agent (admin only)
 pub const ADMIN_GET_SYSTEM_COACH: &str = "admin_get_system_coach";
-/// Tool identifier for updating a system coach (admin only)
+/// Tool identifier for updating a system agent (admin only)
 pub const ADMIN_UPDATE_SYSTEM_COACH: &str = "admin_update_system_coach";
-/// Tool identifier for deleting a system coach (admin only)
+/// Tool identifier for deleting a system agent (admin only)
 pub const ADMIN_DELETE_SYSTEM_COACH: &str = "admin_delete_system_coach";
 /// Tool identifier for assigning a coach to users (admin only)
 pub const ADMIN_ASSIGN_COACH: &str = "admin_assign_coach";

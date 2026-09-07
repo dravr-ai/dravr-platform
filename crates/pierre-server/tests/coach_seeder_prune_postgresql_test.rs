@@ -69,7 +69,7 @@ async fn coach_id(repos: &RepositoryRegistry, slug: &str, tenant: TenantId) -> O
 
 /// The prune listing casts `tenant_id` to UUID and compares `is_system` to a
 /// boolean — both PG-only spellings. Prove the retired coach goes, the kept one
-/// stays, and an operator-authored system coach in the same tenant is untouched.
+/// stays, and an operator-authored system agent in the same tenant is untouched.
 #[tokio::test]
 async fn test_pg_retired_catalogue_coach_is_deleted_and_others_survive() {
     let db = create_test_db().await.unwrap();
@@ -165,7 +165,7 @@ async fn test_pg_retired_catalogue_coach_is_deleted_and_others_survive() {
             .await
             .unwrap()
             .is_some(),
-        "an operator-authored system coach survives the prune on PG"
+        "an operator-authored system agent survives the prune on PG"
     );
 }
 

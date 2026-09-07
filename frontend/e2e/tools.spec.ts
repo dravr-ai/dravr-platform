@@ -19,7 +19,7 @@ async function setupEngagementMocks(
   // Set up base dashboard mocks (includes login mock)
   await setupDashboardMocks(page, { role: 'admin' });
 
-  // Mock system coaches endpoint (used by the agent leaderboard)
+  // Mock system agents endpoint (used by the agent leaderboard)
   await page.route('**/api/admin/agents', async (route) => {
     if (!hasData) {
       await route.fulfill({

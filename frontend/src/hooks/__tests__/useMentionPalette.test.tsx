@@ -84,8 +84,8 @@ describe('useMentionPalette candidates', () => {
     expect(result.current.matches.map(c => c.handle)).toEqual(['tempo-coach']);
   });
 
-  it('offers an installed system coach — the resolver admits one', async () => {
-    // `WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = 1)`: a system coach
+  it('offers an installed system agent — the resolver admits one', async () => {
+    // `WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = 1)`: a system agent
     // the athlete has been assigned resolves, so `is_system` is not the filter.
     list.mockResolvedValue({
       coaches: [

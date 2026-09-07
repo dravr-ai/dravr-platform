@@ -81,7 +81,7 @@ describe('@handle mention palette (web composer)', () => {
     const options = screen.getAllByRole('option').map((o) => o.textContent);
     // Handle order, one row per handle. The handle-less personal coach is not
     // addressable, and neither is the catalogue coach with no assignment row —
-    // while the assigned system coach is, exactly as the resolver treats them.
+    // while the assigned system agent is, exactly as the resolver treats them.
     expect(options).toEqual([
       '@marathon-coachMarathon Coach',
       '@recovery-coachRecovery Coach',

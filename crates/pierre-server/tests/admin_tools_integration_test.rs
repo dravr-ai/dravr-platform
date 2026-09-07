@@ -114,7 +114,7 @@ fn make_request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Un
     }
 }
 
-/// Create a system coach via `admin_create_system_coach` and return its id.
+/// Create a system agent via `admin_create_system_coach` and return its id.
 async fn create_system_coach(
     executor: &UniversalToolExecutor,
     admin_id: Uuid,
@@ -133,7 +133,7 @@ async fn create_system_coach(
             admin_tenant,
         ))
         .await?;
-    assert!(resp.success, "create system coach should succeed");
+    assert!(resp.success, "create system agent should succeed");
     let id = resp.result.as_ref().unwrap()["id"]
         .as_str()
         .expect("created coach must have id")

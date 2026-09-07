@@ -188,7 +188,7 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
     });
   });
 
-  // Mock system coaches (Admin Coaches tab) - correct field names
+  // Mock system agents (Admin Coaches tab) - correct field names
   await page.route('**/api/admin/agents**', async (route) => {
     await route.fulfill({
       status: 200,

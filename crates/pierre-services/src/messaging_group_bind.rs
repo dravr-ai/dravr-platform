@@ -35,7 +35,7 @@
 //!   caller doesn't invoke this path.
 //!
 //! Coach selection for the bootstrap row: prefers the user's
-//! selected coach; falls back to the first system coach in the
+//! selected coach; falls back to the first system agent in the
 //! tenant. If neither exists, returns `Ok(None)` — the chat operates
 //! without group context until a coach exists.
 

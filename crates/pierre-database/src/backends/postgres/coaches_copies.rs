@@ -43,7 +43,7 @@ pub(super) async fn find_installed_by_handle(
     row.as_ref().map(row_to_coach_pg).transpose()
 }
 
-/// Fork a system coach into the user's own copy, carrying the origin's
+/// Fork a system agent into the user's own copy, carrying the origin's
 /// handle so the copy resolves by the same `@handle`.
 pub(super) async fn fork_coach(
     db: &PostgresDatabase,
@@ -51,7 +51,7 @@ pub(super) async fn fork_coach(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> AppResult<Coach> {
-    // Get the source coach (must be a system coach)
+    // Get the source coach (must be a system agent)
     // System coaches are platform-wide, so no tenant filter
     let source = db
         .get_system_coach_any_tenant(source_coach_id)
@@ -60,7 +60,7 @@ pub(super) async fn fork_coach(
 
     if !source.is_system {
         return Err(AppError::invalid_input(
-            "Only system coaches can be forked. Use duplicate for personal coaches.",
+            "Only system agents can be forked. Use duplicate for personal coaches.",
         ));
     }
 

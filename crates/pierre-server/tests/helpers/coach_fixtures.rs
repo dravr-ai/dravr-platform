@@ -14,7 +14,7 @@ use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
-/// Create a system coach carrying `system_prompt` and take it through review
+/// Create a system agent carrying `system_prompt` and take it through review
 /// to a published listing — the moment it is assigned its catalogue `@handle`,
 /// derived from `title` ("Recovery Coach" → `recovery-coach`).
 pub async fn publish_catalogue_coach(

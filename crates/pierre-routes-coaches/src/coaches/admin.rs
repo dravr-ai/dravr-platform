@@ -1,5 +1,5 @@
-// ABOUTME: Admin route handlers for system coach management and store moderation
-// ABOUTME: Contains admin-only endpoints for CRUD on system coaches, assignments, and store review workflows
+// ABOUTME: Admin route handlers for system agent management and store moderation
+// ABOUTME: Contains admin-only endpoints for CRUD on system agents, assignments, and store review workflows
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -30,7 +30,7 @@ use super::types::{
     UnassignCoachResponse, UpdateCoachBody,
 };
 
-/// Handle GET /admin/agents - List all system coaches in tenant
+/// Handle GET /admin/agents - List all system agents in tenant
 pub(super) async fn handle_admin_list<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -51,7 +51,7 @@ pub(super) async fn handle_admin_list<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle POST /admin/agents - Create a system coach
+/// Handle POST /admin/agents - Create a system agent
 pub(super) async fn handle_admin_create<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -70,7 +70,7 @@ pub(super) async fn handle_admin_create<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle GET /admin/agents/:id - Get a system coach
+/// Handle GET /admin/agents/:id - Get a system agent
 pub(super) async fn handle_admin_get<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -90,7 +90,7 @@ pub(super) async fn handle_admin_get<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle PUT /admin/agents/:id - Update a system coach
+/// Handle PUT /admin/agents/:id - Update a system agent
 pub(super) async fn handle_admin_update<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -130,7 +130,7 @@ pub(super) async fn handle_admin_update<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle DELETE /admin/agents/:id - Delete a system coach
+/// Handle DELETE /admin/agents/:id - Delete a system agent
 pub(super) async fn handle_admin_delete<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -166,7 +166,7 @@ pub(super) async fn handle_admin_assign<C: CoachesCtx + MiddlewareCtx>(
 
     let manager = super::get_coaches_manager(&ctx);
 
-    // Verify the coach exists and is a system coach (also used for notification body)
+    // Verify the coach exists and is a system agent (also used for notification body)
     let coach: Coach = manager
         .get_system_coach(&id, tenant_id)
         .await?

@@ -422,7 +422,7 @@ impl AuthService {
     /// lets them choose; this only ensures the floor is a working conversation
     /// rather than an empty one.
     ///
-    /// Picks the first system coach deterministically. Not a recommendation —
+    /// Picks the first system agent deterministically. Not a recommendation —
     /// the proposal does that once there is data to reason about — just a
     /// sensible default that any later selection replaces.
     ///
@@ -438,13 +438,13 @@ impl AuthService {
         {
             Ok(c) => c,
             Err(e) => {
-                warn!(error = %e, "could not list system coaches for the starter selection");
+                warn!(error = %e, "could not list system agents for the starter selection");
                 return;
             }
         };
 
         let Some(first) = coaches.first() else {
-            // A deployment with no system coaches seeded yet. The proposal will
+            // A deployment with no system agents seeded yet. The proposal will
             // still offer whatever exists by the time the user gets there.
             return;
         };

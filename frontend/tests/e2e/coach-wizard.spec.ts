@@ -235,8 +235,8 @@ test.describe('Coach Forking', () => {
     await page.click('[data-testid="coach-library-tab"]');
   });
 
-  test('forks a system coach to create user copy', async ({ page }) => {
-    // Find a system coach
+  test('forks a system agent to create user copy', async ({ page }) => {
+    // Find a system agent
     const systemCoach = page.locator('[data-testid="coach-card"]:has([data-testid="system-badge"])').first();
     await expect(systemCoach).toBeVisible();
 
@@ -253,7 +253,7 @@ test.describe('Coach Forking', () => {
   });
 
   test('forked coach has correct forked_from reference', async ({ page }) => {
-    // Find a system coach and get its ID
+    // Find a system agent and get its ID
     const systemCoach = page.locator('[data-testid="coach-card"]:has([data-testid="system-badge"])').first();
     const sourceId = await systemCoach.getAttribute('data-coach-id');
 

@@ -638,7 +638,7 @@ impl CoachesRepository for PostgresDatabase {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<bool>> {
-        // Same reasoning as record_usage: accept system coaches so favorites
+        // Same reasoning as record_usage: accept system agents so favorites
         // toggle for non-seed-tenant users on builtin coaches.
         let coach_exists = sqlx::query(
             r"
@@ -755,7 +755,7 @@ impl CoachesRepository for PostgresDatabase {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>> {
-        // Same reasoning as record_usage / toggle_favorite: accept system coaches
+        // Same reasoning as record_usage / toggle_favorite: accept system agents
         // unconditionally so non-seed-tenant users can pick a builtin coach as
         // their active default.
         let coach_exists = sqlx::query(
@@ -916,7 +916,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(Option::<String>::None) // data_requirements
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to create system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to create system agent: {e}")))?;
 
         Ok(Coach {
             id,
@@ -967,7 +967,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(tenant_id.as_uuid())
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to list system coaches: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to list system agents: {e}")))?;
 
         rows.iter().map(row_to_coach_pg).collect()
     }
@@ -992,7 +992,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to get system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get system agent: {e}")))?;
 
         row.map(|r| row_to_coach_pg(&r)).transpose()
     }
@@ -1012,7 +1012,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(coach_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to get system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get system agent: {e}")))?;
 
         row.map(|r| row_to_coach_pg(&r)).transpose()
     }
@@ -1071,7 +1071,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(tenant_id.as_uuid())
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to update system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to update system agent: {e}")))?;
 
         if result.rows_affected() == 0 {
             return Ok(None);
@@ -1092,7 +1092,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(tenant_id.as_uuid())
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to delete system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to delete system agent: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }

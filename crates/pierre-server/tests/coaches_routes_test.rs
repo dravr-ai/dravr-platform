@@ -613,7 +613,7 @@ async fn test_system_coaches_visible_in_list() {
         .unwrap();
     let tenant_id = user_tenant.id;
 
-    // Create a system coach directly in the database
+    // Create a system agent directly in the database
     let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Platform Coach".to_owned(),
@@ -638,7 +638,7 @@ async fn test_system_coaches_visible_in_list() {
     // Create the coaches router
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
-    // List coaches via the API - should include the system coach
+    // List coaches via the API - should include the system agent
     let list_response = AxumTestRequest::get("/api/agents")
         .header("authorization", &auth_token)
         .send(router)
@@ -647,10 +647,10 @@ async fn test_system_coaches_visible_in_list() {
     assert_eq!(list_response.status_code(), StatusCode::OK);
 
     let list: ListCoachesResponse = list_response.json();
-    // Should have at least 1 coach (the system coach)
+    // Should have at least 1 coach (the system agent)
     assert!(!list.coaches.is_empty());
 
-    // Find the system coach in the response
+    // Find the system agent in the response
     let found_system_coach = list.coaches.iter().find(|c| c.title == "Platform Coach");
     assert!(
         found_system_coach.is_some(),
@@ -676,7 +676,7 @@ async fn test_get_system_coach_by_id() {
         .unwrap();
     let tenant_id = user_tenant.id;
 
-    // Create a system coach
+    // Create a system agent
     let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Retrievable Coach".to_owned(),
@@ -698,7 +698,7 @@ async fn test_get_system_coach_by_id() {
 
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
-    // Get the system coach by ID via the API
+    // Get the system agent by ID via the API
     let get_response = AxumTestRequest::get(&format!("/api/agents/{}", system_coach.id))
         .header("authorization", &auth_token)
         .send(router)
@@ -716,7 +716,7 @@ async fn test_get_system_coach_by_id() {
 // Hide/Show Coach E2E Tests
 // ============================================================================
 
-/// E2E test: User can hide a system coach via the API
+/// E2E test: User can hide a system agent via the API
 #[tokio::test]
 async fn test_hide_system_coach_via_api() {
     let resources = create_test_server_resources().await.unwrap();
@@ -730,7 +730,7 @@ async fn test_hide_system_coach_via_api() {
         .unwrap();
     let tenant_id = user_tenant.id;
 
-    // Create a system coach
+    // Create a system agent
     let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Hideable Coach".to_owned(),
@@ -752,7 +752,7 @@ async fn test_hide_system_coach_via_api() {
 
     let router = build_coaches_router::<ServerContext>().with_state(resources);
 
-    // Hide the system coach via the API
+    // Hide the system agent via the API
     let hide_response = AxumTestRequest::post(&format!("/api/agents/{}/hide", system_coach.id))
         .header("authorization", &auth_token)
         .send(router.clone())
@@ -791,7 +791,7 @@ async fn test_show_hidden_coach_via_api() {
         .unwrap();
     let tenant_id = user_tenant.id;
 
-    // Create a system coach
+    // Create a system agent
     let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Show Me Coach".to_owned(),
@@ -922,7 +922,7 @@ async fn test_list_with_include_hidden() {
         .unwrap();
     let tenant_id = user_tenant.id;
 
-    // Create a system coach
+    // Create a system agent
     let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Hidden But Findable".to_owned(),

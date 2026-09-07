@@ -1,5 +1,5 @@
 # ABOUTME: Reference + demo data seeders invoked by pierre-cli seed <domain>
-# ABOUTME: Populates the database with system coaches, demo users, synthetic activities, mobility, and LLM usage
+# ABOUTME: Populates the database with system agents, demo users, synthetic activities, mobility, and LLM usage
 
 [package]
 name = "pierre-seeders"

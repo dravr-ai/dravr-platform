@@ -61,7 +61,7 @@ async fn ensure_assignment_exists(
 
 /// Check if a coach can be hidden by a user.
 ///
-/// A coach is hideable if it's a system coach or assigned to the user,
+/// A coach is hideable if it's a system agent or assigned to the user,
 /// but NOT if it's a personal coach created by the user.
 pub(super) async fn is_coach_hideable(
     pool: &SqlitePool,
@@ -73,7 +73,7 @@ pub(super) async fn is_coach_hideable(
         .bind(coach_id)
         .fetch_optional(pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to check system coach: {e}")))?
+        .map_err(|e| AppError::database(format!("Failed to check system agent: {e}")))?
         .is_some();
 
     if is_system {
@@ -543,7 +543,7 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<bool>> {
-        // Same reasoning as record_usage: accept system coaches so favorites
+        // Same reasoning as record_usage: accept system agents so favorites
         // toggle for non-seed-tenant users on builtin coaches.
         let coach_exists = sqlx::query(
             "SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)",
@@ -628,7 +628,7 @@ impl CoachesRepository for Database {
             .ok_or_else(|| AppError::not_found(format!("System coach {source_coach_id}")))?;
         if !source.is_system {
             return Err(AppError::invalid_input(
-                "Only system coaches can be forked. Use duplicate for personal coaches.",
+                "Only system agents can be forked. Use duplicate for personal coaches.",
             ));
         }
         let now = Utc::now();
@@ -713,7 +713,7 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>> {
-        // Same reasoning as record_usage / toggle_favorite: accept system coaches
+        // Same reasoning as record_usage / toggle_favorite: accept system agents
         // unconditionally so non-seed-tenant users can pick a builtin coach as
         // their active default.
         let coach_exists = sqlx::query(
@@ -826,7 +826,7 @@ impl CoachesRepository for Database {
         .bind(Option::<String>::None).bind(Option::<String>::None)
         .bind(Option::<i32>::None).bind(Option::<f32>::None).bind(Option::<String>::None).bind(Option::<String>::None)
         .execute(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to create system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to create system agent: {e}")))?;
 
         Ok(Coach {
             id,
@@ -870,7 +870,7 @@ impl CoachesRepository for Database {
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE tenant_id = $1 AND is_system = 1 ORDER BY created_at DESC",
         ).bind(tenant_id).fetch_all(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to list system coaches: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to list system agents: {e}")))?;
         rows.iter().map(row_to_coach).collect()
     }
 
@@ -887,7 +887,7 @@ impl CoachesRepository for Database {
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1 AND tenant_id = $2 AND is_system = 1",
         ).bind(coach_id).bind(tenant_id).fetch_optional(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get system agent: {e}")))?;
         row.map(|r| row_to_coach(&r)).transpose()
     }
 
@@ -900,7 +900,7 @@ impl CoachesRepository for Database {
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1 AND is_system = 1",
         ).bind(coach_id).fetch_optional(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get system agent: {e}")))?;
         row.map(|r| row_to_coach(&r)).transpose()
     }
 
@@ -949,7 +949,7 @@ impl CoachesRepository for Database {
         .bind(tenant_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AppError::database(format!("Failed to update system coach: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to update system agent: {e}")))?;
         if result.rows_affected() == 0 {
             return Ok(None);
         }
@@ -963,7 +963,7 @@ impl CoachesRepository for Database {
                 .bind(tenant_id)
                 .execute(self.pool())
                 .await
-                .map_err(|e| AppError::database(format!("Failed to delete system coach: {e}")))?;
+                .map_err(|e| AppError::database(format!("Failed to delete system agent: {e}")))?;
         Ok(result.rows_affected() > 0)
     }
 

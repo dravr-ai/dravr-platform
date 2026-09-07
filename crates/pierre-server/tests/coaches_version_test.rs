@@ -980,7 +980,7 @@ async fn test_system_coach_version_on_update() {
     let db = open_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach
+    // Create a system agent
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: Some("System description".to_owned()),
@@ -996,7 +996,7 @@ async fn test_system_coach_version_on_update() {
         .await
         .unwrap();
 
-    // Update system coach
+    // Update system agent
     let update = UpdateCoachRequest {
         title: Some("Updated System Coach".to_owned()),
         description: None,

@@ -66,7 +66,7 @@ async fn create_published_coach(
     let coaches_manager = &resources.common.repos.coaches;
     let store_listings_manager = &resources.common.repos.store_listings;
 
-    // Create as system coach first (can set visibility)
+    // Create as system agent first (can set visibility)
     let system_request = CreateSystemCoachRequest {
         title: title.to_owned(),
         description: Some(format!("Description for {title}")),

@@ -31,7 +31,7 @@ pub enum ToolCategory {
     Connections,
     /// AI coach management (list, create, activate, hide)
     Coaches,
-    /// Admin-only tools (system coach management, assignments)
+    /// Admin-only tools (system agent management, assignments)
     Admin,
     /// Stretching exercises and yoga poses
     Mobility,

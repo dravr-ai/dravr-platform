@@ -403,7 +403,7 @@ test.describe('Dashboard Content Loading', () => {
   test('loads Engagement tab content correctly', async ({ page }) => {
     await setupFullDashboardMocks(page, { isAdmin: true });
 
-    // Mock system coaches and users for engagement tab
+    // Mock system agents and users for engagement tab
     await page.route('**/api/admin/agents', async (route) => {
       await route.fulfill({
         status: 200,

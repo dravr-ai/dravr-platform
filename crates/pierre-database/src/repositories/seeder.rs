@@ -225,13 +225,13 @@ pub trait SeederRepository: Send + Sync {
         translation: &SeedCoachTranslation,
     ) -> AppResult<()>;
 
-    /// List every catalogue-owned system coach in a tenant as `(id, slug)`.
+    /// List every catalogue-owned system agent in a tenant as `(id, slug)`.
     ///
     /// Catalogue-owned means the row was written from a coach markdown file:
     /// `source = 'contremaitre'`, or the transitional `'seed'` that the
     /// source-column migration stamped on rows seeded before it existed and
     /// that the seeder only re-stamps once the content hash changes.
-    /// Operator-authored system coaches (`source = 'custom'`) are never
+    /// Operator-authored system agents (`source = 'custom'`) are never
     /// listed. The coach seeder diffs this against the slugs it discovered on
     /// disk and deletes the rest, so a coach retired from dravr-contremaitre
     /// leaves every database instead of lingering in the store.
@@ -264,7 +264,7 @@ pub trait SeederRepository: Send + Sync {
     /// Returns the number of conversations detached.
     async fn seed_detach_coach_conversations(&self, retired_coach_id: &str) -> AppResult<u64>;
 
-    /// Stamp `source = 'contremaitre'` on the tenant's system coaches still carrying `'seed'`.
+    /// Stamp `source = 'contremaitre'` on the tenant's system agents still carrying `'seed'`.
     ///
     /// The source-column migration stamped the transitional `'seed'` on every
     /// row seeded before it existed, and the update path only re-stamps a row

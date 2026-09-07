@@ -223,7 +223,7 @@ pub(super) async fn list_hidden_coaches(
 
 /// Check if a coach can be hidden by a user
 ///
-/// A coach is hideable if it's a system coach or assigned to the user,
+/// A coach is hideable if it's a system agent or assigned to the user,
 /// but NOT if it's a personal coach created by the user.
 async fn is_coach_hideable(
     pool: &PgPool,
@@ -231,7 +231,7 @@ async fn is_coach_hideable(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> AppResult<bool> {
-    // Check if it's a system coach (system coaches are visible across all tenants)
+    // Check if it's a system agent (system agents are visible across all tenants)
     let is_system = sqlx::query(
         r"
         SELECT 1 FROM coaches
@@ -241,7 +241,7 @@ async fn is_coach_hideable(
     .bind(coach_id)
     .fetch_optional(pool)
     .await
-    .map_err(|e| AppError::database(format!("Failed to check system coach: {e}")))?
+    .map_err(|e| AppError::database(format!("Failed to check system agent: {e}")))?
     .is_some();
 
     if is_system {

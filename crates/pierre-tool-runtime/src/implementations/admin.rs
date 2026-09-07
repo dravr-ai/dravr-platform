@@ -1,4 +1,4 @@
-// ABOUTME: Admin-only tools for system coach management with direct database access.
+// ABOUTME: Admin-only tools for system agent management with direct database access.
 // ABOUTME: Implements admin coach operations using CoachesRepository directly.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,14 +6,14 @@
 
 //! # Admin Tools
 //!
-//! This module provides admin-only tools for system coach management with direct
+//! This module provides admin-only tools for system agent management with direct
 //! `CoachesRepository` access (no `dispatch_handler` bridging).
 //!
-//! - `AdminListSystemCoachesTool` - List all system coaches
+//! - `AdminListSystemCoachesTool` - List all system agents
 //! - `AdminCreateSystemCoachTool` - Create a system-wide coach
-//! - `AdminGetSystemCoachTool` - Get system coach details
-//! - `AdminUpdateSystemCoachTool` - Update a system coach
-//! - `AdminDeleteSystemCoachTool` - Delete a system coach
+//! - `AdminGetSystemCoachTool` - Get system agent details
+//! - `AdminUpdateSystemCoachTool` - Update a system agent
+//! - `AdminDeleteSystemCoachTool` - Delete a system agent
 //! - `AdminAssignCoachTool` - Assign coach to a user
 //! - `AdminUnassignCoachTool` - Remove coach assignment
 //! - `AdminListCoachAssignmentsTool` - List coach assignments
@@ -145,7 +145,7 @@ async fn verify_user_tenant_membership(
 // AdminListSystemCoachesTool
 // ============================================================================
 
-/// Tool for listing system coaches (admin only).
+/// Tool for listing system agents (admin only).
 pub struct AdminListSystemCoachesTool;
 
 #[async_trait]
@@ -206,7 +206,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             let coaches = manager
                 .list_system_coaches(tenant_id)
                 .await
-                .map_err(|e| AppError::internal(format!("Failed to list system coaches: {e}")))?;
+                .map_err(|e| AppError::internal(format!("Failed to list system agents: {e}")))?;
 
             let total = coaches.len();
             let coach_summaries: Vec<Value> = coaches
@@ -247,7 +247,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
 // AdminCreateSystemCoachTool
 // ============================================================================
 
-/// Input parameters for creating a system coach.
+/// Input parameters for creating a system agent.
 #[derive(Debug, Deserialize)]
 struct CreateSystemCoachParams {
     title: String,
@@ -261,7 +261,7 @@ struct CreateSystemCoachParams {
     visibility: Option<String>,
 }
 
-/// Tool for creating system coaches (admin only).
+/// Tool for creating system agents (admin only).
 pub struct AdminCreateSystemCoachTool;
 
 #[async_trait]
@@ -382,7 +382,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             let coach = manager
                 .create_system_coach(user_id, tenant_id, &create_request)
                 .await
-                .map_err(|e| AppError::internal(format!("Failed to create system coach: {e}")))?;
+                .map_err(|e| AppError::internal(format!("Failed to create system agent: {e}")))?;
 
             Ok(ToolResult::ok(json!({
                 "id": coach.id.to_string(),
@@ -405,7 +405,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
 // AdminGetSystemCoachTool
 // ============================================================================
 
-/// Tool for getting system coach details (admin only).
+/// Tool for getting system agent details (admin only).
 pub struct AdminGetSystemCoachTool;
 
 #[async_trait]
@@ -460,7 +460,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
             let coach = manager
                 .get_system_coach(coach_id, tenant_id)
                 .await
-                .map_err(|e| AppError::internal(format!("Failed to get system coach: {e}")))?;
+                .map_err(|e| AppError::internal(format!("Failed to get system agent: {e}")))?;
 
             match coach {
                 Some(c) => {
@@ -493,7 +493,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
 // AdminUpdateSystemCoachTool
 // ============================================================================
 
-/// Tool for updating system coaches (admin only).
+/// Tool for updating system agents (admin only).
 pub struct AdminUpdateSystemCoachTool;
 
 #[async_trait]
@@ -635,7 +635,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
             let coach = manager
                 .update_system_coach(coach_id, tenant_id, &update_request)
                 .await
-                .map_err(|e| AppError::internal(format!("Failed to update system coach: {e}")))?;
+                .map_err(|e| AppError::internal(format!("Failed to update system agent: {e}")))?;
 
             match coach {
                 Some(c) => Ok(ToolResult::ok(json!({
@@ -664,7 +664,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
 // AdminDeleteSystemCoachTool
 // ============================================================================
 
-/// Tool for deleting system coaches (admin only).
+/// Tool for deleting system agents (admin only).
 pub struct AdminDeleteSystemCoachTool;
 
 #[async_trait]
@@ -718,7 +718,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
             let deleted = manager
                 .delete_system_coach(coach_id, tenant_id)
                 .await
-                .map_err(|e| AppError::internal(format!("Failed to delete system coach: {e}")))?;
+                .map_err(|e| AppError::internal(format!("Failed to delete system agent: {e}")))?;
 
             if deleted {
                 Ok(ToolResult::ok(json!({
@@ -813,7 +813,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
 
             let manager = ctx.resources.coaches_manager();
 
-            // Verify the coach exists and is a system coach in this tenant
+            // Verify the coach exists and is a system agent in this tenant
             let coach = manager
                 .get_system_coach(coach_id, tenant_id)
                 .await
@@ -1020,7 +1020,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to list assignments: {e}")))?;
 
-            // Bounded output: a popular system coach in a large tenant can
+            // Bounded output: a popular system agent in a large tenant can
             // carry an assignment per athlete, and this listing had no cap.
             // The truncation is stated in the payload rather than hidden.
             let total = assignments.len();

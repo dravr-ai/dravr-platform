@@ -32,7 +32,7 @@ const CLASH: &str =
     "INSERT INTO coaches (id, user_id, tenant_id, title, system_prompt, slug, created_at, updated_at) \
      VALUES ($1, $2, $3, 'Clash', 'prompt', 'tempo-coach', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')";
 
-/// Create a system coach and take it through review to a published listing.
+/// Create a system agent and take it through review to a published listing.
 async fn publish_coach(
     repos: &RepositoryRegistry,
     author_id: Uuid,

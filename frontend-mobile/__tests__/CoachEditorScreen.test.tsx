@@ -85,7 +85,7 @@ describe('CoachEditorScreen', () => {
     expect(queryByText('Create Coach')).toBeNull();
     expect(queryByTestId('version-history-button')).toBeNull();
     expect(queryByTestId('forked-from-banner')).toBeNull();
-    expect(queryByText('Forked from a system coach')).toBeNull();
+    expect(queryByText('Forked from a system agent')).toBeNull();
   });
 
   it('saves through coachesApi.update and goes back', async () => {

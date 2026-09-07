@@ -7,7 +7,7 @@
 //! # Pierre Seeders
 //!
 //! Reference + demo data seeders invoked by `pierre-cli seed <domain>`. Each
-//! submodule owns one domain (admin bootstrap, system coaches, demo users +
+//! submodule owns one domain (admin bootstrap, system agents, demo users +
 //! synthetic activities, mobility catalogue, LLM-usage samples) and exposes a
 //! `run` function the CLI dispatches to.
 

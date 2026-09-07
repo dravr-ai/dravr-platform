@@ -1312,7 +1312,7 @@ async fn test_record_usage() {
     assert_eq!(item.use_count, 2);
 }
 
-// Regression for the 2026-05-07 admin audit: every system coach was stuck at
+// Regression for the 2026-05-07 admin audit: every system agent was stuck at
 // "0 uses" because record_usage strictly required the caller's tenant to match
 // the coach's pinned tenant. System coaches live in the seed tenant but are
 // exposed to every tenant via the catalog, so chatting with one from any other
@@ -1339,7 +1339,7 @@ async fn test_record_usage_for_system_coach_from_other_tenant() {
     assert!(coach.is_system);
     assert_eq!(coach.tenant_id, test_tenant().to_string());
 
-    // A user from a *different* tenant chats with this system coach. Before the
+    // A user from a *different* tenant chats with this system agent. Before the
     // fix, record_usage returned Ok(false) and coach_assignments stayed empty.
     let recorded = manager
         .record_usage(&coach.id.to_string(), other_user_id(), other_tenant())
@@ -1347,7 +1347,7 @@ async fn test_record_usage_for_system_coach_from_other_tenant() {
         .unwrap();
     assert!(
         recorded,
-        "system coaches must accept use_count bumps from non-pinning tenants"
+        "system agents must accept use_count bumps from non-pinning tenants"
     );
 
     // Bumping a second time confirms the assignment row was created and the
@@ -1369,7 +1369,7 @@ async fn test_record_usage_for_system_coach_from_other_tenant() {
 }
 
 // Companion regression for activate_coach: non-seed-tenant users must be able
-// to set a system coach as their active default. Audit (2026-05-07) traced the
+// to set a system agent as their active default. Audit (2026-05-07) traced the
 // same tenant-strict select pattern across record_usage, toggle_favorite, and
 // activate_coach — fixing only one would leave silent failures elsewhere.
 #[tokio::test]
@@ -1397,7 +1397,7 @@ async fn test_activate_system_coach_from_other_tenant() {
         .unwrap();
     assert!(
         activated.is_some(),
-        "system coaches must accept activation from non-pinning tenants"
+        "system agents must accept activation from non-pinning tenants"
     );
     assert_eq!(activated.unwrap().id, coach.id);
 }
@@ -1710,7 +1710,7 @@ async fn test_list_system_coaches() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create two system coaches
+    // Create two system agents
     for i in 1..=2 {
         let request = CreateSystemCoachRequest {
             title: format!("System Coach {i}"),
@@ -1859,7 +1859,7 @@ async fn test_assign_coach_to_user() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach
+    // Create a system agent
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -1937,7 +1937,7 @@ async fn test_list_assignments() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create system coach
+    // Create system agent
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -1997,7 +1997,7 @@ async fn test_list_coaches_includes_assigned_system_coaches() {
         .await
         .unwrap();
 
-    // Create a system coach and assign to user 1
+    // Create a system agent and assign to user 1
     let system_request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2027,11 +2027,11 @@ async fn test_list_coaches_includes_assigned_system_coaches() {
     assert_eq!(coaches.len(), 2);
 
     // Both should be assigned: personal coach via self-assignment from create(),
-    // system coach via explicit assign_coach() call
+    // system agent via explicit assign_coach() call
     let assigned_count = coaches.iter().filter(|c| c.is_assigned).count();
     assert_eq!(assigned_count, 2);
 
-    // Verify the system coach is in the list and assigned
+    // Verify the system agent is in the list and assigned
     let system_coach = coaches
         .iter()
         .find(|c| c.coach.title == "System Coach")
@@ -2048,7 +2048,7 @@ async fn test_hide_coach() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach and assign it
+    // Create a system agent and assign it
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2152,7 +2152,7 @@ async fn test_show_coach() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach and assign it
+    // Create a system agent and assign it
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2192,7 +2192,7 @@ async fn test_list_hidden_coaches() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create two system coaches
+    // Create two system agents
     let mut coach_ids = Vec::new();
     for i in 1..=2 {
         let request = CreateSystemCoachRequest {
@@ -2241,7 +2241,7 @@ async fn test_hidden_coach_excluded_from_list() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach and assign it
+    // Create a system agent and assign it
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2288,7 +2288,7 @@ async fn test_unhidden_coach_appears_in_list() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach and assign it
+    // Create a system agent and assign it
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2341,7 +2341,7 @@ async fn test_hide_coach_user_isolation() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach and assign to both users
+    // Create a system agent and assign to both users
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2398,7 +2398,7 @@ async fn test_system_coach_visible_across_tenants() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach in test_tenant() (tenant A)
+    // Create a system agent in test_tenant() (tenant A)
     let request = CreateSystemCoachRequest {
         title: "Global System Coach".to_owned(),
         description: Some("Visible to all tenants".to_owned()),
@@ -2417,7 +2417,7 @@ async fn test_system_coach_visible_across_tenants() {
     assert!(system_coach.is_system);
     assert_eq!(system_coach.tenant_id, test_tenant().to_string());
 
-    // User from other_tenant() (tenant B) should see the system coach
+    // User from other_tenant() (tenant B) should see the system agent
     // when include_system filter is enabled
     let filter = ListCoachesFilter {
         include_system: true,
@@ -2429,19 +2429,19 @@ async fn test_system_coach_visible_across_tenants() {
         .await
         .unwrap();
 
-    // Should find the system coach even though user is from a different tenant
+    // Should find the system agent even though user is from a different tenant
     assert_eq!(coaches.len(), 1);
     assert_eq!(coaches[0].coach.title, "Global System Coach");
     assert!(coaches[0].coach.is_system);
 }
 
-/// When `include_system` is false, system coaches from other tenants should NOT be visible
+/// When `include_system` is false, system agents from other tenants should NOT be visible
 #[tokio::test]
 async fn test_system_coach_hidden_when_include_system_false() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach in test_tenant()
+    // Create a system agent in test_tenant()
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2457,7 +2457,7 @@ async fn test_system_coach_hidden_when_include_system_false() {
         .await
         .unwrap();
 
-    // User from other_tenant() should NOT see the system coach
+    // User from other_tenant() should NOT see the system agent
     // when include_system is false (default)
     let filter = ListCoachesFilter {
         include_system: false,
@@ -2469,18 +2469,18 @@ async fn test_system_coach_hidden_when_include_system_false() {
         .await
         .unwrap();
 
-    // Should not find any coaches - no personal coaches and system coaches excluded
+    // Should not find any coaches - no personal coaches and system agents excluded
     assert!(coaches.is_empty());
 }
 
-/// Multiple system coaches from different tenants should all be visible
+/// Multiple system agents from different tenants should all be visible
 /// to users from any tenant when `include_system` is enabled
 #[tokio::test]
 async fn test_multiple_system_coaches_visible_across_tenants() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create system coach in test_tenant()
+    // Create system agent in test_tenant()
     let request1 = CreateSystemCoachRequest {
         title: "System Coach From Tenant A".to_owned(),
         description: None,
@@ -2495,7 +2495,7 @@ async fn test_multiple_system_coaches_visible_across_tenants() {
         .await
         .unwrap();
 
-    // Create system coach in other_tenant()
+    // Create system agent in other_tenant()
     let request2 = CreateSystemCoachRequest {
         title: "System Coach From Tenant B".to_owned(),
         description: None,
@@ -2510,7 +2510,7 @@ async fn test_multiple_system_coaches_visible_across_tenants() {
         .await
         .unwrap();
 
-    // User from test_tenant() should see both system coaches
+    // User from test_tenant() should see both system agents
     let filter = ListCoachesFilter {
         include_system: true,
         ..Default::default()
@@ -2526,7 +2526,7 @@ async fn test_multiple_system_coaches_visible_across_tenants() {
     assert!(titles.contains(&"System Coach From Tenant A"));
     assert!(titles.contains(&"System Coach From Tenant B"));
 
-    // User from other_tenant() should also see both system coaches
+    // User from other_tenant() should also see both system agents
     let coaches = manager
         .list(other_user_id(), other_tenant(), &filter)
         .await
@@ -2535,7 +2535,7 @@ async fn test_multiple_system_coaches_visible_across_tenants() {
     assert_eq!(coaches.len(), 2);
 }
 
-/// Personal coaches should remain tenant-isolated even when system coaches are visible
+/// Personal coaches should remain tenant-isolated even when system agents are visible
 #[tokio::test]
 async fn test_personal_coaches_remain_isolated_with_system_coaches() {
     let db = create_test_db().await;
@@ -2564,7 +2564,7 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
         .await
         .unwrap();
 
-    // Create a system coach in test_tenant()
+    // Create a system agent in test_tenant()
     let system_request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
         description: None,
@@ -2579,7 +2579,7 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
         .await
         .unwrap();
 
-    // User from other_tenant() with include_system should see ONLY the system coach
+    // User from other_tenant() with include_system should see ONLY the system agent
     // NOT the personal coach from test_tenant()
     let filter = ListCoachesFilter {
         include_system: true,
@@ -2595,7 +2595,7 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
     assert_eq!(coaches[0].coach.title, "System Coach");
     assert!(coaches[0].coach.is_system);
 
-    // User from test_tenant() should see both their personal coach and the system coach
+    // User from test_tenant() should see both their personal coach and the system agent
     let coaches = manager
         .list(test_user_id(), test_tenant(), &filter)
         .await
@@ -2605,13 +2605,13 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
 }
 
 /// System coaches can be hidden by users from ANY tenant, not just the tenant that created them.
-/// This is the expected behavior because system coaches are globally visible.
+/// This is the expected behavior because system agents are globally visible.
 #[tokio::test]
 async fn test_hide_system_coach_cross_tenant() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach in test_tenant() (tenant A)
+    // Create a system agent in test_tenant() (tenant A)
     let request = CreateSystemCoachRequest {
         title: "Global System Coach".to_owned(),
         description: None,
@@ -2630,7 +2630,7 @@ async fn test_hide_system_coach_cross_tenant() {
     assert!(system_coach.is_system);
     assert_eq!(system_coach.tenant_id, test_tenant().to_string());
 
-    // User from other_tenant() (tenant B) should be able to hide this system coach
+    // User from other_tenant() (tenant B) should be able to hide this system agent
     // Even though the coach was created by test_tenant()
     let hidden = manager
         .hide_coach(&system_coach.id.to_string(), other_user_id(), test_tenant())
@@ -2651,7 +2651,7 @@ async fn test_hide_system_coach_cross_tenant() {
         .await
         .unwrap();
 
-    // Should NOT see the system coach (it's hidden for this user)
+    // Should NOT see the system agent (it's hidden for this user)
     assert!(coaches.is_empty());
 
     // But the original tenant user should still see it
@@ -2664,13 +2664,13 @@ async fn test_hide_system_coach_cross_tenant() {
     assert_eq!(coaches[0].coach.title, "Global System Coach");
 }
 
-/// Users can show (unhide) system coaches from other tenants
+/// Users can show (unhide) system agents from other tenants
 #[tokio::test]
 async fn test_show_system_coach_cross_tenant() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach in test_tenant()
+    // Create a system agent in test_tenant()
     let request = CreateSystemCoachRequest {
         title: "Global System Coach".to_owned(),
         description: None,
@@ -2981,10 +2981,10 @@ async fn test_fork_preserves_structured_fields() {
     let db = create_test_db().await;
     let manager = db.repositories().coaches;
 
-    // Create a system coach via the admin API
+    // Create a system agent via the admin API
     let system_request = CreateSystemCoachRequest {
         title: "System Structured Coach".to_owned(),
-        description: Some("A system coach with structured sections".to_owned()),
+        description: Some("A system agent with structured sections".to_owned()),
         system_prompt: "You analyze race performance.".to_owned(),
         category: CoachCategory::Training,
         tags: vec!["race".to_owned(), "analysis".to_owned()],
@@ -3030,7 +3030,7 @@ async fn test_fork_preserves_structured_fields() {
         }
     }
 
-    // Fork the system coach as a different user in a different tenant
+    // Fork the system agent as a different user in a different tenant
     let forked = manager
         .fork_coach(
             &system_coach.id.to_string(),
@@ -3066,7 +3066,7 @@ async fn test_fork_preserves_structured_fields() {
         Some("Identify at least two actionable improvements for the next race.".to_owned())
     );
 
-    // Fork should not be a system coach
+    // Fork should not be a system agent
     assert!(!forked.is_system);
     assert_eq!(forked.forked_from, Some(system_coach.id));
 

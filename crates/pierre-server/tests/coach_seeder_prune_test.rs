@@ -248,7 +248,7 @@ async fn dry_run_reports_the_retirement_without_deleting() {
     );
 }
 
-/// Only catalogue-owned rows are candidates. A system coach the operator wrote
+/// Only catalogue-owned rows are candidates. A system agent the operator wrote
 /// in the console and an athlete's own coach share the tenant and are not in
 /// any checkout, so they must survive every seed.
 #[tokio::test]
@@ -308,7 +308,7 @@ async fn coaches_that_never_came_from_the_catalogue_survive_the_prune() {
             .await
             .unwrap()
             .is_some(),
-        "an operator-authored system coach is not catalogue-owned"
+        "an operator-authored system agent is not catalogue-owned"
     );
     assert!(
         repos

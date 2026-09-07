@@ -275,7 +275,7 @@ impl CoachCategory {
 pub struct Coach {
     /// Unique identifier
     pub id: Uuid,
-    /// User who created the coach (admin user for system coaches)
+    /// User who created the coach (admin user for system agents)
     pub user_id: Uuid,
     /// Tenant for multi-tenancy isolation
     pub tenant_id: String,
@@ -298,7 +298,7 @@ pub struct Coach {
     pub created_at: DateTime<Utc>,
     /// Last update timestamp
     pub updated_at: DateTime<Utc>,
-    /// Whether this is a system coach (admin-created)
+    /// Whether this is a system agent (admin-created)
     #[serde(default)]
     pub is_system: bool,
     /// Visibility level for the coach
@@ -332,7 +332,7 @@ pub struct Coach {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<String>,
 
-    // -- Structured sections (populated for system coaches and structured user coaches) --
+    // -- Structured sections (populated for system agents and structured user coaches) --
     /// Coach purpose/description extracted from ## Purpose section
     #[serde(skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
@@ -743,14 +743,14 @@ pub struct ListCoachesFilter {
     pub limit: Option<u32>,
     /// Offset for pagination
     pub offset: Option<u32>,
-    /// Include system coaches (default: true)
+    /// Include system agents (default: true)
     pub include_system: bool,
     /// Include hidden coaches (default: false)
     pub include_hidden: bool,
 }
 
 impl ListCoachesFilter {
-    /// Create a filter with sensible defaults (include system coaches, exclude hidden)
+    /// Create a filter with sensible defaults (include system agents, exclude hidden)
     #[must_use]
     pub fn with_defaults() -> Self {
         Self {
@@ -789,7 +789,7 @@ pub struct StoreAdminStats {
     pub rejection_rate: f64,
 }
 
-/// Request to create a system coach
+/// Request to create a system agent
 pub struct CreateSystemCoachRequest {
     /// Display title
     pub title: String,

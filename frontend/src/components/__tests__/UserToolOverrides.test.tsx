@@ -69,7 +69,7 @@ const sampleTools: UserEffectiveTool[] = [
   {
     tool_name: 'admin_assign_coach',
     display_name: 'Assign Coach',
-    description: 'Assign a system coach to a specific user (admin only)',
+    description: 'Assign a system agent to a specific user (admin only)',
     category: 'admin',
     is_enabled: true,
     source: 'default',

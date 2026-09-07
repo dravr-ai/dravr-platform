@@ -604,7 +604,7 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
 
 /// `/coach` is the athlete's shelf, not the catalogue: the coaches they
 /// created and the ones they installed, each with the `@handle` that adds it,
-/// and no system coach they never installed. Every button fits Telegram's
+/// and no system agent they never installed. Every button fits Telegram's
 /// callback-data ceiling.
 #[tokio::test]
 async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_system_coach() {
@@ -612,7 +612,7 @@ async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_syst
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-list@test.com").await;
     let own = seed_coach(&resources, user_id, tenant_id, "My Own Coach", "Mine.").await;
     let installed = install_recovery_coach(&resources, user_id, tenant_id).await;
-    // A system coach every tenant can see — visible to `/discover`, absent
+    // A system agent every tenant can see — visible to `/discover`, absent
     // from the shelf until it is installed.
     let uninstalled = resources
         .common
@@ -649,7 +649,7 @@ async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_syst
     );
     assert!(
         !text.contains("Global Strength Coach"),
-        "a system coach never installed is not on the shelf:\n{text}"
+        "a system agent never installed is not on the shelf:\n{text}"
     );
     let values: Vec<&str> = turn_actions(&body)
         .iter()
@@ -729,7 +729,7 @@ async fn coach_add_by_id_in_chat_binds_the_conversation_and_the_selection() {
 }
 
 /// `/coach add @handle` binds the caller's installed copy; a handle nobody
-/// installed — unknown, or a system coach still on the catalogue only — is
+/// installed — unknown, or a system agent still on the catalogue only — is
 /// refused by name and binds nothing.
 #[tokio::test]
 async fn coach_add_by_handle_in_chat_binds_the_conversation() {
@@ -772,7 +772,7 @@ async fn coach_add_by_handle_in_chat_binds_the_conversation() {
         "an unknown handle binds nothing"
     );
 
-    // The id form is bounded by the shelf too: a system coach the athlete
+    // The id form is bounded by the shelf too: a system agent the athlete
     // never installed is refused even by id.
     let body = send_command(
         router.clone(),

@@ -62,7 +62,7 @@ pub struct ChannelGroupSpec<'a> {
     /// channel supplies one (Telegram `chat.title`, Discord `channel.name`).
     pub name: &'a str,
     /// Coach bound to the group at bootstrap — the first sender's selected
-    /// coach, falling back to a system coach.
+    /// coach, falling back to a system agent.
     pub coach_id: &'a str,
     /// Messaging platform: `telegram`, `slack`, `discord`.
     pub channel_type: &'a str,
