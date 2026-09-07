@@ -27,7 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 embacle = { version = "0.25.0", features = ["copilot-headless", "openai-api"] }
 # Compiled-in prompt/config baseline (replaces the vendor/contremaitre submodule).
 # Pinned by rev — the contremaitre-bump workflow advances this to contremaitre main.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "9028c9a3238f0626e6ccbf8b5ad3c1d683aa3313" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "003fcc0cad8d1ab56a6fa6c9dfa6ca1bd60ccb3e" }
 
 [dev-dependencies]
 # The fallback chain's decisions are only observable by driving a real
