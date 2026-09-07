@@ -46,6 +46,7 @@ pub mod reactions;
 /// The durable record every turn runs from, the runner hand-off and the sweeper.
 pub mod resume;
 pub use dispatch::turn_watchdog;
+pub use dispatch::{classify_channel_config, ChannelConfigLookup};
 pub(crate) use dispatch::{dispatch_and_respond, TurnClose};
 pub(crate) use resume::start_turn;
 /// What a shared room is left seeing once a slash command is answered privately.

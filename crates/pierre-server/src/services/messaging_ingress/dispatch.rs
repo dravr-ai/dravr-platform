@@ -21,8 +21,9 @@ use pierre_chat_pipeline::{
 use pierre_contremaitre::messaging_strings::{
     format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED, KEY_TURN_INTERRUPTED,
 };
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_services::analytics::hash_id;
+use serde_json::Value;
 
 use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
@@ -36,8 +37,7 @@ use super::otp::apply_conversation_recipient;
 use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
 use super::resume::{
     finish_turn_record, hand_off_drained_turn, keep_lease, note_placeholder,
-    release_turn_for_retry, DrainHandOff,
-    MAX_TURN_ATTEMPTS,
+    release_turn_for_retry, DrainHandOff, MAX_TURN_ATTEMPTS,
 };
 use super::turn_guard::{
     acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_bounded, run_guarded,
@@ -733,43 +733,49 @@ fn log_dispatch_start(dispatch: &PendingDispatch) {
 /// [`resume::rebuild_dispatch`] already uses for a resumed run.
 async fn load_dispatch_channel_config(dispatch: &PendingDispatch) -> ChannelConfigLookup {
     let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
-    match db
+    let read = db
         .get_channel_config(dispatch.channel_tenant_id, &dispatch.channel)
-        .await
-    {
-        Ok(Some(raw)) => match serde_json::from_value::<ChannelConfig>(raw) {
-            Ok(config) => ChannelConfigLookup::Loaded(Box::new(config)),
-            Err(e) => {
-                error!(
-                    error = %e,
-                    channel = %dispatch.channel,
-                    "channel config does not deserialize; the turn cannot reply"
-                );
-                ChannelConfigLookup::Absent
-            }
-        },
-        Ok(None) => {
-            warn!(
-                channel = %dispatch.channel,
-                tenant_id = %dispatch.channel_tenant_id,
-                "tenant has no channel config; dropping turn with no reply"
-            );
-            ChannelConfigLookup::Absent
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                channel = %dispatch.channel,
-                tenant_id = %dispatch.channel_tenant_id,
-                "channel config lookup failed; handing the turn back for another run"
-            );
-            ChannelConfigLookup::Unavailable
-        }
+        .await;
+    let outcome = classify_channel_config(read);
+    match &outcome {
+        ChannelConfigLookup::Loaded(_) => {}
+        ChannelConfigLookup::Absent => warn!(
+            channel = %dispatch.channel,
+            tenant_id = %dispatch.channel_tenant_id,
+            "no usable channel config; dropping turn with no reply"
+        ),
+        ChannelConfigLookup::Unavailable => warn!(
+            channel = %dispatch.channel,
+            tenant_id = %dispatch.channel_tenant_id,
+            "channel config lookup failed; handing the turn back for another run"
+        ),
+    }
+    outcome
+}
+
+/// Decide what a channel-config read means for the turn.
+///
+/// Separated from the read so the distinction that matters can be asserted
+/// directly: an absent config and a FAILED READ are different facts, and
+/// folding them together is what deleted a durable turn row on one transient
+/// pool fault. Pure, so a test can hand it the `Err` a database fault produces
+/// without standing up a forty-method fault-injecting repository.
+#[must_use]
+pub fn classify_channel_config(read: AppResult<Option<Value>>) -> ChannelConfigLookup {
+    match read {
+        // Malformed stored config falls to `Absent`: retrying reads the same
+        // bytes, so it is as terminal as having none.
+        Ok(Some(raw)) => serde_json::from_value::<ChannelConfig>(raw)
+            .map_or(ChannelConfigLookup::Absent, |config| {
+                ChannelConfigLookup::Loaded(Box::new(config))
+            }),
+        Ok(None) => ChannelConfigLookup::Absent,
+        Err(_) => ChannelConfigLookup::Unavailable,
     }
 }
 
 /// What a dispatch's channel-config read found.
-enum ChannelConfigLookup {
+pub enum ChannelConfigLookup {
     /// The credentials this turn replies with.
     Loaded(Box<ChannelConfig>),
     /// The tenant has no usable config. Nothing will change by retrying, so
