@@ -47,7 +47,7 @@ function shapeOf(conversation: Conversation): 'group' | 'coach' | 'plain' {
 // and the render resolves it.
 const HEADING_KEYS: Record<'group' | 'coach' | 'plain', string> = {
   group: 'chat.infoPanelGroupTitle',
-  coach: 'chat.coachInfo',
+  coach: 'chat.agentInfo',
   plain: 'chat.infoPanelChatTitle',
 };
 
@@ -131,7 +131,7 @@ export default function ConversationInfoPanel({
               />
             ) : (
               <p className="py-6 text-center text-sm text-outline" data-testid="coach-info-missing">
-                {t('chat.coachInfoLoadFailed')}
+                {t('chat.agentInfoLoadFailed')}
               </p>
             )
           ) : (

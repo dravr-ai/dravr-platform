@@ -102,7 +102,7 @@ describe('NotificationPreferencesScreen in French', () => {
       for (const category of [
         'Training',
         'Recovery',
-        'Coach',
+        'Agent',
         'Achievement',
         'System',
         'Ai',

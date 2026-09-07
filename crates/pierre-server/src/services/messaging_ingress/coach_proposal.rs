@@ -7,8 +7,8 @@
 use std::fmt::Write as _;
 
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER, KEY_COACH_PROPOSAL_WELCOME,
-    KEY_COACH_PROPOSAL_WELCOME_GENERIC,
+    MessagingStringsRegistry, KEY_AGENT_PROPOSAL_FOOTER, KEY_AGENT_PROPOSAL_WELCOME,
+    KEY_AGENT_PROPOSAL_WELCOME_GENERIC,
 };
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_database::backends::MessagingRepository;
@@ -166,13 +166,13 @@ fn render_coach_proposal_text(
         .as_deref()
         .filter(|_| profile.has_profile)
         .map_or_else(
-            || registry.render(KEY_COACH_PROPOSAL_WELCOME_GENERIC, locale, &[&count]),
+            || registry.render(KEY_AGENT_PROPOSAL_WELCOME_GENERIC, locale, &[&count]),
             |primary| {
                 // The wire sport names itself in the athlete's locale when the
                 // shared vocabulary knows it; an unknown spelling keeps its
                 // wire text rather than inventing one.
                 let sport = sport_label(registry, primary, locale);
-                registry.render(KEY_COACH_PROPOSAL_WELCOME, locale, &[&sport, &count])
+                registry.render(KEY_AGENT_PROPOSAL_WELCOME, locale, &[&sport, &count])
             },
         );
     for (index, proposed) in coaches.iter().enumerate() {
@@ -188,6 +188,6 @@ fn render_coach_proposal_text(
             title = proposed.coach.title,
         );
     }
-    body.push_str(&registry.get(KEY_COACH_PROPOSAL_FOOTER, locale));
+    body.push_str(&registry.get(KEY_AGENT_PROPOSAL_FOOTER, locale));
     body
 }

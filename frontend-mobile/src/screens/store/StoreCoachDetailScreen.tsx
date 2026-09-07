@@ -71,7 +71,7 @@ export function StoreCoachDetailScreen() {
       setInstalledCopy(findInstalledCopy(response, installations.coaches));
     } catch (error) {
       console.error('Failed to load coach detail:', error);
-      Alert.alert(t('common.error'), t('app.failedLoadCoachDetails'));
+      Alert.alert(t('common.error'), t('app.failedLoadAgentDetails'));
     } finally {
       setIsLoading(false);
     }
@@ -92,7 +92,7 @@ export function StoreCoachDetailScreen() {
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     } catch (error) {
       console.error('Failed to install coach:', error);
-      Alert.alert(t('common.error'), t('app.failedInstallCoach'));
+      Alert.alert(t('common.error'), t('app.failedInstallAgent'));
     } finally {
       setIsInstalling(false);
     }
@@ -115,8 +115,8 @@ export function StoreCoachDetailScreen() {
     const copyId = installedCopy.id;
 
     Alert.alert(
-      t('app.uninstallCoachQ'),
-      t('app.confirmUninstallCoach', { coach: coach.title }),
+      t('app.uninstallAgentQ'),
+      t('app.confirmUninstallAgent', { coach: coach.title }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -129,10 +129,10 @@ export function StoreCoachDetailScreen() {
               await storeApi.uninstall(copyId);
               setInstalledCopy(null);
               setPostInstall(null);
-              Alert.alert(t('app.uninstalled'), t('app.coachRemovedFromLibrary'));
+              Alert.alert(t('app.uninstalled'), t('app.agentRemovedFromLibrary'));
             } catch (error) {
               console.error('Failed to uninstall coach:', error);
-              Alert.alert(t('common.error'), t('app.failedUninstallCoach'));
+              Alert.alert(t('common.error'), t('app.failedUninstallAgent'));
             } finally {
               setIsInstalling(false);
             }
@@ -147,7 +147,7 @@ export function StoreCoachDetailScreen() {
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
-          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingCoachDetails')}</Text>
+          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgentDetails')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -157,7 +157,7 @@ export function StoreCoachDetailScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center p-6">
-          <Text className="text-lg text-text-secondary mb-3">{t('app.coachNotFound')}</Text>
+          <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary-500 rounded-lg"
             onPress={() => router.push('/(app)/(tabs)/(discover)')}
@@ -352,11 +352,11 @@ export function StoreCoachDetailScreen() {
               onPress={handleEdit}
               disabled={isInstalling}
               accessibilityRole="button"
-              accessibilityLabel={t('app.editCoach')}
+              accessibilityLabel={t('app.editAgent')}
               testID="edit-coach-button"
             >
               <Feather name="edit-2" size={18} color={colors.pierre.violet} />
-              <Text className="text-text-primary text-base font-medium ml-2">{t('app.editCoach')}</Text>
+              <Text className="text-text-primary text-base font-medium ml-2">{t('app.editAgent')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               className="flex-1 flex-row items-center justify-center py-3.5 rounded-xl"
@@ -394,7 +394,7 @@ export function StoreCoachDetailScreen() {
             ) : (
               <>
                 <Feather name="download" size={18} color={colors.tokens.onPrimary} />
-                <Text className="text-base font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>{t('app.installCoach')}</Text>
+                <Text className="text-base font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>{t('app.installAgent')}</Text>
               </>
             )}
           </TouchableOpacity>

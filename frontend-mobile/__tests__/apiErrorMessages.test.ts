@@ -161,7 +161,7 @@ describe('what a refused mobile request says', () => {
     it('shows the agent sentence only for a screen that asks for it', () => {
       const err = axiosRefusal(404, {});
 
-      expect(describeApiError(err, { t, fallbackKey: 'app.coachNotFound' })).toBe('Agent not found');
+      expect(describeApiError(err, { t, fallbackKey: 'app.agentNotFound' })).toBe('Agent not found');
     });
   });
 

@@ -38,7 +38,7 @@ import { useTranslation } from '@pierre/i18n';
 const CATEGORY_BLURB_KEYS: Record<NotificationCategory, string> = {
   training: 'notifPrefs.blurbTraining',
   recovery: 'notifPrefs.blurbRecovery',
-  coach: 'notifPrefs.blurbCoach',
+  coach: 'notifPrefs.blurbAgent',
   achievement: 'notifPrefs.blurbAchievement',
   system: 'notifPrefs.blurbSystem',
   ai: 'notifPrefs.blurbAi',

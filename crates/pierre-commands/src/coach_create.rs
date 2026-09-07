@@ -19,10 +19,10 @@
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_contremaitre::messaging_strings::{
-    KEY_COACH_CREATE_CARD_TITLE, KEY_COACH_CREATE_CONFIRM_LABEL, KEY_COACH_CREATE_DISCARD_LABEL,
-    KEY_COACH_CREATE_DONE, KEY_COACH_CREATE_DONE_UNBOUND, KEY_COACH_CREATE_EMPTY,
-    KEY_COACH_CREATE_NO_CONVERSATION, KEY_COACH_CREATE_PROPOSAL_BODY, KEY_COACH_CREATE_QUOTA,
-    KEY_COACH_CREATE_USAGE,
+    KEY_AGENT_CREATE_CARD_TITLE, KEY_AGENT_CREATE_CONFIRM_LABEL, KEY_AGENT_CREATE_DISCARD_LABEL,
+    KEY_AGENT_CREATE_DONE, KEY_AGENT_CREATE_DONE_UNBOUND, KEY_AGENT_CREATE_EMPTY,
+    KEY_AGENT_CREATE_NO_CONVERSATION, KEY_AGENT_CREATE_PROPOSAL_BODY, KEY_AGENT_CREATE_QUOTA,
+    KEY_AGENT_CREATE_USAGE,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::coaches::{Coach, CoachCategory, CreateCoachRequest};
@@ -96,7 +96,7 @@ impl CommandHandler for CoachCreateHandler {
             }
             _ => Ok(CommandResponse::text(
                 ctx.ctx.messaging_strings_registry().render(
-                    KEY_COACH_CREATE_USAGE,
+                    KEY_AGENT_CREATE_USAGE,
                     ctx.locale.as_str(),
                     &[],
                 ),
@@ -113,7 +113,7 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
 
     let Some(conversation_id) = ctx.conversation_id.as_deref() else {
         return Ok(CommandResponse::text(reg.render(
-            KEY_COACH_CREATE_NO_CONVERSATION,
+            KEY_AGENT_CREATE_NO_CONVERSATION,
             locale,
             &[],
         )));
@@ -129,7 +129,7 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
     };
     let Some(excerpt) = conversation_excerpt(ctx.ctx.repos().chat.as_ref(), &request).await? else {
         return Ok(CommandResponse::text(reg.render(
-            KEY_COACH_CREATE_EMPTY,
+            KEY_AGENT_CREATE_EMPTY,
             locale,
             &[],
         )));
@@ -147,7 +147,7 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
     let token = park(ctx, proposal).await?;
 
     let body = reg.render(
-        KEY_COACH_CREATE_PROPOSAL_BODY,
+        KEY_AGENT_CREATE_PROPOSAL_BODY,
         locale,
         &[
             &body_args[0],
@@ -161,18 +161,18 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
     // the longest is 22 bytes of verb plus a 32-character token.
     let actions = vec![
         CommandAction {
-            label: reg.render(KEY_COACH_CREATE_CONFIRM_LABEL, locale, &[]),
+            label: reg.render(KEY_AGENT_CREATE_CONFIRM_LABEL, locale, &[]),
             action_type: "postback".to_owned(),
             value: format!("/agent create confirm {token}"),
         },
         CommandAction {
-            label: reg.render(KEY_COACH_CREATE_DISCARD_LABEL, locale, &[]),
+            label: reg.render(KEY_AGENT_CREATE_DISCARD_LABEL, locale, &[]),
             action_type: "postback".to_owned(),
             value: format!("/deny {token}"),
         },
     ];
     Ok(CommandResponse::card(
-        reg.render(KEY_COACH_CREATE_CARD_TITLE, locale, &[]),
+        reg.render(KEY_AGENT_CREATE_CARD_TITLE, locale, &[]),
         body,
         actions,
     ))
@@ -243,7 +243,7 @@ pub(crate) async fn create_from_claimed_proposal(
     .await?;
     if quota.is_full() {
         return Ok(CommandResponse::text(reg.render(
-            KEY_COACH_CREATE_QUOTA,
+            KEY_AGENT_CREATE_QUOTA,
             locale,
             &[&quota.current.to_string(), &quota.max.to_string()],
         )));
@@ -287,8 +287,8 @@ pub(crate) async fn create_from_claimed_proposal(
     );
 
     let key = match bind_coach(ctx, &coach).await? {
-        CoachBinding::Personal | CoachBinding::Group(_) => KEY_COACH_CREATE_DONE,
-        CoachBinding::Refused => KEY_COACH_CREATE_DONE_UNBOUND,
+        CoachBinding::Personal | CoachBinding::Group(_) => KEY_AGENT_CREATE_DONE,
+        CoachBinding::Refused => KEY_AGENT_CREATE_DONE_UNBOUND,
     };
     Ok(CommandResponse::text(reg.render(
         key,

@@ -111,7 +111,7 @@ export function ProfileScreen() {
           <Input
             value={displayName}
             onChangeText={setDisplayName}
-            placeholder={t('app.howCoachAddressesYou')}
+            placeholder={t('app.howAgentAddressesYou')}
             autoCapitalize="words"
             testID="profile-display-name-input"
           />

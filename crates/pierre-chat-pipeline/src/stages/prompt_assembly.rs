@@ -11,8 +11,9 @@ use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
-    KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL, KEY_TURN_LANGUAGE,
+    MessagingStringsRegistry, KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION,
+    KEY_AGENT_SCOPE_CARVE_OUT_RECIPES, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
+    KEY_TURN_LANGUAGE,
 };
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::civil_time::{format_clock_stamp, resolve_zone};
@@ -153,9 +154,8 @@ Everything above is your coaching context, not a competing identity.";
 ///
 /// The tool name is hard-coded, against the usual rule, because the alternative
 /// — "the physiology tool" — is exactly the vagueness that produced the miss.
-/// `the_turn_directive_names_a_tool_the_registry_serves` fails the build if the
-/// name ever stops resolving, which is the drift the rule was protecting
-/// against.
+/// `the_turn_directive_names_a_tool_the_registry_serves` fails the build if
+/// the name stops resolving — the drift the rule was protecting against.
 ///
 /// Public purely so the "states a task, asserts no identity" contract is
 /// testable without standing up the full async assembly stage — the same
@@ -263,8 +263,8 @@ pub fn close_with_anchors(assembled_prompt: &str, coach_slug: Option<&str>) -> S
 /// them only makes sense once a real refusal surfaces.
 const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static str> {
     match category {
-        CoachCategory::Nutrition => Some(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION),
-        CoachCategory::Recipes => Some(KEY_COACH_SCOPE_CARVE_OUT_RECIPES),
+        CoachCategory::Nutrition => Some(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION),
+        CoachCategory::Recipes => Some(KEY_AGENT_SCOPE_CARVE_OUT_RECIPES),
         CoachCategory::Training
         | CoachCategory::Recovery
         | CoachCategory::Mobility

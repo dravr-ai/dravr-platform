@@ -121,7 +121,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
   },
   {
     id: 'coach_proposal',
-    labelKey: 'onboarding.stepCoach',
+    labelKey: 'onboarding.stepAgent',
     isApplicable: (c) =>
       c.onboardingActive && c.justOnboarded && c.needsProviderConnection === false,
     isComplete: (c) => c.coachProposalDone,

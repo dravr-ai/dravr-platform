@@ -93,7 +93,7 @@ export function StoreScreen() {
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadCoaches');
+      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadAgents');
       setError(errorMessage);
       console.error('Failed to load store coaches:', err);
     } finally {
@@ -117,7 +117,7 @@ export function StoreScreen() {
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMoreCoaches');
+      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMoreAgents');
       setError(errorMessage);
       console.error('Failed to load more coaches:', err);
     } finally {
@@ -139,7 +139,7 @@ export function StoreScreen() {
       setNextCursor(null);
       setHasMore(false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedSearchCoaches');
+      const errorMessage = err instanceof Error ? err.message : t('app.failedSearchAgents');
       setError(errorMessage);
       console.error('Failed to search coaches:', err);
     } finally {
@@ -281,12 +281,12 @@ export function StoreScreen() {
     // carries one; this was the gap that made the search flow unassertable.
     <View className="flex-1 justify-center items-center py-16" testID="store-empty-state">
       <Text className="text-lg font-semibold text-text-primary mb-1">
-        {searchQuery ? t('app.noCoachesFound') : t('app.noCoachesAvailable')}
+        {searchQuery ? t('app.noAgentsFound') : t('app.noAgentsAvailable')}
       </Text>
       <Text className="text-base text-text-secondary text-center">
         {searchQuery
-          ? t('app.noCoachesMatch', { query: searchQuery })
-          : t('app.noPublishedCoaches')}
+          ? t('app.noAgentsMatch', { query: searchQuery })
+          : t('app.noPublishedAgents')}
       </Text>
     </View>
   );
@@ -313,7 +313,7 @@ export function StoreScreen() {
       <SafeAreaView className="flex-1 bg-background-primary" testID="store-screen">
         <View className="flex-1 justify-center items-center" testID="loading-indicator">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
-          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingCoaches')}</Text>
+          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgents')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -364,7 +364,7 @@ export function StoreScreen() {
           isLoadingMore ? (
             <View className="flex-row items-center justify-center py-4 gap-2">
               <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
-              <Text className="text-sm text-text-secondary">{t('app.loadingMoreCoaches')}</Text>
+              <Text className="text-sm text-text-secondary">{t('app.loadingMoreAgents')}</Text>
             </View>
           ) : null
         }
@@ -382,7 +382,7 @@ export function StoreScreen() {
         value={searchQuery}
         onChangeText={handleSearch}
         onSubmit={() => searchCoaches(searchQuery)}
-        placeholder={t('app.searchCoaches')}
+        placeholder={t('app.searchAgents')}
         isSearching={isSearching}
         testID="search-input"
       />

@@ -51,7 +51,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
   return (
     <ScrollView testID="coach-info-sheet" keyboardShouldPersistTaps="handled">
       <Text className="text-lg font-bold text-text-primary" testID="coach-info-title">
-        {coach?.title ?? fallbackTitle ?? t('app.coach')}
+        {coach?.title ?? fallbackTitle ?? t('app.agent')}
       </Text>
 
       {coach?.handle && (
@@ -97,7 +97,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
             testID="coach-info-edit"
           >
             <Feather name="edit-2" size={18} color={colors.text.primary} />
-            <Text className="text-base text-text-primary ml-3">{t('app.editCoach')}</Text>
+            <Text className="text-base text-text-primary ml-3">{t('app.editAgent')}</Text>
           </TouchableOpacity>
         )}
       </View>

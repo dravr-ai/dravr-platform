@@ -98,7 +98,7 @@ export default function OnboardingCoachProposal({
       <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
           <p className="text-sm text-on-surface">
-            {t('onboarding.coachSuggestionsFailed')}
+            {t('onboarding.agentSuggestionsFailed')}
           </p>
           <Button variant="primary" onClick={onComplete}>
             {t('onboarding.continueToDashboard')}
@@ -147,7 +147,7 @@ export default function OnboardingCoachProposal({
           </>
         ) : (
           <p className="text-sm text-on-surface-variant">
-            {t('onboarding.coachProposalNoActivities')}
+            {t('onboarding.agentProposalNoActivities')}
           </p>
         )}
       </div>

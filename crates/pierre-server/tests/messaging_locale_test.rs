@@ -23,10 +23,10 @@ use pierre_chat_pipeline::detect_turn_locale;
 use pierre_commands::status::StatusHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
-    KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_GROUP_LIST_EMPTY,
-    KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_SLASH_ANSWERED_PRIVATELY, KEY_STATUS_CHANNEL_LABEL,
-    KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_AGENT_ASSIGN_FORBIDDEN,
+    KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION, KEY_AGENT_SCOPE_CARVE_OUT_RECIPES, KEY_CAPABILITY_REFUSAL,
+    KEY_GROUP_LIST_EMPTY, KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_SLASH_ANSWERED_PRIVATELY,
+    KEY_STATUS_CHANNEL_LABEL, KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
 };
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::CreateChannelLinkParams;
@@ -77,7 +77,7 @@ fn registry_has_five_compiled_locales_for_hot_keys() {
         KEY_STATUS_CHANNEL_LABEL,
         KEY_HELP_FOOTER,
         KEY_GROUP_LIST_EMPTY,
-        KEY_COACH_ASSIGN_FORBIDDEN,
+        KEY_AGENT_ASSIGN_FORBIDDEN,
     ];
     for locale in ["fr", "en", "es", "de", "pt"] {
         for key in hot_keys {
@@ -128,8 +128,8 @@ fn registry_exposes_refusal_strings_for_every_locale() {
 fn registry_exposes_coach_scope_carve_outs_for_every_locale() {
     let reg = MessagingStringsRegistry::new();
     for locale in ["fr", "en", "es", "de", "pt"] {
-        let nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, locale);
-        let recipes = reg.get(KEY_COACH_SCOPE_CARVE_OUT_RECIPES, locale);
+        let nutrition = reg.get(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION, locale);
+        let recipes = reg.get(KEY_AGENT_SCOPE_CARVE_OUT_RECIPES, locale);
         assert!(
             !nutrition.trim().is_empty(),
             "missing nutrition carve-out for {locale}"
@@ -144,20 +144,20 @@ fn registry_exposes_coach_scope_carve_outs_for_every_locale() {
     // role sentence names the speciality, never a self-noun: a prompt that
     // says "as a nutrition coach" or "as an agent" primes the identity leak
     // the anchor suppresses.
-    let fr_nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, "fr");
+    let fr_nutrition = reg.get(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION, "fr");
     assert!(
         fr_nutrition.contains("spécialisé en nutrition") && fr_nutrition.contains("dîners"),
         "FR nutrition carve-out lost its anchor terms"
     );
-    let en_nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, "en");
+    let en_nutrition = reg.get(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION, "en");
     assert!(
         en_nutrition.contains("specialise in nutrition") && en_nutrition.contains("dinner"),
         "EN nutrition carve-out lost its anchor terms"
     );
     for locale in ["fr", "en", "es", "de", "pt"] {
         for key in [
-            KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
-            KEY_COACH_SCOPE_CARVE_OUT_RECIPES,
+            KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION,
+            KEY_AGENT_SCOPE_CARVE_OUT_RECIPES,
         ] {
             let text = reg.get(key, locale).to_lowercase();
             assert!(

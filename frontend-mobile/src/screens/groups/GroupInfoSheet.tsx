@@ -376,7 +376,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           <View className="flex-row items-center py-2">
             <Feather name="cpu" size={16} color={colors.pierre.violet} />
             <Text className="text-sm text-text-primary ml-2 flex-1" testID="group-info-ai-coach">
-              {aiCoach?.title ?? t('app.aiCoach')}
+              {aiCoach?.title ?? t('app.aiAgent')}
               {aiCoach?.handle ? ` · ${MENTION_PREFIX}${aiCoach.handle}` : ''}
             </Text>
           </View>

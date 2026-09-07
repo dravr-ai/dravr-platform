@@ -20,7 +20,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_DISCOVER_ADD_LABEL, KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_CATALOGUE_EMPTY,
     KEY_DISCOVER_EMPTY, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
     KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE, KEY_DISCOVER_INSTALL_USAGE, KEY_DISCOVER_MORE_LABEL,
-    KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN, KEY_GROUP_CREATE_NO_COACH,
+    KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN, KEY_GROUP_CREATE_NO_AGENT,
     KEY_GROUP_CREATE_USAGE, KEY_GROUP_INVITE_LABEL, KEY_GROUP_JOINED, KEY_GROUP_JOINED_AS_COACH,
     KEY_GROUP_JOIN_ALREADY_MEMBER, KEY_GROUP_JOIN_INVALID_CODE,
 };
@@ -796,7 +796,7 @@ async fn group_create_refuses_without_a_name_or_a_coach() {
     let no_coach = send(router, &auth, &conv, "/group create Nameless Riders").await;
     assert_eq!(
         no_coach.assistant.message.content,
-        rendered(&resources, KEY_GROUP_CREATE_NO_COACH, &[])
+        rendered(&resources, KEY_GROUP_CREATE_NO_AGENT, &[])
     );
     assert!(actions(&no_coach).is_empty());
     let groups = resources

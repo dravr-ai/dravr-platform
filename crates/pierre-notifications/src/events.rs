@@ -118,9 +118,9 @@ impl NotificationEvent {
             Self::PersonalRecord => "notifications.event.personal_record.title",
             Self::MilestoneReached => "notifications.event.milestone_reached.title",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.title",
-            Self::CoachMessage => "notifications.event.coach_message.title",
+            Self::CoachMessage => "notifications.event.agent_message.title",
             Self::PlanUpdated => "notifications.event.plan_updated.title",
-            Self::CoachFeedback => "notifications.event.coach_feedback.title",
+            Self::CoachFeedback => "notifications.event.agent_feedback.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::PersonaDigest => "notifications.digest.title",
         }
@@ -137,9 +137,9 @@ impl NotificationEvent {
             Self::PersonalRecord => "notifications.event.personal_record.body",
             Self::MilestoneReached => "notifications.event.milestone_reached.body",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.body",
-            Self::CoachMessage => "notifications.event.coach_message.body",
+            Self::CoachMessage => "notifications.event.agent_message.body",
             Self::PlanUpdated => "notifications.event.plan_updated.body",
-            Self::CoachFeedback => "notifications.event.coach_feedback.body",
+            Self::CoachFeedback => "notifications.event.agent_feedback.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::PersonaDigest => "notifications.digest.body",
         }

@@ -52,7 +52,7 @@ mod agent_alias {
     use crate::helpers::command_e2e::{commands_dir, CommandE2e, Member, RouterLlm};
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
-        KEY_COACH_GROUP_UPDATED, KEY_COACH_REMOVED, KEY_UNKNOWN_COMMAND,
+        KEY_AGENT_GROUP_UPDATED, KEY_AGENT_REMOVED, KEY_UNKNOWN_COMMAND,
     };
     use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
     use pierre_core::models::groups::{
@@ -775,7 +775,7 @@ mod agent_alias {
         let canonical = send_command(router.clone(), &auth, &canonical_conv, "/agent remove").await;
         let legacy = send_command(router.clone(), &auth, &legacy_conv, "/coach remove").await;
 
-        let expected = rendered(&resources, KEY_COACH_REMOVED, &["Recovery Coach"]);
+        let expected = rendered(&resources, KEY_AGENT_REMOVED, &["Recovery Coach"]);
         assert_eq!(
             canonical.assistant.message.content, expected,
             "/agent remove renders the catalogued confirmation"
@@ -835,7 +835,7 @@ mod agent_alias {
 
         let expected = rendered(
             &resources,
-            KEY_COACH_GROUP_UPDATED,
+            KEY_AGENT_GROUP_UPDATED,
             &["Assignable Agent", "Twin Group"],
         );
         assert_eq!(canonical.assistant.message.content, expected);

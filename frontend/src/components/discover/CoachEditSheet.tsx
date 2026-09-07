@@ -75,12 +75,12 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
 
   if (isError) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label={t('discover.coachLoadFailed')}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label={t('discover.agentLoadFailed')}>
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
         <div className="relative bg-surface rounded-2xl max-w-sm w-full mx-4 p-6 text-center">
-          <h2 className="text-lg font-semibold text-on-surface mb-2">{t('discover.coachLoadFailedTitle')}</h2>
+          <h2 className="text-lg font-semibold text-on-surface mb-2">{t('discover.agentLoadFailedTitle')}</h2>
           <p className="text-sm text-on-surface-variant mb-4">
-            {error instanceof Error && error.message ? error.message : t('discover.coachDetailMissing')}
+            {error instanceof Error && error.message ? error.message : t('discover.agentDetailMissing')}
           </p>
           <Button variant="secondary" onClick={onClose}>{t('chat.close')}</Button>
         </div>
@@ -90,7 +90,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
 
   if (formData === null) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" role="status" aria-label={t('discover.loadingCoach')}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center" role="status" aria-label={t('discover.loadingAgent')}>
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
         <div className="relative pierre-spinner w-8 h-8" />
       </div>
@@ -113,8 +113,8 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
         isOpen={confirmingDelete}
         onClose={() => setConfirmingDelete(false)}
         onConfirm={() => remove.mutate()}
-        title={t('discover.deleteCoachConfirm')}
-        message={t('app.confirmDeleteCoach', { coach: formData.title })}
+        title={t('discover.deleteAgentConfirm')}
+        message={t('app.confirmDeleteAgent', { coach: formData.title })}
         confirmLabel={t('common.delete')}
         cancelLabel={t('common.cancel')}
         variant="danger"
@@ -122,7 +122,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
       />
       {remove.isError && (
         <p role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-error/10 border border-error/30 text-sm text-error">
-          {remove.error instanceof Error && remove.error.message ? remove.error.message : t('discover.deleteCoachFailed')}
+          {remove.error instanceof Error && remove.error.message ? remove.error.message : t('discover.deleteAgentFailed')}
         </p>
       )}
     </>

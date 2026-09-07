@@ -26,7 +26,7 @@ const FILTERS: { key: RowFilter; labelKey: string }[] = [
   { key: 'all', labelKey: 'discover.filterAll' },
   { key: 'unread', labelKey: 'chat.filterUnread' },
   { key: 'groups', labelKey: 'chat.filterGroups' },
-  { key: 'coaches', labelKey: 'chat.filterCoaches' },
+  { key: 'coaches', labelKey: 'chat.filterAgents' },
 ];
 
 function keepsRow(filter: RowFilter, row: ConversationRowModel): boolean {

@@ -148,13 +148,13 @@ pub const KEY_TURN_LANGUAGE: &str = "messaging.turn.language";
 /// questions grounded in training data. This string reaffirms nutrition
 /// questions ARE in scope and is injected into the system prompt whenever
 /// the active coach's category is Nutrition.
-pub const KEY_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "messaging.scope.carve_out.nutrition";
+pub const KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION: &str = "messaging.scope.carve_out.nutrition";
 /// Key: Recipes-coach carve-out for the generic scope list.
 ///
-/// Same rationale as [`KEY_COACH_SCOPE_CARVE_OUT_NUTRITION`] — Recipes
+/// Same rationale as [`KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION`] — Recipes
 /// coaches exist to suggest meals and food choices, so the generic
 /// "food/meal finders" refusal must not fire for them.
-pub const KEY_COACH_SCOPE_CARVE_OUT_RECIPES: &str = "messaging.scope.carve_out.recipes";
+pub const KEY_AGENT_SCOPE_CARVE_OUT_RECIPES: &str = "messaging.scope.carve_out.recipes";
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
@@ -182,12 +182,12 @@ pub const KEY_STATUS_ERROR: &str = "messaging.status.error";
 
 /// Key: coach-proposal lead-in when a recent sport profile is known.
 /// `{0}` = primary sport display name, `{1}` = coach count.
-pub const KEY_COACH_PROPOSAL_WELCOME: &str = "messaging.coach_proposal.welcome";
+pub const KEY_AGENT_PROPOSAL_WELCOME: &str = "messaging.agent_proposal.welcome";
 /// Key: coach-proposal lead-in for a cold-start user (no profile yet).
 /// `{0}` = coach count.
-pub const KEY_COACH_PROPOSAL_WELCOME_GENERIC: &str = "messaging.coach_proposal.welcome_generic";
+pub const KEY_AGENT_PROPOSAL_WELCOME_GENERIC: &str = "messaging.agent_proposal.welcome_generic";
 /// Key: coach-proposal closing line inviting the user to reply with a number.
-pub const KEY_COACH_PROPOSAL_FOOTER: &str = "messaging.coach_proposal.footer";
+pub const KEY_AGENT_PROPOSAL_FOOTER: &str = "messaging.agent_proposal.footer";
 
 /// Key: account-approval welcome, sent on each linked messaging channel when a
 /// user's account is approved. No placeholders.
@@ -771,7 +771,7 @@ pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";
 pub const KEY_GROUP_CREATE_USAGE: &str = "commands.group.create_usage";
 /// Key: `/group create` refusal when neither the conversation nor the
 /// selection pointer names a coach for the new group.
-pub const KEY_GROUP_CREATE_NO_COACH: &str = "commands.group.create_no_coach";
+pub const KEY_GROUP_CREATE_NO_AGENT: &str = "commands.group.create_no_agent";
 /// Key: `/group create` refusal when the tenant plan has no group coaching.
 pub const KEY_GROUP_CREATE_UNAVAILABLE: &str = "commands.group.create_unavailable";
 /// Key: `/group create` refusal when the tenant's `group_creation_policy`
@@ -833,67 +833,67 @@ pub const KEY_NOTIFICATION_CHANNEL_BODY: &str = "notifications.channel_body";
 // ── /coach command keys ───────────────────────────────────────────────────
 
 /// Key: `/coach` when the caller's list holds no coach.
-pub const KEY_COACH_LIST_EMPTY: &str = "commands.coach.list_empty";
+pub const KEY_AGENT_LIST_EMPTY: &str = "commands.agent.list_empty";
 /// Key: `/coach` list card title.
-pub const KEY_COACH_LIST_CARD_TITLE: &str = "commands.coach.list_card_title";
+pub const KEY_AGENT_LIST_CARD_TITLE: &str = "commands.agent.list_card_title";
 /// Key: `/coach` list item for a coach with a catalogue handle.
 /// `{0}` = title, `{1}` = handle (without `@`), `{2}` = description.
-pub const KEY_COACH_LIST_ITEM: &str = "commands.coach.list_item";
+pub const KEY_AGENT_LIST_ITEM: &str = "commands.agent.list_item";
 /// Key: `/coach` list item for a coach that owns no catalogue handle yet.
 /// `{0}` = title, `{1}` = description.
-pub const KEY_COACH_LIST_ITEM_NO_HANDLE: &str = "commands.coach.list_item_no_handle";
+pub const KEY_AGENT_LIST_ITEM_NO_HANDLE: &str = "commands.agent.list_item_no_handle";
 /// Key: `/coach` list footer teaching the mention and the `/coach add` forms.
-pub const KEY_COACH_LIST_FOOTER: &str = "commands.coach.list_footer";
+pub const KEY_AGENT_LIST_FOOTER: &str = "commands.agent.list_footer";
 /// Key: `/coach` description fallback when the coach has no description set.
-pub const KEY_COACH_NO_DESCRIPTION: &str = "commands.coach.no_description";
+pub const KEY_AGENT_NO_DESCRIPTION: &str = "commands.agent.no_description";
 /// Key: `/coach add` in a group conversation / `/coach assign` success.
 /// `{0}` = coach, `{1}` = group.
-pub const KEY_COACH_GROUP_UPDATED: &str = "commands.coach.group_updated";
+pub const KEY_AGENT_GROUP_UPDATED: &str = "commands.agent.group_updated";
 /// Key: `/coach add` success in a personal conversation. `{0}` = coach title.
-/// Distinct from [`KEY_COACH_GROUP_UPDATED`] so personal replies don't mention any "group".
-pub const KEY_COACH_USER_UPDATED: &str = "commands.coach.user_updated";
+/// Distinct from [`KEY_AGENT_GROUP_UPDATED`] so personal replies don't mention any "group".
+pub const KEY_AGENT_USER_UPDATED: &str = "commands.agent.user_updated";
 /// Key: `/coach assign` rejection when the user is not a group member.
-pub const KEY_COACH_ASSIGN_NOT_A_MEMBER: &str = "commands.coach.assign_not_a_member";
+pub const KEY_AGENT_ASSIGN_NOT_A_MEMBER: &str = "commands.agent.assign_not_a_member";
 /// Key: `/coach assign` and `/coach add` (group conversation) rejection when the
 /// caller lacks admin rights in the group.
-pub const KEY_COACH_ASSIGN_FORBIDDEN: &str = "commands.coach.assign_forbidden";
+pub const KEY_AGENT_ASSIGN_FORBIDDEN: &str = "commands.agent.assign_forbidden";
 /// Key: `/coach add` typed without a coach.
-pub const KEY_COACH_ADD_USAGE: &str = "commands.coach.add_usage";
+pub const KEY_AGENT_ADD_USAGE: &str = "commands.agent.add_usage";
 /// Key: `/coach add` when no installed coach answers to the argument.
 /// `{0}` = the handle as typed, with its `@`.
-pub const KEY_COACH_ADD_UNKNOWN: &str = "commands.coach.add_unknown";
+pub const KEY_AGENT_ADD_UNKNOWN: &str = "commands.agent.add_unknown";
 /// Key: `/coach remove` refused in a group conversation, where the coach is the group's.
-pub const KEY_COACH_REMOVE_GROUP_THREAD: &str = "commands.coach.remove_group_thread";
+pub const KEY_AGENT_REMOVE_GROUP_THREAD: &str = "commands.agent.remove_group_thread";
 /// Key: `/coach remove` when the conversation has no coach attached.
-pub const KEY_COACH_REMOVE_NOTHING: &str = "commands.coach.remove_nothing";
+pub const KEY_AGENT_REMOVE_NOTHING: &str = "commands.agent.remove_nothing";
 /// Key: `/coach remove` success. `{0}` = coach title.
-pub const KEY_COACH_REMOVED: &str = "commands.coach.removed";
+pub const KEY_AGENT_REMOVED: &str = "commands.agent.removed";
 /// Key: `/coach create` dispatched with no conversation to read.
-pub const KEY_COACH_CREATE_NO_CONVERSATION: &str = "commands.coach.create_no_conversation";
+pub const KEY_AGENT_CREATE_NO_CONVERSATION: &str = "commands.agent.create_no_conversation";
 /// Key: `/coach create` on a conversation with no message to draft from.
-pub const KEY_COACH_CREATE_EMPTY: &str = "commands.coach.create_empty";
+pub const KEY_AGENT_CREATE_EMPTY: &str = "commands.agent.create_empty";
 /// Key: `/coach create` with arguments that are neither empty nor `confirm token`.
-pub const KEY_COACH_CREATE_USAGE: &str = "commands.coach.create_usage";
+pub const KEY_AGENT_CREATE_USAGE: &str = "commands.agent.create_usage";
 /// Key: `/coach create` proposal card title.
-pub const KEY_COACH_CREATE_CARD_TITLE: &str = "commands.coach.create_card_title";
+pub const KEY_AGENT_CREATE_CARD_TITLE: &str = "commands.agent.create_card_title";
 /// Key: `/coach create` proposal card body.
 /// `{0}` = title, `{1}` = description, `{2}` = category, `{3}` = tags, `{4}` = claim token.
-pub const KEY_COACH_CREATE_PROPOSAL_BODY: &str = "commands.coach.create_proposal_body";
+pub const KEY_AGENT_CREATE_PROPOSAL_BODY: &str = "commands.agent.create_proposal_body";
 /// Key: `/coach create` proposal card — the button that creates the coach.
-pub const KEY_COACH_CREATE_CONFIRM_LABEL: &str = "commands.coach.create_confirm_label";
+pub const KEY_AGENT_CREATE_CONFIRM_LABEL: &str = "commands.agent.create_confirm_label";
 /// Key: `/coach create` proposal card — the button that discards the draft.
-pub const KEY_COACH_CREATE_DISCARD_LABEL: &str = "commands.coach.create_discard_label";
+pub const KEY_AGENT_CREATE_DISCARD_LABEL: &str = "commands.agent.create_discard_label";
 /// Key: `/coach create confirm` refused by the per-user coach quota.
 /// `{0}` = coaches the caller already has, `{1}` = the plan's maximum.
-pub const KEY_COACH_CREATE_QUOTA: &str = "commands.coach.create_quota";
+pub const KEY_AGENT_CREATE_QUOTA: &str = "commands.agent.create_quota";
 /// Key: `/coach create confirm` success, coach bound to the conversation.
 /// `{0}` = title, `{1}` = handle (without `@`).
-pub const KEY_COACH_CREATE_DONE: &str = "commands.coach.create_done";
+pub const KEY_AGENT_CREATE_DONE: &str = "commands.agent.create_done";
 /// Key: `/coach create confirm` success when the conversation could not take the
 /// coach (a group whose settings the caller may not change). `{0}` = title, `{1}` = handle.
-pub const KEY_COACH_CREATE_DONE_UNBOUND: &str = "commands.coach.create_done_unbound";
+pub const KEY_AGENT_CREATE_DONE_UNBOUND: &str = "commands.agent.create_done_unbound";
 /// Key: `/deny` on a coach draft — the draft is dropped, nothing was created.
-pub const KEY_COACH_CREATE_DISCARDED: &str = "commands.coach.create_discarded";
+pub const KEY_AGENT_CREATE_DISCARDED: &str = "commands.agent.create_discarded";
 
 /// Key: notice appended to a coach reply after the tenant-isolation stage
 /// redacted a section citing an athlete outside the coach's roster.
@@ -1020,17 +1020,17 @@ pub const KEY_NOTIFICATION_FITNESS_IMPROVEMENT_TITLE: &str =
 pub const KEY_NOTIFICATION_FITNESS_IMPROVEMENT_BODY: &str =
     "notifications.event.fitness_improvement.body";
 /// Key: a coach wrote to the athlete. No format placeholders.
-pub const KEY_NOTIFICATION_COACH_MESSAGE_TITLE: &str = "notifications.event.coach_message.title";
+pub const KEY_NOTIFICATION_AGENT_MESSAGE_TITLE: &str = "notifications.event.agent_message.title";
 /// Key: who wrote. `{0}` = the coach's name.
-pub const KEY_NOTIFICATION_COACH_MESSAGE_BODY: &str = "notifications.event.coach_message.body";
+pub const KEY_NOTIFICATION_AGENT_MESSAGE_BODY: &str = "notifications.event.agent_message.body";
 /// Key: a coach revised the training plan. No format placeholders.
 pub const KEY_NOTIFICATION_PLAN_UPDATED_TITLE: &str = "notifications.event.plan_updated.title";
 /// Key: who revised it. `{0}` = the coach's name.
 pub const KEY_NOTIFICATION_PLAN_UPDATED_BODY: &str = "notifications.event.plan_updated.body";
 /// Key: a coach left a note on an activity. No format placeholders.
-pub const KEY_NOTIFICATION_COACH_FEEDBACK_TITLE: &str = "notifications.event.coach_feedback.title";
+pub const KEY_NOTIFICATION_AGENT_FEEDBACK_TITLE: &str = "notifications.event.agent_feedback.title";
 /// Key: whose note, on what. `{0}` coach name, `{1}` activity type.
-pub const KEY_NOTIFICATION_COACH_FEEDBACK_BODY: &str = "notifications.event.coach_feedback.body";
+pub const KEY_NOTIFICATION_AGENT_FEEDBACK_BODY: &str = "notifications.event.agent_feedback.body";
 /// Key: a provider sync failed. `{0}` = the provider's name.
 pub const KEY_NOTIFICATION_SYNC_FAILURE_TITLE: &str = "notifications.event.sync_failure.title";
 /// Key: why it failed. `{0}` = the error summary.

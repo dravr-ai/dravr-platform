@@ -123,12 +123,12 @@ export function AboutScreen() {
           <View key={section} style={[rowStyle, divider]} testID="about-section-coach-model">
             {iconBox('cpu')}
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('about.coachModel')}</Text>
+              <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('about.agentModel')}</Text>
               <Text
                 style={{ fontSize: 14, color: colors.text.tertiary }}
                 testID="about-coach-model-value"
               >
-                {coachModelLabel ?? t('about.coachModelUnknown')}
+                {coachModelLabel ?? t('about.agentModelUnknown')}
               </Text>
             </View>
           </View>

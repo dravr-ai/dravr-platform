@@ -35,7 +35,7 @@ export default function MentionPalette({
   return (
     <div
       role="listbox"
-      aria-label={t('chat.coachMentionsAria')}
+      aria-label={t('chat.agentMentionsAria')}
       data-testid="mention-palette"
       className="mb-2 max-h-64 overflow-y-auto rounded-xl border ghost-border bg-surface-container-low"
     >

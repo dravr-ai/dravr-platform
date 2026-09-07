@@ -14,11 +14,11 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_messaging::commands::{CommandAction, CommandResponse};
 
 use pierre_contremaitre::messaging_strings::{
-    KEY_COACH_ADD_UNKNOWN, KEY_COACH_ADD_USAGE, KEY_COACH_ASSIGN_FORBIDDEN,
-    KEY_COACH_ASSIGN_NOT_A_MEMBER, KEY_COACH_GROUP_UPDATED, KEY_COACH_LIST_CARD_TITLE,
-    KEY_COACH_LIST_EMPTY, KEY_COACH_LIST_FOOTER, KEY_COACH_LIST_ITEM,
-    KEY_COACH_LIST_ITEM_NO_HANDLE, KEY_COACH_NO_DESCRIPTION, KEY_COACH_REMOVED,
-    KEY_COACH_REMOVE_GROUP_THREAD, KEY_COACH_REMOVE_NOTHING, KEY_COACH_USER_UPDATED,
+    KEY_AGENT_ADD_UNKNOWN, KEY_AGENT_ADD_USAGE, KEY_AGENT_ASSIGN_FORBIDDEN,
+    KEY_AGENT_ASSIGN_NOT_A_MEMBER, KEY_AGENT_GROUP_UPDATED, KEY_AGENT_LIST_CARD_TITLE,
+    KEY_AGENT_LIST_EMPTY, KEY_AGENT_LIST_FOOTER, KEY_AGENT_LIST_ITEM,
+    KEY_AGENT_LIST_ITEM_NO_HANDLE, KEY_AGENT_NO_DESCRIPTION, KEY_AGENT_REMOVED,
+    KEY_AGENT_REMOVE_GROUP_THREAD, KEY_AGENT_REMOVE_NOTHING, KEY_AGENT_USER_UPDATED,
 };
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 use tracing::warn;
@@ -63,13 +63,13 @@ impl CommandHandler for CoachListHandler {
 
         if coaches.is_empty() {
             return Ok(CommandResponse::text(reg.render(
-                KEY_COACH_LIST_EMPTY,
+                KEY_AGENT_LIST_EMPTY,
                 locale,
                 &[],
             )));
         }
 
-        let no_description = reg.render(KEY_COACH_NO_DESCRIPTION, locale, &[]);
+        let no_description = reg.render(KEY_AGENT_NO_DESCRIPTION, locale, &[]);
         let mut body = String::with_capacity(512);
         for item in &coaches {
             let raw_desc = item
@@ -85,14 +85,14 @@ impl CommandHandler for CoachListHandler {
             let line = item.coach.handle.as_deref().map_or_else(
                 || {
                     reg.render(
-                        KEY_COACH_LIST_ITEM_NO_HANDLE,
+                        KEY_AGENT_LIST_ITEM_NO_HANDLE,
                         locale,
                         &[&item.coach.title, &desc],
                     )
                 },
                 |handle| {
                     reg.render(
-                        KEY_COACH_LIST_ITEM,
+                        KEY_AGENT_LIST_ITEM,
                         locale,
                         &[&item.coach.title, handle, &desc],
                     )
@@ -101,7 +101,7 @@ impl CommandHandler for CoachListHandler {
             body.push_str(&line);
         }
         body.push('\n');
-        body.push_str(&reg.render(KEY_COACH_LIST_FOOTER, locale, &[]));
+        body.push_str(&reg.render(KEY_AGENT_LIST_FOOTER, locale, &[]));
 
         let actions: Vec<CommandAction> = coaches
             .iter()
@@ -114,7 +114,7 @@ impl CommandHandler for CoachListHandler {
             .collect();
 
         Ok(CommandResponse::card(
-            reg.render(KEY_COACH_LIST_CARD_TITLE, locale, &[]),
+            reg.render(KEY_AGENT_LIST_CARD_TITLE, locale, &[]),
             body,
             actions,
         ))
@@ -158,7 +158,7 @@ impl CommandHandler for CoachAddHandler {
         let typed = ctx.args.first().map_or("", String::as_str).trim();
         if typed.is_empty() {
             return Ok(CommandResponse::text(reg.render(
-                KEY_COACH_ADD_USAGE,
+                KEY_AGENT_ADD_USAGE,
                 locale,
                 &[],
             )));
@@ -171,7 +171,7 @@ impl CommandHandler for CoachAddHandler {
                 format!("@{typed}")
             };
             return Ok(CommandResponse::text(reg.render(
-                KEY_COACH_ADD_UNKNOWN,
+                KEY_AGENT_ADD_UNKNOWN,
                 locale,
                 &[&shown],
             )));
@@ -179,11 +179,11 @@ impl CommandHandler for CoachAddHandler {
 
         let binding = bind_coach(ctx, &coach).await?;
         let text = match &binding {
-            CoachBinding::Personal => reg.render(KEY_COACH_USER_UPDATED, locale, &[&coach.title]),
+            CoachBinding::Personal => reg.render(KEY_AGENT_USER_UPDATED, locale, &[&coach.title]),
             CoachBinding::Group(group_name) => {
-                reg.render(KEY_COACH_GROUP_UPDATED, locale, &[&coach.title, group_name])
+                reg.render(KEY_AGENT_GROUP_UPDATED, locale, &[&coach.title, group_name])
             }
-            CoachBinding::Refused => reg.render(KEY_COACH_ASSIGN_FORBIDDEN, locale, &[]),
+            CoachBinding::Refused => reg.render(KEY_AGENT_ASSIGN_FORBIDDEN, locale, &[]),
         };
         Ok(CommandResponse::text(text))
     }
@@ -279,7 +279,7 @@ pub(crate) async fn bind_coach(
         .get_member(&group.id.to_string(), ctx.user_id)
         .await?
         .ok_or_else(|| {
-            AppError::not_found(reg.render(KEY_COACH_ASSIGN_NOT_A_MEMBER, ctx.locale.as_str(), &[]))
+            AppError::not_found(reg.render(KEY_AGENT_ASSIGN_NOT_A_MEMBER, ctx.locale.as_str(), &[]))
         })?;
     if !CoachAssignHandler::permits(member.role) {
         return Ok(CoachBinding::Refused);
@@ -342,12 +342,12 @@ impl CommandHandler for CoachRemoveHandler {
 
         if !ctx.is_direct_message {
             return Ok(CommandResponse::text(reg.render(
-                KEY_COACH_REMOVE_GROUP_THREAD,
+                KEY_AGENT_REMOVE_GROUP_THREAD,
                 locale,
                 &[],
             )));
         }
-        let nothing = || CommandResponse::text(reg.render(KEY_COACH_REMOVE_NOTHING, locale, &[]));
+        let nothing = || CommandResponse::text(reg.render(KEY_AGENT_REMOVE_NOTHING, locale, &[]));
         let Some(conversation_id) = ctx.conversation_id.as_deref() else {
             return Ok(nothing());
         };
@@ -385,7 +385,7 @@ impl CommandHandler for CoachRemoveHandler {
             .await?;
 
         Ok(CommandResponse::text(reg.render(
-            KEY_COACH_REMOVED,
+            KEY_AGENT_REMOVED,
             locale,
             &[&title],
         )))
@@ -469,12 +469,12 @@ impl CommandHandler for CoachAssignHandler {
             .get_member(group_id, ctx.user_id)
             .await?
             .ok_or_else(|| {
-                AppError::not_found(reg.render(KEY_COACH_ASSIGN_NOT_A_MEMBER, locale, &[]))
+                AppError::not_found(reg.render(KEY_AGENT_ASSIGN_NOT_A_MEMBER, locale, &[]))
             })?;
 
         if !Self::permits(member.role) {
             return Ok(CommandResponse::text(reg.render(
-                KEY_COACH_ASSIGN_FORBIDDEN,
+                KEY_AGENT_ASSIGN_FORBIDDEN,
                 locale,
                 &[],
             )));
@@ -483,7 +483,7 @@ impl CommandHandler for CoachAssignHandler {
         update_group_coach(ctx, group_id, ctx.tenant_id, coach_id).await?;
 
         Ok(CommandResponse::text(reg.render(
-            KEY_COACH_GROUP_UPDATED,
+            KEY_AGENT_GROUP_UPDATED,
             locale,
             &[&coach.title, &group.name],
         )))

@@ -36,7 +36,7 @@ use pierre_messaging::commands::CommandResponse;
 use tracing::{info, warn};
 
 use pierre_contremaitre::messaging_strings::{
-    KEY_COACH_CREATE_DISCARDED, KEY_GUARDIAN_CONFIRM_DENIED, KEY_GUARDIAN_CONFIRM_DONE,
+    KEY_AGENT_CREATE_DISCARDED, KEY_GUARDIAN_CONFIRM_DENIED, KEY_GUARDIAN_CONFIRM_DONE,
     KEY_GUARDIAN_CONFIRM_EXPIRED, KEY_GUARDIAN_CONFIRM_FAILED, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
 };
 use pierre_database::repositories::{ClaimOutcome, PendingGuardianAction};
@@ -132,7 +132,7 @@ pub(crate) async fn resolve_pending(
             "guardian pending action denied by user"
         );
         let key = if is_coach_draft {
-            KEY_COACH_CREATE_DISCARDED
+            KEY_AGENT_CREATE_DISCARDED
         } else {
             KEY_GUARDIAN_CONFIRM_DENIED
         };

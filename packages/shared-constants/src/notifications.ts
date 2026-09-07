@@ -36,7 +36,7 @@ export interface NotificationCategoryMeta {
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
   training: { labelKey: 'notifPrefs.catTraining', color: '#3c6658', iconName: 'dumbbell' },     // activity pillar
   recovery: { labelKey: 'notifPrefs.catRecovery', color: '#5e7a82', iconName: 'heart' },        // recovery pillar
-  coach: { labelKey: 'notifPrefs.catCoach', color: '#00241a', iconName: 'message-circle' },     // primary
+  coach: { labelKey: 'notifPrefs.catAgent', color: '#00241a', iconName: 'message-circle' },     // primary
   achievement: { labelKey: 'notifPrefs.catAchievement', color: '#8f6a2e', iconName: 'trophy' }, // nutrition pillar / warm bronze
   system: { labelKey: 'notifPrefs.catSystem', color: '#717974', iconName: 'settings' },          // outline
   ai: { labelKey: 'notifPrefs.catAi', color: '#0d3b2e', iconName: 'brain' },           // primary_container

@@ -212,7 +212,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     },
     onError: (error: Error) => {
       setInstalledCopy(null);
-      setActionError(error.message || t('app.failedAddCoach'));
+      setActionError(error.message || t('app.failedAddAgent'));
     },
   });
 
@@ -224,11 +224,11 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
       setInstalledCopy(null);
-      setSuccessMessage(t('app.coachRemovedFromLibrary'));
+      setSuccessMessage(t('app.agentRemovedFromLibrary'));
     },
     onError: (error: Error) => {
       setSuccessMessage(null);
-      setActionError(error.message || t('app.failedRemoveCoach'));
+      setActionError(error.message || t('app.failedRemoveAgent'));
     },
   });
 
@@ -388,8 +388,8 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
             )}
             <SearchField
               className="w-56 md:w-72"
-              placeholder={t('discover.searchCoachesPlaceholder')}
-              aria-label={t('discover.searchCoachesLabel')}
+              placeholder={t('discover.searchAgentsPlaceholder')}
+              aria-label={t('discover.searchAgentsLabel')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -442,13 +442,13 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="mt-3 text-sm text-on-surface-variant">{t('discover.loadingCoaches')}</p>
+              <p className="mt-3 text-sm text-on-surface-variant">{t('discover.loadingAgents')}</p>
             </div>
           </div>
         ) : isListError ? (
           <div className="py-3">
             <h3 className="font-sans text-sm font-medium tracking-normal text-error">
-              {searchQuery ? t('frag.couldntSearchCoaches') : t('frag.couldntLoadStore')}
+              {searchQuery ? t('frag.couldntSearchAgents') : t('frag.couldntLoadStore')}
             </h3>
             <p className="mt-0.5 text-xs text-on-surface-variant">
               {listError instanceof Error && listError.message
@@ -463,12 +463,12 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           // One sentence where the rows would be, the second in the caption size.
           <div className="py-3">
             <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface-variant">
-              {searchQuery ? t('discover.noCoachesFound') : t('discover.storeEmpty')}
+              {searchQuery ? t('discover.noAgentsFound') : t('discover.storeEmpty')}
             </h3>
             <p className="mt-0.5 text-xs text-outline">
               {searchQuery
-                ? t('app.noCoachesMatch', { query: searchQuery })
-                : t('discover.noPublishedCoaches')}
+                ? t('app.noAgentsMatch', { query: searchQuery })
+                : t('discover.noPublishedAgents')}
             </p>
           </div>
         ) : (
@@ -490,7 +490,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
                 ) : hasNextPage ? (
                   <span className="text-sm text-on-surface-variant">{t('discover.scrollForMore')}</span>
                 ) : coaches.length > 0 ? (
-                  <span className="text-sm text-on-surface-variant">{t('discover.endOfCoachList')}</span>
+                  <span className="text-sm text-on-surface-variant">{t('discover.endOfAgentList')}</span>
                 ) : null}
               </div>
             )}
@@ -611,7 +611,7 @@ function CoachDetailView({
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="mt-3 text-sm text-on-surface-variant">{t('discover.loadingCoachDetails')}</p>
+            <p className="mt-3 text-sm text-on-surface-variant">{t('discover.loadingAgentDetails')}</p>
           </div>
         </div>
       </div>
@@ -623,7 +623,7 @@ function CoachDetailView({
       <div className="h-full flex flex-col bg-surface">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <p className="text-lg text-on-surface-variant mb-4">{t('discover.coachNotFound')}</p>
+            <p className="text-lg text-on-surface-variant mb-4">{t('discover.agentNotFound')}</p>
             <button
               onClick={onBack}
               className="btn-base btn-primary"
@@ -779,7 +779,7 @@ function CoachDetailView({
               className="btn-base btn-tertiary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Pencil className="h-4 w-4" />
-              {t('chat.editCoach')}
+              {t('chat.editAgent')}
             </button>
             <button
               onClick={onRemove}
@@ -791,7 +791,7 @@ function CoachDetailView({
               ) : (
                 <>
                   <Trash2 className="w-4 h-4" />
-                  {t('discover.removeCoach')}
+                  {t('discover.removeAgent')}
                 </>
               )}
             </button>
@@ -807,7 +807,7 @@ function CoachDetailView({
             ) : (
               <>
                 <Plus className="w-4 h-4" />
-                {t('discover.addCoach')}
+                {t('discover.addAgent')}
               </>
             )}
           </button>

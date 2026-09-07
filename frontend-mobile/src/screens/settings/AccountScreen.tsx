@@ -256,7 +256,7 @@ export function AccountScreen() {
                   <View style={{ borderTopWidth: 1, borderTopColor: colors.border.default, paddingTop: 16 }}>
                     <View style={{ flexDirection: 'row', gap: 12 }}>
                       <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
-                        <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>{t('app.coaches')}</Text>
+                        <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>{t('app.agents')}</Text>
                         <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
                           {usageData.resources.coaches} / {usageData.resources.max_coaches}
                         </Text>

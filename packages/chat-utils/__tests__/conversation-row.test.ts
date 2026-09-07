@@ -357,7 +357,7 @@ describe('conversationRowLabels', () => {
     expect(labels).toEqual({
       locale: 'fr',
       you: '<chat.previewYou>',
-      coach: '<chat.previewCoach>',
+      coach: '<chat.previewAgent>',
       untitled: '<app.untitledChat>',
     });
     expect(seen.sort()).toEqual(Object.values(CONVERSATION_ROW_LABEL_KEYS).sort());

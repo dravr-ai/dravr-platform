@@ -18,9 +18,9 @@ use helpers::axum_test::AxumTestRequest;
 use helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
 use pierre_contremaitre::messaging_strings::{
-    KEY_COACH_ASSIGN_FORBIDDEN, KEY_COACH_CREATE_CARD_TITLE, KEY_COACH_CREATE_DISCARDED,
-    KEY_COACH_CREATE_EMPTY, KEY_COACH_CREATE_QUOTA, KEY_COACH_REMOVE_GROUP_THREAD,
-    KEY_COACH_REMOVE_NOTHING, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
+    KEY_AGENT_ASSIGN_FORBIDDEN, KEY_AGENT_CREATE_CARD_TITLE, KEY_AGENT_CREATE_DISCARDED,
+    KEY_AGENT_CREATE_EMPTY, KEY_AGENT_CREATE_QUOTA, KEY_AGENT_REMOVE_GROUP_THREAD,
+    KEY_AGENT_REMOVE_NOTHING, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
 };
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -880,7 +880,7 @@ async fn coach_add_in_a_group_thread_by_a_member_is_refused() {
 
     assert_eq!(
         body.assistant.message.content,
-        rendered(&resources, KEY_COACH_ASSIGN_FORBIDDEN, &[])
+        rendered(&resources, KEY_AGENT_ASSIGN_FORBIDDEN, &[])
     );
     assert_eq!(
         group_coach(&resources, group_id, tenant_id).await,
@@ -940,7 +940,7 @@ async fn coach_remove_in_chat_detaches_the_coach() {
     let body = send_command(router.clone(), &auth, &conv_id, "/coach remove").await;
     assert_eq!(
         body.assistant.message.content,
-        rendered(&resources, KEY_COACH_REMOVE_NOTHING, &[])
+        rendered(&resources, KEY_AGENT_REMOVE_NOTHING, &[])
     );
 
     let group_id =
@@ -950,7 +950,7 @@ async fn coach_remove_in_chat_detaches_the_coach() {
     let body = send_command(router, &auth, &group_conv, "/coach remove").await;
     assert_eq!(
         body.assistant.message.content,
-        rendered(&resources, KEY_COACH_REMOVE_GROUP_THREAD, &[])
+        rendered(&resources, KEY_AGENT_REMOVE_GROUP_THREAD, &[])
     );
     assert_eq!(
         group_coach(&resources, group_id, tenant_id).await,
@@ -983,7 +983,7 @@ async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
 
     assert_eq!(
         turn_actions_title(&body),
-        Some(rendered(&resources, KEY_COACH_CREATE_CARD_TITLE, &[]).as_str())
+        Some(rendered(&resources, KEY_AGENT_CREATE_CARD_TITLE, &[]).as_str())
     );
     assert!(
         body.assistant.message.content.contains("Coach Tempo"),
@@ -1107,7 +1107,7 @@ async fn coach_create_on_an_empty_conversation_is_refused_without_a_model_call()
 
     assert_eq!(
         body.assistant.message.content,
-        rendered(&resources, KEY_COACH_CREATE_EMPTY, &[])
+        rendered(&resources, KEY_AGENT_CREATE_EMPTY, &[])
     );
     assert!(turn_actions(&body).is_empty(), "nothing to confirm");
     assert_eq!(llm.calls(), 0, "no model call for an empty conversation");
@@ -1136,7 +1136,7 @@ async fn deny_discards_a_coach_draft() {
     let body = send_command(router.clone(), &auth, &conv_id, &deny).await;
     assert_eq!(
         body.assistant.message.content,
-        rendered(&resources, KEY_COACH_CREATE_DISCARDED, &[])
+        rendered(&resources, KEY_AGENT_CREATE_DISCARDED, &[])
     );
     let body = send_command(router, &auth, &conv_id, &confirm).await;
     assert_eq!(
@@ -1179,7 +1179,7 @@ async fn coach_create_confirm_is_refused_at_the_coach_quota() {
 
     assert_eq!(
         body.assistant.message.content,
-        rendered(&resources, KEY_COACH_CREATE_QUOTA, &["3", "3"])
+        rendered(&resources, KEY_AGENT_CREATE_QUOTA, &["3", "3"])
     );
     assert_eq!(coach_count(&resources, user_id, tenant_id).await, 3);
     assert_eq!(

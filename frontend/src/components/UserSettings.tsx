@@ -1306,9 +1306,9 @@ Authorization: Bearer <your-token-here>`}
                         className="flex items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-on-surface-variant">{t('about.coachModel')}</p>
+                          <p className="text-xs text-on-surface-variant">{t('about.agentModel')}</p>
                           <p className="text-on-surface font-medium break-words" data-testid="about-coach-model-value">
-                            {coachModelLabel ?? t('about.coachModelUnknown')}
+                            {coachModelLabel ?? t('about.agentModelUnknown')}
                           </p>
                         </div>
                       </div>
@@ -1455,7 +1455,7 @@ Authorization: Bearer <your-token-here>`}
                             <div className="border-t ghost-border pt-4">
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                  <p className="text-xs text-outline mb-1">{t('settingsUi.coaches')}</p>
+                                  <p className="text-xs text-outline mb-1">{t('settingsUi.agents')}</p>
                                   <p className="text-sm font-medium text-on-surface">
                                     {usageData.resources.coaches} / {usageData.resources.max_coaches}
                                   </p>

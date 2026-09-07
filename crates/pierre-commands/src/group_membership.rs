@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 use pierre_contremaitre::messaging_strings::{
-    KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN, KEY_GROUP_CREATE_NO_COACH,
+    KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN, KEY_GROUP_CREATE_NO_AGENT,
     KEY_GROUP_CREATE_UNAVAILABLE, KEY_GROUP_CREATE_USAGE, KEY_GROUP_INVITE_LABEL, KEY_GROUP_JOINED,
     KEY_GROUP_JOINED_AS_COACH, KEY_GROUP_JOIN_ALREADY_MEMBER, KEY_GROUP_JOIN_FULL,
     KEY_GROUP_JOIN_INVALID_CODE,
@@ -191,7 +191,7 @@ impl CommandHandler for GroupCreateHandler {
         let thread = typed_in_thread(ctx).await?;
         let Some(coach) = Self::resolve_group_coach(ctx, thread.as_ref()).await? else {
             return Ok(CommandResponse::text(reg.render(
-                KEY_GROUP_CREATE_NO_COACH,
+                KEY_GROUP_CREATE_NO_AGENT,
                 locale,
                 &[],
             )));

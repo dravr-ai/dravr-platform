@@ -51,7 +51,7 @@ export const CONVERSATION_ROW_LABEL_KEYS = {
   /** What prefixes the athlete's own last line. */
   you: 'chat.previewYou',
   /** What a group row calls a coach that no longer exists. */
-  coach: 'chat.previewCoach',
+  coach: 'chat.previewAgent',
   /** What a row shows when the conversation carries no title. */
   untitled: 'app.untitledChat',
 } as const;

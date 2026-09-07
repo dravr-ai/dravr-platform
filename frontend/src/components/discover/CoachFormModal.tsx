@@ -83,14 +83,14 @@ export default function CoachFormModal({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold text-on-surface mb-2">{t('chat.editCoachTitle')}</h2>
-            <p className="text-on-surface-variant text-sm">{t('chat.coachFormEditHint')}</p>
+            <h2 className="text-xl font-semibold text-on-surface mb-2">{t('chat.editAgentTitle')}</h2>
+            <p className="text-on-surface-variant text-sm">{t('chat.agentFormEditHint')}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                {t('chat.coachNameLabel')}
+                {t('chat.agentNameLabel')}
               </label>
               <input
                 type="text"
@@ -274,7 +274,7 @@ export default function CoachFormModal({
 
             {submitError && (
               <p className="text-xs text-error text-center">
-                {t('discover.updateCoachFailed')}
+                {t('discover.updateAgentFailed')}
               </p>
             )}
 
@@ -286,7 +286,7 @@ export default function CoachFormModal({
                   disabled={isSubmitting}
                   className="text-xs font-medium text-error hover:underline disabled:opacity-50 touch-target"
                 >
-                  {t('discover.deleteThisCoach')}
+                  {t('discover.deleteThisAgent')}
                 </button>
               </div>
             )}

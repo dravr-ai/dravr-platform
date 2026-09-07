@@ -95,7 +95,7 @@ export function CoachEditorScreen() {
       }
     } catch (error) {
       console.error('Failed to load coach:', error);
-      Alert.alert(t('common.error'), t('app.failedLoadCoachData'));
+      Alert.alert(t('common.error'), t('app.failedLoadAgentData'));
       router.back();
     } finally {
       setIsLoading(false);
@@ -199,7 +199,7 @@ export function CoachEditorScreen() {
       router.back();
     } catch (error) {
       console.error('Failed to save coach:', error);
-      Alert.alert(t('common.error'), t('app.failedUpdateCoach'));
+      Alert.alert(t('common.error'), t('app.failedUpdateAgent'));
     } finally {
       setIsSaving(false);
     }
@@ -209,8 +209,8 @@ export function CoachEditorScreen() {
   const handleDelete = () => {
     if (!coachId) return;
     Alert.alert(
-      t('app.deleteCoachQ'),
-      t('app.confirmDeleteCoach', { coach: title }),
+      t('app.deleteAgentQ'),
+      t('app.confirmDeleteAgent', { coach: title }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -224,7 +224,7 @@ export function CoachEditorScreen() {
               router.back();
             } catch (error) {
               console.error('Failed to delete coach:', error);
-              Alert.alert(t('common.error'), t('app.failedDeleteCoach'));
+              Alert.alert(t('common.error'), t('app.failedDeleteAgent'));
             } finally {
               setIsDeleting(false);
             }
@@ -241,7 +241,7 @@ export function CoachEditorScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary" testID="coach-editor-missing">
         <View className="flex-1 justify-center items-center p-6">
-          <Text className="text-lg text-text-secondary mb-3">{t('app.coachNotFound')}</Text>
+          <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary-500 rounded-lg"
             onPress={() => router.back()}
@@ -259,7 +259,7 @@ export function CoachEditorScreen() {
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
-          <Text className="text-text-secondary mt-3 text-base">{t('app.loadingCoach')}</Text>
+          <Text className="text-text-secondary mt-3 text-base">{t('app.loadingAgent')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -281,7 +281,7 @@ export function CoachEditorScreen() {
             <Text className="text-2xl text-text-primary">{'←'}</Text>
           </TouchableOpacity>
           <Text className="flex-1 text-lg font-semibold text-text-primary text-center">
-            {t('app.editCoachTitle')}
+            {t('app.editAgentTitle')}
           </Text>
           <TouchableOpacity
             className={`px-4 py-1.5 rounded-xl min-w-[60px] items-center ${isSaving ? 'opacity-60' : ''}`}
@@ -319,7 +319,7 @@ export function CoachEditorScreen() {
               }}
               value={title}
               onChangeText={setTitle}
-              placeholder={t('app.enterCoachTitle')}
+              placeholder={t('app.enterAgentTitle')}
               placeholderTextColor={colors.text.tertiary}
               maxLength={MAX_TITLE_LENGTH}
             />
@@ -379,7 +379,7 @@ export function CoachEditorScreen() {
               }}
               value={description}
               onChangeText={setDescription}
-              placeholder={t('app.describeCoachPlaceholder')}
+              placeholder={t('app.describeAgentPlaceholder')}
               placeholderTextColor={colors.text.tertiary}
               multiline
               numberOfLines={3}
@@ -663,7 +663,7 @@ export function CoachEditorScreen() {
             {isDeleting ? (
               <ActivityIndicator size="small" color={colors.error} />
             ) : (
-              <Text className="text-base font-semibold" style={{ color: colors.error }}>{t('app.deleteCoach')}</Text>
+              <Text className="text-base font-semibold" style={{ color: colors.error }}>{t('app.deleteAgent')}</Text>
             )}
           </TouchableOpacity>
         </ScrollView>

@@ -187,7 +187,7 @@ export default function MemoryPanel() {
                           updated: formatDateTime(fact.updated_at, language),
                         })}
                         {/* The coach is named by title, never by its id — a UUID means nothing to the athlete. */}
-                        {fact.coach_title ? ` · ${t('shell.memoryFactCoach', { name: fact.coach_title })}` : ''}
+                        {fact.coach_title ? ` · ${t('shell.memoryFactAgent', { name: fact.coach_title })}` : ''}
                       </p>
                     </div>
                     <Button

@@ -141,7 +141,7 @@ function VerdictCard({
           </h4>
           <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">
             <Provenance label={t('chat.provenanceUser')} value={verdict.user_id} />
-            <Provenance label={t('chat.provenanceCoach')} value={verdict.coach_id} />
+            <Provenance label={t('chat.provenanceAgent')} value={verdict.coach_id} />
             <Provenance label={t('chat.provenanceConversation')} value={verdict.conversation_id} />
             <Provenance label={t('chat.provenanceMessage')} value={verdict.message_id} />
           </dl>

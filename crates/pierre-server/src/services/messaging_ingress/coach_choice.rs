@@ -15,7 +15,7 @@
 //! rebuilding it: the proposal is LLM-re-ranked, so a rebuild can come back in a
 //! different order and bind a coach the user did not pick.
 
-use pierre_contremaitre::messaging_strings::KEY_COACH_USER_UPDATED;
+use pierre_contremaitre::messaging_strings::KEY_AGENT_USER_UPDATED;
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
@@ -132,7 +132,7 @@ pub(super) async fn try_handle_coach_choice(
     );
 
     let body = resources.mcp.messaging_strings_registry.render(
-        KEY_COACH_USER_UPDATED,
+        KEY_AGENT_USER_UPDATED,
         locale,
         &[&coach.title],
     );
