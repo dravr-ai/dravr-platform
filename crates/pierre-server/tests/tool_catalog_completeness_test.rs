@@ -1,27 +1,52 @@
-// ABOUTME: Every chat-callable tool must have a tool_catalog row so a tenant can disable it
-// ABOUTME: Proves guardian::tenant_tool_enabled refuses per-tenant for the plan tools (carnet#143)
+// ABOUTME: The seeded tool_catalog and the ToolRegistry must name exactly the same tools
+// ABOUTME: An orphaned seed row is deleted at boot, cascading away every tenant tool override
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `tool_catalog` completeness for the chat-callable surface.
+//! `tool_catalog` completeness for the whole registered surface.
 //!
 //! `guardian::tenant_tool_enabled` treats an uncatalogued tool as always
 //! enabled (`ResourceNotFound` means "no per-tenant override applies"), so a
-//! chat-callable tool missing from `tool_catalog` can never be disabled by a
-//! tenant — the cross-tenant coach-write guard in `plan_scope.rs` was inert in
-//! production for exactly that reason (carnet#143). The first test pins the
-//! whole chat-callable set against the migrated catalog; the second proves the
-//! guard has teeth on production data: a repository-level disable of
-//! `save_training_plan` flips `tenant_tool_enabled` to `false` for that tenant
-//! and leaves every other tenant enabled.
+//! tool missing from `tool_catalog` can never be disabled by a tenant — the
+//! cross-tenant coach-write guard in `plan_scope.rs` was inert in production
+//! for exactly that reason (carnet#143).
+//!
+//! The gate covers every registered tool, not the chat-callable subset, because
+//! the guardian sits at the universal dispatch chokepoint: MCP-direct, A2A and
+//! internal calls consult `tool_catalog` too. `chat_callable_schemas()` gates
+//! only what the LLM may call mid-turn and deliberately excludes the `coaches`
+//! and `admin` categories, so a tool there is invisible to a chat-callable
+//! comparison.
+//!
+//! It compares against the catalog the **migrations** leave, opened through
+//! `create_test_database` rather than a booted `ServerContext`. Booting runs
+//! `sync_tool_catalog`, which inserts a row for every registered tool that has
+//! none — so a comparison against a booted catalog is derived from the registry
+//! it is being compared to and cannot fail whatever the seed says.
+//!
+//! Both directions are asserted, and the second is the one with teeth. The same
+//! startup sync **deletes** every catalog row naming a tool the registry no
+//! longer has, and `tenant_tool_overrides.tool_name` and
+//! `user_tool_overrides.tool_name` both declare
+//! `REFERENCES tool_catalog(tool_name) ON DELETE CASCADE` on both backends. So
+//! a seeded row left behind by a rename is not inert: on the next boot it takes
+//! every tenant's and every user's override for that tool with it, and the
+//! renamed tool comes back enabled by default with nothing recording that
+//! anyone had disabled it. Neither foreign key declares `ON UPDATE`, so the row
+//! cannot simply be renamed in place either — a rename migration inserts the
+//! new row, moves the override rows onto it, then deletes the old one.
+//!
+//! The last test proves the guard has teeth on production data: a
+//! repository-level disable of `save_training_plan` flips `tenant_tool_enabled`
+//! to `false` for that tenant and leaves every other tenant enabled.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 mod common;
 
-use common::{create_test_server_resources, create_test_user_with_email};
+use common::{create_test_database, create_test_server_resources, create_test_user_with_email};
 use pierre_core::models::{TenantId, TenantPlan};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
@@ -40,9 +65,9 @@ const PLAN_TOOLS: [&str; 3] = [
     "push_training_plan",
 ];
 
-/// Floor on the chat-callable set so the registry half of the comparison can
+/// Floor on the registered set so the registry half of the comparison can
 /// never pass vacuously (an empty registry has no missing tools).
-const MIN_CHAT_CALLABLE_TOOLS: usize = 50;
+const MIN_REGISTERED_TOOLS: usize = 100;
 
 /// Floor on the migrated catalog so a stub migration that inserts nothing
 /// fails on content, not just on the set difference.
@@ -66,33 +91,32 @@ async fn seed_user_with_tenant(resources: &Arc<ServerContext>, label: &str) -> (
     (user_id, tenant_id)
 }
 
-/// Every chat-callable tool name has a `tool_catalog` row after migrations.
+/// The seeded `tool_catalog` and the registry name exactly the same tools.
 ///
 /// The registry is built exactly the way the server builds it
-/// (`register_builtin_tools`), and the catalog is read back through the
-/// repository from a freshly migrated database — so a chat-callable tool added
-/// without a catalog seed row fails here with its name in the message.
+/// (`register_builtin_tools`); the catalog is read through the repository from
+/// a migrated database that has never been booted, so the rows are the ones the
+/// migrations wrote and nothing else.
 #[tokio::test]
-async fn every_chat_callable_tool_has_a_catalog_row() {
-    let resources = create_test_server_resources().await.unwrap();
+async fn the_seeded_catalog_and_the_registry_name_the_same_tools() {
+    let database = create_test_database().await.unwrap();
 
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
-    let chat_callable: BTreeSet<String> = registry
-        .chat_callable_schemas()
+    let registered: BTreeSet<String> = registry
+        .tool_names()
         .into_iter()
-        .map(|schema| schema.name)
+        .map(ToOwned::to_owned)
         .collect();
     assert!(
-        chat_callable.len() >= MIN_CHAT_CALLABLE_TOOLS,
-        "chat-callable surface collapsed to {} tools (floor {MIN_CHAT_CALLABLE_TOOLS}) — \
+        registered.len() >= MIN_REGISTERED_TOOLS,
+        "the registry collapsed to {} tools (floor {MIN_REGISTERED_TOOLS}) — \
          the completeness comparison below would be vacuous",
-        chat_callable.len()
+        registered.len()
     );
 
-    let catalog: BTreeSet<String> = resources
-        .common
-        .repos
+    let seeded: BTreeSet<String> = database
+        .repositories()
         .tool_selection
         .get_tool_catalog()
         .await
@@ -101,26 +125,50 @@ async fn every_chat_callable_tool_has_a_catalog_row() {
         .map(|entry| entry.tool_name)
         .collect();
     assert!(
-        catalog.len() >= MIN_CATALOG_ROWS,
-        "tool_catalog holds {} rows (floor {MIN_CATALOG_ROWS}) — the chat-callable \
-         seed migration did not run or inserted nothing",
-        catalog.len()
+        seeded.len() >= MIN_CATALOG_ROWS,
+        "tool_catalog holds {} rows (floor {MIN_CATALOG_ROWS}) — the catalog \
+         seed migrations did not run or inserted nothing",
+        seeded.len()
     );
 
-    let missing: Vec<&String> = chat_callable
-        .iter()
-        .filter(|name| !catalog.contains(*name))
+    // Name the category alongside the tool: a `coaches` or `admin` tool is the
+    // case no chat-callable comparison can see, so the message says which one
+    // the reader is looking at.
+    let unseeded: Vec<String> = registered
+        .difference(&seeded)
+        .map(|name| {
+            let category = registry.category_for_tool(name).unwrap_or("(none)");
+            format!("{name} [category {category}]")
+        })
         .collect();
     assert!(
-        missing.is_empty(),
-        "chat-callable tools without a tool_catalog row — no tenant can disable them, \
-         so tenant_tool_enabled can never refuse (carnet#143): {missing:?}"
+        unseeded.is_empty(),
+        "{} registered tool(s) with no seeded tool_catalog row. Until the first boot \
+         syncs one in, no tenant can disable them and tenant_tool_enabled always allows \
+         (carnet#143); the synthesised row then carries the LLM-facing tool description \
+         as its operator display text. Seed a row on both backends (migrations/ and \
+         migrations_pg/): {}",
+        unseeded.len(),
+        unseeded.join(", ")
+    );
+
+    let orphaned: Vec<&String> = seeded.difference(&registered).collect();
+    let count = orphaned.len();
+    assert!(
+        orphaned.is_empty(),
+        "{count} seeded tool_catalog row(s) name a tool the registry does not register. \
+         sync_tool_catalog DELETES these on the next boot, and tenant_tool_overrides \
+         and user_tool_overrides cascade on that delete — every tenant's and every \
+         user's override for the tool goes with the row, and the tool returns enabled \
+         by default. A rename must insert the new row, move the override rows onto it, \
+         then delete the old row; neither foreign key declares ON UPDATE, so renaming \
+         tool_name in place is not available: {orphaned:?}"
     );
 
     for tool in PLAN_TOOLS {
         assert!(
-            catalog.contains(tool),
-            "plan tool '{tool}' has no tool_catalog row — the carnet#143 gap is back"
+            seeded.contains(tool),
+            "plan tool '{tool}' has no seeded tool_catalog row — the carnet#143 gap is back"
         );
     }
 }

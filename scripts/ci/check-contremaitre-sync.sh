@@ -30,6 +30,16 @@
 #   6. Training catalogue — training_catalogue/ mirrors canonical training/ when
 #      the pinned rev carries one, and the generated include table in
 #      pierre-contremaitre names exactly the files on disk, per kind.
+#   7. Tool overlays — every tools/<name>.yaml in the pinned rev names a tool the
+#      registry actually registers, so no overlay is keyed to nothing.
+#   8. String bundles — every key in the pinned rev's strings/<locale>.json names
+#      a key the i18n catalogue holds, so no override is keyed to nothing.
+#
+# Checks 7 and 8 are both one-directional, and the asymmetry is the contract:
+# contremaitre overlays are SPARSE. A tool with no yaml keeps its compiled-in
+# description; a catalogue key with no override keeps its catalogue text. Only
+# the other direction — an overlay naming something that does not exist — is a
+# failure, because that override reaches nothing and says nothing when it does.
 #
 # Known blind spot: an event or tool whose name is built at runtime rather than
 # written as a literal is invisible to a static scan. Check 3 defends against
@@ -202,6 +212,10 @@ TS_FILE="packages/mcp-types/src/tools.ts"
 
 TOOL_FILES="$(grep -rl 'tool_definition(' crates --include='*.rs' 2>/dev/null | grep '/src/' || true)"
 
+# Whether SRC_TOOLS below holds the complete registered set. Check 7 compares
+# against it and must not run on a truncated scan.
+TOOL_SCAN_COMPLETE=false
+
 if [[ -z "$TOOL_FILES" ]]; then
     echo -e "${RED}❌ No tool_definition( call sites found in crates/*/src — this check is stale.${NC}"
     FAILED=true
@@ -224,6 +238,7 @@ else
         echo -e "${YELLOW}   every tool. Give the tool a literal name, or extend this check — never ignore it.${NC}"
         FAILED=true
     else
+        TOOL_SCAN_COMPLETE=true
         TOOL_DRIFT=false
 
         # 3a. EXPECTED_TOOLS in contremaitre_test.rs
@@ -590,6 +605,133 @@ else
         echo -e "${GREEN}✅ Training catalogue: all ${TRAIN_COUNT} files match canonical training/ and the include table.${NC}"
     else
         echo -e "${GREEN}✅ Training catalogue: the include table names all ${TRAIN_COUNT} files on disk (pinned rev carries no training/ to mirror).${NC}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 7: every tools/<name>.yaml names a tool the registry registers
+# ---------------------------------------------------------------------------
+# A tool description overlay is addressed by tool name end to end: manifest.json
+# keys its `tools` map by the file stem, sync stores the parsed overlay under
+# that key, and ToolRegistry::build_schema looks the running tool's own name up
+# in the registry. A stem matching no registered tool is therefore a dead
+# overlay — the lookup misses, the compiled-in description ships, and nothing
+# anywhere reports it: `HashMap::get` returning None is not an error.
+#
+# One direction only. contremaitre does not ship a yaml for every tool, and is
+# not meant to: a tool with no overlay keeps its compiled-in description, which
+# is the normal state for most of the registry. The failure is a yaml with no
+# tool.
+if [[ "$TOOL_SCAN_COMPLETE" != "true" ]]; then
+    echo -e "${YELLOW}⚠️  Tool overlay check skipped: the tool scan above did not resolve every name.${NC}"
+elif [[ -z "$CM_ROOT" ]]; then
+    echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the tool overlay check.${NC}"
+else
+    OVERLAY_STEMS="$(find "${CM_ROOT}tools" -maxdepth 1 -type f -name '*.yaml' 2>/dev/null \
+        | sed -E 's#.*/##; s#\.yaml$##' | sort -u || true)"
+    if [[ -z "$OVERLAY_STEMS" ]]; then
+        # The directory is what made CM_ROOT resolve, so an empty scan means the
+        # overlays moved or changed shape. Fail rather than report "in sync".
+        echo -e "${RED}❌ Overlay scan incomplete: ${CM_ROOT}tools holds no *.yaml.${NC}"
+        echo -e "${YELLOW}   The overlays moved or changed extension, so this check can no longer see them.${NC}"
+        echo -e "${YELLOW}   Point it at the new layout — never ignore it.${NC}"
+        FAILED=true
+    else
+        DEAD_OVERLAYS="$(comm -13 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$OVERLAY_STEMS") || true)"
+        if [[ -n "$DEAD_OVERLAYS" ]]; then
+            echo -e "${RED}❌ Dead tool overlay(s): tools/<name>.yaml whose stem matches no registered tool:${NC}"
+            printf '%s\n' "$DEAD_OVERLAYS" | sed 's/^/   /'
+            echo -e "${YELLOW}   The overlay is keyed by tool name, so these reach no schema: the compiled-in${NC}"
+            echo -e "${YELLOW}   description ships instead and the miss is silent. Rename the yaml to the tool's${NC}"
+            echo -e "${YELLOW}   name in dravr-contremaitre, or delete it if the tool is gone.${NC}"
+            FAILED=true
+        else
+            OVERLAY_COUNT="$(printf '%s\n' "$OVERLAY_STEMS" | grep -c . || true)"
+            echo -e "${GREEN}✅ Tool overlays: all ${OVERLAY_COUNT} tools/*.yaml name a registered tool.${NC}"
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 8: every strings/<locale>.json key names a key the catalogue holds
+# ---------------------------------------------------------------------------
+# strings/<locale>.json is a sparse override bundle in the catalogue's own
+# nested shape; MessagingStringsRegistry::apply_bundle flattens it to dotted
+# leaf paths and replaces the registry text for each. A leaf naming a key the
+# catalogue does not hold is applied anyway and only `warn!`-ed, so the override
+# is dead: the operator edits contremaitre, the sync reports success, and the
+# product keeps the baseline string. A warn line in a Cloud Run log is not a
+# gate, and the failure is invisible from the product — a rename that preserves
+# every value byte-for-byte orphans the whole bundle without changing one
+# rendered word.
+#
+# Leaf paths, not top-level keys: the bundle nests, so comparing `app` against
+# `app` would pass while every `app.*` leaf underneath was orphaned. Every
+# locale is compared and reported, since a bundle may override in fr what it
+# does not override in en. The listing is uncapped, unlike check 1's: it is
+# bounded by the bundle, which is sparse by design, and naming the keys is the
+# entire point — an operator cannot find an override that only exists as a count.
+if [[ -z "$CM_ROOT" ]]; then
+    echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the string bundle check.${NC}"
+elif [[ -z "${LOCALES_RS:-}" ]]; then
+    echo -e "${RED}❌ String bundle check cannot run: SUPPORTED_LOCALES did not parse above.${NC}"
+    FAILED=true
+elif [[ ! -d "${CM_ROOT}strings" ]]; then
+    echo -e "${GREEN}✅ String bundles: the pinned rev ships no strings/ to overlay.${NC}"
+else
+    if BUNDLE_REPORT="$(python3 - "${CM_ROOT}strings" "$CATALOGUE_DIR" "$LOCALES_RS" <<'PYSTR'
+import json, pathlib, sys
+from collections import defaultdict
+
+bundle_dir, catalogue_dir, locale_csv = sys.argv[1:4]
+locales = [code for code in locale_csv.split(",") if code]
+
+
+def leaves(tree, prefix=""):
+    """Dotted leaf paths, exactly as apply_bundle's `flatten` builds them."""
+    for key, value in tree.items():
+        dotted = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            yield from leaves(value, dotted)
+        elif isinstance(value, str):
+            yield dotted
+
+
+def load(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+orphans = defaultdict(list)
+overridden = 0
+present = []
+for locale in locales:
+    bundle = pathlib.Path(bundle_dir) / f"{locale}.json"
+    if not bundle.is_file():
+        continue
+    present.append(locale)
+    known = set(leaves(load(f"{catalogue_dir}/{locale}/translation.json")))
+    keys = set(leaves(load(bundle)))
+    overridden += len(keys)
+    for key in keys - known:
+        orphans[key].append(locale)
+
+print(f"{overridden} override(s) across {len(present)} locale(s) name a catalogue key")
+if orphans:
+    for key in sorted(orphans):
+        print(f"{key} [{' '.join(orphans[key])}]")
+    sys.exit(1)
+PYSTR
+)"; then
+        echo -e "${GREEN}✅ String bundles: ${BUNDLE_REPORT}.${NC}"
+    else
+        echo -e "${RED}❌ Dead string override(s): a bundle key the i18n catalogue does not hold:${NC}"
+        printf '%s\n' "$BUNDLE_REPORT" | sed 's/^/   /'
+        echo -e "${YELLOW}   apply_bundle stores these under a key nothing reads, so the operator's edit${NC}"
+        echo -e "${YELLOW}   never reaches the product and only warns in the sync log. Rename them in${NC}"
+        echo -e "${YELLOW}   dravr-contremaitre strings/<locale>.json to the keys under ${CATALOGUE_DIR},${NC}"
+        echo -e "${YELLOW}   then bump the contremaitre rev.${NC}"
+        FAILED=true
     fi
 fi
 
