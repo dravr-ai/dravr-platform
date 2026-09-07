@@ -15,6 +15,10 @@ export const TABLE_CAPTION_TITLED_KEY = 'chat.copy.tableCaptionTitled';
 export const TABLE_CAPTION_KEY = 'chat.copy.tableCaption';
 /** A workout plan card, which carries no caption field. */
 export const PLAN_CAPTION_KEY = 'chat.copy.planCaption';
+/** A route map that carried its own caption. */
+export const ROUTE_CAPTION_TITLED_KEY = 'chat.copy.routeCaptionTitled';
+/** A route map with no caption of its own. */
+export const ROUTE_CAPTION_KEY = 'chat.copy.routeCaption';
 
 /**
  * The line a visual block leaves behind in copied text.
@@ -46,6 +50,10 @@ function captionFor(block: RenderBlock): CaptionText {
         : { key: TABLE_CAPTION_KEY };
     case 'workout_plan':
       return { key: PLAN_CAPTION_KEY };
+    case 'route':
+      return block.title
+        ? { key: ROUTE_CAPTION_TITLED_KEY, params: { title: block.title } }
+        : { key: ROUTE_CAPTION_KEY };
   }
 }
 

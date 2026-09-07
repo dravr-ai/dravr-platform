@@ -81,6 +81,10 @@ pub enum VisualKind {
     Chart,
     /// A tabular comparison.
     Table,
+    /// A map of an activity's recorded track. The coach emits only a reference
+    /// to the activity; the server hydrates the geometry, so a route grant
+    /// costs the reply no coordinates.
+    Route,
 }
 
 impl VisualKind {
@@ -90,6 +94,7 @@ impl VisualKind {
         match self {
             Self::Chart => "chart",
             Self::Table => "table",
+            Self::Route => "route",
         }
     }
 }

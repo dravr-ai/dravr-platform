@@ -297,6 +297,29 @@ jest.mock('@shopify/flash-list', () => {
   };
 });
 
+// Mock @maplibre/maplibre-react-native - the map is a native view, and every
+// chat test reaches it: SceneView imports the route card at module scope, so an
+// unmocked native module takes the whole chat suite down before a route block
+// is ever rendered. Each component becomes a View that keeps its props, so a
+// test reads the style the map was given, the GeoJSON each source carries and
+// the paint of every layer - which is the whole of what the route card decides.
+jest.mock('@maplibre/maplibre-react-native', () => {
+  const React = require('react');
+  const View = require('react-native').View;
+  const passthrough = (name) => {
+    const Component = ({ children, ...props }) =>
+      React.createElement(View, { testID: props.id || name, ...props }, children);
+    Component.displayName = name;
+    return Component;
+  };
+  return {
+    Map: passthrough('maplibre-map'),
+    Camera: passthrough('maplibre-camera'),
+    GeoJSONSource: passthrough('maplibre-source'),
+    Layer: passthrough('maplibre-layer'),
+  };
+});
+
 // Mock expo-router - provides all routing hooks used by screen components
 jest.mock('expo-router', () => {
   const React = require('react');

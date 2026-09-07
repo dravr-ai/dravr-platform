@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
 use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::{extract_viz_blocks, repair_refused_blocks};
+use pierre_chat_pipeline::stages::viz_route::RouteTracks;
 use pierre_core::errors::AppError;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
@@ -161,6 +162,7 @@ async fn a_repair_recovers_the_chart_the_schema_refused() {
         &schemas(),
         &granted(),
         &tools_called(),
+        &RouteTracks::new(),
         &reply_with_refused_block(),
     )
     .expect("the reply contains a fence");
@@ -176,8 +178,14 @@ async fn a_repair_recovers_the_chart_the_schema_refused() {
     .await
     .expect("a scripted repairer returns a reply");
 
-    let second = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &repaired)
-        .expect("the repaired reply contains a fence");
+    let second = extract_viz_blocks(
+        &schemas(),
+        &granted(),
+        &tools_called(),
+        &RouteTracks::new(),
+        &repaired,
+    )
+    .expect("the repaired reply contains a fence");
     assert_eq!(
         second.blocks.len(),
         1,

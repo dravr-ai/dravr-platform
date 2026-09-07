@@ -14,6 +14,7 @@ import type {
 } from '@pierre/scene-types';
 
 import { useThemeColors } from '../../constants/theme';
+import RouteView from './RouteView';
 
 /** Matches how the other chat components name the palette. */
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -236,9 +237,10 @@ function SceneTable({ view, colors }: { view: TableView; colors: ThemeColors }) 
 /**
  * Render one resolved visual block.
  *
- * Everything geometric happened on the server. This walks a flat node list and
- * emits one element per node — no chart library, no maths, and the same five
- * cases the web renderer handles.
+ * Everything geometric happened on the server. A chart and a table are walked
+ * as flat node lists, one element per node — no chart library, no maths. A
+ * route is a card the client lays out instead, because a map is a live surface
+ * with its own tiles rather than a projection into this viewBox.
  */
 export default function SceneView({ block }: { block: RenderBlock }) {
   const colors = useThemeColors();
@@ -247,6 +249,9 @@ export default function SceneView({ block }: { block: RenderBlock }) {
   }
   if (block.kind === 'table') {
     return <SceneTable view={block} colors={colors} />;
+  }
+  if (block.kind === 'route') {
+    return <RouteView route={block} />;
   }
   return null;
 }

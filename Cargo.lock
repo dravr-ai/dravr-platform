@@ -3577,6 +3577,7 @@ dependencies = [
  "pierre-database",
  "pierre-enforme",
  "pierre-evals",
+ "pierre-fitness-compute",
  "pierre-groups",
  "pierre-llm",
  "pierre-memory",

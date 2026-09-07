@@ -186,8 +186,10 @@ describe('client locale corpus', () => {
     // professional, never the AI persona — now lives under `humanCoach.*`.
     // The count is read off the tree, never carried: it was 2383, 2384 and
     // 2381 on three different afternoons, each correct when taken. -68.
+    // +7 for the route block: chat.routeAlt, routeAltTitled, routeClimbs,
+    // routeClimbCategory, routeNoTrack and the two map-attribution strings.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2313);
+    expect(reference).toHaveLength(2320);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

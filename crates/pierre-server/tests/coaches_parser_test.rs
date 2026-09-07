@@ -11,7 +11,9 @@
 // Allow raw string hashes for readability in test fixtures
 #![allow(clippy::needless_raw_string_hashes)]
 
-use pierre_coach_parser::{parse_frontmatter, parse_sections, CoachStartup, RelationType};
+use pierre_coach_parser::{
+    parse_frontmatter, parse_sections, CoachStartup, RelationType, VisualKind,
+};
 use pierre_database::database::coaches::{CoachCategory, CoachVisibility};
 
 const SAMPLE_COACH: &str = r#"---
@@ -394,4 +396,71 @@ Whitespace startup test.
 fn test_default_startup_struct() {
     let startup = CoachStartup::default();
     assert!(startup.query.is_none());
+}
+
+#[test]
+fn test_visual_kinds_round_trip_through_their_wire_names() {
+    let content = r#"---
+name: route-visuals
+title: Route Visuals Coach
+category: training
+startup:
+  query: "Show me last Sunday's long run"
+  visuals: [chart, table, route]
+---
+
+## Purpose
+Coach granted every inline visual, including the map of a recorded track.
+
+## Instructions
+Route visual grant test.
+"#;
+
+    let frontmatter = parse_frontmatter(content).unwrap(); // Safe: fixture is a valid coach document
+    assert_eq!(
+        frontmatter.startup.visuals,
+        vec![VisualKind::Chart, VisualKind::Table, VisualKind::Route]
+    );
+
+    let wire: Vec<&str> = frontmatter
+        .startup
+        .visuals
+        .iter()
+        .copied()
+        .map(VisualKind::as_str)
+        .collect();
+    assert_eq!(wire, vec!["chart", "table", "route"]);
+
+    // The stored column and the frontmatter share one vocabulary, so the wire
+    // names a coach author writes must deserialize back to the same variants.
+    let yaml = serde_yaml::to_string(&frontmatter.startup.visuals).unwrap(); // Safe: a sequence of unit variants is always representable
+    assert_eq!(yaml, "- chart\n- table\n- route\n");
+    let parsed: Vec<VisualKind> = serde_yaml::from_str(&yaml).unwrap(); // Safe: the string was just produced by the matching serializer
+    assert_eq!(parsed, frontmatter.startup.visuals);
+}
+
+#[test]
+fn test_unknown_visual_kind_is_rejected() {
+    let content = r#"---
+name: bogus-visuals
+title: Bogus Visuals Coach
+category: training
+startup:
+  query: "Draw me something"
+  visuals: [chart, hologram]
+---
+
+## Purpose
+Coach asking for a visual the platform does not render.
+
+## Instructions
+Unknown visual grant test.
+"#;
+
+    let error = parse_frontmatter(content).unwrap_err(); // Safe: `hologram` is not a VisualKind variant
+    assert!(
+        error.message.contains("hologram"),
+        "error should name the rejected visual, got: {}",
+        error.message
+    );
 }

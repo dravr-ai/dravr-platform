@@ -75,3 +75,4 @@ pub mod tool_dispatch;
 pub mod verification;
 /// Inline visual blocks lifted out of a reply's prose.
 pub mod viz_blocks;
+pub mod viz_route;

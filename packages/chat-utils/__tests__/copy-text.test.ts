@@ -33,6 +33,25 @@ const plan = (): RenderBlock => ({
   source_tool: 'generate_workout',
 });
 
+const route = (title: string | null): RenderBlock => ({
+  kind: 'route',
+  coordinates: [
+    [45.5, -73.6],
+    [45.51, -73.59],
+  ],
+  bounds: {
+    min_latitude: 45.5,
+    max_latitude: 45.51,
+    min_longitude: -73.6,
+    max_longitude: -73.59,
+  },
+  elevation_meters: null,
+  distances_meters: null,
+  climbs: [],
+  title,
+  source_tool: 'get_activity_route',
+});
+
 const BEFORE = 'Voici ton vélo d’août — surtout du VTT à Prévost 🚴';
 const AFTER = 'Neuf sorties, environ 128 km au total.';
 
@@ -70,6 +89,18 @@ describe('copyableText', () => {
     );
     expect(copyableText('⟦viz:0⟧', [table(null)], t)).toBe('chat.copy.tableCaption');
     expect(copyableText('⟦viz:0⟧', [plan()], t)).toBe('chat.copy.planCaption');
+  });
+
+  /**
+   * A pasted route cannot be a map, and a thousand coordinate pairs are worse
+   * than nothing in a message — so the caption names the ride and stops there,
+   * exactly as the chart and table captions name theirs.
+   */
+  it('names a route as a route', () => {
+    expect(copyableText('⟦viz:0⟧', [route('Mont Royal loop')], t)).toBe(
+      'chat.copy.routeCaptionTitled(Mont Royal loop)',
+    );
+    expect(copyableText('⟦viz:0⟧', [route(null)], t)).toBe('chat.copy.routeCaption');
   });
 
   it('keeps several captions in the order their markers appeared', () => {

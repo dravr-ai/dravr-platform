@@ -13,6 +13,7 @@ use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::{
     extract_viz_blocks, granted_visuals, marker, markers_intact, strip_fences, DEFAULT_VISUALS,
 };
+use pierre_chat_pipeline::stages::viz_route::RouteTracks;
 
 /// The full schema set, as production assembles it. Every test hands over the
 /// same map: compiled validators live in a process-wide `OnceLock`, so the
@@ -32,6 +33,12 @@ fn schemas() -> SchemaTexts {
 /// Both kinds granted — the common case for the fixtures below.
 fn granted() -> Vec<String> {
     vec!["chart".to_owned(), "table".to_owned()]
+}
+
+/// No route geometry was read — the fixtures here are charts and tables, and
+/// only a `route` block ever reads the map.
+fn no_tracks() -> RouteTracks {
+    RouteTracks::new()
 }
 
 /// The tools the fixtures' blocks cite, as the tool loop would record them.
@@ -56,8 +63,14 @@ fn lifts_a_block_and_leaves_a_marker() {
         "Ta charge grimpe depuis trois semaines.\n\n{}\n\nC'est pourquoi on coupe jeudi.",
         fenced(CHART)
     );
-    let out = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply)
-        .expect("a valid block must be extracted");
+    let out = extract_viz_blocks(
+        &schemas(),
+        &granted(),
+        &tools_called(),
+        &no_tracks(),
+        &reply,
+    )
+    .expect("a valid block must be extracted");
 
     assert_eq!(out.blocks.len(), 1);
     assert_eq!(out.blocks[0]["kind"], "line");
@@ -83,8 +96,14 @@ fn preserves_order_across_several_blocks() {
         fenced(CHART),
         fenced(TABLE)
     );
-    let out = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply)
-        .expect("both blocks must be extracted");
+    let out = extract_viz_blocks(
+        &schemas(),
+        &granted(),
+        &tools_called(),
+        &no_tracks(),
+        &reply,
+    )
+    .expect("both blocks must be extracted");
 
     assert_eq!(out.blocks.len(), 2);
     assert_eq!(out.blocks[0]["type"], "chart");
@@ -105,7 +124,7 @@ fn preserves_order_across_several_blocks() {
 /// message, so the coach read its own transcript on the next turn, believed it
 /// had already drawn a chart, and refused to draw again (Telegram 2026-08-21).
 fn assert_all_refused_with(granted: &[String], tools: &[String], reply: &str) -> String {
-    let out = extract_viz_blocks(&schemas(), granted, tools, reply)
+    let out = extract_viz_blocks(&schemas(), granted, tools, &no_tracks(), reply)
         .expect("a reply containing a fence is still processed, to strip it");
     assert!(
         out.blocks.is_empty(),
@@ -147,8 +166,14 @@ fn an_invalid_block_is_stripped_from_the_reply() {
 fn a_valid_block_survives_alongside_an_invalid_one() {
     let bad = r#"{"type":"chart","kind":"scatter","source_tool":"t","x":{"label":"D","type":"time"},"series":[{"label":"C","points":[["a",1],["b",2]]}]}"#;
     let reply = format!("A.\n\n{}\n\nB.\n\n{}\n\nC.", fenced(bad), fenced(CHART));
-    let out = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply)
-        .expect("the good block must be extracted");
+    let out = extract_viz_blocks(
+        &schemas(),
+        &granted(),
+        &tools_called(),
+        &no_tracks(),
+        &reply,
+    )
+    .expect("the good block must be extracted");
 
     assert_eq!(out.blocks.len(), 1, "only the valid block is lifted");
     assert!(
@@ -175,7 +200,7 @@ fn rejects_a_table_whose_rows_do_not_match_its_columns() {
 fn ignores_other_fenced_languages() {
     let reply = "Here is some code:\n\n```json\n{\"type\":\"chart\"}\n```\n\nDone.";
     assert!(
-        extract_viz_blocks(&schemas(), &granted(), &tools_called(), reply).is_none(),
+        extract_viz_blocks(&schemas(), &granted(), &tools_called(), &no_tracks(), reply).is_none(),
         "a ```json fence is not a viz block"
     );
 }
@@ -184,7 +209,7 @@ fn ignores_other_fenced_languages() {
 fn a_prose_mention_does_not_open_a_block() {
     let reply = "I can render a dravr-viz block if you want one.";
     assert!(
-        extract_viz_blocks(&schemas(), &granted(), &tools_called(), reply).is_none(),
+        extract_viz_blocks(&schemas(), &granted(), &tools_called(), &no_tracks(), reply).is_none(),
         "the info string only counts on a fence opener line"
     );
 }
@@ -197,7 +222,14 @@ fn a_viz_block_inside_another_fence_is_not_extracted() {
         fenced(CHART)
     );
     assert!(
-        extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply).is_none(),
+        extract_viz_blocks(
+            &schemas(),
+            &granted(),
+            &tools_called(),
+            &no_tracks(),
+            &reply
+        )
+        .is_none(),
         "a viz fence nested in another fence is documentation, not a block"
     );
 }
@@ -208,6 +240,7 @@ fn a_reply_with_no_fence_is_left_alone() {
         &schemas(),
         &granted(),
         &tools_called(),
+        &no_tracks(),
         "Repose-toi aujourd'hui."
     )
     .is_none());
@@ -217,7 +250,14 @@ fn a_reply_with_no_fence_is_left_alone() {
 fn an_unterminated_fence_is_not_extracted() {
     let reply = format!("Voici.\n\n```dravr-viz\n{CHART}");
     assert!(
-        extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply).is_none(),
+        extract_viz_blocks(
+            &schemas(),
+            &granted(),
+            &tools_called(),
+            &no_tracks(),
+            &reply
+        )
+        .is_none(),
         "a truncated reply must not yield a half-parsed block"
     );
 }
@@ -231,8 +271,14 @@ fn a_block_citing_a_tool_that_did_not_run_is_rejected() {
     let only_activities = vec!["get_activities".to_owned()];
 
     {
-        let out = extract_viz_blocks(&schemas(), &granted(), &only_activities, &reply)
-            .expect("a reply containing a fence is still processed, to strip it");
+        let out = extract_viz_blocks(
+            &schemas(),
+            &granted(),
+            &only_activities,
+            &no_tracks(),
+            &reply,
+        )
+        .expect("a reply containing a fence is still processed, to strip it");
         assert!(
             out.blocks.is_empty(),
             "a source_tool that did not run must reject the block"
@@ -251,7 +297,7 @@ fn a_turn_with_no_tool_calls_renders_no_blocks() {
     // from. Every block must be refused, whatever it claims.
     let reply = format!("Voici.\n\n{}", fenced(CHART));
     {
-        let out = extract_viz_blocks(&schemas(), &granted(), &[], &reply)
+        let out = extract_viz_blocks(&schemas(), &granted(), &[], &no_tracks(), &reply)
             .expect("a reply containing a fence is still processed, to strip it");
         assert!(
             out.blocks.is_empty(),
@@ -272,7 +318,7 @@ fn source_tool_matching_is_exact() {
     let reply = format!("Voici.\n\n{}", fenced(TABLE));
     let near_miss = vec!["Get_Activities".to_owned()];
     {
-        let out = extract_viz_blocks(&schemas(), &granted(), &near_miss, &reply)
+        let out = extract_viz_blocks(&schemas(), &granted(), &near_miss, &no_tracks(), &reply)
             .expect("a reply containing a fence is still processed, to strip it");
         assert!(
             out.blocks.is_empty(),
@@ -297,7 +343,14 @@ fn a_kind_outside_the_grant_is_rejected() {
 
     let table_reply = format!("Voici.\n\n{}", fenced(TABLE));
     assert!(
-        extract_viz_blocks(&schemas(), &tables_only, &tools_called(), &table_reply).is_some(),
+        extract_viz_blocks(
+            &schemas(),
+            &tables_only,
+            &tools_called(),
+            &no_tracks(),
+            &table_reply
+        )
+        .is_some(),
         "a table from the same coach must still pass"
     );
 }
@@ -348,8 +401,14 @@ fn prefetch_only_provenance() -> Vec<String> {
 #[test]
 fn a_chart_sourced_from_the_prefetch_is_lifted() {
     let reply = format!("Voici tes distances par semaine.\n\n{}", fenced(TABLE));
-    let out = extract_viz_blocks(&schemas(), &granted(), &prefetch_only_provenance(), &reply)
-        .expect("a block citing the prefetched tool must be extracted");
+    let out = extract_viz_blocks(
+        &schemas(),
+        &granted(),
+        &prefetch_only_provenance(),
+        &no_tracks(),
+        &reply,
+    )
+    .expect("a block citing the prefetched tool must be extracted");
 
     assert_eq!(out.blocks.len(), 1, "exactly one block was fenced");
     assert_eq!(out.blocks[0]["source_tool"], "get_activities");
@@ -486,7 +545,7 @@ fn a_conversation_with_no_coach_falls_back_to_the_platform_grant() {
 
     // And the grant is live: a chart extracts under it.
     let reply = format!("Voici ton volume.\n\n{}", fenced(CHART));
-    let out = extract_viz_blocks(&schemas(), &grant, &tools_called(), &reply)
+    let out = extract_viz_blocks(&schemas(), &grant, &tools_called(), &no_tracks(), &reply)
         .expect("a coach-less turn must still lift a valid chart");
     assert_eq!(out.blocks.len(), 1);
     assert_eq!(out.blocks[0]["kind"], "line");
@@ -532,8 +591,14 @@ fn a_one_point_series_is_refused_and_says_which_field() {
         r#"{"type":"chart","kind":"bar","source_tool":"get_activities","x":{"label":"Athlete","type":"category"},"series":[{"label":"Toi","points":[["Toi",472.0]]},{"label":"Philippe","points":[["Philippe",29.1]]}]}"#
     );
 
-    let extraction = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply)
-        .expect("a reply containing a fence yields an extraction");
+    let extraction = extract_viz_blocks(
+        &schemas(),
+        &granted(),
+        &tools_called(),
+        &no_tracks(),
+        &reply,
+    )
+    .expect("a reply containing a fence yields an extraction");
 
     assert!(
         extraction.blocks.is_empty(),
@@ -574,8 +639,14 @@ fn the_same_comparison_as_one_series_is_accepted() {
         r#"{"type":"chart","kind":"bar","source_tool":"get_activities","x":{"label":"Athlete","type":"category"},"series":[{"label":"Distance","points":[["Toi",472.0],["Philippe",29.1]]}]}"#
     );
 
-    let extraction = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply)
-        .expect("a reply containing a fence yields an extraction");
+    let extraction = extract_viz_blocks(
+        &schemas(),
+        &granted(),
+        &tools_called(),
+        &no_tracks(),
+        &reply,
+    )
+    .expect("a reply containing a fence yields an extraction");
 
     assert_eq!(extraction.blocks.len(), 1, "a two-point series is valid");
     assert!(

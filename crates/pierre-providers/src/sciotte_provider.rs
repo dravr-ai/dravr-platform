@@ -15,12 +15,12 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use dravr_sciotte::models::{
-    Activity as SciotteActivity, AuthSession, Lap as SciotteLap, Split as SciotteSplit,
-    SportType as SciotteSportType,
+    Activity as SciotteActivity, AuthSession, Lap as SciotteLap, RouteTrack as SciotteRouteTrack,
+    Split as SciotteSplit, SportType as SciotteSportType,
 };
 use std::env;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -28,7 +28,7 @@ use crate::core::{
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     activity::{Lap, Split},
-    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_remote::{RemoteActivityQuery, RemoteSciotteClient};
@@ -223,7 +223,60 @@ fn convert_activity(sciotte: &SciotteActivity) -> Activity {
     .start_longitude_opt(sciotte.start_longitude)
     .splits_opt(splits)
     .laps_opt(laps)
+    .time_series_data_opt(sciotte.route.as_ref().and_then(route_to_time_series))
     .build()
+}
+
+/// Fold sciotte's GPS [`SciotteRouteTrack`] into cageux's [`TimeSeriesData`],
+/// the channel every route consumer reads — `export_routes` and the endurance
+/// route endpoint hydrate their geometry from `gps_coordinates` + `altitude`.
+///
+/// A track is the only stream a scrape carries, so the numeric channels the
+/// API providers fill from device streams stay absent here. `timestamps` hold
+/// sample indices: the scraped track has no time axis, and indices are the
+/// same fallback the Strava and intervals.icu conversions use for a stream set
+/// whose provider omits one. A track without coordinates yields `None` rather
+/// than an empty series.
+fn route_to_time_series(route: &SciotteRouteTrack) -> Option<TimeSeriesData> {
+    if route.coordinates.is_empty() {
+        return None;
+    }
+
+    // cageux's altitude channel is f32. Elevation in metres spans roughly
+    // -430 (Dead Sea) to 8849 (Everest), well inside f32's exactly-representable
+    // integer range, so narrowing costs sub-millimetre precision that no
+    // barometric or GPS altimeter resolves.
+    let altitude = match route.altitudes_meters.as_ref() {
+        Some(meters) if meters.len() == route.coordinates.len() => {
+            Some(meters.iter().map(|m| *m as f32).collect())
+        }
+        // An elevation series of a different length is not index-aligned with
+        // the track, and a caller reading the pair position by position would
+        // attribute each reading to the wrong point. Dropping it reports the
+        // track's elevation as unknown, which is what a misaligned series means.
+        Some(meters) => {
+            warn!(
+                coordinates = route.coordinates.len(),
+                altitudes = meters.len(),
+                "sciotte route elevation series is not index-aligned with its track; dropping it"
+            );
+            None
+        }
+        None => None,
+    };
+
+    Some(TimeSeriesData {
+        timestamps: (0..route.coordinates.len())
+            .map(|i| u32::try_from(i).unwrap_or(u32::MAX))
+            .collect(),
+        heart_rate: None,
+        power: None,
+        cadence: None,
+        speed: None,
+        altitude,
+        temperature: None,
+        gps_coordinates: Some(route.coordinates.clone()),
+    })
 }
 
 /// Translate sciotte's [`SciotteSplit`] into cageux's [`Split`] — same

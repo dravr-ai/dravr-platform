@@ -105,6 +105,22 @@ module.exports = {
       },
     ],
     [
+      // The route card in a coach reply draws a real MapLibre map, which is a
+      // native view: this plugin is what puts the MapLibre SDK into the build.
+      // It pins the iOS distribution through the Podfile and the Android
+      // artifact through gradle.properties, so a dev-client rebuild is what
+      // makes a route block renderable at all — Expo Go cannot carry it.
+      '@maplibre/maplibre-react-native',
+      {
+        android: {
+          // F-Droid-compatible, and the only location engine this app needs:
+          // a route is history the platform hydrates, never the phone's own
+          // position, so nothing here asks for a fix.
+          locationEngine: 'default',
+        },
+      },
+    ],
+    [
       'expo-speech-recognition',
       {
         microphonePermission:

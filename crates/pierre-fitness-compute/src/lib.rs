@@ -45,6 +45,10 @@ pub use routes::{
     ClimbCategory, RouteSummary, TerrainSummary,
 };
 
+/// Endpoint privacy trimming applied to route geometry before it leaves the platform.
+pub mod route_privacy;
+pub use route_privacy::{trim_route_endpoints, TrimmedRoute, DEFAULT_PRIVACY_RADIUS_METERS};
+
 /// Endurance Phase 3 LT1 / LT2 threshold estimators.
 pub mod threshold_estimation;
 pub use threshold_estimation::{ThresholdEstimate, ThresholdInputs};

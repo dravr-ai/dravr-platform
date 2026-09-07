@@ -10,6 +10,7 @@ import type {
   TableView,
   TextRole,
 } from '@pierre/scene-types';
+import RouteView from './RouteView';
 
 /**
  * Tailwind classes per colour token.
@@ -225,6 +226,11 @@ function SceneTable({ view }: { view: TableView }) {
  * list and emits one element per node. There is no chart library on this side
  * and no maths — which is the whole point of resolving a Scene rather than
  * shipping the coach's spec to the client.
+ *
+ * A route is the one block that keeps its geometry in geographic coordinates
+ * rather than arriving pre-projected, because the projection belongs to the
+ * basemap it is drawn over and the athlete chooses that by panning. It is
+ * therefore a map component rather than a node list — see `RouteView`.
  */
 export const SceneView = memo(function SceneView({ block }: { block: RenderBlock }) {
   if (block.kind === 'chart') {
@@ -232,6 +238,9 @@ export const SceneView = memo(function SceneView({ block }: { block: RenderBlock
   }
   if (block.kind === 'table') {
     return <SceneTable view={block} />;
+  }
+  if (block.kind === 'route') {
+    return <RouteView view={block} />;
   }
   return null;
 });

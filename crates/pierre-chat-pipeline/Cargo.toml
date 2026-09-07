@@ -43,6 +43,7 @@ pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging" }

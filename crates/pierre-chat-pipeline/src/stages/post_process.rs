@@ -33,7 +33,7 @@ use super::structured_output;
 use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
 };
-use super::viz_blocks;
+use super::{viz_blocks, viz_route};
 
 /// Aggregates the outputs of [`post_process_assistant_reply`] so the
 /// caller can persist the assistant message first and then link any
@@ -213,6 +213,26 @@ async fn apply_style_stages(
     .await
 }
 
+/// Borrowed inputs to [`repaired_extraction`], bundled to stay within the
+/// argument-count lint. The route-track map rides separately because the
+/// repair pass fills it.
+struct RepairInputs<'a> {
+    /// Shared pipeline context.
+    ctx: &'a ChatPipelineContext,
+    /// The turn being answered, for the track read's tenant and user scope.
+    input: &'a TurnInput,
+    /// Visual kinds this conversation may draw.
+    granted: &'a [String],
+    /// Tools that actually ran, for the attribution gate.
+    tools_called: &'a [String],
+    /// The reply as the model wrote it, fences and all.
+    raw_content: &'a str,
+    /// What the first extraction produced, which the repair must beat.
+    current: &'a viz_blocks::VizExtraction,
+    /// Model id the turn is pinned to.
+    active_model: &'a str,
+}
+
 /// One bounded re-ask for a reply whose blocks the schema refused.
 ///
 /// `Some` only for a repair that is strictly better than what we already had:
@@ -221,13 +241,18 @@ async fn apply_style_stages(
 /// refusal for another — yields `None` and the original extraction stands, so
 /// this can only add a chart, never cost the athlete prose they would have got.
 async fn repaired_extraction(
-    ctx: &ChatPipelineContext,
-    granted: &[String],
-    tools_called: &[String],
-    raw_content: &str,
-    current: &viz_blocks::VizExtraction,
-    active_model: &str,
+    args: RepairInputs<'_>,
+    tracks: &mut viz_route::RouteTracks,
 ) -> Option<viz_blocks::VizExtraction> {
+    let RepairInputs {
+        ctx,
+        input,
+        granted,
+        tools_called,
+        raw_content,
+        current,
+        active_model,
+    } = args;
     if current.refusals.is_empty() {
         return None;
     }
@@ -235,10 +260,14 @@ async fn repaired_extraction(
     let repaired =
         viz_blocks::repair_refused_blocks(provider, raw_content, &current.refusals, active_model)
             .await?;
+    // A repaired reply may name an activity the first pass never read. The
+    // map is shared, so the ones it already holds cost nothing here.
+    viz_route::read_route_tracks(ctx, input, granted, tools_called, &repaired, tracks).await;
     let second = viz_blocks::extract_viz_blocks(
         &ctx.structured_output_schemas,
         granted,
         tools_called,
+        tracks,
         &repaired,
     )?;
     if second.blocks.len() > current.blocks.len() && second.refusals.len() < current.refusals.len()
@@ -259,6 +288,7 @@ async fn repaired_extraction(
 
 async fn lift_viz_blocks(
     ctx: &ChatPipelineContext,
+    input: &TurnInput,
     coach_ctx: Option<&CoachRuntimeContext>,
     tools_called: &[String],
     raw_content: String,
@@ -282,10 +312,18 @@ async fn lift_viz_blocks(
         return (raw_content, None, 0);
     }
     let granted = granted.as_slice();
+    // A route block names an activity and the platform reads its recorded
+    // track: the geometry is thousands of points, so the coach cites it and
+    // never writes it. Reads happen before extraction because a block without
+    // its track has no map to render and is refused like any other faulty one.
+    let mut tracks = viz_route::RouteTracks::new();
+    viz_route::read_route_tracks(ctx, input, granted, tools_called, &raw_content, &mut tracks)
+        .await;
     let Some(mut extraction) = viz_blocks::extract_viz_blocks(
         &ctx.structured_output_schemas,
         granted,
         tools_called,
+        &tracks,
         &raw_content,
     ) else {
         return (raw_content, None, 0);
@@ -296,12 +334,16 @@ async fn lift_viz_blocks(
     // withheld. The refusals now name the offending field, so the model can be
     // handed something it can act on — one re-ask, fail-open.
     if let Some(better) = repaired_extraction(
-        ctx,
-        granted,
-        tools_called,
-        &raw_content,
-        &extraction,
-        active_model,
+        RepairInputs {
+            ctx,
+            input,
+            granted,
+            tools_called,
+            raw_content: &raw_content,
+            current: &extraction,
+            active_model,
+        },
+        &mut tracks,
     )
     .await
     {
@@ -474,8 +516,15 @@ pub(crate) async fn post_process_assistant_reply(
     }
 
     // Stage 15.55: Inline visual blocks.
-    let (raw_content, content_blocks, block_count) =
-        lift_viz_blocks(ctx, coach_ctx, tools_called, raw_content, active_model).await;
+    let (raw_content, content_blocks, block_count) = lift_viz_blocks(
+        ctx,
+        input,
+        coach_ctx,
+        tools_called,
+        raw_content,
+        active_model,
+    )
+    .await;
 
     // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
     // model narrates about its hidden scaffolding («Je continue d'ignorer le

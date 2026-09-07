@@ -10,7 +10,7 @@
  */
 export type WorkoutPlanView = { 
 /**
- * The plan document, exactly as the coach emitted it.
+ * The plan document, exactly as the agent emitted it.
  */
 plan: unknown, 
 /**

@@ -29,6 +29,12 @@
 //! Markdown-native on purpose: a block that fails extraction degrades to a
 //! visible code fence rather than vanishing. Ugly is recoverable; silent loss
 //! is not.
+//!
+//! A `route` block is the one kind the coach cannot write out: a recorded
+//! track is thousands of points, so the block names an activity and the
+//! platform reads its geometry ([`read_route_tracks`]) and carries it on the
+//! block ([`RouteTrack`]). Coordinates the model produced itself would be
+//! invented ones, which is why the schema gives it nowhere to put them.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -36,6 +42,8 @@ use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
+
+use super::viz_route::{hydrate_route, RouteTracks};
 use serde_json::Value;
 use tracing::warn;
 
@@ -54,7 +62,7 @@ use super::structured_output::{validator_for, SchemaTexts, DRAVR_VIZ};
 /// platform baseline applies. A coach that IS bound still governs its own
 /// reply, including a deliberately empty grant meaning "this persona does not
 /// draw".
-pub const DEFAULT_VISUALS: &[&str] = &["chart", "table"];
+pub const DEFAULT_VISUALS: &[&str] = &["chart", "table", "route"];
 
 /// The enforced half of the visual contract, rendered from the schema itself.
 ///
@@ -289,7 +297,7 @@ pub fn granted_visuals(coach_visuals: Option<&[String]>) -> Vec<String> {
 }
 
 /// Info string that marks a fenced block as a Dravr visual.
-const FENCE_INFO: &str = "dravr-viz";
+pub(super) const FENCE_INFO: &str = "dravr-viz";
 
 /// Placeholder left in the prose where a block was lifted out.
 ///
@@ -354,6 +362,11 @@ pub struct VizExtraction {
 /// A fence that is malformed, unparseable, or fails schema validation is
 /// **removed** from the reply and logged at WARN with its reason.
 ///
+/// `tracks` carries the geometry [`read_route_tracks`] read for this reply. A
+/// `route` block is hydrated from it and refused down the same path as any
+/// other faulty block when the activity it names has no drawable track — the
+/// athlete keeps the prose, and the reason travels out for the repair re-ask.
+///
 /// It used to be left in place as literal text, on the reasoning that a visible
 /// broken fence is a bug someone reports rather than one that hides. In
 /// practice it hid better that way: the athlete got a screenful of raw JSON —
@@ -371,6 +384,7 @@ pub fn extract_viz_blocks(
     schemas: &SchemaTexts,
     granted: &[String],
     tools_called: &[String],
+    tracks: &RouteTracks,
     reply: &str,
 ) -> Option<VizExtraction> {
     if !reply.contains(FENCE_INFO) {
@@ -384,7 +398,7 @@ pub fn extract_viz_blocks(
 
     while let Some(fence) = next_fence(rest) {
         text.push_str(&rest[..fence.start]);
-        match parse_block(schemas, granted, tools_called, fence.body) {
+        match parse_block(schemas, granted, tools_called, tracks, fence.body) {
             Ok(block) => {
                 text.push_str(&marker(blocks.len()));
                 blocks.push(block);
@@ -450,17 +464,17 @@ pub fn strip_fences(text: &str) -> Cow<'_, str> {
 }
 
 /// A located fence: byte range in the haystack plus the body between delimiters.
-struct Fence<'a> {
-    start: usize,
-    end: usize,
-    body: &'a str,
+pub(super) struct Fence<'a> {
+    pub(super) start: usize,
+    pub(super) end: usize,
+    pub(super) body: &'a str,
 }
 
 /// Find the next ```` ```dravr-viz ```` fence, if any.
 ///
 /// Matches only when the info string stands alone on the opening line, so a
 /// prose mention of the word cannot open a block.
-fn next_fence(haystack: &str) -> Option<Fence<'_>> {
+pub(super) fn next_fence(haystack: &str) -> Option<Fence<'_>> {
     let mut search = 0usize;
     loop {
         let open = haystack[search..].find("```")? + search;
@@ -490,8 +504,30 @@ fn next_fence(haystack: &str) -> Option<Fence<'_>> {
     }
 }
 
-/// Parse, schema-validate, and attribution-check one block body.
+/// Parse, validate, attribution-check and hydrate one block body.
+///
+/// Hydration is last on purpose: a block that fails any gate is refused
+/// without the platform having spent a provider read on it, and a `route`
+/// block whose `source_tool` did not run this turn is refused exactly where a
+/// chart citing the same tool would be.
 fn parse_block(
+    schemas: &SchemaTexts,
+    granted: &[String],
+    tools_called: &[String],
+    tracks: &RouteTracks,
+    body: &str,
+) -> Result<Value, String> {
+    let mut block = validated_block(schemas, granted, tools_called, body)?;
+    hydrate_route(&mut block, tracks)?;
+    Ok(block)
+}
+
+/// Parse, schema-validate, and attribution-check one block body.
+///
+/// Shared with [`route_activity_ids`], which runs exactly these gates before
+/// naming an activity to read: the set of blocks the platform reads geometry
+/// for is therefore the set it is going to render, never a superset.
+pub(super) fn validated_block(
     schemas: &SchemaTexts,
     granted: &[String],
     tools_called: &[String],
@@ -721,7 +757,7 @@ fn schema_faults(schemas: &SchemaTexts, block: &Value) -> Vec<String> {
 /// `dravr-get_activities` -> `get_activities`. Only the platform's own prefix
 /// is stripped: a tool from some other MCP server is a different tool and must
 /// not satisfy a citation for ours.
-fn strip_mcp_prefix(recorded: &str) -> &str {
+pub(super) fn strip_mcp_prefix(recorded: &str) -> &str {
     recorded.strip_prefix("dravr-").unwrap_or(recorded)
 }
 

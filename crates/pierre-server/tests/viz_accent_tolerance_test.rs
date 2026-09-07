@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
 use pierre_chat_pipeline::stages::structured_output::{SchemaTexts, DRAVR_VIZ};
 use pierre_chat_pipeline::stages::viz_blocks::extract_viz_blocks;
+use pierre_chat_pipeline::stages::viz_route::RouteTracks;
 use serde_json::Value;
 
 fn schemas() -> SchemaTexts {
@@ -36,7 +37,7 @@ fn an_unknown_accent_is_dropped_and_the_chart_survives() {
     let granted = vec!["chart".to_owned(), "table".to_owned()];
     let tools = vec!["get_activities".to_owned()];
 
-    let extraction = extract_viz_blocks(&schemas(), &granted, &tools, &reply)
+    let extraction = extract_viz_blocks(&schemas(), &granted, &tools, &RouteTracks::new(), &reply)
         .expect("the reply carries a dravr-viz fence");
 
     assert_eq!(
@@ -67,7 +68,7 @@ fn a_truly_invalid_block_is_still_refused() {
     let granted = vec!["chart".to_owned()];
     let tools = vec!["get_activities".to_owned()];
 
-    let extraction = extract_viz_blocks(&schemas(), &granted, &tools, reply)
+    let extraction = extract_viz_blocks(&schemas(), &granted, &tools, &RouteTracks::new(), reply)
         .expect("the reply carries a dravr-viz fence");
     assert!(
         extraction.blocks.is_empty(),
