@@ -836,16 +836,42 @@ fi
 echo ""
 echo -e "${BLUE}==== Phantom Capability Surface Detection ====${NC}"
 
-# --offline: resolves from the local cargo cache (present on any dev machine
-# that has built the workspace); on a cache-less CI runner it fails fast and
-# the check warn-skips instead of fetching the whole dep graph.
+# Resolution is two-step because the two callers have opposite caches. A dev
+# machine that has built the workspace resolves --offline for free. A CI runner
+# has no cargo cache at all, and this job is deliberately compile-free, so
+# resolving the whole dep graph there is not an option — instead fetch just this
+# one dependency at its pinned tag. The workflow already configures the
+# credential rewrite for private deps, so the clone needs no extra secret.
+CANOT_SRC=""
 CANOT_MANIFEST="$(cargo metadata --format-version 1 --offline 2>/dev/null \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((p["manifest_path"] for p in d["packages"] if p["name"]=="dravr-canot"), ""))' 2>/dev/null || true)"
 
-if [ -z "$CANOT_MANIFEST" ] || [ ! -f "$CANOT_MANIFEST" ]; then
-    warn_validation "dravr-canot checkout unresolvable — phantom-capability check skipped"
-else
+if [ -n "$CANOT_MANIFEST" ] && [ -f "$CANOT_MANIFEST" ]; then
     CANOT_SRC="$(dirname "$CANOT_MANIFEST")/src"
+else
+    CANOT_TAG="$(rg -o 'dravr-canot = \{ git = "[^"]+", tag = "([^"]+)"' -r '$1' \
+        crates/pierre-core/Cargo.toml 2>/dev/null | head -1)"
+    if [ -n "$CANOT_TAG" ]; then
+        CANOT_CACHE="${TMPDIR:-/tmp}/dravr-canot-$CANOT_TAG"
+        if [ ! -d "$CANOT_CACHE/src" ]; then
+            rm -rf "$CANOT_CACHE"
+            git clone --depth 1 --branch "$CANOT_TAG" -q \
+                https://github.com/dravr-ai/dravr-canot.git "$CANOT_CACHE" 2>/dev/null || true
+        fi
+        [ -d "$CANOT_CACHE/src" ] && CANOT_SRC="$CANOT_CACHE/src"
+    fi
+fi
+
+# A skip on CI is the gate not running in the one lane that gates main, which is
+# indistinguishable from a pass. Locally it stays a warning: a fresh clone with
+# no cargo cache and no network should not block a commit.
+if [ -z "$CANOT_SRC" ]; then
+    if [ -n "${CI:-}" ]; then
+        fail_validation "dravr-canot checkout unresolvable on CI — the phantom-capability check could not run"
+    else
+        warn_validation "dravr-canot checkout unresolvable — phantom-capability check skipped"
+    fi
+else
     PHANTOM_ITEMS=""
 
     # Capability predicates declared on the renderer/descriptor traits.
