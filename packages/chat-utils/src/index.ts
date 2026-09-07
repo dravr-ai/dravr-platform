@@ -32,6 +32,7 @@ export type { MessageChannelOrigin } from './conversation';
 // The words it cannot spell itself arrive as labels each client resolves
 // from CONVERSATION_ROW_LABEL_KEYS with its own t().
 export {
+  AVATAR_SLOT_HUES,
   AVATAR_SLOTS,
   CONVERSATION_ROW_LABEL_KEYS,
   conversationRowLabels,
@@ -46,6 +47,7 @@ export {
   filterRows,
 } from './conversation-row';
 export type {
+  AvatarSlotHue,
   ConversationKind,
   ConversationRowLabels,
   ConversationRowModel,

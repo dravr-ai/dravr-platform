@@ -623,6 +623,12 @@ ground; as text they use their `on-*-container` ink, which the token test
 measures over every tier at the /15 tint. Bare `nutrition`/`warning` on
 `surface` is 3.2:1 and is never used as body text.
 
+The avatar ground is one of six slots, and `AVATAR_SLOT_HUES` in
+`@pierre/chat-utils` orders them — primary, activity, nutrition, recovery,
+mobility, tertiary. Each client binds that order to its own tokens through a
+record keyed by hue, so a thread's slot is the same hue on the web and the
+phone, and a hue added to the list without a binding is a type error.
+
 The surface ladder itself is measured, not assumed:
 `frontend/src/__tests__/DesignTokens.test.ts` computes every ratio in §2 from
 the token values, asserts the separation floors and the 4.5:1 text minimums,

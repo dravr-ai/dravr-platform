@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Conversation } from '@pierre/shared-types';
 import {
+  AVATAR_SLOT_HUES,
   AVATAR_SLOTS,
   avatarSlot,
   buildConversationRow,
@@ -100,6 +101,40 @@ describe('avatarSlot', () => {
     expect(avatarSlot({ id: 'a', coach_id: null, group_id: null })).toBe(
       avatarSlot({ id: 'a', coach_id: null, group_id: null }),
     );
+  });
+
+  it('names the six hues in the one order both clients bind to', () => {
+    // Both clients follow this list silently, so a reorder here is a change
+    // to every avatar on every device and must be a deliberate edit of this
+    // literal, never a side effect of touching one client's palette.
+    expect(AVATAR_SLOT_HUES).toEqual([
+      'primary',
+      'activity',
+      'nutrition',
+      'recovery',
+      'mobility',
+      'tertiary',
+    ]);
+    expect(AVATAR_SLOTS).toBe(AVATAR_SLOT_HUES.length);
+    expect(new Set(AVATAR_SLOT_HUES).size).toBe(AVATAR_SLOTS);
+  });
+
+  it('lands fixed keys on fixed hues, so a client that hashes or keys differently is caught', () => {
+    // Concrete values from the FNV-1a hash over the precedence key. The three
+    // rows share an id and land on three different hues, so a client that
+    // keyed on the id alone, or on the coach under a group, cannot pass by
+    // coincidence: each precedence step changes the answer.
+    const byId = avatarSlot({ id: 'conv-1', coach_id: null, group_id: null });
+    expect(byId).toBe(1);
+    expect(AVATAR_SLOT_HUES[byId]).toBe('activity');
+
+    const byCoach = avatarSlot({ id: 'conv-1', coach_id: 'coach-x', group_id: null });
+    expect(byCoach).toBe(4);
+    expect(AVATAR_SLOT_HUES[byCoach]).toBe('mobility');
+
+    const byGroup = avatarSlot({ id: 'conv-1', coach_id: 'coach-x', group_id: 'group-2' });
+    expect(byGroup).toBe(5);
+    expect(AVATAR_SLOT_HUES[byGroup]).toBe('tertiary');
   });
 });
 

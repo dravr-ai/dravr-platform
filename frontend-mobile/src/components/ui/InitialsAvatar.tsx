@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { View, Text } from 'react-native';
-import { AVATAR_SLOTS } from '@pierre/chat-utils';
+import { AVATAR_SLOT_HUES, AVATAR_SLOTS, type AvatarSlotHue } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -37,18 +37,21 @@ interface AvatarSlotPair {
  * same pairing the web ships in `avatarSlotClass` (`bg-tertiary/15
  * text-tertiary`).
  *
- * The list is exactly {@link AVATAR_SLOTS} long; the hash that picks a slot
- * counts on that.
+ * The order is {@link AVATAR_SLOT_HUES}, the shared list `avatarSlot` hashes
+ * into: the phone binds each hue to its tokens and orders nothing, so a slot
+ * means the same hue here as on the web. A hue in the shared list with no
+ * binding here fails to compile rather than rendering an empty circle.
  */
 function avatarSlotPairs(colors: ThemeColors): readonly AvatarSlotPair[] {
-  return [
-    { fill: colors.tokens.primary, ink: colors.tokens.onPrimaryContainer },
-    { fill: colors.pierre.activity, ink: colors.ink.activity },
-    { fill: colors.pierre.nutrition, ink: colors.ink.nutrition },
-    { fill: colors.pierre.recovery, ink: colors.ink.recovery },
-    { fill: colors.pierre.mobility, ink: colors.ink.mobility },
-    { fill: colors.tokens.tertiary, ink: colors.tokens.tertiary },
-  ];
+  const byHue: Record<AvatarSlotHue, AvatarSlotPair> = {
+    primary: { fill: colors.tokens.primary, ink: colors.tokens.onPrimaryContainer },
+    activity: { fill: colors.pierre.activity, ink: colors.ink.activity },
+    nutrition: { fill: colors.pierre.nutrition, ink: colors.ink.nutrition },
+    recovery: { fill: colors.pierre.recovery, ink: colors.ink.recovery },
+    mobility: { fill: colors.pierre.mobility, ink: colors.ink.mobility },
+    tertiary: { fill: colors.tokens.tertiary, ink: colors.tokens.tertiary },
+  };
+  return AVATAR_SLOT_HUES.map((hue) => byHue[hue]);
 }
 
 /** The fill of each avatar slot, in slot order — the palette without its inks. */

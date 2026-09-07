@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { AVATAR_SLOTS, buildConversationRow } from '@pierre/chat-utils';
+import { AVATAR_SLOT_HUES, AVATAR_SLOTS, buildConversationRow } from '@pierre/chat-utils';
 
 /** The words the row cannot spell itself, as the English client resolves them. */
 const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitled chat' };
@@ -196,10 +196,23 @@ describe('avatar palette', () => {
     expect(new Set(AVATAR_SLOT_CLASSES).size).toBe(AVATAR_SLOTS);
   });
 
+  it('binds every slot to the hue the shared list names for it', () => {
+    // Slot n must be the same hue on web and on the phone; both bind the
+    // shared list, so each class pair carries the hue at its own index.
+    AVATAR_SLOT_HUES.forEach((hue, slot) => {
+      expect(AVATAR_SLOT_CLASSES[slot]).toContain(`bg-${hue}`);
+    });
+    // Pinned by value so a reorder of the shared list that both clients follow
+    // still surfaces here as a deliberate test change.
+    expect(AVATAR_SLOT_CLASSES[1]).toBe('bg-activity/15 text-on-activity-container');
+    expect(AVATAR_SLOT_CLASSES[5]).toBe('bg-tertiary/15 text-tertiary');
+  });
+
   it('gives the same thread the same colour on every render', () => {
     const first = buildConversationRow(conversation({ id: 'conv-stable' }), LABELS, NOW).avatarSlot;
     const second = buildConversationRow(conversation({ id: 'conv-stable' }), LABELS, NOW).avatarSlot;
     expect(avatarSlotClass(first)).toBe(avatarSlotClass(second));
     expect(avatarSlotClass(AVATAR_SLOTS)).toBe(AVATAR_SLOT_CLASSES[0]);
+    expect(avatarSlotClass(-1)).toBe(AVATAR_SLOT_CLASSES[AVATAR_SLOTS - 1]);
   });
 });

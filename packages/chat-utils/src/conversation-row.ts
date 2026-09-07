@@ -14,8 +14,30 @@ import { resolveChannelOrigin, type MessageChannelOrigin } from './conversation'
  */
 export type ConversationKind = 'group' | 'channel' | 'coach' | 'plain';
 
+/**
+ * The avatar palette, in slot order — the hue each `avatarSlot` value names.
+ *
+ * The hash below picks an index; this list says what the index means, and it
+ * is the only place that does. Each client binds the hue to its own tokens
+ * (a Tailwind pair on web, a fill and its ink on the phone), but neither
+ * client orders the palette itself: the same thread hashes to the same slot
+ * everywhere, and the slot has to mean the same hue everywhere for that to be
+ * the same colour.
+ */
+export const AVATAR_SLOT_HUES = [
+  'primary',
+  'activity',
+  'nutrition',
+  'recovery',
+  'mobility',
+  'tertiary',
+] as const;
+
+/** One of the hues an avatar slot can name. */
+export type AvatarSlotHue = (typeof AVATAR_SLOT_HUES)[number];
+
 /** How many avatar colours a client provides; {@link avatarSlot} indexes into them. */
-export const AVATAR_SLOTS = 6;
+export const AVATAR_SLOTS = AVATAR_SLOT_HUES.length;
 
 /**
  * The i18n keys behind the words this model cannot spell itself.
@@ -140,7 +162,8 @@ function fnv1a(key: string): number {
  *
  * Keyed on the group for a group row and the coach for a coach row, so every
  * thread with the same group or coach shares a colour, and on the conversation
- * id otherwise. Deterministic: the same row is the same colour on every device.
+ * id otherwise. Deterministic: the same row lands on the same slot on every
+ * device, and {@link AVATAR_SLOT_HUES} makes that slot the same hue.
  */
 export function avatarSlot(
   conversation: Pick<Conversation, 'id' | 'coach_id' | 'group_id'>,
