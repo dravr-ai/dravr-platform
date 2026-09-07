@@ -1,4 +1,4 @@
-// ABOUTME: Extracts inline ```dravr-viz fences from a coach reply into ordered, validated blocks
+// ABOUTME: Extracts inline ```dravr-viz fences from an agent reply into ordered, validated blocks
 // ABOUTME: Prose keeps a positional marker where each block sat, so clients interleave the two
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! Inline visual blocks.
 //!
 //! The workout-plan path in [`super::structured_output`] is *whole-reply
-//! replacement*: the coach emits one JSON object and nothing else. Visual
+//! replacement*: the agent emits one JSON object and nothing else. Visual
 //! blocks are the other content model — embedded in prose, several per reply —
 //! so they need their own extraction rather than a second schema on that path.
 //!
@@ -30,7 +30,7 @@
 //! visible code fence rather than vanishing. Ugly is recoverable; silent loss
 //! is not.
 //!
-//! A `route` block is the one kind the coach cannot write out: a recorded
+//! A `route` block is the one kind the agent cannot write out: a recorded
 //! track is thousands of points, so the block names an activity and the
 //! platform reads its geometry ([`read_route_tracks`]) and carries it on the
 //! block ([`RouteTrack`]). Coordinates the model produced itself would be
@@ -49,17 +49,17 @@ use tracing::warn;
 
 use super::structured_output::{validator_for, SchemaTexts, DRAVR_VIZ};
 
-/// What a conversation with no coach persona bound may draw.
+/// What a conversation with no agent persona bound may draw.
 ///
-/// The `visuals:` grant is a *coach author's* choice, so it only exists when a
-/// coach is bound. A group chat binds none — the platform itself is answering —
-/// and reading "no coach" as "no grant" left the visual contract out of the
+/// The `visuals:` grant is an *agent author's* choice, so it only exists when an
+/// agent is bound. A group chat binds none — the platform itself is answering —
+/// and reading "no agent" as "no grant" left the visual contract out of the
 /// prompt entirely. The model then reported, accurately, that it had no way to
 /// draw: "Je peux pas générer de graphique dans ce chat — pas d'outil pour ça
 /// de mon côté" (Telegram group, 2026-08-21), having already fetched the data.
 ///
-/// So absence of a coach means no author expressed a preference, and the
-/// platform baseline applies. A coach that IS bound still governs its own
+/// So absence of an agent means no author expressed a preference, and the
+/// platform baseline applies. An agent that IS bound still governs its own
 /// reply, including a deliberately empty grant meaning "this persona does not
 /// draw".
 pub const DEFAULT_VISUALS: &[&str] = &["chart", "table", "route"];
@@ -70,14 +70,14 @@ pub const DEFAULT_VISUALS: &[&str] = &["chart", "table", "route"];
 /// interpretation belongs in the sentence, that a persona's length cap wins.
 /// None of that is derivable. The *bounds* are, and hand-transcribing them is
 /// what failed: the prose listed "at most 4 series and 400 points" and never
-/// that `points` also carries `minItems: 2`. A coach asked for a two-athlete
+/// that `points` also carries `minItems: 2`. An agent asked for a two-athlete
 /// comparison wrote one series per athlete with a single point each — a
 /// reasonable reading of a rule it had never been told — and the block was
 /// refused on every pass while the athlete got prose and no chart (2026-08-31).
 ///
 /// The prose no longer restates any bound; it defers to what this renders.
 ///
-/// Deriving the numbers means a schema change reaches the coach without anyone
+/// Deriving the numbers means a schema change reaches the agent without anyone
 /// remembering to restate it, which is the only way this class of drift stops
 /// recurring. The wording around them is fixed; every bound and enum in it is
 /// read from `DRAVR_VIZ_SCHEMA` at startup.
@@ -286,7 +286,7 @@ fn bounds(spec: &Value) -> String {
 ///
 /// One rule, two readers: the prompt-assembly stage decides whether to teach the
 /// contract, and the post-process stage decides whether to honour a fence. They
-/// must agree — a coach told it may draw whose blocks are then refused produces
+/// must agree — an agent told it may draw whose blocks are then refused produces
 /// exactly the raw-JSON reply this pipeline works to avoid.
 #[must_use]
 pub fn granted_visuals(coach_visuals: Option<&[String]>) -> Vec<String> {
@@ -302,7 +302,7 @@ pub(super) const FENCE_INFO: &str = "dravr-viz";
 /// Placeholder left in the prose where a block was lifted out.
 ///
 /// Clients split on it to interleave prose and rendered blocks. The brackets
-/// are U+27E6/U+27E7 rather than ASCII so ordinary coach prose — including
+/// are U+27E6/U+27E7 rather than ASCII so ordinary agent prose — including
 /// markdown, LaTeX-ish notation and code — cannot collide with it.
 const MARKER_OPEN: &str = "⟦viz:";
 /// Closing half of [`MARKER_OPEN`].
@@ -371,7 +371,7 @@ pub struct VizExtraction {
 /// broken fence is a bug someone reports rather than one that hides. In
 /// practice it hid better that way: the athlete got a screenful of raw JSON —
 /// which reads as a broken product, not a bug report — and the same text was
-/// persisted as the assistant message, so on every later turn the coach read
+/// persisted as the assistant message, so on every later turn the agent read
 /// its own transcript, saw a chart spec it had "emitted", and refused to draw
 /// again ("le graphique est déjà juste au-dessus", Telegram 2026-08-21). One
 /// refusal poisoned the whole conversation.
@@ -436,8 +436,8 @@ pub fn extract_viz_blocks(
 ///
 /// Nothing written today persists a raw fence — a lifted block leaves a marker
 /// and a refused one is stripped — so any fence still sitting in stored history
-/// predates that and is pure poison. Left in place it is read back to the coach
-/// as its own prior work: on 2026-08-21 a coach read one and answered "le
+/// predates that and is pure poison. Left in place it is read back to the agent
+/// as its own prior work: on 2026-08-21 an agent read one and answered "le
 /// graphique est déjà juste au-dessus", refusing to draw a chart the athlete
 /// had never actually been shown.
 ///
@@ -620,7 +620,7 @@ fn drop_unknown_accents(block: &mut Value) {
     }
 }
 
-/// `true` when the block's kind appears in the coach's grant.
+/// `true` when the block's kind appears in the agent's grant.
 ///
 /// The grant is kind-level, not boolean: `visuals: [table]` permits tables and
 /// nothing else. Without this the frontmatter list would be decoration — any
@@ -635,7 +635,7 @@ fn kind_granted(block: &Value, granted: &[String]) -> bool {
     }
     warn!(
         kind,
-        "viz-blocks: block kind is outside this coach's visuals grant; leaving it in the reply"
+        "viz-blocks: block kind is outside this agent's visuals grant; leaving it in the reply"
     );
     false
 }
@@ -750,7 +750,7 @@ fn schema_faults(schemas: &SchemaTexts, block: &Value) -> Vec<String> {
 /// `get_activities` — the name in its own tool catalogue and in the block
 /// schema. Comparing those literally rejects a chart whose attribution is
 /// exactly right, which is not the fabrication this gate exists to catch. It
-/// cost the first genuine chart the coach ever produced (2026-08-18): correct
+/// cost the first genuine chart the agent ever produced (2026-08-18): correct
 /// data, correct source, refused on a prefix.
 /// Drop the MCP server prefix a natively-called tool is recorded under.
 ///
