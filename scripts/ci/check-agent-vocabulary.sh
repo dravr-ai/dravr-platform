@@ -8,10 +8,11 @@
 # carnet#366. The coach→agent rename shipped and audited clean, and then a
 # route-block change landed on main hours later carrying ten sense-A comments —
 # not carelessness, but the natural pull of a codebase whose identifiers all
-# still say coach. Decision D6 kept those identifiers on purpose (renaming 27
-# MCP tool names, 15 tables and 37 routes would break every SDK consumer for a
-# vocabulary change), so the code reads coach while the product speaks agent,
-# and every new line is written next to something pulling the wrong way.
+# still said coach. That pull is why ADR-026's D6 was reversed on 2026-09-07
+# (carnet#384): identifiers rename too, in phases, so the code and the product
+# end up speaking one language. This fence is what holds the line meanwhile —
+# the identifier phases land over days, and every prose line written in between
+# is still written next to something pulling the wrong way.
 #
 # Two checks, deliberately different in strictness:
 #
