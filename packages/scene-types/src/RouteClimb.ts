@@ -20,7 +20,9 @@ end_index: number,
  */
 avg_gradient: number, 
 /**
- * The grade the climb was categorised as, as the platform's grader named
- * it.
+ * The grade the climb earned, when it earned one.
+ *
+ * `None` for an ascent below the category threshold: still drawn as a
+ * climb, never captioned with a grade it does not have.
  */
-category: string, };
+category: string | null, };
