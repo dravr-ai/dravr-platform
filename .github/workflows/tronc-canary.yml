@@ -1,5 +1,5 @@
 # ABOUTME: Scheduled Slack alert pipeline canary — emits a synthetic ERROR every 6h
-# ABOUTME: Then reads its own post back from #dev-dravr-errors and reds when it never lands
+# ABOUTME: Reads its own post back from #dev-dravr-errors, reds when absent, then deletes it
 
 name: "Monitor: Tronc Slack Canary"
 
@@ -108,6 +108,7 @@ jobs:
       # target + message prefix, so a 6-hourly identical message is never
       # suppressed; a red here means the digest did not reach Slack.
       - name: Read the canary back from Slack
+        id: readback
         env:
           SLACK_TOKEN: ${{ secrets.CANARY_SLACK_BOT_TOKEN }}
           SLACK_CHANNEL: ${{ vars.CANARY_SLACK_CHANNEL_ID }}
@@ -128,13 +129,86 @@ jobs:
               exit 1
             fi
             # The id sits in the digest's section block as `correlation_id`: <uuid>;
-            # grepping the whole message JSON keeps this independent of which
-            # block or field tronc renders it into.
-            if echo "${PAGE}" | jq -c '.messages[]' | grep -q "${CORRELATION_ID}"; then
+            # matching the whole message JSON keeps this independent of which
+            # block or field tronc renders it into. `select` rather than `grep`
+            # because the delete step needs the message itself, not a verdict.
+            MATCH=$(echo "${PAGE}" | jq -c --arg cid "${CORRELATION_ID}" \
+                '[.messages[] | select(tostring | contains($cid))] | first // empty')
+            if [ -n "${MATCH}" ]; then
               echo "Canary ${CORRELATION_ID} landed in Slack on poll ${attempt}"
+              # `ts` addresses the message for chat.delete. The context line's
+              # error count is what proves the digest holds the canary ALONE —
+              # tronc renders it as `*Environment:* … | *Errors:* N`.
+              TS=$(echo "${MATCH}" | jq -r '.ts')
+              CONTEXT=$(echo "${MATCH}" | jq -r \
+                  '[.blocks[]? | select(.type == "context") | .elements[]? | .text // empty] | first // ""')
+              COUNT=$(printf '%s' "${CONTEXT}" | sed -n 's/.*\*Errors:\* \([0-9][0-9]*\).*/\1/p')
+              { echo "ts=${TS}"; echo "errors=${COUNT}"; } >> "${GITHUB_OUTPUT}"
               exit 0
             fi
             sleep 5
           done
           echo "::error::Canary ${CORRELATION_ID} never landed in #dev-dravr-errors within 2 minutes — the alert pipeline is broken, not this lane"
+          exit 1
+
+      # The canary is indistinguishable from a real alert BY CONSTRUCTION — that
+      # is exactly what makes it a valid test of the alert path, and exactly what
+      # made it pollution: four synthetic digests a day in #dev-dravr-errors,
+      # among which the real ones had to be spotted (2026-09-08, a genuine
+      # terraform-drift alert arrived between three canaries).
+      #
+      # Deleting AFTER the read-back costs no fidelity. The emission, the tronc
+      # error layer, the bot token, the channel and the delivery are all still
+      # the production ones and all still asserted; only the residue goes. It
+      # needs no scope the bot lacks — chat.delete takes `chat:write`, which it
+      # must already hold to have posted the message at all.
+      #
+      # THE GUARD IS THE WHOLE SAFETY STORY. tronc batches a 5 s window into ONE
+      # digest, so a real error raised alongside the canary shares this message;
+      # its context line then reads `*Errors:* 2` and the delete is skipped, real
+      # alert intact. Only a digest carrying exactly one error — the canary's own
+      # — is ever removed. A count that cannot be READ is not treated as one: it
+      # reds, because a cleanup that quietly stops working restores the pollution
+      # with nobody told, which is the failure shape of carnet#170 all over again.
+      - name: Delete the canary from Slack
+        env:
+          SLACK_TOKEN: ${{ secrets.CANARY_SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.CANARY_SLACK_CHANNEL_ID }}
+          CORRELATION_ID: ${{ steps.emit.outputs.correlation_id }}
+          TS: ${{ steps.readback.outputs.ts }}
+          ERROR_COUNT: ${{ steps.readback.outputs.errors }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TS}" ]; then
+            echo "::error::The read-back passed but handed this step no message ts, so the canary cannot be removed. Alerting is FINE; this lane's cleanup is broken."
+            exit 1
+          fi
+          if [ -z "${ERROR_COUNT}" ]; then
+            echo "::error::Digest ${TS} carried no readable '*Errors:* N' context line, so this step cannot prove it holds the canary alone. Refusing to delete rather than risk destroying a real alert. Alerting is FINE — the read-back passed — but the canary is still in the channel and this lane's guard no longer parses what tronc renders."
+            exit 1
+          fi
+          if [ "${ERROR_COUNT}" != "1" ]; then
+            echo "::notice::Digest ${TS} carries ${ERROR_COUNT} errors — a real error batched with the canary inside tronc's 5 s window. Leaving it in place. The round trip still passed."
+            exit 0
+          fi
+          # Three attempts: chat.delete answers `ratelimited` under load and
+          # retries into success, while a scope or ownership failure repeats
+          # identically and must red rather than be swallowed as transient.
+          PAYLOAD=$(jq -n --arg c "${SLACK_CHANNEL}" --arg t "${TS}" '{channel: $c, ts: $t}')
+          DELETE_ERROR="never attempted"
+          for attempt in 1 2 3; do
+            RESPONSE=$(curl -sS -X POST \
+                -H "Authorization: Bearer ${SLACK_TOKEN}" \
+                -H "Content-type: application/json; charset=utf-8" \
+                --data "${PAYLOAD}" \
+                https://slack.com/api/chat.delete)
+            if [ "$(echo "${RESPONSE}" | jq -r '.ok')" = "true" ]; then
+              echo "Canary ${CORRELATION_ID} verified and removed — digest ${TS} deleted on attempt ${attempt}"
+              exit 0
+            fi
+            DELETE_ERROR=$(echo "${RESPONSE}" | jq -r '.error // "no error field"')
+            echo "chat.delete attempt ${attempt} failed: ${DELETE_ERROR}"
+            sleep 5
+          done
+          echo "::error::chat.delete could not remove canary digest ${TS} after 3 attempts (last: ${DELETE_ERROR}). Alerting is FINE — the read-back passed — but the canary is still sitting in #dev-dravr-errors. The bot needs chat:write and must be the author of the message."
           exit 1
