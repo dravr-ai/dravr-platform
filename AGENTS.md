@@ -37,15 +37,19 @@ Project settings are read from the project root, so when several repos are attac
 root is their shared *parent* and no repo's settings file loads — not this one's, not a satellite's.
 The instructions you are reading arrive by a separate mechanism and are unaffected, which is why the
 repo looks configured while its hooks, permissions and plugins silently are not. Do not conclude
-"hooks are unsupported here": a single-repo cloud session loads them normally.
+"hooks are unsupported here": a session with one repo attached loads them normally.
 
-One command says which case you are in:
+**Read your own session start to tell which case you are in, not an environment variable.** A
+SessionStart hook prints before your first turn, and `PORT ALLOCATION: 8081=Pierre Server` is the
+cheapest line to look for. If it is there, the hooks ran and the bootstrap below is already done —
+re-running it is harmless but pointless. If every occurrence of that text is *after* your first
+turn, it is your own output and no hook ran.
 
-```bash
-echo "${CLAUDE_PROJECT_DIR:-<unset>}"     # unset ⇒ root is not a repo ⇒ NO hook ran this session
-```
+`CLAUDE_PROJECT_DIR` is **not** the signal, though it looks like one. It is unset in cloud sessions
+whose hooks demonstrably did run, so an empty value tells you only that project settings were not
+loaded from a repo root — never that nothing was bootstrapped.
 
-If it is unset, nothing was bootstrapped for you. Run this once, before any code work:
+If no SessionStart line appeared, nothing was bootstrapped for you. Run this once, before any code work:
 
 ```bash
 git submodule update --init --recursive     # --recursive: vendor/llm-registre is nested under .build

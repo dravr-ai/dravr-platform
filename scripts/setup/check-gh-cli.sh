@@ -14,8 +14,14 @@ fi
 # ---------------------------------------------------------------------------
 # Detect environment: local vs containerized (Claude Code for Web)
 # ---------------------------------------------------------------------------
+# CLAUDE_CODE_REMOTE_SESSION_ID is the one that matters in practice: an Anthropic-hosted
+# cloud session runs in a VM, not a container, so it has no /.dockerenv and no
+# /run/.containerenv. Without this the script took the local branch there and tried to
+# install gh — which cannot work and reported GH_INSTALL_FAILED, burying the fact that
+# GitHub is reachable by proxy-authenticated curl.
 IS_CONTAINER=false
-if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
+if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || [ -n "${KUBERNETES_SERVICE_HOST:-}" ] \
+   || [ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" ]; then
     IS_CONTAINER=true
 fi
 
