@@ -38,6 +38,34 @@ run() {
     "$@"
 }
 
+# ------------------------------------------------------------------ tracker transport
+# `gh issue`, `gh pr` and `gh repo view` are GraphQL. A cloud session's agent proxy serves
+# only a pinned set of PR-review GraphQL operations and refuses every other query with a 403
+# naming this REST fallback, so those subcommands fail there against EVERY repository —
+# including the one attached to the session, and regardless of any token supplied. REST works
+# in both places, so the tracker is reached exclusively through `gh api`.
+api() { gh api "$@"; }
+
+# Label names travel in the URL path on delete, so encode rather than trust the convention.
+uri() { jq -rn --arg s "$1" '$s|@uri'; }
+
+# The body reaches the API as JSON built by jq, never as a shell argument, so backticks,
+# quotes and newlines in a marker comment cannot corrupt the request.
+api_comment() { # <n> <body-file>
+    local payload
+    payload=$(mktemp)
+    jq -n --rawfile b "$2" '{body:$b}' > "$payload"
+    run api "repos/$TRACKER/issues/$1/comments" -X POST --input "$payload" >/dev/null
+    rm -f "$payload"
+}
+
+api_assign()    { run api "repos/$TRACKER/issues/$1/assignees" -X POST   -f "assignees[]=$2" >/dev/null; }
+api_unassign()  { run api "repos/$TRACKER/issues/$1/assignees" -X DELETE -f "assignees[]=$2" >/dev/null; }
+api_label_add() { run api "repos/$TRACKER/issues/$1/labels"    -X POST   -f "labels[]=$2"    >/dev/null; }
+# Removing a label the issue does not carry answers 404. `gh issue edit --remove-label`
+# tolerated that, and release/close both call this unconditionally, so it stays tolerated.
+api_label_rm()  { run api "repos/$TRACKER/issues/$1/labels/$(uri "$2")" -X DELETE >/dev/null 2>&1 || true; }
+
 usage() {
     cat <<'EOF'
 carnet — the private register, from the command line
@@ -199,15 +227,20 @@ ledger_has() {
 }
 
 # ------------------------------------------------------------------ tracker reads
+# REST names the field `html_url` and lower-cases the state, while three call sites below
+# compare `.state` to "OPEN". Normalise here so those consumers are untouched by the
+# transport change — a silent lower-case would make every claim die as "already closed".
 issue_json() {
-    gh issue view "$1" -R "$TRACKER" --json number,title,url,state,labels,assignees 2>/dev/null \
+    local raw
+    raw=$(api "repos/$TRACKER/issues/$1" 2>/dev/null) \
         || die "carnet#$1 does not exist in $TRACKER"
+    jq -c '{number, title, url: .html_url, state: (.state | ascii_upcase), labels, assignees}' <<<"$raw"
 }
 
 # Newest marker comment on the issue, or nothing. Claims and releases share one stream, so the
 # last one wins.
 last_marker() {
-    gh api "repos/$TRACKER/issues/$1/comments" --paginate -q '.[].body' 2>/dev/null \
+    api "repos/$TRACKER/issues/$1/comments" --paginate -q '.[].body' 2>/dev/null \
         | grep -oE '<!-- carnet-(claim|release) \{.*\} -->' | tail -1 || true
 }
 marker_kind() { local k=${1#<!-- carnet-}; printf '%s' "${k%% *}"; }
@@ -267,10 +300,11 @@ cmd_claim() { # <n> <steal>
     } > "$body"
 
     if [ -n "$prev_user" ] && [ "$prev_user" != "$USER_LOGIN" ]; then
-        run gh issue edit "$n" -R "$TRACKER" --remove-assignee "$prev_user" >/dev/null
+        api_unassign "$n" "$prev_user"
     fi
-    run gh issue edit "$n" -R "$TRACKER" --add-assignee "$USER_LOGIN" --add-label "$CLAIM_LABEL" >/dev/null
-    run gh issue comment "$n" -R "$TRACKER" --body-file "$body" >/dev/null
+    api_assign "$n" "$USER_LOGIN"
+    api_label_add "$n" "$CLAIM_LABEL"
+    api_comment "$n" "$body"
     rm -f "$body"
     [ "$DRY_RUN" = 1 ] || ledger_add "$n"
     say "🔒 carnet#$n claimed by @$USER_LOGIN · session $NAME ($SHORT_ID) · $(jq -r .title <<<"$issue")"
@@ -303,8 +337,9 @@ cmd_release() { # <n> <reason>
     local body
     body=$(mktemp)
     release_comment "$reason" > "$body"
-    run gh issue edit "$n" -R "$TRACKER" --remove-label "$CLAIM_LABEL" --remove-assignee "$USER_LOGIN" >/dev/null
-    run gh issue comment "$n" -R "$TRACKER" --body-file "$body" >/dev/null
+    api_label_rm "$n" "$CLAIM_LABEL"
+    api_unassign "$n" "$USER_LOGIN"
+    api_comment "$n" "$body"
     rm -f "$body"
     [ "$DRY_RUN" = 1 ] || ledger_drop "$n"
     say "🔓 carnet#$n released ($reason)"
@@ -364,10 +399,11 @@ cmd_close() { # <n> <why> <commit>
         [ -z "$commit_url" ] || printf '\n**Commit:** %s\n' "$commit_url"
     } > "$body"
     if has_label "$issue" "$CLAIM_LABEL" || [ "$(jq '.assignees | length' <<<"$issue")" != 0 ]; then
-        run gh issue edit "$n" -R "$TRACKER" --remove-label "$CLAIM_LABEL" --remove-assignee "$USER_LOGIN" >/dev/null
+        api_label_rm "$n" "$CLAIM_LABEL"
+        api_unassign "$n" "$USER_LOGIN"
     fi
-    run gh issue comment "$n" -R "$TRACKER" --body-file "$body" >/dev/null
-    run gh issue close "$n" -R "$TRACKER" >/dev/null
+    api_comment "$n" "$body"
+    run api "repos/$TRACKER/issues/$n" -X PATCH -f state=closed >/dev/null
     rm -f "$body"
     [ "$DRY_RUN" = 1 ] || ledger_drop "$n"; ledger_drop_filed "$n"
     say "✅ carnet#$n closed · $(jq -r .title <<<"$issue")"
@@ -380,7 +416,7 @@ cmd_create() { # <title> <body> <body_file> <claim> labels...
 
     # The whole point of a private register: an entry states where a defence is incomplete.
     local private
-    private=$(gh repo view "$TRACKER" --json isPrivate -q .isPrivate 2>/dev/null || echo unknown)
+    private=$(api "repos/$TRACKER" -q .private 2>/dev/null || echo unknown)
     [ "$private" = true ] || die "tracker $TRACKER is not private (isPrivate=$private) — refusing to file"
 
     case "$title" in
@@ -400,22 +436,27 @@ cmd_create() { # <title> <body> <body_file> <claim> labels...
     fi
     [ -s "$bf" ] || die "create needs a body: where it is (file + symbol), what is incomplete, what the fix looks like"
 
-    local args=(gh issue create -R "$TRACKER" --title "$title" --body-file "$bf" --label "$REPO_NAME")
-    local l has_limitation=0
+    local l has_limitation=0 labels=("$REPO_NAME")
     for l in "$@"; do
         [ "$l" = "$REPO_NAME" ] && continue
-        args+=(--label "$l")
+        labels+=("$l")
         [ "$l" = limitation ] && has_limitation=1
     done
 
+    local payload
+    payload=$(mktemp)
+    jq -n --arg t "$title" --rawfile b "$bf" --args \
+        '{title:$t, body:$b, labels:$ARGS.positional}' "${labels[@]}" > "$payload"
+
     local url n
     if [ "$DRY_RUN" = 1 ]; then
-        run "${args[@]}"
+        run api "repos/$TRACKER/issues" -X POST --input "$payload"
         url="https://github.com/$TRACKER/issues/0"
     else
-        url=$("${args[@]}") || die "gh issue create failed"
+        url=$(api "repos/$TRACKER/issues" -X POST --input "$payload" -q .html_url) \
+            || die "issue create failed"
     fi
-    rm -f "$bf"
+    rm -f "$bf" "$payload"
     n=${url##*/}
     [ "$DRY_RUN" = 1 ] || [ "$n" = 0 ] || ledger_filed "$n"
     say "📝 $url"
@@ -429,15 +470,14 @@ cmd_create() { # <title> <body> <body_file> <claim> labels...
 cmd_label() { # <n> [+label|-label|label]...
     local n=$1; shift
     [ $# -gt 0 ] || die "label needs at least one +label or -label"
-    local a args=(gh issue edit "$n" -R "$TRACKER")
+    local a
     for a in "$@"; do
         case "$a" in
-            -*) args+=(--remove-label "${a#-}") ;;
-            +*) args+=(--add-label "${a#+}") ;;
-            *)  args+=(--add-label "$a") ;;
+            -*) api_label_rm  "$n" "${a#-}" ;;
+            +*) api_label_add "$n" "${a#+}" ;;
+            *)  api_label_add "$n" "$a" ;;
         esac
     done
-    run "${args[@]}" >/dev/null
     say "🏷  carnet#$n: $*"
 }
 
@@ -485,8 +525,9 @@ status_line() { # <n> <short>
 
 cmd_status_all() {
     local nums n
-    nums=$(gh issue list -R "$TRACKER" --label "$CLAIM_LABEL" --state open --limit 100 --json number -q '.[].number' 2>/dev/null) \
-        || die "gh issue list failed"
+    nums=$(api "repos/$TRACKER/issues?labels=$(uri "$CLAIM_LABEL")&state=open&per_page=100" \
+        -q '.[] | select(.pull_request == null) | .number' 2>/dev/null) \
+        || die "issue list failed"
     [ -n "$nums" ] || { say "no issue in $TRACKER is in progress"; return 0; }
     for n in $nums; do status_line "$n" 1; done
 }
