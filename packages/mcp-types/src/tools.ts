@@ -16,20 +16,20 @@
 /**
  * Activate an agent for personalized training guidance
  */
-export interface ActivateCoachParams {
+export interface ActivateAgentParams {
 
   /** ID of the agent to activate */
-  coach_id: string;
+  agent_id: string;
 }
 
 
 /**
  * Assign a system agent to a specific user (admin only)
  */
-export interface AdminAssignCoachParams {
+export interface AdminAssignAgentParams {
 
   /** ID of the system agent to assign */
-  coach_id: string;
+  agent_id: string;
 
   /** ID of the user to assign the agent to */
   user_id: string;
@@ -39,7 +39,7 @@ export interface AdminAssignCoachParams {
 /**
  * Create a new system agent visible to all tenant users (admin only)
  */
-export interface AdminCreateSystemCoachParams {
+export interface AdminCreateSystemAgentParams {
 
   /** Category: 'training', 'nutrition', 'recovery', 'recipes', 'custom' */
   category?: string;
@@ -64,20 +64,20 @@ export interface AdminCreateSystemCoachParams {
 /**
  * Delete a system agent and remove all assignments (admin only)
  */
-export interface AdminDeleteSystemCoachParams {
+export interface AdminDeleteSystemAgentParams {
 
   /** ID of the system agent to delete */
-  coach_id: string;
+  agent_id: string;
 }
 
 
 /**
  * Get detailed information about a system agent (admin only)
  */
-export interface AdminGetSystemCoachParams {
+export interface AdminGetSystemAgentParams {
 
   /** ID of the system agent to retrieve */
-  coach_id: string;
+  agent_id: string;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
@@ -87,17 +87,17 @@ export interface AdminGetSystemCoachParams {
 /**
  * List all assignments for a system agent (admin only)
  */
-export interface AdminListCoachAssignmentsParams {
+export interface AdminListAgentAssignmentsParams {
 
   /** ID of the agent to list assignments for */
-  coach_id: string;
+  agent_id: string;
 }
 
 
 /**
  * List all system agents in the tenant (admin only)
  */
-export interface AdminListSystemCoachesParams {
+export interface AdminListSystemAgentsParams {
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
@@ -113,10 +113,10 @@ export interface AdminListSystemCoachesParams {
 /**
  * Remove an agent assignment from a user (admin only)
  */
-export interface AdminUnassignCoachParams {
+export interface AdminUnassignAgentParams {
 
   /** ID of the system agent to unassign */
-  coach_id: string;
+  agent_id: string;
 
   /** ID of the user to remove the assignment from */
   user_id: string;
@@ -126,13 +126,13 @@ export interface AdminUnassignCoachParams {
 /**
  * Update an existing system agent (admin only)
  */
-export interface AdminUpdateSystemCoachParams {
+export interface AdminUpdateSystemAgentParams {
+
+  /** ID of the system agent to update */
+  agent_id: string;
 
   /** New category */
   category?: string;
-
-  /** ID of the system agent to update */
-  coach_id: string;
 
   /** New description */
   description?: string;
@@ -145,6 +145,41 @@ export interface AdminUpdateSystemCoachParams {
 
   /** New display title */
   title?: string;
+}
+
+
+/**
+ * Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'
+ */
+export interface AgentFollowupScheduleParams {
+
+  /** Agent making the promise. */
+  agent_id: string;
+
+  /** Reminder text (≤ 500 characters), e.g., 'check on Achilles pain after long run'. */
+  content: string;
+
+  /** Optional originating conversation ID for provenance. */
+  conversation_id?: string;
+
+  /** Optional RFC3339 timestamp for when to surface the reminder. */
+  due_at?: string;
+}
+
+
+/**
+ * Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.
+ */
+export interface AgentNoteAddParams {
+
+  /** ID of the agent authoring the note. Must match the agent attached to the active conversation. */
+  agent_id: string;
+
+  /** Free-form note content (plain text, no markup, ≤ 2000 characters). */
+  content: string;
+
+  /** Optional originating conversation ID for provenance. */
+  conversation_id?: string;
 }
 
 
@@ -277,9 +312,9 @@ export interface AnalyzeWeatherImpactParams {
 
 
 /**
- * Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use this when the athlete asks what agents exist, or for an agent of a given kind they do not already have. Distinct from `list_coaches`, which lists only the agents ALREADY in their library. Returns a page plus a `next_cursor` for the following one.
+ * Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use this when the athlete asks what agents exist, or for an agent of a given kind they do not already have. Distinct from `list_agents`, which lists only the agents ALREADY in their library. Returns a page plus a `next_cursor` for the following one.
  */
-export interface BrowseCoachStoreParams {
+export interface BrowseAgentStoreParams {
 
   /** Optional category filter: training, nutrition, recovery, recipes, mobility, analysis, or custom. */
   category?: string;
@@ -415,41 +450,6 @@ export interface CalculateRecoveryScoreParams {
 
 
 /**
- * Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'
- */
-export interface CoachFollowupScheduleParams {
-
-  /** Agent making the promise. */
-  coach_id: string;
-
-  /** Reminder text (≤ 500 characters), e.g., 'check on Achilles pain after long run'. */
-  content: string;
-
-  /** Optional originating conversation ID for provenance. */
-  conversation_id?: string;
-
-  /** Optional RFC3339 timestamp for when to surface the reminder. */
-  due_at?: string;
-}
-
-
-/**
- * Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.
- */
-export interface CoachNoteAddParams {
-
-  /** ID of the agent authoring the note. Must match the agent attached to the active conversation. */
-  coach_id: string;
-
-  /** Free-form note content (plain text, no markup, ≤ 2000 characters). */
-  content: string;
-
-  /** Optional originating conversation ID for provenance. */
-  conversation_id?: string;
-}
-
-
-/**
  * Retract a commitment the athlete no longer wants to be held to, so it is never counted or reported. Use when they say they are dropping it or the circumstances changed — injury, travel, a plan revision. Retracting is not failing; do not use this to record that they missed it.
  */
 export interface CommitmentCancelParams {
@@ -465,7 +465,7 @@ export interface CommitmentCancelParams {
 export interface CommitmentCreateParams {
 
   /** Agent the athlete made the promise to. */
-  coach_id: string;
+  agent_id: string;
 
   /** Last day that counts, as YYYY-MM-DD in the athlete's local calendar. For 'this week' use the date of the coming Sunday from the current-date anchor. */
   due_date: string;
@@ -532,7 +532,7 @@ export interface ConnectProviderParams {
 /**
  * Create a custom AI agent with personalized training guidance
  */
-export interface CreateCoachParams {
+export interface CreateAgentParams {
 
   /** Category: training, nutrition, recovery, recipes, custom */
   category?: string;
@@ -557,16 +557,16 @@ export interface CreateCoachParams {
 /**
  * Deactivate the current agent and return to default AI guidance
  */
-export interface DeactivateCoachParams {}
+export interface DeactivateAgentParams {}
 
 
 /**
  * Delete an agent
  */
-export interface DeleteCoachParams {
+export interface DeleteAgentParams {
 
   /** ID of the agent to delete */
-  coach_id: string;
+  agent_id: string;
 }
 
 
@@ -779,7 +779,7 @@ export interface GenerateRecommendationsParams {
 /**
  * Get the currently active agent
  */
-export interface GetActiveCoachParams {
+export interface GetActiveAgentParams {
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
@@ -837,6 +837,19 @@ export interface GetActivityIntelligenceParams {
 
 
 /**
+ * Get detailed information about a specific agent
+ */
+export interface GetAgentParams {
+
+  /** ID of the agent to retrieve */
+  agent_id: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+}
+
+
+/**
  * Retrieve the user's athlete profile from connected fitness providers including personal details and preferences
  */
 export interface GetAthleteParams {
@@ -846,19 +859,6 @@ export interface GetAthleteParams {
 
   /** Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider. */
   provider?: string;
-}
-
-
-/**
- * Get detailed information about a specific agent
- */
-export interface GetCoachParams {
-
-  /** ID of the agent to retrieve */
-  coach_id: string;
-
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
-  format?: string;
 }
 
 
@@ -1078,11 +1078,11 @@ export interface GetTrainingHistoryParams {
  */
 export interface GetTrainingPlanParams {
 
+  /** Agent persona slug asking; falls back to the athlete's agent-agnostic plan. */
+  agent_id?: string;
+
   /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
   athlete?: string;
-
-  /** Agent persona slug asking; falls back to the athlete's agent-agnostic plan. */
-  coach_id?: string;
 
   /** Include superseded week versions (the adjustment audit trail). */
   include_history?: boolean;
@@ -1130,20 +1130,20 @@ export interface GetYogaPoseParams {
 /**
  * Hide an agent from listings
  */
-export interface HideCoachParams {
+export interface HideAgentParams {
 
   /** ID of the agent to hide */
-  coach_id: string;
+  agent_id: string;
 }
 
 
 /**
- * Install a published Agent Store agent into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, `activate_coach` makes it the agent that answers.
+ * Install a published Agent Store agent into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, `activate_agent` makes it the agent that answers.
  */
-export interface InstallCoachFromStoreParams {
+export interface InstallAgentFromStoreParams {
 
   /** UUID of the published agent to install, as returned by `browse_coach_store` or `search_coach_store`. Required. */
-  coach_id: string;
+  agent_id: string;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
@@ -1153,7 +1153,7 @@ export interface InstallCoachFromStoreParams {
 /**
  * List available AI agents for personalized training guidance
  */
-export interface ListCoachesParams {
+export interface ListAgentsParams {
 
   /** Filter by category */
   category?: string;
@@ -1208,7 +1208,7 @@ export interface ListFitnessConfigsParams {
 /**
  * List all hidden agents
  */
-export interface ListHiddenCoachesParams {
+export interface ListHiddenAgentsParams {
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
@@ -1338,7 +1338,7 @@ export interface PredictPerformanceParams {
 export interface PrescribeWorkoutParams {
 
   /** Optional agent id stamped onto the audit row. */
-  coach_id?: string;
+  agent_id?: string;
 
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
   date: string;
@@ -1395,7 +1395,7 @@ export interface PrescribeWorkoutParams {
 export interface PushTrainingPlanParams {
 
   /** Agent persona slug whose plan to push; falls back to the athlete's agent-agnostic plan. */
-  coach_id?: string;
+  agent_id?: string;
 
   /** First date to push (YYYY-MM-DD). Defaults to today in the athlete's calendar, and is never earlier than that: dates already past are not rewritten. */
   from_date?: string;
@@ -1408,7 +1408,7 @@ export interface PushTrainingPlanParams {
 export interface RecallUserMemoryParams {
 
   /** Optional agent scope. When set, only facts attached to this agent are returned. */
-  coach_id?: string;
+  agent_id?: string;
 
   /** Optional fact kind filter (preference | physiology | injury | goal | schedule | equipment | other). */
   kind?: string;
@@ -1483,7 +1483,7 @@ export interface RefreshProviderDataParams {
 export interface RememberFactParams {
 
   /** Agent attaching the fact (optional; defaults to user-wide). */
-  coach_id?: string;
+  agent_id?: string;
 
   /** Confidence in [0.0, 1.0]. Direct user confirmation → 0.9+. */
   confidence: number;
@@ -1542,11 +1542,11 @@ export interface SaveRecipeParams {
  */
 export interface SaveTrainingPlanParams {
 
+  /** Coach persona slug saving the plan. */
+  agent_id?: string;
+
   /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
   athlete?: string;
-
-  /** Coach persona slug saving the plan. */
-  coach_id?: string;
 
   /** Originating conversation ID for provenance. */
   conversation_id?: string;
@@ -1797,9 +1797,9 @@ export interface SaveTrainingPlanParams {
 
 
 /**
- * Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or 'vegetarian nutrition'. Searches the whole marketplace, unlike `search_coaches`, which searches only the athlete's own library. Install a result with `install_coach_from_store`.
+ * Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or 'vegetarian nutrition'. Searches the whole marketplace, unlike `search_agents`, which searches only the athlete's own library. Install a result with `install_coach_from_store`.
  */
-export interface SearchCoachStoreParams {
+export interface SearchAgentStoreParams {
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
@@ -1815,7 +1815,7 @@ export interface SearchCoachStoreParams {
 /**
  * Search for agents by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.
  */
-export interface SearchCoachesParams {
+export interface SearchAgentsParams {
 
   /** Filter by category */
   category?: string;
@@ -1950,10 +1950,10 @@ export interface SetPhysiologyParams {
 /**
  * Show a previously hidden agent
  */
-export interface ShowCoachParams {
+export interface ShowAgentParams {
 
   /** ID of the agent to show */
-  coach_id: string;
+  agent_id: string;
 }
 
 
@@ -2030,10 +2030,10 @@ export interface SuggestYogaSequenceParams {
 /**
  * Toggle the favorite status of an agent
  */
-export interface ToggleCoachFavoriteParams {
+export interface ToggleAgentFavoriteParams {
 
   /** ID of the agent */
-  coach_id: string;
+  agent_id: string;
 }
 
 
@@ -2079,13 +2079,13 @@ export interface TrackSleepTrendsParams {
 /**
  * Update an existing agent's settings
  */
-export interface UpdateCoachParams {
+export interface UpdateAgentParams {
+
+  /** ID of the agent to update */
+  agent_id: string;
 
   /** New category */
   category?: string;
-
-  /** ID of the agent to update */
-  coach_id: string;
 
   /** New description */
   description?: string;
@@ -2155,14 +2155,14 @@ export interface ValidateRecipeParams {
  */
 export interface VerifyClaimParams {
 
+  /** Optional agent id for the verdict row. */
+  agent_id?: string;
+
   /** One of: physiological | training_prescription | nutrition | recovery | supplement | injury_rehab. */
   category: string;
 
   /** The factual proposition to verify, as a single sentence. */
   claim: string;
-
-  /** Optional agent id for the verdict row. */
-  coach_id?: string;
 
   /** Optional conversation id to attach the verdict row to. */
   conversation_id?: string;
@@ -2217,15 +2217,17 @@ export interface McpErrorResponse {
  * name at runtime and the `ToolName` union below read the same list.
  */
 export const TOOL_NAMES = [
-  "activate_coach",
-  "admin_assign_coach",
-  "admin_create_system_coach",
-  "admin_delete_system_coach",
-  "admin_get_system_coach",
-  "admin_list_coach_assignments",
-  "admin_list_system_coaches",
-  "admin_unassign_coach",
-  "admin_update_system_coach",
+  "activate_agent",
+  "admin_assign_agent",
+  "admin_create_system_agent",
+  "admin_delete_system_agent",
+  "admin_get_system_agent",
+  "admin_list_agent_assignments",
+  "admin_list_system_agents",
+  "admin_unassign_agent",
+  "admin_update_system_agent",
+  "agent_followup_schedule",
+  "agent_note_add",
   "analyze_activity",
   "analyze_goal_feasibility",
   "analyze_meal_nutrition",
@@ -2233,22 +2235,20 @@ export const TOOL_NAMES = [
   "analyze_sleep_quality",
   "analyze_training_load",
   "analyze_weather_impact",
-  "browse_coach_store",
+  "browse_agent_store",
   "calculate_daily_nutrition",
   "calculate_fitness_score",
   "calculate_metrics",
   "calculate_personalized_zones",
   "calculate_recovery_score",
-  "coach_followup_schedule",
-  "coach_note_add",
   "commitment_cancel",
   "commitment_create",
   "compare_activities",
   "compute_training_history",
   "connect_provider",
-  "create_coach",
-  "deactivate_coach",
-  "delete_coach",
+  "create_agent",
+  "deactivate_agent",
+  "delete_agent",
   "delete_fitness_config",
   "delete_recipe",
   "detect_patterns",
@@ -2263,11 +2263,11 @@ export const TOOL_NAMES = [
   "extract_activity_streams",
   "forget_playbook",
   "generate_recommendations",
-  "get_active_coach",
+  "get_active_agent",
   "get_activities",
   "get_activity_intelligence",
+  "get_agent",
   "get_athlete",
-  "get_coach",
   "get_configuration_catalog",
   "get_configuration_profiles",
   "get_connection_status",
@@ -2288,13 +2288,13 @@ export const TOOL_NAMES = [
   "get_user_configuration",
   "get_weather_forecast",
   "get_yoga_pose",
-  "hide_coach",
-  "install_coach_from_store",
-  "list_coaches",
+  "hide_agent",
+  "install_agent_from_store",
+  "list_agents",
   "list_coaching_playbooks",
   "list_data_sources",
   "list_fitness_configs",
-  "list_hidden_coaches",
+  "list_hidden_agents",
   "list_recipes",
   "list_stretching_exercises",
   "list_workout_templates",
@@ -2309,22 +2309,22 @@ export const TOOL_NAMES = [
   "remember_fact",
   "save_recipe",
   "save_training_plan",
-  "search_coach_store",
-  "search_coaches",
+  "search_agent_store",
+  "search_agents",
   "search_food",
   "search_recipes",
   "set_fitness_config",
   "set_goal",
   "set_physiology",
-  "show_coach",
+  "show_agent",
   "suggest_goals",
   "suggest_rest_day",
   "suggest_stretches_for_activity",
   "suggest_yoga_sequence",
-  "toggle_coach_favorite",
+  "toggle_agent_favorite",
   "track_progress",
   "track_sleep_trends",
-  "update_coach",
+  "update_agent",
   "update_user_configuration",
   "validate_configuration",
   "validate_recipe",
@@ -2341,15 +2341,17 @@ export type ToolName = (typeof TOOL_NAMES)[number];
  * Map of tool names to their parameter types
  */
 export interface ToolParamsMap {
-  "activate_coach": ActivateCoachParams;
-  "admin_assign_coach": AdminAssignCoachParams;
-  "admin_create_system_coach": AdminCreateSystemCoachParams;
-  "admin_delete_system_coach": AdminDeleteSystemCoachParams;
-  "admin_get_system_coach": AdminGetSystemCoachParams;
-  "admin_list_coach_assignments": AdminListCoachAssignmentsParams;
-  "admin_list_system_coaches": AdminListSystemCoachesParams;
-  "admin_unassign_coach": AdminUnassignCoachParams;
-  "admin_update_system_coach": AdminUpdateSystemCoachParams;
+  "activate_agent": ActivateAgentParams;
+  "admin_assign_agent": AdminAssignAgentParams;
+  "admin_create_system_agent": AdminCreateSystemAgentParams;
+  "admin_delete_system_agent": AdminDeleteSystemAgentParams;
+  "admin_get_system_agent": AdminGetSystemAgentParams;
+  "admin_list_agent_assignments": AdminListAgentAssignmentsParams;
+  "admin_list_system_agents": AdminListSystemAgentsParams;
+  "admin_unassign_agent": AdminUnassignAgentParams;
+  "admin_update_system_agent": AdminUpdateSystemAgentParams;
+  "agent_followup_schedule": AgentFollowupScheduleParams;
+  "agent_note_add": AgentNoteAddParams;
   "analyze_activity": AnalyzeActivityParams;
   "analyze_goal_feasibility": AnalyzeGoalFeasibilityParams;
   "analyze_meal_nutrition": AnalyzeMealNutritionParams;
@@ -2357,22 +2359,20 @@ export interface ToolParamsMap {
   "analyze_sleep_quality": AnalyzeSleepQualityParams;
   "analyze_training_load": AnalyzeTrainingLoadParams;
   "analyze_weather_impact": AnalyzeWeatherImpactParams;
-  "browse_coach_store": BrowseCoachStoreParams;
+  "browse_agent_store": BrowseAgentStoreParams;
   "calculate_daily_nutrition": CalculateDailyNutritionParams;
   "calculate_fitness_score": CalculateFitnessScoreParams;
   "calculate_metrics": CalculateMetricsParams;
   "calculate_personalized_zones": CalculatePersonalizedZonesParams;
   "calculate_recovery_score": CalculateRecoveryScoreParams;
-  "coach_followup_schedule": CoachFollowupScheduleParams;
-  "coach_note_add": CoachNoteAddParams;
   "commitment_cancel": CommitmentCancelParams;
   "commitment_create": CommitmentCreateParams;
   "compare_activities": CompareActivitiesParams;
   "compute_training_history": ComputeTrainingHistoryParams;
   "connect_provider": ConnectProviderParams;
-  "create_coach": CreateCoachParams;
-  "deactivate_coach": DeactivateCoachParams;
-  "delete_coach": DeleteCoachParams;
+  "create_agent": CreateAgentParams;
+  "deactivate_agent": DeactivateAgentParams;
+  "delete_agent": DeleteAgentParams;
   "delete_fitness_config": DeleteFitnessConfigParams;
   "delete_recipe": DeleteRecipeParams;
   "detect_patterns": DetectPatternsParams;
@@ -2387,11 +2387,11 @@ export interface ToolParamsMap {
   "extract_activity_streams": ExtractActivityStreamsParams;
   "forget_playbook": ForgetPlaybookParams;
   "generate_recommendations": GenerateRecommendationsParams;
-  "get_active_coach": GetActiveCoachParams;
+  "get_active_agent": GetActiveAgentParams;
   "get_activities": GetActivitiesParams;
   "get_activity_intelligence": GetActivityIntelligenceParams;
+  "get_agent": GetAgentParams;
   "get_athlete": GetAthleteParams;
-  "get_coach": GetCoachParams;
   "get_configuration_catalog": GetConfigurationCatalogParams;
   "get_configuration_profiles": GetConfigurationProfilesParams;
   "get_connection_status": GetConnectionStatusParams;
@@ -2412,13 +2412,13 @@ export interface ToolParamsMap {
   "get_user_configuration": GetUserConfigurationParams;
   "get_weather_forecast": GetWeatherForecastParams;
   "get_yoga_pose": GetYogaPoseParams;
-  "hide_coach": HideCoachParams;
-  "install_coach_from_store": InstallCoachFromStoreParams;
-  "list_coaches": ListCoachesParams;
+  "hide_agent": HideAgentParams;
+  "install_agent_from_store": InstallAgentFromStoreParams;
+  "list_agents": ListAgentsParams;
   "list_coaching_playbooks": ListCoachingPlaybooksParams;
   "list_data_sources": ListDataSourcesParams;
   "list_fitness_configs": ListFitnessConfigsParams;
-  "list_hidden_coaches": ListHiddenCoachesParams;
+  "list_hidden_agents": ListHiddenAgentsParams;
   "list_recipes": ListRecipesParams;
   "list_stretching_exercises": ListStretchingExercisesParams;
   "list_workout_templates": ListWorkoutTemplatesParams;
@@ -2433,22 +2433,22 @@ export interface ToolParamsMap {
   "remember_fact": RememberFactParams;
   "save_recipe": SaveRecipeParams;
   "save_training_plan": SaveTrainingPlanParams;
-  "search_coach_store": SearchCoachStoreParams;
-  "search_coaches": SearchCoachesParams;
+  "search_agent_store": SearchAgentStoreParams;
+  "search_agents": SearchAgentsParams;
   "search_food": SearchFoodParams;
   "search_recipes": SearchRecipesParams;
   "set_fitness_config": SetFitnessConfigParams;
   "set_goal": SetGoalParams;
   "set_physiology": SetPhysiologyParams;
-  "show_coach": ShowCoachParams;
+  "show_agent": ShowAgentParams;
   "suggest_goals": SuggestGoalsParams;
   "suggest_rest_day": SuggestRestDayParams;
   "suggest_stretches_for_activity": SuggestStretchesForActivityParams;
   "suggest_yoga_sequence": SuggestYogaSequenceParams;
-  "toggle_coach_favorite": ToggleCoachFavoriteParams;
+  "toggle_agent_favorite": ToggleAgentFavoriteParams;
   "track_progress": TrackProgressParams;
   "track_sleep_trends": TrackSleepTrendsParams;
-  "update_coach": UpdateCoachParams;
+  "update_agent": UpdateAgentParams;
   "update_user_configuration": UpdateUserConfigurationParams;
   "validate_configuration": ValidateConfigurationParams;
   "validate_recipe": ValidateRecipeParams;
