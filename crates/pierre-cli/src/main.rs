@@ -62,6 +62,7 @@ use pierre_database::backends::{factory::Database, DatabaseProvider};
 
 type Result<T> = AppResult<T>;
 use std::env;
+use std::io;
 use std::sync::Arc;
 use tracing::info;
 
@@ -797,9 +798,14 @@ enum TokenCommand {
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
 
-    // Initialize logging
+    // Initialize logging on stderr, never stdout: `--format json` / `csv` put a
+    // machine-readable payload on stdout, and a log line ahead of it makes that
+    // payload unparseable for any caller that pipes the command.
     let log_level = if cli.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(log_level)
+        .with_writer(io::stderr)
+        .init();
 
     info!("Pierre MCP Server CLI");
 

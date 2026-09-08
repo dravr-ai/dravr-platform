@@ -389,3 +389,23 @@ fn test_cli_user_allow_never_touches_the_local_database() {
         "the remote verb must dispatch before the KeyManager bootstrap: {output}"
     );
 }
+
+/// The tracing preamble must never reach stdout: `--format json` / `csv` put a
+/// machine-readable payload there, and a log line ahead of it makes the payload
+/// unparseable for any caller that pipes the command.
+///
+/// `auth status` is the probe because it dispatches before the KeyManager/DB
+/// bootstrap, so it needs neither a database nor a reachable server.
+#[test]
+fn test_logs_go_to_stderr_not_stdout() {
+    let (_exit_code, stdout, stderr) = run_cli(&["auth", "status"]);
+
+    assert!(
+        !stdout.contains("Pierre MCP Server CLI"),
+        "the startup log must not contaminate stdout: {stdout}"
+    );
+    assert!(
+        stderr.contains("Pierre MCP Server CLI"),
+        "the startup log must still be emitted, on stderr: {stderr}"
+    );
+}
