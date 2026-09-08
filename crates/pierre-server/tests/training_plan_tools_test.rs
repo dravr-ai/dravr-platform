@@ -142,7 +142,7 @@ fn make_request(
 /// weeks. Day content is concrete so a returns-empty stub cannot pass.
 fn full_plan_payload() -> Value {
     json!({
-        "coach_id": "endurance-coach",
+        "agent_id": "endurance-coach",
         "outline": {
             "goal_race": {
                 "name": "Big Red",
@@ -214,7 +214,7 @@ async fn assert_no_plan(
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(tenant_id),
         ))
@@ -245,7 +245,7 @@ async fn a_structured_day_saves_and_reads_back() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -443,7 +443,7 @@ async fn float_shaped_step_numbers_from_the_llm_are_accepted() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -563,7 +563,7 @@ async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -617,7 +617,7 @@ async fn adjust_single_week_without_outline_supersedes_that_week() -> Result<()>
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 "weeks": [{
                     "week_start": "2026-07-13",
                     "focus": "volume back up",
@@ -641,7 +641,7 @@ async fn adjust_single_week_without_outline_supersedes_that_week() -> Result<()>
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -692,7 +692,7 @@ async fn float_shaped_numbers_from_the_llm_are_accepted() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -729,7 +729,7 @@ async fn invalid_week_date_rejects_whole_save_with_no_partial_writes() -> Result
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -955,7 +955,7 @@ async fn oversized_strategy_is_rejected_with_no_write() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1054,7 +1054,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1091,7 +1091,7 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
     let fresh = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1111,7 +1111,7 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
     let stale = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1314,7 +1314,7 @@ async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 "outline": {
                     "goal_race": {
                         "name": "Big Red",
@@ -1346,7 +1346,7 @@ async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
     let fetched = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1517,7 +1517,7 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1565,7 +1565,7 @@ async fn seed_one_hour_per_week_baseline(
 /// one-hour week the athlete actually starts on.
 fn plan_with_the_heavy_week_first() -> Value {
     json!({
-        "coach_id": "endurance-coach",
+        "agent_id": "endurance-coach",
         "outline": {
             "goal_race": {
                 "name": "Big Red",
@@ -1675,7 +1675,7 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 "weeks": [{
                     "week_start": "2026-07-20",
                     "focus": "big week",
@@ -1712,7 +1712,7 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1764,7 +1764,7 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
         let get = executor
             .execute_tool(make_request(
                 "get_training_plan",
-                json!({"coach_id": "endurance-coach"}),
+                json!({"agent_id": "endurance-coach"}),
                 user_id,
                 Some(&tenant_id),
             ))
@@ -1818,7 +1818,7 @@ async fn a_hallucinated_week_count_is_rejected_with_no_write() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))
@@ -2112,7 +2112,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 "outline": outline_with(-2, 1),
                 "weeks": [week_at(-2, "current week")]
             }),
@@ -2149,7 +2149,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 "weeks": [week_at(5, "next week")]
             }),
             user_id,
@@ -2195,7 +2195,7 @@ async fn a_plan_that_stopped_covering_the_athlete_reports_an_uncovered_gap() -> 
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 // The block spans today; the weeks behind it do not — one ended
                 // last week and the next has not started.
                 "outline": outline_with(-14, 3),
@@ -2242,7 +2242,7 @@ async fn a_plan_that_has_not_started_yet_reports_no_gap() -> Result<()> {
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 // Block and weeks agree with each other; both start next week.
                 "outline": outline_with(7, 2),
                 "weeks": [week_at(7, "reintroduction"), week_at(14, "build")]
@@ -2276,7 +2276,7 @@ async fn weeks_that_stop_before_the_outline_ends_report_a_short_gap() -> Result<
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 // Four weeks of block, two weeks of actual sessions.
                 "outline": outline_with(-2, 4),
                 "weeks": [week_at(-2, "current week"), week_at(5, "next week")]
@@ -2316,7 +2316,7 @@ async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Re
         .execute_tool(make_request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 "outline": outline_with(-2, 1),
                 "weeks": [week_at(-2, "current week")]
             }),
@@ -2388,7 +2388,7 @@ async fn a_vision_saves_with_its_flavour_and_reads_back() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"coach_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach"}),
             user_id,
             Some(&tenant_id),
         ))

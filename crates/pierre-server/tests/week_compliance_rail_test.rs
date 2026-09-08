@@ -162,7 +162,7 @@ fn prose_day(date: &str) -> Value {
 /// a cap of two hard sessions and eight hours, and one week of `days`.
 fn plan_with(days: &[Value]) -> Value {
     json!({
-        "coach_id": "endurance-coach",
+        "agent_id": "endurance-coach",
         "outline": {
             "goal_race": { "name": "Parkrun PB", "date": "2026-11-14", "discipline": "run_5k", "priority": "A" },
             "strategy": "polarised build, two hard days",
@@ -322,7 +322,7 @@ async fn a_weeks_only_adjustment_is_measured_with_the_previous_weeks_last_hard_d
         .execute_tool(request(
             "save_training_plan",
             json!({
-                "coach_id": "endurance-coach",
+                "agent_id": "endurance-coach",
                 "weeks": [{
                     "week_start": "2026-09-21", "focus": "week two", "phase_index": 0,
                     "adjustment_reason": "the second week, added after the first landed",
