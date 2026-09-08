@@ -49,8 +49,8 @@ use tracing::info;
 use crate::capabilities::{PROVIDER_ANALYTICS, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, format_property, object_schema, ok_typed, task_capable,
-    tool_definition, tool_result_to_response, Formatted,
+    answers_with, capabilities_to_tronc, object_schema, object_schema_with_format, ok_typed,
+    task_capable, tool_definition, tool_result_to_response, Formatted,
 };
 use crate::implementations::analytics::output::{
     ActivityIntelligenceResult, ActivityMetricsResult, CompareActivitiesResult, FitnessScoreResult,
@@ -152,8 +152,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<TrainingLoadResult>>(task_capable(tool_definition(
             "analyze_training_load",
             "Analyze training load using CTL (chronic training load), ATL (acute training load), and TSB (training stress balance) metrics to assess fitness, fatigue, and form",
@@ -218,8 +217,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<PatternsResult>>(task_capable(tool_definition(
             "detect_patterns",
             "Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs",
@@ -284,8 +282,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<FitnessScoreResult>>(task_capable(tool_definition(
             "calculate_fitness_score",
             "Calculate an overall fitness score (0-100) based on training consistency, CTL, training volume, and recovery balance",
@@ -571,8 +568,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(
+        let schema = object_schema_with_format(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
@@ -679,8 +675,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(
+        let schema = object_schema_with_format(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
@@ -768,8 +763,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(
+        let schema = object_schema_with_format(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
@@ -846,8 +840,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(
+        let schema = object_schema_with_format(
             properties,
             Some(vec!["provider".to_owned(), "metric".to_owned()]),
         );
@@ -936,8 +929,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(
+        let schema = object_schema_with_format(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
@@ -1006,8 +998,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RecommendationsResult>>(task_capable(tool_definition(
             "generate_recommendations",
             "Generate personalized training recommendations",
@@ -1073,8 +1064,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RacePredictionResult>>(task_capable(tool_definition(
             "predict_performance",
             "Predict future performance based on training",

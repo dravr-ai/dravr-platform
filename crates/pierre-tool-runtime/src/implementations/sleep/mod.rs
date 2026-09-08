@@ -29,7 +29,7 @@ use serde_json::Value;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, format_property, object_schema, task_capable,
+    answers_with, capabilities_to_tronc, object_schema, object_schema_with_format, task_capable,
     tool_definition, tool_result_to_response, Formatted,
 };
 use crate::implementations::handler_bridge;
@@ -102,8 +102,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<SleepQualityResult>>(tool_definition(
             "analyze_sleep_quality",
             "Analyze last night's sleep to generate quality scores and insights. \
@@ -215,8 +214,7 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RecoveryScoreResult>>(task_capable(tool_definition(
             "calculate_recovery_score",
             "Calculate holistic recovery score combining training stress, sleep, and HRV. \
@@ -423,8 +421,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<SleepTrendsResult>>(tool_definition(
             "track_sleep_trends",
             "Analyze sleep patterns over time to identify trends and insights. \

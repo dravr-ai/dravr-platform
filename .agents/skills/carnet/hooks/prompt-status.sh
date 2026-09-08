@@ -57,9 +57,30 @@ case $prompt in
 esac
 
 # carnet#12 · carnet 12 · carnet-12 · registre#12 · …/dravr-carnet/issues/12
-nums=$(printf '%s' "$prompt" \
-    | grep -oiE '(carnet|registre)[ #-]?[0-9]+|carnet/issues/[0-9]+' \
-    | grep -oE '[0-9]+$' | sort -un | head -5 || true)
+issue_nums() {
+    grep -oiE '(carnet|registre)[ #-]?[0-9]+|carnet/issues/[0-9]+' \
+        | grep -oE '[0-9]+$' | sort -un | head -5 || true
+}
+nums=$(printf '%s' "$prompt" | issue_nums)
+
+# A number the user only QUOTED is not a number the user assigned. The anchored peer test above
+# catches a peer message that arrives on its own, but not the far commoner case here: the user
+# pastes a peer session's terminal output to show you something, and every issue that transcript
+# happens to mention gets claimed for the reader. That fired twice in one hour on carnet#343 and
+# #394 in a session writing shell scripts, and the third time it blocked a tool call over an
+# issue a live peer held.
+#
+# Claude Code transcript output is unmistakable — ⏺ for a turn, ⎿ for a tool result, ✻ for a
+# status line. Everything from the first such marker onward is quoted material, so only what
+# precedes it can arm. Typing "fix carnet#394" in your own words still arms, because prose with
+# no marker in it is all prose. Status still prints for every number either way: knowing who
+# holds an issue is exactly what the reader needs.
+prose=${prompt%%⏺*}; prose=${prose%%⎿*}; prose=${prose%%✻*}
+if [ "$prose" != "$prompt" ]; then
+    armable=$(printf '%s' "$prose" | issue_nums)
+else
+    armable=$nums
+fi
 
 # Hand the numbers to the PreToolUse hook. A prompt that names none leaves an earlier
 # list alone: work often spans several turns, and only the first turn carries the number.
@@ -68,12 +89,12 @@ nums=$(printf '%s' "$prompt" \
 # A peer message or a task notification arms nothing, and -- just as important -- does not
 # overwrite a list the user's own prompt already armed. A peer that interrupts mid-task must
 # not be able to redirect this session's claim to the issue it happened to mention.
-if [ -n "$nums" ] && [ "$from_peer" = 0 ]; then
+if [ -n "$armable" ] && [ "$from_peer" = 0 ]; then
     sid=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
     [ -n "$sid" ] || sid=${CLAUDE_CODE_SESSION_ID:-}
     if [ -n "$sid" ]; then
         pending_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/carnet-claims/pending"
-        mkdir -p "$pending_dir" 2>/dev/null && printf '%s\n' $nums > "$pending_dir/$sid.txt"
+        mkdir -p "$pending_dir" 2>/dev/null && printf '%s\n' $armable > "$pending_dir/$sid.txt"
     fi
 fi
 
@@ -101,6 +122,15 @@ done
 # The mechanical half is done above -- nothing was armed. This is the other half: the model
 # still reads an issue number and can decide, on its own, to go and fix it. Say what the
 # message is and is not, at the moment the number enters context.
+if [ "$printed" = 1 ] && [ "$from_peer" = 0 ] && [ -z "$armable" ]; then
+    cat <<'NOTE'
+↑ Named only inside pasted terminal output, not in your user's own words. Nothing was
+  claimed for you. Read it as context; if your user wants you on one of these, they will
+  say so in prose, or you can take it deliberately with:
+  .agents/skills/carnet/carnet.sh claim <n>
+NOTE
+fi
+
 if [ "$printed" = 1 ] && [ "$from_peer" = 1 ]; then
     cat <<'NOTE'
 ↑ Named by another session or by a background task -- NOT by your user. Nothing was

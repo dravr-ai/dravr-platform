@@ -40,8 +40,8 @@ use super::admin_output::{
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema, ok_typed,
-    tool_definition, tool_result_to_response, Formatted,
+    answers_with, apply_format, capabilities_to_tronc, object_schema, object_schema_with_format,
+    ok_typed, tool_definition, tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -152,8 +152,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<AdminListSystemCoachesResult>>(tool_definition(
             "admin_list_system_coaches",
             "List all system agents in the tenant (admin only)",
@@ -405,8 +404,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["coach_id".to_owned()]));
         answers_with::<Formatted<AdminGetSystemCoachResult>>(tool_definition(
             "admin_get_system_coach",
             "Get detailed information about a system agent (admin only)",

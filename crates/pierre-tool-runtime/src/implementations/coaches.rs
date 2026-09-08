@@ -41,8 +41,8 @@ use super::coaches_tool_shape::{
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema, ok_typed,
-    tool_definition, tool_result_to_response, Formatted,
+    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema,
+    object_schema_with_format, ok_typed, tool_definition, tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -108,8 +108,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
 
         answers_with::<Formatted<ListCoachesResult>>(tool_definition(
             "list_coaches",
@@ -389,8 +388,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["coach_id".to_owned()]));
 
         answers_with::<Formatted<GetCoachResult>>(tool_definition(
             "get_coach",
@@ -808,8 +806,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, Some(vec!["query".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["query".to_owned()]));
 
         answers_with::<Formatted<SearchCoachesResult>>(tool_definition(
             "search_coaches",

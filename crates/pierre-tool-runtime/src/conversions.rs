@@ -295,6 +295,25 @@ pub fn format_property() -> PropertySchema {
     }
 }
 
+/// The object schema for a tool that answers with [`Formatted<T>`], with `format`
+/// already declared.
+///
+/// Prefer this over inserting [`format_property`] by hand at the call site. A tool
+/// routing through [`apply_format`] reads `format` whether or not it says so, and
+/// the served schema is the only place a caller — or a model reading the tool
+/// catalogue — can learn the parameter exists. Twenty-six tools across six families
+/// honoured it while declaring it nowhere (registre#394); building the property into
+/// the constructor is what stops that recurring, because a `Formatted` tool can no
+/// longer acquire a schema without it.
+#[must_use]
+pub fn object_schema_with_format<S: BuildHasher>(
+    mut properties: HashMap<String, PropertySchema, S>,
+    required: Option<Vec<String>>,
+) -> JsonSchema {
+    properties.insert("format".to_owned(), format_property());
+    object_schema(properties, required)
+}
+
 /// Map the platform's host capability flags to tronc's generic capability set.
 ///
 /// Only the seven host-agnostic flags cross over. The fitness domain flags

@@ -572,5 +572,27 @@ rc=0; ( cd "$tmp" && sh -c "$wiring" ) >/dev/null 2>&1 || rc=$?
 assert_eq "a missing hook script leaves the tool alone" "$rc" 0
 
 # ================================================================== summary
+# ---- a number the user only QUOTED must not arm --------------------------------
+# The user pastes a peer session's terminal output constantly; every issue it mentions used to
+# be claimed for the reader. carnet#343 and #394 were both taken that way inside one hour.
+arms() { # <prompt> -> the numbers that would be armed
+    local p=$1 prose
+    prose=${p%%⏺*}; prose=${prose%%⎿*}; prose=${prose%%✻*}
+    printf '%s' "$prose" | grep -oiE '(carnet|registre)[ #-]?[0-9]+|carnet/issues/[0-9]+' \
+        | grep -oE '[0-9]+$' | sort -un | tr '\n' ' ' | sed 's/ $//'
+}
+section "Quoted transcripts arm nothing"
+eq() { # <expected> <actual> <label>
+    if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 — expected '$1', got '$2'"; fi
+}
+eq "" "$(arms 'Another example ⏺ bilan flagged carnet#394 as residue')" \
+    "a number inside pasted transcript output arms nothing"
+eq "" "$(arms 'look at this ⎿ Stop hook: still holding carnet#343')" \
+    "a tool-result marker starts the quoted region too"
+eq "394" "$(arms 'fix carnet#394 please')" \
+    "the user asking in their own words still arms"
+eq "343" "$(arms 'start on carnet#343 ⏺ context: carnet#394 was residue')" \
+    "prose before the marker arms, quoted text after it does not"
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

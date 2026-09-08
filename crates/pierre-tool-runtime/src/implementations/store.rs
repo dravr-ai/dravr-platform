@@ -53,7 +53,7 @@ use super::coaches_tool_shape::{extract_format, read_only_annotations, write_ann
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema, ok_typed,
+    answers_with, apply_format, capabilities_to_tronc, object_schema_with_format, ok_typed,
     tool_definition, tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
@@ -215,8 +215,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, None);
+        let schema = object_schema_with_format(properties, None);
 
         answers_with::<Formatted<BrowseCoachStoreResult>>(tool_definition(
             "browse_coach_store",
@@ -305,8 +304,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, Some(vec!["query".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["query".to_owned()]));
 
         answers_with::<Formatted<SearchCoachStoreResult>>(tool_definition(
             "search_coach_store",
@@ -382,8 +380,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 ..Default::default()
             },
         );
-        properties.insert("format".to_owned(), format_property());
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["coach_id".to_owned()]));
 
         answers_with::<Formatted<InstallCoachFromStoreResult>>(tool_definition(
             "install_coach_from_store",
