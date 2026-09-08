@@ -493,7 +493,7 @@ fn coach_note_add_declares_a_schema_that_accepts_its_payload() {
         <CoachNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&CoachNoteAddTool).output_schema,
         &output_schema_for::<CoachNoteAddResult>(),
         &sample,
-        "coach_note_add",
+        "agent_note_add",
     );
 }
 
@@ -513,7 +513,7 @@ fn coach_followup_schedule_accepts_a_followup_with_no_due_date() {
         .output_schema,
         &output_schema_for::<CoachFollowupScheduleResult>(),
         &sample,
-        "coach_followup_schedule",
+        "agent_followup_schedule",
     );
 }
 
@@ -1217,69 +1217,69 @@ fn search_recipes_declares_a_schema_that_accepts_no_matches() {
 fn each_coach_schema_is_attached_to_the_tool_it_names() {
     for (tool_name, declared, derived) in [
         (
-            "list_coaches",
+            "list_agents",
             <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool),
             output_schema_for::<Formatted<ListCoachesResult>>(),
         ),
         (
-            "create_coach",
+            "create_agent",
             <CreateCoachTool as McpTool<dyn ToolRuntime>>::definition(&CreateCoachTool),
             output_schema_for::<CreateCoachResult>(),
         ),
         (
-            "get_coach",
+            "get_agent",
             <GetCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetCoachTool),
             output_schema_for::<Formatted<GetCoachResult>>(),
         ),
         (
-            "update_coach",
+            "update_agent",
             <UpdateCoachTool as McpTool<dyn ToolRuntime>>::definition(&UpdateCoachTool),
             output_schema_for::<UpdateCoachResult>(),
         ),
         (
-            "delete_coach",
+            "delete_agent",
             <DeleteCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeleteCoachTool),
             output_schema_for::<DeleteCoachResult>(),
         ),
         (
-            "toggle_coach_favorite",
+            "toggle_agent_favorite",
             <ToggleCoachFavoriteTool as McpTool<dyn ToolRuntime>>::definition(
                 &ToggleCoachFavoriteTool,
             ),
             output_schema_for::<ToggleCoachFavoriteResult>(),
         ),
         (
-            "search_coaches",
+            "search_agents",
             <SearchCoachesTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachesTool),
             output_schema_for::<Formatted<SearchCoachesResult>>(),
         ),
         (
-            "activate_coach",
+            "activate_agent",
             <ActivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&ActivateCoachTool),
             output_schema_for::<ActivateCoachResult>(),
         ),
         (
-            "deactivate_coach",
+            "deactivate_agent",
             <DeactivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeactivateCoachTool),
             output_schema_for::<DeactivateCoachResult>(),
         ),
         (
-            "get_active_coach",
+            "get_active_agent",
             <GetActiveCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetActiveCoachTool),
             output_schema_for::<Formatted<GetActiveCoachResult>>(),
         ),
         (
-            "hide_coach",
+            "hide_agent",
             <HideCoachTool as McpTool<dyn ToolRuntime>>::definition(&HideCoachTool),
             output_schema_for::<HideCoachResult>(),
         ),
         (
-            "show_coach",
+            "show_agent",
             <ShowCoachTool as McpTool<dyn ToolRuntime>>::definition(&ShowCoachTool),
             output_schema_for::<ShowCoachResult>(),
         ),
         (
-            "list_hidden_coaches",
+            "list_hidden_agents",
             <ListHiddenCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListHiddenCoachesTool),
             output_schema_for::<Formatted<ListHiddenCoachesResult>>(),
         ),
@@ -1326,7 +1326,7 @@ fn list_coaches_declares_a_schema_that_accepts_its_payload() {
         <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool).output_schema,
         &output_schema_for::<Formatted<ListCoachesResult>>(),
         &sample,
-        "list_coaches",
+        "list_agents",
     );
 }
 
@@ -1461,7 +1461,7 @@ fn the_coach_schemas_reject_payloads_missing_a_required_field() {
 fn the_narrow_coach_projections_accept_their_payloads() {
     for (tool, derived, payload) in [
         (
-            "search_coaches",
+            "search_agents",
             output_schema_for::<Formatted<SearchCoachesResult>>(),
             serde_json::to_value(Formatted::Json(SearchCoachesResult {
                 query: "tempo".to_owned(),
@@ -1481,7 +1481,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "list_hidden_coaches",
+            "list_hidden_agents",
             output_schema_for::<Formatted<ListHiddenCoachesResult>>(),
             serde_json::to_value(Formatted::Json(ListHiddenCoachesResult {
                 coaches: vec![HiddenCoachEntry {
@@ -1496,7 +1496,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "activate_coach",
+            "activate_agent",
             output_schema_for::<ActivateCoachResult>(),
             serde_json::to_value(ActivateCoachResult {
                 id: "6bd0b0f4-0000-4000-8000-000000000006".to_owned(),
@@ -1510,12 +1510,12 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "deactivate_coach",
+            "deactivate_agent",
             output_schema_for::<DeactivateCoachResult>(),
             serde_json::to_value(DeactivateCoachResult { deactivated: false }).expect("serializes"),
         ),
         (
-            "toggle_coach_favorite",
+            "toggle_agent_favorite",
             output_schema_for::<ToggleCoachFavoriteResult>(),
             serde_json::to_value(ToggleCoachFavoriteResult {
                 agent_id: "6bd0b0f4-0000-4000-8000-000000000007".to_owned(),
@@ -1524,7 +1524,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "hide_coach",
+            "hide_agent",
             output_schema_for::<HideCoachResult>(),
             serde_json::to_value(HideCoachResult {
                 agent_id: "6bd0b0f4-0000-4000-8000-000000000008".to_owned(),
@@ -1533,7 +1533,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "show_coach",
+            "show_agent",
             output_schema_for::<ShowCoachResult>(),
             serde_json::to_value(ShowCoachResult {
                 agent_id: "6bd0b0f4-0000-4000-8000-000000000009".to_owned(),
@@ -1543,7 +1543,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "create_coach",
+            "create_agent",
             output_schema_for::<CreateCoachResult>(),
             serde_json::to_value(CreateCoachResult {
                 id: "6bd0b0f4-0000-4000-8000-00000000000a".to_owned(),
@@ -1557,7 +1557,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "update_coach",
+            "update_agent",
             output_schema_for::<UpdateCoachResult>(),
             serde_json::to_value(UpdateCoachResult {
                 id: "6bd0b0f4-0000-4000-8000-00000000000b".to_owned(),
@@ -2605,54 +2605,54 @@ fn the_two_race_prediction_shapes_match_exactly_one_arm_each() {
 fn each_admin_schema_is_attached_to_the_tool_it_names() {
     for (tool_name, declared, derived) in [
         (
-            "admin_list_system_coaches",
+            "admin_list_system_agents",
             <AdminListSystemCoachesTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminListSystemCoachesTool,
             ),
             output_schema_for::<Formatted<AdminListSystemCoachesResult>>(),
         ),
         (
-            "admin_create_system_coach",
+            "admin_create_system_agent",
             <AdminCreateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminCreateSystemCoachTool,
             ),
             output_schema_for::<AdminCreateSystemCoachResult>(),
         ),
         (
-            "admin_get_system_coach",
+            "admin_get_system_agent",
             <AdminGetSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminGetSystemCoachTool,
             ),
             output_schema_for::<Formatted<AdminGetSystemCoachResult>>(),
         ),
         (
-            "admin_update_system_coach",
+            "admin_update_system_agent",
             <AdminUpdateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminUpdateSystemCoachTool,
             ),
             output_schema_for::<AdminUpdateSystemCoachResult>(),
         ),
         (
-            "admin_delete_system_coach",
+            "admin_delete_system_agent",
             <AdminDeleteSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminDeleteSystemCoachTool,
             ),
             output_schema_for::<AdminDeleteSystemCoachResult>(),
         ),
         (
-            "admin_assign_coach",
+            "admin_assign_agent",
             <AdminAssignCoachTool as McpTool<dyn ToolRuntime>>::definition(&AdminAssignCoachTool),
             output_schema_for::<AdminAssignCoachResult>(),
         ),
         (
-            "admin_unassign_coach",
+            "admin_unassign_agent",
             <AdminUnassignCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminUnassignCoachTool,
             ),
             output_schema_for::<AdminUnassignCoachResult>(),
         ),
         (
-            "admin_list_coach_assignments",
+            "admin_list_agent_assignments",
             <AdminListCoachAssignmentsTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminListCoachAssignmentsTool,
             ),
@@ -2730,7 +2730,7 @@ fn admin_list_system_coaches_declares_a_schema_that_accepts_its_payload() {
         .output_schema,
         &output_schema_for::<Formatted<AdminListSystemCoachesResult>>(),
         &sample,
-        "admin_list_system_coaches",
+        "admin_list_system_agents",
     );
 }
 
@@ -2819,17 +2819,17 @@ fn a_store_coach() -> StoreCoachEntry {
 fn each_store_schema_is_attached_to_the_tool_it_names() {
     for (tool_name, declared, derived) in [
         (
-            "browse_coach_store",
+            "browse_agent_store",
             <BrowseCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&BrowseCoachStoreTool),
             output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
         ),
         (
-            "search_coach_store",
+            "search_agent_store",
             <SearchCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachStoreTool),
             output_schema_for::<Formatted<SearchCoachStoreResult>>(),
         ),
         (
-            "install_coach_from_store",
+            "install_agent_from_store",
             <InstallCoachFromStoreTool as McpTool<dyn ToolRuntime>>::definition(
                 &InstallCoachFromStoreTool,
             ),
@@ -2877,7 +2877,7 @@ fn no_store_schema_promises_a_system_prompt() {
 fn the_store_schemas_accept_their_payloads() {
     for (tool, derived, payload) in [
         (
-            "browse_coach_store",
+            "browse_agent_store",
             output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
             serde_json::to_value(Formatted::Json(BrowseCoachStoreResult {
                 coaches: vec![a_store_coach()],
@@ -2905,7 +2905,7 @@ fn the_store_schemas_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "search_coach_store",
+            "search_agent_store",
             output_schema_for::<Formatted<SearchCoachStoreResult>>(),
             serde_json::to_value(Formatted::Json(SearchCoachStoreResult {
                 query: "marathon".to_owned(),
@@ -2915,7 +2915,7 @@ fn the_store_schemas_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "install_coach_from_store",
+            "install_agent_from_store",
             output_schema_for::<Formatted<InstallCoachFromStoreResult>>(),
             serde_json::to_value(Formatted::Json(InstallCoachFromStoreResult {
                 installed: true,
