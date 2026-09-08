@@ -428,7 +428,6 @@ fi
 #
 #   - preflight-clippy   — per-crate clippy on changed leaf crates (3–5 min)
 #   - clippy             — full-workspace clippy (10–12 min)
-#   - deadlock-analysis  — lockbud static analysis (~10 min)
 #   - backend-tests      — SQLite shards (cron / workflow_dispatch only)
 #
 # CI now also runs PostgreSQL integration tests (ci-postgres.yml) and HTTP/MCP
@@ -691,7 +690,7 @@ echo ""
 echo "Local validation covers fmt + architecture + secrets + vendor-readonly + infra,"
 echo "plus two scoped compile probes: changed server-test clippy (Tier 1e) and the"
 echo "--no-default-features check on changed probe crates (Tier 1f)."
-echo "The heavy gates (clippy, deadlock, integration tests) run in CI on every push."
+echo "The heavy gates (clippy, integration tests) run in CI on every push."
 echo ""
 
 # ============================================================================

@@ -407,7 +407,28 @@ jobs:
           # equilibre/meteo/riviere/sciotte/tronc), but `embacle` is loaded from
           # the dravr-ai/dravr-embacle repo under its bare crate name — match
           # that explicitly so the gate can't be silently bypassed by renames.
-          dups="$(cargo tree -d 2>&1 | grep -E '^(dravr-|embacle )' || true)"
+          #
+          # Read cargo's exit status separately from the grep. `cargo tree -d`
+          # prints ONLY duplicates, so an empty result is the pass case — which
+          # is why piping it into grep was unsafe: the pipeline reports grep's
+          # status, not cargo's, and GitHub's default shell is `bash -e` without
+          # pipefail. A cargo that failed to resolve the graph therefore emitted
+          # no `dravr-` lines and the gate passed having checked nothing.
+          if ! tree_out="$(cargo tree -d 2>&1)"; then
+            echo "::error::cargo tree -d failed — the duplicate gate could not run:"
+            echo "$tree_out"
+            exit 1
+          fi
+
+          # Fail closed on a scan that verified nothing. This workspace always
+          # depends on dravr-ecosystem crates, so a resolved graph holding none
+          # of them means cargo resolved something other than this workspace.
+          if ! cargo tree --prefix none 2>/dev/null | grep -qE '^(dravr-|embacle )'; then
+            echo "::error::cargo tree resolved no dravr-ecosystem crate — the duplicate gate cannot have checked anything."
+            exit 1
+          fi
+
+          dups="$(printf '%s\n' "$tree_out" | grep -E '^(dravr-|embacle )' || true)"
           if [ -n "$dups" ]; then
             echo "::error::dravr-ecosystem duplicate(s) detected — every dravr crate must converge on one version:"
             echo "$dups"
@@ -958,5 +979,19 @@ jobs:
 
       - name: Basic smoke test of release binary
         run: |
-          timeout 5 target/release/pierre-mcp-server --version || true
-          echo "Release binary executed successfully"
+          # `|| true` here meant a binary that segfaulted, hung past the
+          # timeout, or was never produced still printed "executed
+          # successfully". The exit status IS the smoke test, so read it — and
+          # require the version line too, because a binary that exits 0 having
+          # printed nothing has verified nothing.
+          version_out="$(timeout 5 target/release/pierre-mcp-server --version 2>&1)" || {
+            status=$?
+            echo "::error::Release binary failed its smoke test (exit ${status}):"
+            echo "$version_out"
+            exit 1
+          }
+          if [ -z "$version_out" ]; then
+            echo "::error::Release binary exited 0 but printed no version — nothing was verified."
+            exit 1
+          fi
+          echo "Release binary smoke test passed: ${version_out}"
