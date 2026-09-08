@@ -89,6 +89,13 @@ the attached one. Reach issues through REST — `gh api repos/{owner}/{repo}/iss
 all. This is why `carnet.sh` stays broken here even with `gh` present: it is written against
 `gh issue`.
 
+**A GitHub token does not open either wall, so do not go looking for one.** The vendor documentation
+is explicit that the GraphQL restriction "applies to every request through the proxy regardless of
+the credentials you supply, so a `GH_TOKEN` you set gets the same 403", and that the environment's
+API-credential facility never attaches to GitHub at all, because the GitHub proxy authenticates
+those requests itself. The two things that do change the outcome are attaching the repository and
+using REST.
+
 Do not trust `gh auth status` as a reachability check either. It reports the `GH_TOKEN` placeholder
 invalid while REST calls through the same binary succeed.
 
