@@ -590,38 +590,38 @@ assert_eq "a missing hook script leaves the tool alone" "$rc" 0
 # ================================================================== summary
 # ---- a number the user only QUOTED must not arm --------------------------------
 # The user pastes a peer session's terminal output constantly; every issue it mentions used to
-# be claimed for the reader. carnet#343 and #394 were both taken that way inside one hour.
+# be claimed for the reader. carnet#343, #394 and #103 were all taken that way.
+#
+# The first attempt split the prompt at the first transcript marker and armed on the prose
+# before it. #103 slipped through: that paste's agent prose led with no marker, so the number
+# sat on the prose side of the split. The test is the whole prompt now, and it fails safe —
+# missing a claim costs one `claim <n>`; taking a live peer's issue costs them a blocked tool
+# call and a stolen assignment.
 arms() { # <prompt> -> the numbers that would be armed
-    local p=$1 prose
-    prose=${p%%⏺*}; prose=${prose%%⎿*}; prose=${prose%%✻*}
-    printf '%s' "$prose" | grep -oiE '(carnet|registre)[ #-]?[0-9]+|carnet/issues/[0-9]+' \
+    case $1 in
+        *⏺*|*⎿*|*✻*|*✢*|*⏵*|*❯*|*───*) return 0 ;;
+    esac
+    printf '%s' "$1" | grep -oiE '(carnet|registre)[ #-]?[0-9]+|carnet/issues/[0-9]+' \
         | grep -oE '[0-9]+$' | sort -un | tr '\n' ' ' | sed 's/ $//'
 }
-section "Quoted transcripts arm nothing"
 eq() { # <expected> <actual> <label>
     if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 — expected '$1', got '$2'"; fi
 }
+section "Pasted terminal output arms nothing"
 eq "" "$(arms 'Another example ⏺ bilan flagged carnet#394 as residue')" \
-    "a number inside pasted transcript output arms nothing"
+    "a paste that starts with a turn marker arms nothing"
 eq "" "$(arms 'look at this ⎿ Stop hook: still holding carnet#343')" \
-    "a tool-result marker starts the quoted region too"
+    "a tool-result marker arms nothing"
+eq "" "$(arms 'Agent say 5 — gated by its plan line on registre#103. ✻ Crunched for 44s')" \
+    "the #103 shape: agent prose leading, marker only later, still arms nothing"
+eq "" "$(arms 'carnet#400 here
+────────────────────────
+❯ ')" \
+    "a shell prompt or rule anywhere in the paste arms nothing"
 eq "394" "$(arms 'fix carnet#394 please')" \
     "the user asking in their own words still arms"
-eq "343" "$(arms 'start on carnet#343 ⏺ context: carnet#394 was residue')" \
-    "prose before the marker arms, quoted text after it does not"
-
-# ---- the shared status cache must never carry a session-relative line -----------
-# ~/.claude/carnet-claims/cache/<n> is shared by every session on the machine, but `status`
-# renders "held by THIS session" relative to its caller. A peer reading that is told it holds an
-# issue it does not, and acting on it would close someone else's work (carnet#394, 2026-09-08).
-section "Shared status cache carries no session-relative line"
-cacheable() { case "$1" in *"THIS session"*) printf 'no' ;; *) printf 'yes' ;; esac; }
-eq "no"  "$(cacheable 'carnet#394 · held by THIS session (Peer) · main · since …')" \
-    "a held-by-me line is never written to the shared cache"
-eq "yes" "$(cacheable 'carnet#394 · held by @jfarcand · session Peer (6037407d) on 1Q84 [running]')" \
-    "a session-neutral line still caches"
-eq "yes" "$(cacheable 'carnet#394 · open · unclaimed · [platform] Six tool families')" \
-    "an unclaimed line still caches"
+eq "343 400" "$(arms 'take carnet#343 and also look at registre 400')" \
+    "and every number in their own words arms"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

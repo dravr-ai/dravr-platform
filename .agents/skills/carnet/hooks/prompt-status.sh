@@ -66,29 +66,27 @@ nums=$(printf '%s' "$prompt" | issue_nums)
 # A number the user only QUOTED is not a number the user assigned. The anchored peer test above
 # catches a peer message that arrives on its own, but not the far commoner case here: the user
 # pastes a peer session's terminal output to show you something, and every issue that transcript
-# happens to mention gets claimed for the reader. That fired twice in one hour on carnet#343 and
-# #394 in a session writing shell scripts, and the third time it blocked a tool call over an
-# issue a live peer held.
+# happens to mention gets claimed for the reader. carnet#343, #394 and #103 were all taken that
+# way by a session writing shell scripts, and one of those blocked a tool call over an issue a
+# live peer held.
 #
-# Claude Code transcript output is unmistakable — ⏺ for a turn, ⎿ for a tool result, ✻ for a
-# status line. Everything from the first such marker onward is quoted material, so only what
-# precedes it can arm. Typing "fix carnet#394" in your own words still arms, because prose with
-# no marker in it is all prose. Status still prints for every number either way: knowing who
-# holds an issue is exactly what the reader needs.
-prose=${prompt%%⏺*}; prose=${prose%%⎿*}; prose=${prose%%✻*}
-if [ "$prose" != "$prompt" ]; then
-    armable=$(printf '%s' "$prose" | issue_nums)
-else
-    armable=$nums
-fi
+# The first attempt split the prompt at the first transcript marker and armed on the prose
+# before it. That was too clever: a paste whose agent prose leads with no marker at all — the
+# user's own sentence running straight into it — puts the number on the wrong side of the split,
+# which is exactly how #103 was taken. So the test is now the whole prompt, not a boundary
+# within it: if terminal-transcript glyphs appear ANYWHERE, nothing arms.
+#
+# It fails in the safe direction on purpose. Missing a claim costs one `carnet.sh claim <n>`;
+# taking a peer's issue costs them an interrupted tool call and a stolen assignment. Status still
+# prints either way, because knowing who holds an issue is exactly what the reader needs.
+#
+# ⏺ turn · ⎿ tool result · ✻ ✢ thinking · ⏵ permissions footer · ❯ shell prompt · ─── rule
+case $prompt in
+    *⏺*|*⎿*|*✻*|*✢*|*⏵*|*❯*|*───*) pasted=1 ;;
+    *) pasted=0 ;;
+esac
+if [ "$pasted" = 1 ]; then armable=""; else armable=$nums; fi
 
-# Hand the numbers to the PreToolUse hook. A prompt that names none leaves an earlier
-# list alone: work often spans several turns, and only the first turn carries the number.
-# auto-claim.sh clears the file once it has acted, and ignores one older than an hour.
-#
-# A peer message or a task notification arms nothing, and -- just as important -- does not
-# overwrite a list the user's own prompt already armed. A peer that interrupts mid-task must
-# not be able to redirect this session's claim to the issue it happened to mention.
 if [ -n "$armable" ] && [ "$from_peer" = 0 ]; then
     sid=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
     [ -n "$sid" ] || sid=${CLAUDE_CODE_SESSION_ID:-}
@@ -134,9 +132,9 @@ done
 # message is and is not, at the moment the number enters context.
 if [ "$printed" = 1 ] && [ "$from_peer" = 0 ] && [ -z "$armable" ]; then
     cat <<'NOTE'
-↑ Named only inside pasted terminal output, not in your user's own words. Nothing was
-  claimed for you. Read it as context; if your user wants you on one of these, they will
-  say so in prose, or you can take it deliberately with:
+↑ This prompt contains pasted terminal output, so nothing was claimed for you — a number
+  inside someone else's transcript is not an assignment. Read it as context. If your user
+  wants you on one of these, take it deliberately:
   .agents/skills/carnet/carnet.sh claim <n>
 NOTE
 fi
