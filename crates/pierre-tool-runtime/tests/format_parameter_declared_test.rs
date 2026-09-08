@@ -13,9 +13,9 @@
 //! undiscoverable to every client and to any model reading the tool catalogue to
 //! decide how to call the tool.
 //!
-//! Six families did exactly that — coaches, analytics, the coach store, recipes,
-//! sleep and admin coaches — 26 tools that answered `format=toon` correctly and
-//! never said so (registre#394).
+//! Six tool modules did exactly that — `coaches`, `analytics`, `store`, `recipes`,
+//! `sleep` and `admin`, module and tool identifiers that kept the older spelling —
+//! 26 tools that answered `format=toon` correctly and never said so (registre#394).
 //!
 //! The check is derived, not listed: a tool is subject to it when its own declared
 //! `outputSchema` carries the `Formatted` envelope, which is the `toon` arm that

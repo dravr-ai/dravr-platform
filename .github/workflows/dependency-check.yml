@@ -63,8 +63,14 @@ jobs:
       - name: Run security audit
         id: audit
         run: |
-          OUTPUT=$(cargo audit 2>&1 || true)
+          # `|| true` here would succeed before $? is read, making EXIT_CODE
+          # always 0 and the advisory branch below unreachable — a real RUSTSEC
+          # finding read as a clean audit. The status is captured first and the
+          # step kept alive with `set +e`, so a non-zero audit still reports.
+          set +e
+          OUTPUT=$(cargo audit 2>&1)
           EXIT_CODE=$?
+          set -e
           {
             echo 'AUDIT<<ENDOFAUDIT'
             echo "$OUTPUT"

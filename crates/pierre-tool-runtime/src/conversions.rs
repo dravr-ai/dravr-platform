@@ -278,9 +278,10 @@ pub fn object_schema<S: BuildHasher>(
 /// A tool that routes through [`apply_format`] reads `format` and acts on it. The
 /// served schema is the only place a caller — or a model reading the tool catalogue
 /// to decide how to call it — can learn the parameter exists, so honouring it while
-/// declaring it nowhere makes the option undiscoverable. Six families did exactly
-/// that: coaches, analytics, the coach store, recipes, sleep and admin coaches, 26
-/// tools between them (registre#394).
+/// declaring it nowhere makes the option undiscoverable. Six tool modules did
+/// exactly that — `coaches`, `analytics`, `store`, `recipes`, `sleep` and `admin`,
+/// module and tool identifiers that kept their older spelling — 26 tools between
+/// them (registre#394).
 ///
 /// One function rather than the literal, which was already pasted at three sites and
 /// would otherwise have been pasted at twenty-six more.
@@ -301,7 +302,7 @@ pub fn format_property() -> PropertySchema {
 /// Prefer this over inserting [`format_property`] by hand at the call site. A tool
 /// routing through [`apply_format`] reads `format` whether or not it says so, and
 /// the served schema is the only place a caller — or a model reading the tool
-/// catalogue — can learn the parameter exists. Twenty-six tools across six families
+/// catalogue — can learn the parameter exists. Twenty-six tools across six modules
 /// honoured it while declaring it nowhere (registre#394); building the property into
 /// the constructor is what stops that recurring, because a `Formatted` tool can no
 /// longer acquire a schema without it.
