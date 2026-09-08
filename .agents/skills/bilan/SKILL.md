@@ -40,7 +40,7 @@ Exit code: `0` = 10/10 · `1` = incomplete · `2` = the script itself failed.
 | Evidence | Caps at |
 |---|---|
 | carnet issue claimed by this session, neither closed nor released | **6** |
-| `LIMITATION(registre#…)` marker added naming no live issue | **6** |
+| `LIMITATION(registre#…)` marker added in source naming no live issue | **6** |
 | tracked files modified and uncommitted | **7** |
 | commits not pushed | **8** |
 | CI red on the pushed head | **5** |
@@ -50,7 +50,28 @@ Exit code: `0` = 10/10 · `1` = incomplete · `2` = the script itself failed.
 | `.git/validation-passed` missing, stale, or for another sha | **9** |
 | dev stack from this checkout still up | **9** |
 
-Two of those deserve a note. **CI absence is its own outcome** — `gh run list --commit` returns
+## Uncommitted files you must not touch
+
+Several sessions share the main checkout, so some of the dirty files are a peer's — three
+sessions hit this in the first hour and each wrote a paragraph explaining it. **Ownership is not
+machine-decidable, and that was tested rather than assumed.** Claude Code records the paths a
+session touched in its transcript, under `file-history-snapshot.trackedFileBackups` — but only
+for the Edit/Write tools. Sessions here work Bash-first, and that map came back **empty** for a
+session that had just written nine files. Attributing on it would have called a session's own
+work a peer's and stopped blocking, which is the worst direction to be wrong in.
+
+So the gate names the files and the session judges — once:
+
+```bash
+bilan.sh ack --why "a peer's embacle pin bump, written into this shared checkout at 10:16"
+```
+
+That drops the cap from 7 to 9 and carries the reason into every later report. It is keyed to
+the exact set of paths, so dirtying one more file brings the cap straight back. Ownership is a
+property of the files rather than of their contents, so a peer changing those same files again
+stays covered.
+
+Two other caps deserve a note. **CI absence is its own outcome** — `gh run list --commit` returns
 zero rows on this org even when runs exist, so rows are matched by `headSha` out of a wide branch
 window, and a sha with no row reads as *absent, not necessarily done*, never as green. And a
 **peer's worktree is not yours**: cross-checkout state is reported by `sweep`, never as a cap on

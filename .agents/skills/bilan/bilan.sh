@@ -26,6 +26,7 @@ bilan — what this session left undone
 
   bilan.sh [--cheap] [--json] [--session <uuid>]   score this session in this checkout
   bilan.sh sweep                                    what dead sessions left across every worktree
+  bilan.sh ack --why "<whose and why>"              account for uncommitted files you must not touch
 
   --cheap     local facts only: no gh, no network (what the Stop hook runs)
   --json      machine form: {"score":N,"caps":[…],"friction":{…}}
@@ -84,6 +85,45 @@ transcript_path() {
     return 1
 }
 
+# ------------------------------------------------------------------ acknowledgement
+# Ownership of an uncommitted file is NOT machine-decidable here, and that was tested rather
+# than assumed: Claude Code records the paths a session touched in the transcript's
+# `file-history-snapshot.trackedFileBackups`, but only for the Edit/Write tools. Sessions in
+# this repo work Bash-first, so that map came back EMPTY for a session that had just written
+# nine files — attribution would have called its own work a peer's and stopped blocking, which
+# is the worst direction to be wrong in.
+#
+# So the judgement stays with the session, and `ack` is what makes it cost one line instead of
+# a paragraph on every run. It is keyed to the exact set of files: dirty one more and the cap
+# comes back. It never applies to anything but the shared-checkout case, because every other
+# cap is about state this session can actually change.
+ack_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').ack.json"; }
+
+signature_of() { printf '%s' "$1" | sort | shasum 2>/dev/null | cut -d' ' -f1; }
+
+ack_reason_for() { # <signature>
+    local f
+    f=$(ack_file) || return 1
+    [ -f "$f" ] || return 1
+    jq -r --arg s "$1" 'select(.signature == $s) | .why // empty' "$f" 2>/dev/null | grep . || return 1
+}
+
+cmd_ack() { # <why>
+    local why=$1 f tracked sig
+    [ -n "$why" ] || die "ack needs --why: say whose files these are and why you are leaving them"
+    f=$(ack_file) || die "not inside a Claude Code session"
+    tracked=$(git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//')
+    [ -n "$tracked" ] || { say "nothing uncommitted to account for"; return 0; }
+    sig=$(signature_of "$tracked")
+    mkdir -p "$(dirname "$f")"
+    jq -n --arg s "$sig" --arg w "$why" --arg at "$(now)" \
+       --arg files "$(printf '%s' "$tracked" | tr '\n' ' ')" \
+       '{signature:$s, why:$w, at:$at, files:$files}' > "$f"
+    say "📌 accounted for: $(printf '%s' "$tracked" | grep -c . ) file(s) — $why"
+    say "   dirty one more file and the cap returns; this covers exactly this set."
+    return 0
+}
+
 # ------------------------------------------------------------------ checks · git
 # Several sessions share the main worktree, so "5 tracked files modified" is not enough to act
 # on: the first live block this gate ever issued was for a peer's embacle pin bump, and the
@@ -112,8 +152,14 @@ check_worktree() {
     t_n=$(printf '%s\n' "$tracked" | grep -cv '^$')
     u_n=$(printf '%s\n' "$untracked" | grep -cv '^$')
     if [ "${t_n:-0}" -gt 0 ]; then
-        cap 7 "❌" "$t_n tracked file(s) modified and uncommitted: $(name_files 8 "$tracked")" \
-              "commit them — or, if they are a peer's work in a shared worktree, say so and leave them alone"
+        local why
+        if why=$(ack_reason_for "$(signature_of "$tracked")"); then
+            cap 9 "⚠️" "$t_n tracked file(s) uncommitted, accounted for: $why" \
+                  "left deliberately — bilan.sh ack recorded this for exactly these files"
+        else
+            cap 7 "❌" "$t_n tracked file(s) modified and uncommitted: $(name_files 8 "$tracked")" \
+                  "commit them — or, if they are a peer's in this shared checkout, bilan.sh ack --why '…'"
+        fi
     fi
     if [ "${u_n:-0}" -gt 0 ]; then
         cap 9 "⚠️" "$u_n untracked file(s): $(name_files 8 "$untracked")" \
@@ -215,14 +261,38 @@ check_carnet_filed() {
 }
 
 # A LIMITATION marker is the sanctioned way to ship a gap, but only when it names a live issue.
+# A marker registers a gap at the declaration of the limited item, in source. It never lives in
+# prose or in a fixture — so those paths are not scanned, and the first thing excluded is this
+# skill's own tree. The commit that installed bilan made it report three markers that were all
+# its own artifacts: the fixture in test.sh, the table row in SKILL.md, and the grep pattern on
+# the line below. A scanner that cannot see itself is the whole point; the same self-match cost
+# the friction counter its accuracy an hour earlier.
+#
+# The loose `[^)]*` is deliberate and is why the exclusions have to carry the weight: the
+# repo's own gate matches `registre#[0-9]+` and therefore cannot see a marker that names no
+# issue at all, which is exactly the case worth failing on.
+LIMITATION_SKIP=':(exclude).agents/skills/bilan/**
+:(exclude)*.md
+:(exclude)**/tests/**
+:(exclude)**/__tests__/**
+:(exclude)*.test.*
+:(exclude)*.spec.*'
+
+limitation_diff() { # <range-or-empty>
+    local skip=()
+    while IFS= read -r p; do [ -n "$p" ] && skip+=("$p"); done <<< "$LIMITATION_SKIP"
+    if [ -n "$1" ]; then
+        git diff -U0 "$1" -- . "${skip[@]}" 2>/dev/null
+    else
+        git diff -U0 HEAD -- . "${skip[@]}" 2>/dev/null
+    fi
+}
+
 check_limitation_markers() {
-    local upstream range added marker n bad=""
+    local upstream added marker n bad=""
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo origin/main)
-    range="$upstream..HEAD"
-    # Both halves of the session's work: what is committed but unpushed, and what is still in
-    # the tree. The marker is matched with its whole payload, so one that names nothing at all
-    # is a row here rather than an empty extraction that iterates zero times.
-    added=$( { git diff -U0 "$range" 2>/dev/null; git diff -U0 HEAD 2>/dev/null; } \
+    # Both halves of the session's work: committed but unpushed, and still in the tree.
+    added=$( { limitation_diff "$upstream..HEAD"; limitation_diff ""; } \
              | grep '^+' | grep -o 'LIMITATION(registre#[^)]*)' | sort -u )
     [ -n "$added" ] || return 0
     while IFS= read -r marker; do
@@ -438,9 +508,12 @@ cmd_sweep() {
 
 # ------------------------------------------------------------------ argv
 CMD=report
+WHY=""
 while [ $# -gt 0 ]; do
     case "$1" in
         sweep)      CMD=sweep ;;
+        ack)        CMD=ack ;;
+        --why)      shift; WHY=${1:-} ;;
         --cheap)    CHEAP=1 ;;
         --json)     JSON=1 ;;
         --quiet)    QUIET=1 ;;
@@ -453,5 +526,6 @@ done
 
 case "$CMD" in
     sweep)  cmd_sweep ;;
+    ack)    cmd_ack "$WHY" ;;
     report) run_checks; report ;;
 esac

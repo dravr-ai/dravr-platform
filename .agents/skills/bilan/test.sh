@@ -105,6 +105,42 @@ out=$(run "$R")
 check "LIMITATION naming no issue caps at 6" 6 "$(printf '%s' "$out" | jq -r .score)"
 git -C "$R" checkout -q -- a.txt
 
+# ---- the scan must not see prose, fixtures, or its own tree. The commit that installed bilan
+# reported three markers that were all its own: the fixture here, the row in SKILL.md, and the
+# grep pattern in bilan.sh. A scanner that reports itself is worse than no scanner.
+mkdir -p "$R/.agents/skills/bilan" "$R/crates/x/tests"
+echo 'LIMITATION(registre#[^)]*) is the pattern' > "$R/.agents/skills/bilan/bilan.sh"
+echo '| LIMITATION(registre#…) marker | caps at 6 |'  > "$R/doc.md"
+echo 'assert LIMITATION(registre#) fires'             > "$R/crates/x/tests/fixture.rs"
+echo 'let y = 2; // LIMITATION(registre#) in a spec'  > "$R/thing.spec.ts"
+out=$(run "$R")
+check "the scan does not report its own tree, prose, tests or specs" 0 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("LIMITATION"))] | length')"
+echo 'let z = 3; // LIMITATION(registre#) in real source' >> "$R/a.txt"
+out=$(run "$R")
+check "…but still reports a marker in real source" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("LIMITATION"))] | length')"
+git -C "$R" checkout -q -- a.txt
+rm -rf "$R/.agents" "$R/doc.md" "$R/crates" "$R/thing.spec.ts"
+
+# ---- ack accounts for files this session must not touch, for exactly that set
+echo peer >> "$R/a.txt"
+check "before ack, a dirty tracked file caps at 7" 7 "$(run "$R" | jq -r .score)"
+( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" \
+    bash "$BILAN" ack --why "a peer's pin bump in the shared checkout" >/dev/null 2>&1 )
+out=$(run "$R")
+check "after ack it caps at 9, not 7" 9 "$(printf '%s' "$out" | jq -r .score)"
+check "the ack reason is carried into the evidence" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("pin bump"))] | length')"
+echo second > "$R/b.txt" && git -C "$R" add b.txt
+check "dirtying one more file brings the cap back" 7 "$(run "$R" | jq -r .score)"
+git -C "$R" rm -q -f --cached b.txt >/dev/null 2>&1; rm -f "$R/b.txt"
+git -C "$R" checkout -q -- a.txt
+
+# The ack is keyed by path set, not by content: ownership is a property of the files, not of
+# what is in them. So clear it before exercising the gate on the same file.
+rm -f "$CFG/bilan/"*.ack.json
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }
