@@ -361,32 +361,134 @@ fn test_cli_user_disallow_and_list_allowed_help_offer_remote_arguments() {
     );
 }
 
+/// Every remote user verb must dispatch before the KeyManager/DB bootstrap, so
+/// one binary serves a laptop and a deployed environment alike.
+///
+/// A closed port is the probe: the command must fail trying to *reach the
+/// server*. If a verb ever regresses to the database path it announces
+/// "Connecting to database" and fails on the local `SQLite` file instead, which
+/// is exactly the bug that made `user allow` useless against dev.
 #[test]
-fn test_cli_user_allow_never_touches_the_local_database() {
-    // A closed port: the command must fail trying to *reach the server*. If it
-    // ever dispatches through the database path again it announces
-    // "Connecting to database" and fails on the local SQLite file instead,
-    // which is exactly the bug that made this verb useless against dev.
+fn test_remote_user_verbs_never_open_the_local_database() {
+    const CLOSED_PORT: &str = "http://127.0.0.1:1";
+    let invocations: [&[&str]; 4] = [
+        &[
+            "user",
+            "allow",
+            "--email",
+            "someone@example.com",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+        &[
+            "user",
+            "disallow",
+            "--email",
+            "someone@example.com",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+        &[
+            "user",
+            "get",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+        &[
+            "user",
+            "list-allowed",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+    ];
+
+    for args in invocations {
+        let (exit_code, stdout, stderr) = run_cli(args);
+
+        assert_ne!(
+            exit_code,
+            0,
+            "an unreachable server must fail `{}`",
+            args.join(" ")
+        );
+        let output = format!("{stdout}{stderr}");
+        assert!(
+            !output.contains("Connecting to database"),
+            "`{}` must not open a database: {output}",
+            args.join(" ")
+        );
+        assert!(
+            !output.contains("key management"),
+            "`{}` must dispatch before the KeyManager bootstrap: {output}",
+            args.join(" ")
+        );
+    }
+}
+
+/// A typo'd `--format` must name the formats that exist rather than silently
+/// printing a table, and must be rejected before the command spends a round
+/// trip on the server.
+#[test]
+fn test_unknown_format_is_rejected_by_name() {
+    for verb in ["get", "list-allowed"] {
+        let (exit_code, stdout, stderr) = run_cli(&[
+            "user",
+            verb,
+            "--server",
+            "http://127.0.0.1:1",
+            "--token",
+            "not-a-real-token",
+            "--format",
+            "jsonl",
+        ]);
+
+        assert_ne!(exit_code, 0, "`user {verb} --format jsonl` must fail");
+        let output = format!("{stdout}{stderr}");
+        assert!(
+            output.contains("jsonl"),
+            "the error must quote the rejected format: {output}"
+        );
+        for known in ["table", "json", "csv"] {
+            assert!(
+                output.contains(known),
+                "the error must name `{known}` as a valid format: {output}"
+            );
+        }
+        assert!(
+            !output.contains("error sending request"),
+            "the format must be validated before the server is called: {output}"
+        );
+    }
+}
+
+/// `--format` is matched case-insensitively, so an uppercase value reaches the
+/// network rather than being rejected as unknown.
+#[test]
+fn test_format_flag_is_case_insensitive() {
     let (exit_code, stdout, stderr) = run_cli(&[
         "user",
-        "allow",
-        "--email",
-        "someone@example.com",
+        "get",
         "--server",
         "http://127.0.0.1:1",
         "--token",
         "not-a-real-token",
+        "--format",
+        "JSON",
     ]);
 
-    assert_ne!(exit_code, 0, "an unreachable server must fail the command");
+    assert_ne!(exit_code, 0, "the closed port must still fail the command");
     let output = format!("{stdout}{stderr}");
     assert!(
-        !output.contains("Connecting to database"),
-        "the remote verb must not open a database: {output}"
-    );
-    assert!(
-        !output.contains("key management"),
-        "the remote verb must dispatch before the KeyManager bootstrap: {output}"
+        !output.contains("Unknown format"),
+        "`JSON` must be accepted as `json`: {output}"
     );
 }
 
@@ -403,6 +505,23 @@ fn test_logs_go_to_stderr_not_stdout() {
     assert!(
         !stdout.contains("Pierre MCP Server CLI"),
         "the startup log must not contaminate stdout: {stdout}"
+    );
+    assert!(
+        stderr.contains("Pierre MCP Server CLI"),
+        "the startup log must still be emitted, on stderr: {stderr}"
+    );
+}
+
+/// `--verbose` raises the filter to debug, which must not reopen the stdout
+/// contamination that `test_logs_go_to_stderr_not_stdout` closes: stdout still
+/// carries the payload alone.
+#[test]
+fn test_verbose_logs_stay_off_stdout() {
+    let (_exit_code, stdout, stderr) = run_cli(&["--verbose", "auth", "status"]);
+
+    assert!(
+        !stdout.contains("Pierre MCP Server CLI"),
+        "debug logging must not contaminate stdout: {stdout}"
     );
     assert!(
         stderr.contains("Pierre MCP Server CLI"),
