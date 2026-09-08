@@ -150,6 +150,8 @@ cmd_baseline() {
     else
         : > "${f}.commits"
     fi
+    # HEAD at session start, so "did this session commit anything at all" is answerable.
+    git rev-parse HEAD 2>/dev/null > "${f}.head" || : > "${f}.head"
     u=$(grep -c . "${f}.commits" 2>/dev/null); u=${u:-0}
     local d; d=$(grep -c . "$f" 2>/dev/null); d=${d:-0}
     say "baseline: $d file(s) dirty and $u commit(s) unpushed at session start"
@@ -256,6 +258,12 @@ owned_unpushed() {
     local upstream shas inherited owned
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     [ -n "$upstream" ] || return 0
+    # The full run can settle it; the cheap run has to say it cannot.
+    if [ "$CHEAP" = 0 ]; then
+        git fetch -q origin 2>/dev/null || true
+    elif [ "$(fetch_age)" -gt 300 ]; then
+        stale=1
+    fi
     shas=$(git rev-list "$upstream..HEAD" 2>/dev/null)
     [ -n "$shas" ] || return 0
     ack_reason_for commit_signature "$(signature_of "$shas")" >/dev/null 2>&1 && return 0
@@ -268,8 +276,15 @@ owned_unpushed() {
     printf '%s' "$owned"
 }
 
+# Seconds since the last fetch, or a large number when there has never been one.
+fetch_age() {
+    local f="$GIT_DIR/FETCH_HEAD"
+    [ -f "$f" ] || { printf '%s' 999999; return 0; }
+    printf '%s' "$(( $(date +%s) - $(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0) ))"
+}
+
 check_unpushed() {
-    local upstream ahead shas inherited owned n why
+    local upstream ahead shas inherited owned n why stale=0
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     if [ -z "$upstream" ]; then
         [ "$BRANCH" = main ] && return 0
@@ -279,6 +294,12 @@ check_unpushed() {
         cap 8 "❌" "branch $BRANCH has $ahead commit(s) and no upstream — never pushed" \
               "git push -u origin $BRANCH"
         return 0
+    fi
+    # The full run can settle it; the cheap run has to say it cannot.
+    if [ "$CHEAP" = 0 ]; then
+        git fetch -q origin 2>/dev/null || true
+    elif [ "$(fetch_age)" -gt 300 ]; then
+        stale=1
     fi
     shas=$(git rev-list "$upstream..HEAD" 2>/dev/null)
     [ -n "$shas" ] || return 0
@@ -298,6 +319,11 @@ check_unpushed() {
 
     if why=$(ack_reason_for commit_signature "$(signature_of "$shas")"); then
         say_note "$n unpushed commit(s) declared not this session's: $why"
+        return 0
+    fi
+    if [ "$stale" = 1 ]; then
+        cap 9 "⚠️" "$n commit(s) look unpushed, but origin/main was last fetched $(( $(fetch_age) / 60 ))m ago — they may already be on the remote" \
+              "run bilan.sh without --cheap, which fetches first, before acting on this"
         return 0
     fi
     cap 8 "❌" "$n commit(s) not pushed to $upstream ($(printf '%s\n' "$owned" | cut -c1-8 | tr '\n' ' '))" \
@@ -521,6 +547,46 @@ check_open_todos() {
           "finish them, or drop the ones you are not doing — an open todo is this session saying it is not done"
 }
 
+# A score of 10 means "everything I checked is done". When nothing was checkable, 10 means
+# nothing at all — and that is how a session scored 10/10 with its artifact unwritten. bilan
+# reads the repo, the register and CI; a session whose work is research, a design, a document or
+# a published artifact touches none of the three, and every check came back clean because every
+# check came back empty.
+#
+# So it says so. A session that made no commit and declared no todo is unmeasured, not complete,
+# and cannot reach 10 — the same rule as --cheap, for the same reason. It caps at 9 rather than
+# blocking, because answering a question really is a complete session; what it must not do is
+# produce a verdict it never earned.
+check_measurable() {
+    local f start_head todos=0
+    [ -d "$CFG/tasks/$SESSION_ID" ] && \
+        todos=$(command ls "$CFG/tasks/$SESSION_ID"/*.json 2>/dev/null | grep -c . )
+    [ "${todos:-0}" -gt 0 ] && return 0                 # the session declared what it set out to do
+    f=$(baseline_file) || return 0
+    start_head=$(cat "${f}.head" 2>/dev/null || true)
+    [ -n "$start_head" ] || return 0                    # no baseline: cannot tell, do not claim
+    [ "$start_head" = "$HEAD_SHA" ] || return 0         # it committed something: that is measurable
+    cap 9 "⚠️" "nothing measurable: this session made no commit and declared no todo" \
+          "say plainly whether the work is done — bilan checked the repo, the register and CI, and this session touched none of them"
+}
+
+# The opening ask, printed with every report. bilan cannot judge whether the work satisfies it —
+# that would be narration again, which is the disease it treats — but it can refuse to let a
+# session claim completion without the request in front of it. Extracted the way the session
+# index does it: a session often opens with pasted output, which names it worse than nothing.
+opening_ask() {
+    local tx
+    tx=$(transcript_path 2>/dev/null) || return 0
+    [ -f "$tx" ] || return 0
+    jq -r 'select(.type == "user")
+           | (if (.message.content | type) == "string" then .message.content
+              else ([.message.content[]? | select(.type == "text") | .text] | join("\n")) end)
+           | select(test("<command-name>|<local-command|<system-reminder>|<task-notification>|<cross-session-message")|not)
+           | select(test("^\\s*$")|not)' "$tx" 2>/dev/null \
+      | grep -vE '^\s*$' | grep -vE '^\s*[│┌└├─╭╰|+=#]' | grep -vE '│.*│' \
+      | head -1 | tr '\t\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' | cut -c1-150
+}
+
 # ------------------------------------------------------------------ checks · dev stack
 check_dev_stack() {
     local lib="$REPO_ROOT/bin/dev-processes.sh" f name up=""
@@ -628,6 +694,7 @@ run_checks() {
     check_dev_stack
     check_running_tasks
     check_open_todos
+    check_measurable
     # A measurement taken with checks switched off must not be allowed to say "done". --cheap
     # skips CI entirely, and a session quoted its cheap 10/10 as completion while a lane was
     # still red and four agents were running. The reduced measurement now cannot reach 10 by
@@ -674,6 +741,8 @@ report() {
     if [ "$s" = 10 ] && [ "$QUIET" = 1 ]; then return 0; fi
 
     say "BILAN · ${SESSION_ID:0:8} · $(basename "$REPO_ROOT") @ $BRANCH ${HEAD_SHA:0:8}"
+    local ask; ask=$(opening_ask)
+    [ -z "$ask" ] || say "asked: $ask"
     say ""
     if [ ! -s "$CAPS" ]; then
         say "  ✅ nothing outstanding — tree clean, nothing unpushed, no issue held"

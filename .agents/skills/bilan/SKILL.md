@@ -51,6 +51,8 @@ checks switched off is not a completion verdict, and now says so as a standing c
 | commits not pushed | **8** |
 | CI red on the pushed head | **5** |
 | CI still running, cancelled, or not yet registered | **9** |
+| todo still `pending` or `in_progress` | **7** |
+| nothing measurable — no commit, no todo | **9** |
 | untracked files, stash created this session, branch whose upstream is gone | **9** |
 | `.git/validation-passed` missing, stale, or for another sha | **9** |
 | dev stack from this checkout still up | **9** |
@@ -131,7 +133,28 @@ work wearing a label. The standing rule is *fix first, file only the residue*; i
 genuinely cannot be fixed here, that is a decision to put in front of ChefFamille, not a cap to
 slip past.
 
+## When there is nothing to measure
+
+A score of 10 means *everything I checked is done*. When nothing was checkable, 10 means nothing
+at all — and that is how a session reported 10/10 with its artifact unwritten. bilan reads the
+repo, the register and CI; a session whose work is research, a design, a document or a published
+artifact touches none of the three, so every check came back clean because every check came back
+empty.
+
+So a session that made no commit and declared no todo caps at **9**, labelled *nothing
+measurable*. It caps rather than blocks, because answering a question really is a complete
+session; what it must not do is issue a verdict it never earned. Declaring the work as a todo,
+or committing something, makes it measurable again.
+
+Every report also carries the session's **opening ask**, verbatim. bilan cannot judge whether
+the work satisfies it — that would be narration again, the thing it exists to treat — but it can
+refuse to let a session claim completion without the request in view.
+
 ## What it does not do
 
 It cannot tell you whether the work is *good*, only whether it is *finished*. A green bilan on
 a wrong implementation is still a wrong implementation — that is what `/code-review` is for.
+
+It cannot see a deliverable the session never declared. A todo, a commit or an issue makes work
+visible to it; an artifact written and published with none of those does not. The *nothing
+measurable* cap is how it says so out loud instead of scoring an empty check clean.

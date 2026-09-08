@@ -36,6 +36,7 @@ new_repo() {
     git -C "$root/work" commit -qm first
     git -C "$root/work" push -q -u origin HEAD:refs/heads/main >/dev/null 2>&1
     git -C "$root/work" branch -q --set-upstream-to=origin/main 2>/dev/null
+    git -C "$root/work" fetch -q origin 2>/dev/null   # FETCH_HEAD, or every case reads as stale
     printf '%s' "$root/work"
 }
 
@@ -55,7 +56,16 @@ CFG=$(mktemp -d -t bilan-cfg)
 SID="00000000-0000-0000-0000-00000000test"
 trap 'rm -rf "$CFG"' EXIT
 
+# Every fixture repo starts with nothing committed by the "session", so check_measurable would
+# fire on every case. A completed todo makes the harness measurable; the unmeasured case has its
+# own block below, where it is the thing under test.
+measurable() {
+    mkdir -p "$CFG/tasks/$SID"
+    printf '{"status":"completed","subject":"harness"}\n' > "$CFG/tasks/$SID/0.json"
+}
+
 printf '\nbilan tests\n\n'
+measurable
 
 # ---- clean repo scores 10
 R=$(new_repo)
@@ -232,6 +242,37 @@ check "all todos done means no cap" 0 \
     "$(run "$R" | jq '[.caps[] | select(.evidence | test("todo"))] | length')"
 rm -rf "$CFG/tasks"
 
+# ---- a session that checked nothing must not report a verdict. This is the case that scored
+# 10/10 with its artifact unwritten: research and writing touch no commit, no issue and no CI,
+# so every check came back clean because every check came back empty.
+rm -rf "$CFG/tasks"; rm -f "$CFG/bilan/"*.baseline*
+baseline_now "$R"
+out=$(run "$R")
+check "no commit and no todo means unmeasured, not 10" 9 "$(printf '%s' "$out" | jq -r .score)"
+check "and it says why" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length')"
+mkdir -p "$CFG/tasks/$SID"
+printf '{"status":"completed","subject":"published the artifact"}\n' > "$CFG/tasks/$SID/1.json"
+check "a declared todo makes the session measurable" 0 \
+    "$(run "$R" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length')"
+rm -rf "$CFG/tasks"
+echo measurable > "$R/m.txt" && git -C "$R" add m.txt && git -C "$R" commit -qm "a commit"
+check "a commit makes the session measurable" 0 \
+    "$(run "$R" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length')"
+git -C "$R" push -q origin HEAD:refs/heads/main
+rm -f "$CFG/bilan/"*.baseline*
+
+# ---- the opening ask is carried into the report, so completion is claimed against the request
+mkdir -p "$CFG/projects/fixture"
+TX="$CFG/projects/fixture/$SID.jsonl"
+printf '%s\n' '{"type":"user","message":{"content":"<system-reminder>ignore me</system-reminder>"}}' > "$TX"
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"Build the thing that measures completion"}]}}' >> "$TX"
+check "the report carries the opening ask" 1 \
+    "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap 2>/dev/null ) | grep -c 'asked: Build the thing')"
+check "and skips the system-reminder that precedes it" 0 \
+    "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap 2>/dev/null ) | grep -c 'ignore me')"
+rm -rf "$CFG/projects"
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }
@@ -255,9 +296,11 @@ for i in 1 2 3 4 5; do
     echo "churn" > "$R/churn-$i.txt" && git -C "$R" add "churn-$i.txt"
     d=$(gate false | jq -r '.decision // empty'); printf '%s\n' "${d:--}" >> "$CFG/blocks.txt"
 done
-check "the gate blocks at most three times per session" 3 \
+# One block per session, ever. A block re-invokes the model on the whole conversation, so a
+# second telling costs a full turn's tokens and adds nothing the first did not say.
+check "the gate blocks at most once per session" 1 \
     "$(grep -c '^block$' "$CFG/blocks.txt")"
-check "and is silent for every attempt after that" 2 \
+check "and is silent for every attempt after that" 4 \
     "$(grep -c '^-$' "$CFG/blocks.txt")"
 git -C "$R" reset -q HEAD -- . 2>/dev/null; rm -f "$R"/churn-*.txt
 

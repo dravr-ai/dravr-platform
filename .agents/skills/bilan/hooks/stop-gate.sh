@@ -66,7 +66,7 @@ signature=$(printf '%s' "$report" | jq -r '[.caps[] | .evidence] | sort | join("
 # auto-claim hook, which also warns once and then stands down.
 blocks=$(jq -r '.blocks // 0' "$state" 2>/dev/null); blocks=${blocks:-0}
 case "$blocks" in ''|*[!0-9]*) blocks=0 ;; esac
-[ "$blocks" -ge 3 ] && exit 0
+[ "$blocks" -ge 1 ] && exit 0
 
 jq -n --arg s "$signature" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson score "$score" \
    --argjson n "$((blocks + 1))" \
