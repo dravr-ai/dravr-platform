@@ -29,6 +29,11 @@ use pierre_services::pre_approval;
 use super::WebAdminContext;
 
 /// Pre-approval request — record a standing allow for one address.
+///
+/// LIMITATION(registre#405): `AllowEmailRequest` carries no `send_invite`, so this
+/// cookie-auth console surface records an allow without ever telling the person,
+/// while the token-auth twin behind `pierre-cli user allow --send-invite` can mail
+/// them the sign-up link.
 #[derive(Debug, Deserialize)]
 pub struct AllowEmailRequest {
     /// Address to pre-approve; normalized (trimmed, lower-cased) server-side.

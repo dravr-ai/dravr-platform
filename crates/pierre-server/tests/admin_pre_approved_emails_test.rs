@@ -25,6 +25,7 @@ mod common;
 mod helpers;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -37,12 +38,38 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use uuid::Uuid;
 
 const TEST_ADMIN_JWT_SECRET: &str = "test_jwt_secret_for_pre_approved_email_routes";
+
+/// Records what the handler asked to be sent, so a test can assert on the
+/// notification decision rather than on a 200.
+#[derive(Default)]
+struct RecordingNotifier {
+    invited: Arc<Mutex<Vec<String>>>,
+    approved: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl UserApprovalNotifier for RecordingNotifier {
+    async fn notify_user_approved(&self, _user_id: Uuid, email: &str, _display_name: Option<&str>) {
+        self.approved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(email.to_owned());
+    }
+
+    async fn notify_user_invited(&self, email: &str) {
+        self.invited
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(email.to_owned());
+    }
+}
 
 /// One in-memory database, its admin router, and the operator identity whose
 /// device-login token the CLI would be carrying.
@@ -52,6 +79,8 @@ struct Harness {
     operator_id: Uuid,
     operator_email: String,
     jwks: Arc<JwksManager>,
+    invited: Arc<Mutex<Vec<String>>>,
+    approved: Arc<Mutex<Vec<String>>>,
 }
 
 impl Harness {
@@ -63,7 +92,7 @@ impl Harness {
         let database_arc = Arc::new((*database).clone());
         let repos = Arc::new(database_arc.repositories());
 
-        let context = AdminApiContext::new(AdminApiContextInit {
+        let mut context = AdminApiContext::new(AdminApiContextInit {
             database: Arc::clone(&database_arc),
             repos: Arc::clone(&repos),
             jwt_secret: TEST_ADMIN_JWT_SECRET.to_owned(),
@@ -87,6 +116,15 @@ impl Harness {
             contremaitre_config: None,
         });
 
+        // The composition root injects the real notifier here; the test injects
+        // a recorder so "was this person mailed?" is observable.
+        let invited = Arc::new(Mutex::new(Vec::new()));
+        let approved = Arc::new(Mutex::new(Vec::new()));
+        context.approval_notifier = Some(Arc::new(RecordingNotifier {
+            invited: Arc::clone(&invited),
+            approved: Arc::clone(&approved),
+        }));
+
         // The super-admin who approved the device login. `pierre-cli auth
         // login` mints its token against exactly this account.
         let operator_email = "device-operator@example.com".to_owned();
@@ -99,6 +137,8 @@ impl Harness {
             operator_id,
             operator_email,
             jwks,
+            invited,
+            approved,
         })
     }
 
@@ -140,6 +180,32 @@ impl Harness {
             .await;
         let status = response.status();
         (status, response.json())
+    }
+
+    /// `allow` with the invite flag set, which is what
+    /// `pierre-cli user allow --send-invite` puts on the wire.
+    async fn allow_with_invite(&self, token: &str, email: &str) -> (u16, Value) {
+        let response = AxumTestRequest::post("/admin/pre-approved-emails")
+            .header("Authorization", &format!("Bearer {token}"))
+            .json(&json!({ "email": email, "send_invite": true }))
+            .send(self.router.clone())
+            .await;
+        let status = response.status();
+        (status, response.json())
+    }
+
+    fn invited(&self) -> Vec<String> {
+        self.invited
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn approved(&self) -> Vec<String> {
+        self.approved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     async fn list(&self, token: &str) -> (u16, Value) {
@@ -419,6 +485,116 @@ async fn a_suspended_account_is_left_alone_by_an_allow() -> Result<()> {
         user.user_status,
         UserStatus::Suspended,
         "the suspended account must be untouched"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn send_invite_mails_an_address_with_no_account() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "invited-athlete@example.com";
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("recorded"),
+        "an address with no account records a standing allow: {body}"
+    );
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(true),
+        "the response must report that the invite went out: {body}"
+    );
+    assert_eq!(
+        harness.invited(),
+        vec![email.to_owned()],
+        "exactly the invited address must be mailed"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_allow_is_silent_unless_the_invite_is_asked_for() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "quietly-allowed@example.com";
+
+    let (status, body) = harness.allow(&token, email, Some("no invite")).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(false),
+        "an allow without the flag must not report an invite: {body}"
+    );
+    assert!(
+        harness.invited().is_empty(),
+        "recording an allow is not by itself a decision to contact the person: {:?}",
+        harness.invited()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_active_account_is_never_sent_a_sign_up_link() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "already-here@example.com";
+    seed_user(&harness.repos, email, UserStatus::Active, UserRole::User).await?;
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("already_active"),
+        "an active account is a no-op: {body}"
+    );
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(false),
+        "a person who already has an account must not be told to create one: {body}"
+    );
+    assert!(
+        harness.invited().is_empty(),
+        "no invite may be sent to an existing account: {:?}",
+        harness.invited()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_pending_account_is_approved_rather_than_invited() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "waiting-in-queue@example.com";
+    seed_user(&harness.repos, email, UserStatus::Pending, UserRole::User).await?;
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("pending_approved"),
+        "a pending account is promoted: {body}"
+    );
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(false),
+        "the approval announcement replaces the invite: {body}"
+    );
+    assert!(
+        harness.invited().is_empty(),
+        "a promoted account must not also be told to create one: {:?}",
+        harness.invited()
+    );
+    assert_eq!(
+        harness.approved(),
+        vec![email.to_owned()],
+        "the promotion must still be announced"
     );
     Ok(())
 }

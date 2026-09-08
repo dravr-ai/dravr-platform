@@ -300,8 +300,13 @@ const ALLOWED_COLUMNS: [&str; 5] = [
 ///
 /// Returns the client's error when the write fails, including the server's
 /// rejection of a malformed address.
-pub async fn allow_email(client: &RemoteClient, email: &str, note: Option<&str>) -> AppResult<()> {
-    let payload = json!({ "email": email, "note": note });
+pub async fn allow_email(
+    client: &RemoteClient,
+    email: &str,
+    note: Option<&str>,
+    send_invite: bool,
+) -> AppResult<()> {
+    let payload = json!({ "email": email, "note": note, "send_invite": send_invite });
     let body: Value = client
         .post_json("/admin/pre-approved-emails", &payload)
         .await?;

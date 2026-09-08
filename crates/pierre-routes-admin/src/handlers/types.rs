@@ -69,6 +69,11 @@ pub struct AllowEmailRequest {
     pub email: String,
     /// Operator note recorded with the allow (cohort, reason).
     pub note: Option<String>,
+    /// Email the invitee the sign-up link. Defaults to false, because an allow
+    /// is silent by design: recording one is not by itself a decision to
+    /// contact the person.
+    #[serde(default)]
+    pub send_invite: bool,
 }
 
 /// User suspension request

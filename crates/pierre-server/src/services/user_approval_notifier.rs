@@ -95,4 +95,18 @@ impl UserApprovalNotifier for ApprovalNotifier {
             self.send_channel_messages(user_id, tenant.id).await;
         }
     }
+
+    async fn notify_user_invited(&self, email: &str) {
+        let Some(svc) = &self.email_service else {
+            warn!("Email service not configured — skipping invitation email");
+            return;
+        };
+        let Some(signup_url) = self.frontend_url.as_deref() else {
+            warn!("No frontend URL configured — skipping invitation email");
+            return;
+        };
+        if let Err(e) = svc.send_invitation(email, signup_url).await {
+            warn!(error = %e, "Failed to send invitation email");
+        }
+    }
 }

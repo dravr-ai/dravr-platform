@@ -181,6 +181,58 @@ pub fn registration_approved_html(display_name: Option<&str>, sign_in_url: Optio
     )
 }
 
+/// Generate the HTML body for an invitation message.
+///
+/// Sent when an operator pre-approves an address and asks for the invitee to be
+/// told. The link is the app's own sign-up page, not a single-use token: the
+/// standing pre-approval is what lets the account land active, so the invitee
+/// still chooses their own password and no secret crosses this channel.
+#[must_use]
+pub fn invitation_html(signup_url: &str) -> String {
+    let url_attr = encode_double_quoted_attribute(signup_url);
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're invited to Dravr</title>
+</head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#0a0a0f;color:#e5e7eb;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;padding:40px 20px;">
+    <tr>
+      <td style="text-align:center;padding-bottom:32px;">
+        <h1 style="margin:0;font-size:24px;font-weight:700;color:#ffffff;">Dravr</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(59,130,246,0.1));border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px;">
+        <h2 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#ffffff;">You're invited</h2>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          You've been invited to Dravr. Create your account with the link below
+          and you'll be let straight in &mdash; you choose your own password, and
+          there's no approval queue to wait through.
+        </p>
+        <div style="text-align:center;margin:0 0 24px;">
+          <a href="{url_attr}" style="display:inline-block;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px;">Create your account</a>
+        </div>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#6b7280;">
+          If you weren't expecting this, you can ignore it &mdash; nothing was
+          created in your name.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center;padding-top:24px;">
+        <p style="margin:0;font-size:12px;color:#4b5563;">&copy; Dravr</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"#
+    )
+}
+
 /// Generate the HTML body for an email-address verification message.
 ///
 /// Sent immediately after registration. The link carries a single-use

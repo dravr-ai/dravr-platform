@@ -427,6 +427,14 @@ enum UserCommand {
         #[arg(long)]
         note: Option<String>,
 
+        /// Email the invitee the sign-up link
+        ///
+        /// Off by default: recording an allow is not by itself a decision to
+        /// contact the person. Only an address with no account is mailed — a
+        /// pending one is approved and told so instead.
+        #[arg(long)]
+        send_invite: bool,
+
         /// Server base URL (defaults to the cached login)
         #[arg(long)]
         server: Option<String>,

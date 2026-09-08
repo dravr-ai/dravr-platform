@@ -123,6 +123,9 @@ pub const SUBJECT_CHANNEL_LINKING_CODE: &str = "Your Dravr verification code";
 /// Subject line for the post-registration address-confirmation email.
 pub const SUBJECT_EMAIL_VERIFICATION: &str = "Confirm your email for Dravr";
 
+/// Subject line for the operator-sent invitation.
+pub const SUBJECT_INVITATION: &str = "You're invited to Dravr";
+
 /// Email service backed by the Resend transactional email API
 pub struct ResendEmailService {
     /// HTTP client for API requests
@@ -271,6 +274,20 @@ impl ResendEmailService {
     ) -> AppResult<()> {
         let html = templates::email_verification_html(display_name, verify_url, ttl_minutes);
         self.send_email(to, SUBJECT_EMAIL_VERIFICATION, &html).await
+    }
+
+    /// Send an invitation carrying the sign-up link.
+    ///
+    /// `signup_url` is the app's own sign-up page. The invitee still chooses
+    /// their own password; it is the standing pre-approval recorded alongside
+    /// this send that lets their registration land active.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_invitation(&self, to: &str, signup_url: &str) -> AppResult<()> {
+        let html = templates::invitation_html(signup_url);
+        self.send_email(to, SUBJECT_INVITATION, &html).await
     }
 
     /// Send a channel linking verification code email

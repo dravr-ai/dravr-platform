@@ -65,11 +65,12 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
         UserCommand::Allow {
             email,
             note,
+            send_invite,
             server,
             token,
         } => {
             let client = commands::auth::admin_client(server, token)?;
-            commands::user_admin::allow_email(&client, &email, note.as_deref()).await
+            commands::user_admin::allow_email(&client, &email, note.as_deref(), send_invite).await
         }
         UserCommand::Disallow {
             email,

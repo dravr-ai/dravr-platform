@@ -25,7 +25,7 @@ use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
 use pierre_services::analytics::cache_user_email;
-use pierre_services::pre_approval;
+use pierre_services::pre_approval::{self, AllowOutcome};
 use pierre_services::tenant_admin as tenant_admin_service;
 
 use super::api_keys::json_response;
@@ -1021,8 +1021,26 @@ pub(crate) async fn handle_allow_email(
         .await;
     }
 
+    // Only an address with no account is invited. A pending one was just
+    // approved above and gets that announcement instead; an active or
+    // suspended account already exists, so a "create your account" link would
+    // be wrong.
+    let invited = request.send_invite
+        && matches!(
+            result.outcome,
+            AllowOutcome::Recorded | AllowOutcome::AlreadyAllowed
+        );
+    if invited {
+        if let Some(notifier) = ctx.approval_notifier.as_ref() {
+            notifier.notify_user_invited(&result.email).await;
+        } else {
+            warn!("No approval notifier wired — invitation email not sent");
+        }
+    }
+
     info!(
         outcome = ?result.outcome,
+        invited,
         admin_service = %admin_token.service_name,
         "Pre-approval allow recorded"
     );
@@ -1035,6 +1053,7 @@ pub(crate) async fn handle_allow_email(
                 "email": result.email,
                 "outcome": result.outcome,
                 "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
+                "invited": invited,
             }))
             .ok(),
         },

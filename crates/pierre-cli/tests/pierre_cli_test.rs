@@ -528,3 +528,20 @@ fn test_verbose_logs_stay_off_stdout() {
         "the startup log must still be emitted, on stderr: {stderr}"
     );
 }
+
+/// `--send-invite` is the flag that turns a silent allow into a mailed
+/// invitation, so it must be discoverable from the verb's own help.
+#[test]
+fn test_user_allow_help_offers_send_invite() {
+    let (exit_code, stdout, _stderr) = run_cli(&["user", "allow", "--help"]);
+
+    assert_eq!(exit_code, 0, "User allow help should exit with 0");
+    assert!(
+        stdout.contains("--send-invite"),
+        "allow must offer --send-invite: {stdout}"
+    );
+    assert!(
+        stdout.contains("--email"),
+        "allow must still take --email: {stdout}"
+    );
+}

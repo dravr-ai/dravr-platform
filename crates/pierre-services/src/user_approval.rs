@@ -28,4 +28,12 @@ pub trait UserApprovalNotifier: Send + Sync {
     /// Send the account-approved email and a localized "approved" message to
     /// each of the user's linked messaging channels.
     async fn notify_user_approved(&self, user_id: Uuid, email: &str, display_name: Option<&str>);
+
+    /// Send the invitation email carrying the sign-up link.
+    ///
+    /// Takes an address rather than a user id because an invitee has no
+    /// account yet, and therefore no linked channels either: this reaches them
+    /// by email alone. The sign-up URL is resolved by the implementation, which
+    /// is where the frontend origin is configured.
+    async fn notify_user_invited(&self, email: &str);
 }
