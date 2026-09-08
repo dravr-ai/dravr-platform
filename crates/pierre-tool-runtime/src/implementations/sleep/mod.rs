@@ -29,8 +29,8 @@ use serde_json::Value;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, task_capable, tool_definition,
-    tool_result_to_response, Formatted,
+    answers_with, capabilities_to_tronc, format_property, object_schema, task_capable,
+    tool_definition, tool_result_to_response, Formatted,
 };
 use crate::implementations::handler_bridge;
 use crate::implementations::sleep::output::{
@@ -102,6 +102,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<SleepQualityResult>>(tool_definition(
             "analyze_sleep_quality",
@@ -214,6 +215,7 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<RecoveryScoreResult>>(task_capable(tool_definition(
             "calculate_recovery_score",
@@ -421,6 +423,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<SleepTrendsResult>>(tool_definition(
             "track_sleep_trends",

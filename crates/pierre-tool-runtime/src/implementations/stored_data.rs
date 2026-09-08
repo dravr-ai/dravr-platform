@@ -31,8 +31,8 @@ use serde_json::{json, Value};
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response, Formatted,
+    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema, ok_typed,
+    tool_definition, tool_result_to_response, Formatted,
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::runtime::ToolRuntime;
@@ -116,16 +116,7 @@ fn date_range_properties() -> BTreeMap<String, PropertySchema> {
             ..Default::default()
         },
     );
-    properties.insert(
-        "format".to_owned(),
-        PropertySchema {
-            property_type: "string".to_owned(),
-            description: Some(
-                "Output format: 'json' (default) or 'toon' (token-efficient for LLMs).".to_owned(),
-            ),
-            ..Default::default()
-        },
-    );
+    properties.insert("format".to_owned(), format_property());
     properties
 }
 
@@ -410,17 +401,7 @@ pub struct ListDataSourcesTool;
 impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
-        properties.insert(
-            "format".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
 
         answers_with::<Formatted<DataSourcesResult>>(tool_definition(

@@ -78,6 +78,9 @@ export interface AdminGetSystemCoachParams {
 
   /** ID of the system agent to retrieve */
   coach_id: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 }
 
 
@@ -95,6 +98,9 @@ export interface AdminListCoachAssignmentsParams {
  * List all system agents in the tenant (admin only)
  */
 export interface AdminListSystemCoachesParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Maximum number of agents to return. Default: 50 */
   limit?: number;
@@ -150,6 +156,9 @@ export interface AnalyzeActivityParams {
   /** ID of the activity to analyze */
   activity_id: string;
 
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
   /** Fitness provider name (e.g., 'strava', 'fitbit') */
   provider: string;
 }
@@ -196,6 +205,9 @@ export interface AnalyzeMealNutritionParams {
  */
 export interface AnalyzePerformanceTrendsParams {
 
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
   /** Metric to analyze: 'pace', 'speed', 'heart_rate', 'distance', 'duration', 'elevation', 'power' */
   metric: string;
 
@@ -215,6 +227,9 @@ export interface AnalyzeSleepQualityParams {
   /** User's baseline HRV for comparison */
   baseline_hrv?: number;
 
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
   /** Array of recent HRV values for trend analysis */
   recent_hrv_values?: number[];
 
@@ -233,6 +248,9 @@ export interface AnalyzeTrainingLoadParams {
 
   /** Number of days of history to analyze. Default: 42 (6 weeks). */
   days?: number;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
   provider?: string;
@@ -268,6 +286,9 @@ export interface BrowseCoachStoreParams {
 
   /** Opaque cursor from a previous call's `next_cursor`, to fetch the next page. */
   cursor?: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Agents per page (1-100, default 20). */
   limit?: number;
@@ -307,6 +328,9 @@ export interface CalculateDailyNutritionParams {
  */
 export interface CalculateFitnessScoreParams {
 
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
   /** Fitness provider to query. Defaults to configured provider. */
   provider?: string;
 
@@ -325,6 +349,9 @@ export interface CalculateMetricsParams {
 
   /** User age (optional, used to estimate max HR via Fox formula if max_hr not provided) */
   age?: number;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Maximum heart rate (optional, used for intensity calculation) */
   max_hr?: number;
@@ -369,6 +396,9 @@ export interface CalculateRecoveryScoreParams {
 
   /** User's baseline HRV */
   baseline_hrv?: number;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Array of recent HRV values */
   recent_hrv_values?: number[];
@@ -464,6 +494,9 @@ export interface CompareActivitiesParams {
 
   /** Type of comparison: 'similar_activities' (default), 'pr_comparison', 'specific_activity' */
   comparison_type?: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Fitness provider name */
   provider: string;
@@ -564,6 +597,9 @@ export interface DeleteRecipeParams {
  * Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs
  */
 export interface DetectPatternsParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Fitness provider to query. Defaults to configured provider. */
   provider?: string;
@@ -729,6 +765,9 @@ export interface ForgetPlaybookParams {
  */
 export interface GenerateRecommendationsParams {
 
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
   provider?: string;
 
@@ -740,7 +779,11 @@ export interface GenerateRecommendationsParams {
 /**
  * Get the currently active agent
  */
-export interface GetActiveCoachParams {}
+export interface GetActiveCoachParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+}
 
 
 /**
@@ -785,6 +828,9 @@ export interface GetActivityIntelligenceParams {
   /** ID of the activity to analyze */
   activity_id: string;
 
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
   /** Fitness provider name (e.g., 'strava'). Defaults to configured provider. */
   provider: string;
 }
@@ -810,6 +856,9 @@ export interface GetCoachParams {
 
   /** ID of the agent to retrieve */
   coach_id: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 }
 
 
@@ -922,6 +971,9 @@ export interface GetNutrientTimingParams {
  * Get details of a specific recipe
  */
 export interface GetRecipeParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Recipe ID */
   recipe_id: string;
@@ -1092,6 +1144,9 @@ export interface InstallCoachFromStoreParams {
 
   /** UUID of the published agent to install, as returned by `browse_coach_store` or `search_coach_store`. Required. */
   coach_id: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 }
 
 
@@ -1105,6 +1160,9 @@ export interface ListCoachesParams {
 
   /** Only show favorites. Default: false */
   favorites_only?: boolean;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Include system agents. Default: true */
   include_system?: boolean;
@@ -1150,13 +1208,20 @@ export interface ListFitnessConfigsParams {
 /**
  * List all hidden agents
  */
-export interface ListHiddenCoachesParams {}
+export interface ListHiddenCoachesParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+}
 
 
 /**
  * List your saved recipes
  */
 export interface ListRecipesParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Maximum results (default: 20) */
   limit?: number;
@@ -1255,6 +1320,9 @@ export interface OptimizeSleepScheduleParams {
  * Predict future performance based on training
  */
 export interface PredictPerformanceParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
   provider?: string;
@@ -1733,6 +1801,9 @@ export interface SaveTrainingPlanParams {
  */
 export interface SearchCoachStoreParams {
 
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
   /** Max results (1-100, default 20). */
   limit?: number;
 
@@ -1748,6 +1819,9 @@ export interface SearchCoachesParams {
 
   /** Filter by category */
   category?: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Maximum results per request. Default: 20, max: 100 */
   limit?: number;
@@ -1780,6 +1854,9 @@ export interface SearchFoodParams {
  * Search your recipes by name, tags, or description
  */
 export interface SearchRecipesParams {
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Maximum results (default: 10) */
   limit?: number;
@@ -1980,6 +2057,9 @@ export interface TrackSleepTrendsParams {
 
   /** Days of sleep history to fetch from the provider (default 7) */
   days?: number;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
 
   /** Array of sleep data objects (minimum 7 days) */
   sleep_history?: {

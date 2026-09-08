@@ -43,8 +43,8 @@ use crate::activity_fetch::{
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
+    answers_with, capabilities_to_tronc, format_property, object_schema, ok_typed, task_capable,
+    tool_definition, tool_result_to_response,
 };
 use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
@@ -173,17 +173,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             },
         );
 
-        properties.insert(
-            "format".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
+        properties.insert("format".to_owned(), format_property());
 
         properties.insert(
             "sort_by".to_owned(),

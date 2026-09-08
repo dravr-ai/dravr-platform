@@ -49,8 +49,8 @@ use tracing::info;
 use crate::capabilities::{PROVIDER_ANALYTICS, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
-    tool_result_to_response, Formatted,
+    answers_with, capabilities_to_tronc, format_property, object_schema, ok_typed, task_capable,
+    tool_definition, tool_result_to_response, Formatted,
 };
 use crate::implementations::analytics::output::{
     ActivityIntelligenceResult, ActivityMetricsResult, CompareActivitiesResult, FitnessScoreResult,
@@ -152,6 +152,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<TrainingLoadResult>>(task_capable(tool_definition(
             "analyze_training_load",
@@ -217,6 +218,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<PatternsResult>>(task_capable(tool_definition(
             "detect_patterns",
@@ -282,6 +284,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<FitnessScoreResult>>(task_capable(tool_definition(
             "calculate_fitness_score",
@@ -568,6 +571,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
@@ -675,6 +679,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
@@ -763,6 +768,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
@@ -840,6 +846,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(
             properties,
             Some(vec!["provider".to_owned(), "metric".to_owned()]),
@@ -929,6 +936,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
@@ -998,6 +1006,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<RecommendationsResult>>(task_capable(tool_definition(
             "generate_recommendations",
@@ -1064,6 +1073,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<RacePredictionResult>>(task_capable(tool_definition(
             "predict_performance",

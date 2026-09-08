@@ -24,8 +24,8 @@ use serde_json::Value;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
-    Formatted,
+    answers_with, capabilities_to_tronc, format_property, object_schema, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -419,6 +419,7 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
         answers_with::<Formatted<inner::ListRecipesResult>>(tool_definition(
             "list_recipes",
@@ -464,6 +465,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, Some(vec!["recipe_id".to_owned()]));
         answers_with::<Formatted<inner::RecipeDetail>>(tool_definition(
             "get_recipe",
@@ -570,6 +572,7 @@ impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, Some(vec!["query".to_owned()]));
         answers_with::<Formatted<inner::SearchRecipesResult>>(tool_definition(
             "search_recipes",

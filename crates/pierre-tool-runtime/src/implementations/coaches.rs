@@ -41,8 +41,8 @@ use super::coaches_tool_shape::{
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response, Formatted,
+    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema, ok_typed,
+    tool_definition, tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -108,6 +108,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, None);
 
         answers_with::<Formatted<ListCoachesResult>>(tool_definition(
@@ -388,6 +389,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
         answers_with::<Formatted<GetCoachResult>>(tool_definition(
@@ -806,6 +808,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
                 ..Default::default()
             },
         );
+        properties.insert("format".to_owned(), format_property());
         let schema = object_schema(properties, Some(vec!["query".to_owned()]));
 
         answers_with::<Formatted<SearchCoachesResult>>(tool_definition(
@@ -1009,7 +1012,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(BTreeMap::new()),
+            properties: Some(BTreeMap::from([("format".to_owned(), format_property())])),
             required: None,
             ..Default::default()
         };
@@ -1219,7 +1222,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
     fn definition(&self) -> Tool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
-            properties: Some(BTreeMap::new()),
+            properties: Some(BTreeMap::from([("format".to_owned(), format_property())])),
             required: None,
             ..Default::default()
         };

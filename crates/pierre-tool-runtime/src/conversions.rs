@@ -273,6 +273,28 @@ pub fn object_schema<S: BuildHasher>(
     }
 }
 
+/// The `format` property, for any tool whose handler answers with [`Formatted<T>`].
+///
+/// A tool that routes through [`apply_format`] reads `format` and acts on it. The
+/// served schema is the only place a caller — or a model reading the tool catalogue
+/// to decide how to call it — can learn the parameter exists, so honouring it while
+/// declaring it nowhere makes the option undiscoverable. Six families did exactly
+/// that: coaches, analytics, the coach store, recipes, sleep and admin coaches, 26
+/// tools between them (registre#394).
+///
+/// One function rather than the literal, which was already pasted at three sites and
+/// would otherwise have been pasted at twenty-six more.
+#[must_use]
+pub fn format_property() -> PropertySchema {
+    PropertySchema {
+        property_type: "string".to_owned(),
+        description: Some(
+            "Output format: 'json' (default) or 'toon' (token-efficient for LLMs).".to_owned(),
+        ),
+        ..Default::default()
+    }
+}
+
 /// Map the platform's host capability flags to tronc's generic capability set.
 ///
 /// Only the seven host-agnostic flags cross over. The fitness domain flags
