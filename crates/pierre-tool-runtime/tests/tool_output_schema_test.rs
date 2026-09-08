@@ -22,6 +22,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::SportType;
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_services::plan_calendar_push::PushReport;
+use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::activities_output::GetActivitiesResult;
 use pierre_tool_runtime::implementations::admin::{
@@ -178,8 +179,7 @@ use std::collections::BTreeMap;
 
 /// The schema a conforming client would validate `verify_claim` against.
 fn declared_schema() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(VerifyClaimResult))
-        .expect("the derived schema serializes")
+    output_schema_for::<VerifyClaimResult>()
 }
 
 fn sample() -> VerifyClaimResult {
@@ -320,7 +320,7 @@ fn list_coaching_playbooks_declares_a_schema_that_accepts_its_payload() {
             &ListCoachingPlaybooksTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
+        &output_schema_for::<ListCoachingPlaybooksResult>(),
         &sample,
         "list_coaching_playbooks",
     );
@@ -338,7 +338,7 @@ fn an_athlete_with_no_playbooks_still_conforms() {
             &ListCoachingPlaybooksTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(ListCoachingPlaybooksResult)).expect("derives"),
+        &output_schema_for::<ListCoachingPlaybooksResult>(),
         &empty,
         "list_coaching_playbooks (empty)",
     );
@@ -355,7 +355,7 @@ fn forget_playbook_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <ForgetPlaybookTool as McpTool<dyn ToolRuntime>>::definition(&ForgetPlaybookTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(ForgetPlaybookResult)).expect("derives"),
+        &output_schema_for::<ForgetPlaybookResult>(),
         &sample,
         "forget_playbook",
     );
@@ -366,10 +366,8 @@ fn forget_playbook_schema_rejects_a_boolean_deleted() {
     // The wart typing exposed: the field reads like a flag and is a count. A
     // client that assumed boolean would have been wrong, and the schema now
     // says so out loud.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(ForgetPlaybookResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<ForgetPlaybookResult>()).expect("compiles");
 
     assert!(
         !validator.is_valid(&json!({"deleted": true, "playbook_id": "pb-1"})),
@@ -390,7 +388,7 @@ fn set_goal_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <SetGoalTool as McpTool<dyn ToolRuntime>>::definition(&SetGoalTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(SetGoalResult)).expect("derives"),
+        &output_schema_for::<SetGoalResult>(),
         &sample,
         "set_goal",
     );
@@ -411,7 +409,7 @@ fn suggest_goals_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <SuggestGoalsTool as McpTool<dyn ToolRuntime>>::definition(&SuggestGoalsTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(SuggestGoalsResult)).expect("derives"),
+        &output_schema_for::<SuggestGoalsResult>(),
         &sample,
         "suggest_goals",
     );
@@ -441,7 +439,7 @@ fn track_progress_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <TrackProgressTool as McpTool<dyn ToolRuntime>>::definition(&TrackProgressTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(TrackProgressResult)).expect("derives"),
+        &output_schema_for::<TrackProgressResult>(),
         &sample,
         "track_progress",
     );
@@ -479,7 +477,7 @@ fn analyze_goal_feasibility_declares_a_schema_that_accepts_its_payload() {
             &AnalyzeGoalFeasibilityTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(GoalFeasibilityResult)).expect("derives"),
+        &output_schema_for::<GoalFeasibilityResult>(),
         &sample,
         "analyze_goal_feasibility",
     );
@@ -493,7 +491,7 @@ fn coach_note_add_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <CoachNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&CoachNoteAddTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(CoachNoteAddResult)).expect("derives"),
+        &output_schema_for::<CoachNoteAddResult>(),
         &sample,
         "coach_note_add",
     );
@@ -513,7 +511,7 @@ fn coach_followup_schedule_accepts_a_followup_with_no_due_date() {
             &CoachFollowupScheduleTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(CoachFollowupScheduleResult)).expect("derives"),
+        &output_schema_for::<CoachFollowupScheduleResult>(),
         &sample,
         "coach_followup_schedule",
     );
@@ -528,7 +526,7 @@ fn remember_fact_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <RememberFactTool as McpTool<dyn ToolRuntime>>::definition(&RememberFactTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(RememberFactResult)).expect("derives"),
+        &output_schema_for::<RememberFactResult>(),
         &sample,
         "remember_fact",
     );
@@ -566,7 +564,7 @@ fn recall_user_memory_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <RecallUserMemoryTool as McpTool<dyn ToolRuntime>>::definition(&RecallUserMemoryTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(RecallUserMemoryResult)).expect("derives"),
+        &output_schema_for::<RecallUserMemoryResult>(),
         &sample,
         "recall_user_memory",
     );
@@ -590,7 +588,7 @@ fn calculate_daily_nutrition_declares_a_schema_that_accepts_its_payload() {
             &CalculateDailyNutritionTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(DailyNutritionResult)).expect("derives"),
+        &output_schema_for::<DailyNutritionResult>(),
         &sample,
         "calculate_daily_nutrition",
     );
@@ -620,7 +618,7 @@ fn get_nutrient_timing_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <GetNutrientTimingTool as McpTool<dyn ToolRuntime>>::definition(&GetNutrientTimingTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(NutrientTimingResult)).expect("derives"),
+        &output_schema_for::<NutrientTimingResult>(),
         &sample,
         "get_nutrient_timing",
     );
@@ -641,7 +639,7 @@ fn search_food_declares_a_schema_that_accepts_the_vendor_shape() {
     };
     assert_declares_and_accepts(
         <SearchFoodTool as McpTool<dyn ToolRuntime>>::definition(&SearchFoodTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(SearchFoodResult)).expect("derives"),
+        &output_schema_for::<SearchFoodResult>(),
         &sample,
         "search_food (no matches)",
     );
@@ -667,7 +665,7 @@ fn get_food_details_accepts_a_food_with_no_stated_serving() {
     assert_declares_and_accepts(
         <GetFoodDetailsTool as McpTool<dyn ToolRuntime>>::definition(&GetFoodDetailsTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(FoodDetailsResult)).expect("derives"),
+        &output_schema_for::<FoodDetailsResult>(),
         &sample,
         "get_food_details",
     );
@@ -691,7 +689,7 @@ fn analyze_meal_nutrition_declares_a_schema_that_accepts_its_payload() {
             &AnalyzeMealNutritionTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(AnalyzeMealNutritionResult)).expect("derives"),
+        &output_schema_for::<AnalyzeMealNutritionResult>(),
         &sample,
         "analyze_meal_nutrition",
     );
@@ -724,8 +722,7 @@ fn list_stretching_exercises_declares_a_schema_that_accepts_its_payload() {
             &ListStretchingExercisesTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(ListStretchingExercisesResult))
-            .expect("derives"),
+        &output_schema_for::<ListStretchingExercisesResult>(),
         &sample,
         "list_stretching_exercises",
     );
@@ -758,7 +755,7 @@ fn get_stretching_exercise_accepts_a_held_stretch_with_no_repetitions() {
             &GetStretchingExerciseTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(StretchingExerciseDetail)).expect("derives"),
+        &output_schema_for::<StretchingExerciseDetail>(),
         &sample,
         "get_stretching_exercise",
     );
@@ -787,7 +784,7 @@ fn suggest_stretches_for_activity_declares_a_schema_that_accepts_its_payload() {
             &SuggestStretchesForActivityTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(SuggestStretchesResult)).expect("derives"),
+        &output_schema_for::<SuggestStretchesResult>(),
         &sample,
         "suggest_stretches_for_activity",
     );
@@ -813,7 +810,7 @@ fn list_yoga_poses_accepts_a_pose_with_no_sanskrit_name() {
     assert_declares_and_accepts(
         <ListYogaPosesTool as McpTool<dyn ToolRuntime>>::definition(&ListYogaPosesTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(ListYogaPosesResult)).expect("derives"),
+        &output_schema_for::<ListYogaPosesResult>(),
         &sample,
         "list_yoga_poses",
     );
@@ -849,7 +846,7 @@ fn get_yoga_pose_declares_a_schema_that_accepts_its_payload() {
     };
     assert_declares_and_accepts(
         <GetYogaPoseTool as McpTool<dyn ToolRuntime>>::definition(&GetYogaPoseTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(YogaPoseDetail)).expect("derives"),
+        &output_schema_for::<YogaPoseDetail>(),
         &sample,
         "get_yoga_pose",
     );
@@ -882,7 +879,7 @@ fn suggest_yoga_sequence_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <SuggestYogaSequenceTool as McpTool<dyn ToolRuntime>>::definition(&SuggestYogaSequenceTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(SuggestYogaSequenceResult)).expect("derives"),
+        &output_schema_for::<SuggestYogaSequenceResult>(),
         &sample,
         "suggest_yoga_sequence",
     );
@@ -901,7 +898,7 @@ fn connect_provider_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <ConnectProviderTool as McpTool<dyn ToolRuntime>>::definition(&ConnectProviderTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(ConnectProviderResult)).expect("derives"),
+        &output_schema_for::<ConnectProviderResult>(),
         &sample,
         "connect_provider",
     );
@@ -911,8 +908,7 @@ fn connect_provider_declares_a_schema_that_accepts_its_payload() {
 fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
     // The tool answers a different shape depending on what was asked, so the
     // schema is an anyOf and every shape it sends has to validate against it.
-    let derived =
-        &serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives");
+    let derived = &output_schema_for::<ConnectionStatusResult>();
     let declared =
         <GetConnectionStatusTool as McpTool<dyn ToolRuntime>>::definition(&GetConnectionStatusTool)
             .output_schema
@@ -971,10 +967,8 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
 fn the_connection_status_schema_still_rejects_a_shape_the_tool_never_sends() {
     // Without this the anyOf could be vacuous — three arms that between them
     // accept anything would pass the test above and describe nothing.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(ConnectionStatusResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<ConnectionStatusResult>())
+        .expect("compiles");
 
     assert!(
         !validator.is_valid(&json!({"provider": "strava"})),
@@ -992,7 +986,7 @@ fn disconnect_provider_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <DisconnectProviderTool as McpTool<dyn ToolRuntime>>::definition(&DisconnectProviderTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(DisconnectProviderResult)).expect("derives"),
+        &output_schema_for::<DisconnectProviderResult>(),
         &sample,
         "disconnect_provider",
     );
@@ -1016,8 +1010,7 @@ fn get_sleep_sessions_declares_a_schema_that_accepts_an_empty_window() {
     assert_declares_and_accepts(
         <GetSleepSessionsTool as McpTool<dyn ToolRuntime>>::definition(&GetSleepSessionsTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<SleepSessionsResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<SleepSessionsResult>>(),
         &sample,
         "get_sleep_sessions",
     );
@@ -1036,8 +1029,7 @@ fn get_recovery_metrics_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <GetRecoveryMetricsTool as McpTool<dyn ToolRuntime>>::definition(&GetRecoveryMetricsTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<RecoveryMetricsResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<RecoveryMetricsResult>>(),
         &sample,
         "get_recovery_metrics",
     );
@@ -1056,8 +1048,7 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <GetHealthSnapshotsTool as McpTool<dyn ToolRuntime>>::definition(&GetHealthSnapshotsTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<HealthSnapshotsResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<HealthSnapshotsResult>>(),
         &sample,
         "get_health_snapshots",
     );
@@ -1072,8 +1063,7 @@ fn list_data_sources_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <ListDataSourcesTool as McpTool<dyn ToolRuntime>>::definition(&ListDataSourcesTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<DataSourcesResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<DataSourcesResult>>(),
         &sample,
         "list_data_sources",
     );
@@ -1083,11 +1073,9 @@ fn list_data_sources_declares_a_schema_that_accepts_its_payload() {
 /// have hand-written into a schema for a sleep tool.
 #[test]
 fn the_stored_data_schema_also_accepts_the_toon_envelope() {
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(Formatted<SleepSessionsResult>))
-            .expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<Formatted<SleepSessionsResult>>())
+            .expect("compiles");
 
     let toon: Formatted<SleepSessionsResult> = Formatted::Toon {
         toon: "count:0\nsessions:[]".to_owned(),
@@ -1115,19 +1103,17 @@ fn each_recipe_schema_is_attached_to_the_tool_it_names() {
         (
             "list_recipes",
             <ListRecipesTool as McpTool<dyn ToolRuntime>>::definition(&ListRecipesTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<ListRecipesResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<ListRecipesResult>>(),
         ),
         (
             "get_recipe",
             <GetRecipeTool as McpTool<dyn ToolRuntime>>::definition(&GetRecipeTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<RecipeDetail>)).expect("derives"),
+            output_schema_for::<Formatted<RecipeDetail>>(),
         ),
         (
             "search_recipes",
             <SearchRecipesTool as McpTool<dyn ToolRuntime>>::definition(&SearchRecipesTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<SearchRecipesResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<SearchRecipesResult>>(),
         ),
     ] {
         assert_eq!(
@@ -1167,8 +1153,7 @@ fn list_recipes_accepts_a_recipe_with_no_nutrition_yet() {
     });
     assert_declares_and_accepts(
         <ListRecipesTool as McpTool<dyn ToolRuntime>>::definition(&ListRecipesTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<ListRecipesResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<ListRecipesResult>>(),
         &sample,
         "list_recipes",
     );
@@ -1187,8 +1172,7 @@ fn search_recipes_declares_a_schema_that_accepts_no_matches() {
     assert_declares_and_accepts(
         <SearchRecipesTool as McpTool<dyn ToolRuntime>>::definition(&SearchRecipesTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<SearchRecipesResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<SearchRecipesResult>>(),
         &sample,
         "search_recipes (no matches)",
     );
@@ -1209,11 +1193,9 @@ fn search_recipes_declares_a_schema_that_accepts_no_matches() {
         limit: 20,
         has_more: false,
     });
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(Formatted<SearchRecipesResult>))
-            .expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<Formatted<SearchRecipesResult>>())
+            .expect("compiles");
     assert!(
         validator.is_valid(&serde_json::to_value(&populated).expect("serializes")),
         "a populated search result must satisfy the schema too"
@@ -1237,75 +1219,69 @@ fn each_coach_schema_is_attached_to_the_tool_it_names() {
         (
             "list_coaches",
             <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<ListCoachesResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<ListCoachesResult>>(),
         ),
         (
             "create_coach",
             <CreateCoachTool as McpTool<dyn ToolRuntime>>::definition(&CreateCoachTool),
-            serde_json::to_value(schemars::schema_for!(CreateCoachResult)).expect("derives"),
+            output_schema_for::<CreateCoachResult>(),
         ),
         (
             "get_coach",
             <GetCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetCoachTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<GetCoachResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<GetCoachResult>>(),
         ),
         (
             "update_coach",
             <UpdateCoachTool as McpTool<dyn ToolRuntime>>::definition(&UpdateCoachTool),
-            serde_json::to_value(schemars::schema_for!(UpdateCoachResult)).expect("derives"),
+            output_schema_for::<UpdateCoachResult>(),
         ),
         (
             "delete_coach",
             <DeleteCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeleteCoachTool),
-            serde_json::to_value(schemars::schema_for!(DeleteCoachResult)).expect("derives"),
+            output_schema_for::<DeleteCoachResult>(),
         ),
         (
             "toggle_coach_favorite",
             <ToggleCoachFavoriteTool as McpTool<dyn ToolRuntime>>::definition(
                 &ToggleCoachFavoriteTool,
             ),
-            serde_json::to_value(schemars::schema_for!(ToggleCoachFavoriteResult))
-                .expect("derives"),
+            output_schema_for::<ToggleCoachFavoriteResult>(),
         ),
         (
             "search_coaches",
             <SearchCoachesTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachesTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachesResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<SearchCoachesResult>>(),
         ),
         (
             "activate_coach",
             <ActivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&ActivateCoachTool),
-            serde_json::to_value(schemars::schema_for!(ActivateCoachResult)).expect("derives"),
+            output_schema_for::<ActivateCoachResult>(),
         ),
         (
             "deactivate_coach",
             <DeactivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeactivateCoachTool),
-            serde_json::to_value(schemars::schema_for!(DeactivateCoachResult)).expect("derives"),
+            output_schema_for::<DeactivateCoachResult>(),
         ),
         (
             "get_active_coach",
             <GetActiveCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetActiveCoachTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<GetActiveCoachResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<GetActiveCoachResult>>(),
         ),
         (
             "hide_coach",
             <HideCoachTool as McpTool<dyn ToolRuntime>>::definition(&HideCoachTool),
-            serde_json::to_value(schemars::schema_for!(HideCoachResult)).expect("derives"),
+            output_schema_for::<HideCoachResult>(),
         ),
         (
             "show_coach",
             <ShowCoachTool as McpTool<dyn ToolRuntime>>::definition(&ShowCoachTool),
-            serde_json::to_value(schemars::schema_for!(ShowCoachResult)).expect("derives"),
+            output_schema_for::<ShowCoachResult>(),
         ),
         (
             "list_hidden_coaches",
             <ListHiddenCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListHiddenCoachesTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<ListHiddenCoachesResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<ListHiddenCoachesResult>>(),
         ),
     ] {
         assert_eq!(
@@ -1348,8 +1324,7 @@ fn list_coaches_declares_a_schema_that_accepts_its_payload() {
 
     assert_declares_and_accepts(
         <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool).output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<ListCoachesResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<ListCoachesResult>>(),
         &sample,
         "list_coaches",
     );
@@ -1380,11 +1355,8 @@ fn a_coach_with_no_description_and_no_use_yet_still_validates() {
         limit: 50,
         has_more: false,
     });
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(Formatted<ListCoachesResult>))
-            .expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<Formatted<ListCoachesResult>>())
+        .expect("compiles");
 
     assert!(
         validator.is_valid(&serde_json::to_value(&sample).expect("serializes")),
@@ -1397,8 +1369,7 @@ fn get_active_coach_declares_one_schema_that_covers_both_of_its_answers() {
     // The tool sends the same key set whether or not a coach is active. If the
     // schema only ever described the active answer, every idle reply would be
     // a protocol violation — and idle is the common case.
-    let derived = serde_json::to_value(schemars::schema_for!(Formatted<GetActiveCoachResult>))
-        .expect("derives");
+    let derived = output_schema_for::<Formatted<GetActiveCoachResult>>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
 
     let active = Formatted::Json(GetActiveCoachResult {
@@ -1434,7 +1405,7 @@ fn get_coach_does_not_promise_usage_fields_it_cannot_fill() {
     // so those were constants dressed as data. Declaring an outputSchema would
     // have made them a promise. They are gone; list_coaches is where usage
     // signals actually come from.
-    let derived = serde_json::to_value(schemars::schema_for!(GetCoachResult)).expect("derives");
+    let derived = output_schema_for::<GetCoachResult>();
     let properties = derived["properties"]
         .as_object()
         .expect("the result type is an object schema");
@@ -1455,10 +1426,8 @@ fn get_coach_does_not_promise_usage_fields_it_cannot_fill() {
 fn the_coach_schemas_reject_payloads_missing_a_required_field() {
     // Without this the conformance tests above would pass just as happily
     // against a schema that describes nothing.
-    let search = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(SearchCoachesResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let search =
+        jsonschema::validator_for(&output_schema_for::<SearchCoachesResult>()).expect("compiles");
     assert!(
         !search.is_valid(&json!({
             "query": "tempo",
@@ -1472,20 +1441,16 @@ fn the_coach_schemas_reject_payloads_missing_a_required_field() {
         "a search hit with no id is not something a client can act on"
     );
 
-    let delete = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(DeleteCoachResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let delete =
+        jsonschema::validator_for(&output_schema_for::<DeleteCoachResult>()).expect("compiles");
     assert!(
         !delete.is_valid(&json!({ "deleted": true })),
         "delete_coach must say WHICH coach it deleted"
     );
 
-    let envelope = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(Formatted<ListHiddenCoachesResult>))
-            .expect("derives"),
-    )
-    .expect("compiles");
+    let envelope =
+        jsonschema::validator_for(&output_schema_for::<Formatted<ListHiddenCoachesResult>>())
+            .expect("compiles");
     assert!(
         !envelope.is_valid(&json!({ "count": 0 })),
         "the Formatted envelope must not accept an answer missing the coaches it counts"
@@ -1497,8 +1462,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
     for (tool, derived, payload) in [
         (
             "search_coaches",
-            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachesResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<SearchCoachesResult>>(),
             serde_json::to_value(Formatted::Json(SearchCoachesResult {
                 query: "tempo".to_owned(),
                 results: vec![CoachSearchEntry {
@@ -1518,8 +1482,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "list_hidden_coaches",
-            serde_json::to_value(schemars::schema_for!(Formatted<ListHiddenCoachesResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<ListHiddenCoachesResult>>(),
             serde_json::to_value(Formatted::Json(ListHiddenCoachesResult {
                 coaches: vec![HiddenCoachEntry {
                     id: "6bd0b0f4-0000-4000-8000-000000000005".to_owned(),
@@ -1534,7 +1497,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "activate_coach",
-            serde_json::to_value(schemars::schema_for!(ActivateCoachResult)).expect("derives"),
+            output_schema_for::<ActivateCoachResult>(),
             serde_json::to_value(ActivateCoachResult {
                 id: "6bd0b0f4-0000-4000-8000-000000000006".to_owned(),
                 title: "Base Phase".to_owned(),
@@ -1548,13 +1511,12 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "deactivate_coach",
-            serde_json::to_value(schemars::schema_for!(DeactivateCoachResult)).expect("derives"),
+            output_schema_for::<DeactivateCoachResult>(),
             serde_json::to_value(DeactivateCoachResult { deactivated: false }).expect("serializes"),
         ),
         (
             "toggle_coach_favorite",
-            serde_json::to_value(schemars::schema_for!(ToggleCoachFavoriteResult))
-                .expect("derives"),
+            output_schema_for::<ToggleCoachFavoriteResult>(),
             serde_json::to_value(ToggleCoachFavoriteResult {
                 coach_id: "6bd0b0f4-0000-4000-8000-000000000007".to_owned(),
                 is_favorite: true,
@@ -1563,7 +1525,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "hide_coach",
-            serde_json::to_value(schemars::schema_for!(HideCoachResult)).expect("derives"),
+            output_schema_for::<HideCoachResult>(),
             serde_json::to_value(HideCoachResult {
                 coach_id: "6bd0b0f4-0000-4000-8000-000000000008".to_owned(),
                 is_hidden: true,
@@ -1572,7 +1534,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "show_coach",
-            serde_json::to_value(schemars::schema_for!(ShowCoachResult)).expect("derives"),
+            output_schema_for::<ShowCoachResult>(),
             serde_json::to_value(ShowCoachResult {
                 coach_id: "6bd0b0f4-0000-4000-8000-000000000009".to_owned(),
                 is_hidden: false,
@@ -1582,7 +1544,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "create_coach",
-            serde_json::to_value(schemars::schema_for!(CreateCoachResult)).expect("derives"),
+            output_schema_for::<CreateCoachResult>(),
             serde_json::to_value(CreateCoachResult {
                 id: "6bd0b0f4-0000-4000-8000-00000000000a".to_owned(),
                 title: "Recovery Week".to_owned(),
@@ -1596,7 +1558,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "update_coach",
-            serde_json::to_value(schemars::schema_for!(UpdateCoachResult)).expect("derives"),
+            output_schema_for::<UpdateCoachResult>(),
             serde_json::to_value(UpdateCoachResult {
                 id: "6bd0b0f4-0000-4000-8000-00000000000b".to_owned(),
                 title: "Recovery Week".to_owned(),
@@ -1635,7 +1597,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
 /// would break both.
 #[test]
 fn the_activities_envelope_keeps_its_keys_where_its_readers_look() {
-    let schema = serde_json::to_value(schemars::schema_for!(GetActivitiesResult)).expect("derives");
+    let schema = output_schema_for::<GetActivitiesResult>();
     let payload = &schema["$defs"]["ActivitiesPayload"];
     let required: Vec<&str> = payload["required"]
         .as_array()
@@ -1673,7 +1635,7 @@ fn the_activities_envelope_keeps_its_keys_where_its_readers_look() {
 /// athlete they have no history while it is still being fetched.
 #[test]
 fn a_backfilling_window_is_distinguishable_from_an_empty_one() {
-    let schema = serde_json::to_value(schemars::schema_for!(GetActivitiesResult)).expect("derives");
+    let schema = output_schema_for::<GetActivitiesResult>();
 
     let placeholder = &schema["$defs"]["BackfillPlaceholder"];
     let mut required = placeholder["required"]
@@ -1712,8 +1674,7 @@ fn a_backfilling_window_is_distinguishable_from_an_empty_one() {
 /// and `scope` carries the sentence that stops the misreading.
 #[test]
 fn the_calendar_block_is_not_a_view_of_the_athletes_calendar() {
-    let schema =
-        serde_json::to_value(schemars::schema_for!(GetTrainingPlanResult)).expect("derives");
+    let schema = output_schema_for::<GetTrainingPlanResult>();
     let block = &schema["$defs"]["CalendarBlock"];
     let required: Vec<&str> = block["required"]
         .as_array()
@@ -1769,14 +1730,14 @@ fn each_training_plan_schema_is_attached_to_the_tool_it_names() {
         <GetTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&GetTrainingPlanTool)
             .output_schema
             .expect("get_training_plan must declare an outputSchema"),
-        serde_json::to_value(schemars::schema_for!(GetTrainingPlanResult)).expect("derives"),
+        output_schema_for::<GetTrainingPlanResult>(),
         "get_training_plan declares a schema derived from a DIFFERENT result type"
     );
     assert_eq!(
         <SaveTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&SaveTrainingPlanTool)
             .output_schema
             .expect("save_training_plan must declare an outputSchema"),
-        serde_json::to_value(schemars::schema_for!(SaveTrainingPlanResult)).expect("derives"),
+        output_schema_for::<SaveTrainingPlanResult>(),
         "save_training_plan declares a schema derived from a DIFFERENT result type"
     );
 }
@@ -1795,7 +1756,7 @@ fn each_training_plan_schema_is_attached_to_the_tool_it_names() {
 /// `tier` accepts. Now the values are enumerated.
 #[test]
 fn the_flavour_verdict_schema_lists_its_vocabularies() {
-    let schema = serde_json::to_value(schemars::schema_for!(PlanFlavourResult)).expect("derives");
+    let schema = output_schema_for::<PlanFlavourResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
     // A confidence a client can branch on, not a string it must match.
@@ -1861,8 +1822,7 @@ fn the_flavour_verdict_schema_lists_its_vocabularies() {
 /// like a method that found nothing.
 #[test]
 fn a_determined_threshold_reports_its_heart_rate_even_when_absent() {
-    let schema =
-        serde_json::to_value(schemars::schema_for!(LactateThresholdsResult)).expect("derives");
+    let schema = output_schema_for::<LactateThresholdsResult>();
 
     let determined = &schema["$defs"]["DeterminedThreshold"];
     let required: Vec<&str> = determined["required"]
@@ -1975,7 +1935,7 @@ fn an_unstrapped_threshold_serializes_heart_rate_as_null_not_absent() {
 /// answers to an athlete who thinks their watch is syncing.
 #[test]
 fn an_empty_training_load_still_says_which_providers_were_asked() {
-    let schema = serde_json::to_value(schemars::schema_for!(TrainingLoadResult)).expect("derives");
+    let schema = output_schema_for::<TrainingLoadResult>();
     let empty = &schema["$defs"]["NoTrainingLoad"];
     let mut required = empty["required"]
         .as_array()
@@ -1999,8 +1959,7 @@ fn an_empty_training_load_still_says_which_providers_were_asked() {
 /// three LT2 answers arrive as a list rather than one winner.
 #[test]
 fn every_lactate_threshold_names_the_construct_that_found_it() {
-    let schema =
-        serde_json::to_value(schemars::schema_for!(LactateThresholdsResult)).expect("derives");
+    let schema = output_schema_for::<LactateThresholdsResult>();
     // Both arms name their construct — that is what makes a number readable.
     for arm in ["DeterminedThreshold", "UndeterminedThreshold"] {
         let report = &schema["$defs"][arm];
@@ -2038,10 +1997,14 @@ fn every_lactate_threshold_names_the_construct_that_found_it() {
         top.contains(&"saved"),
         "this tool estimates and never writes, and has to say so"
     );
+    // Required, and null when the orderings were sound. The NULL is the
+    // signal, not the absence — the field stopped being skipped when a
+    // dropped key turned out to be indistinguishable from a checked-and-fine
+    // one, and the serialize contract is what lets the schema say so.
     assert!(
-        !top.contains(&"ordering_warning"),
-        "the warning is absent when the orderings were sound, and its absence \
-         is the signal that they were"
+        top.contains(&"ordering_warning"),
+        "the warning is always answered, null when there is nothing to warn \
+         about: {top:?}"
     );
 }
 
@@ -2057,44 +2020,38 @@ fn each_analytics_schema_is_attached_to_the_tool_it_names() {
             <AnalyzePerformanceTrendsTool as McpTool<dyn ToolRuntime>>::definition(
                 &AnalyzePerformanceTrendsTool,
             ),
-            serde_json::to_value(schemars::schema_for!(Formatted<PerformanceTrendsResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<PerformanceTrendsResult>>(),
         ),
         (
             "detect_patterns",
             <DetectPatternsTool as McpTool<dyn ToolRuntime>>::definition(&DetectPatternsTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<PatternsResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<PatternsResult>>(),
         ),
         (
             "calculate_metrics",
             <CalculateMetricsTool as McpTool<dyn ToolRuntime>>::definition(&CalculateMetricsTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<ActivityMetricsResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<ActivityMetricsResult>>(),
         ),
         (
             "calculate_fitness_score",
             <CalculateFitnessScoreTool as McpTool<dyn ToolRuntime>>::definition(
                 &CalculateFitnessScoreTool,
             ),
-            serde_json::to_value(schemars::schema_for!(Formatted<FitnessScoreResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<FitnessScoreResult>>(),
         ),
         (
             "analyze_training_load",
             <AnalyzeTrainingLoadTool as McpTool<dyn ToolRuntime>>::definition(
                 &AnalyzeTrainingLoadTool,
             ),
-            serde_json::to_value(schemars::schema_for!(Formatted<TrainingLoadResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<TrainingLoadResult>>(),
         ),
         (
             "generate_recommendations",
             <GenerateRecommendationsTool as McpTool<dyn ToolRuntime>>::definition(
                 &GenerateRecommendationsTool,
             ),
-            serde_json::to_value(schemars::schema_for!(Formatted<RecommendationsResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<RecommendationsResult>>(),
         ),
     ] {
         assert_eq!(
@@ -2122,7 +2079,7 @@ fn each_analytics_schema_is_attached_to_the_tool_it_names() {
 /// means "no adjustment ran", not "adjustment unknown".
 #[test]
 fn the_fitness_score_names_the_providers_behind_it() {
-    let schema = serde_json::to_value(schemars::schema_for!(FitnessScoreResult)).expect("derives");
+    let schema = output_schema_for::<FitnessScoreResult>();
     let arms = schema["anyOf"]
         .as_array()
         .expect("the score is untagged over scored and empty");
@@ -2164,7 +2121,7 @@ fn the_fitness_score_names_the_providers_behind_it() {
 /// form is the required one and the raw number rides alongside it.
 #[test]
 fn the_training_load_bands_form_rather_than_shipping_a_bare_tsb() {
-    let schema = serde_json::to_value(schemars::schema_for!(TrainingLoadResult)).expect("derives");
+    let schema = output_schema_for::<TrainingLoadResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
     for key in ["form_band", "form_assessment", "tsb_pct_of_ctl"] {
@@ -2238,8 +2195,7 @@ fn a_sampled_recommendation_that_does_not_fit_is_wrapped_not_passed_through() {
     );
 
     // Every one of them validates against what the tool declares.
-    let schema =
-        serde_json::to_value(schemars::schema_for!(RecommendationsResult)).expect("derives");
+    let schema = output_schema_for::<RecommendationsResult>();
     let validator = jsonschema::validator_for(&schema).expect("compiles");
     for answer in [&prose, &wrong, &fitting] {
         let value = serde_json::to_value(answer).expect("serializes");
@@ -2253,8 +2209,7 @@ fn a_sampled_recommendation_that_does_not_fit_is_wrapped_not_passed_through() {
 /// The week plan reports two numbers rather than one key of two JSON types.
 #[test]
 fn the_suggested_week_reports_a_session_range_not_a_number_or_a_string() {
-    let schema =
-        serde_json::to_value(schemars::schema_for!(RecommendationsResult)).expect("derives");
+    let schema = output_schema_for::<RecommendationsResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
     for key in ["sessions_per_week_min", "sessions_per_week_max"] {
@@ -2276,8 +2231,7 @@ fn analyze_performance_trends_declares_a_schema_that_accepts_both_of_its_answers
     // unknown metric, too few points to regress — and carry no statistics.
     // A schema that only described the successful answer would make every one
     // of them a protocol violation.
-    let derived = serde_json::to_value(schemars::schema_for!(Formatted<PerformanceTrendsResult>))
-        .expect("derives");
+    let derived = output_schema_for::<Formatted<PerformanceTrendsResult>>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
 
     let regressed = Formatted::Json(PerformanceTrendsResult {
@@ -2338,7 +2292,7 @@ fn analyze_performance_trends_declares_a_schema_that_accepts_both_of_its_answers
 /// making the contract unusable.
 #[test]
 fn every_detect_patterns_shape_matches_exactly_one_arm() {
-    let schema = serde_json::to_value(schemars::schema_for!(PatternsResult)).expect("derives");
+    let schema = output_schema_for::<PatternsResult>();
     let defs = schema.get("$defs").cloned().unwrap_or_else(|| json!({}));
     let arms: Vec<serde_json::Value> = schema["anyOf"]
         .as_array()
@@ -2470,8 +2424,7 @@ fn calculate_metrics_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <CalculateMetricsTool as McpTool<dyn ToolRuntime>>::definition(&CalculateMetricsTool)
             .output_schema,
-        &serde_json::to_value(schemars::schema_for!(Formatted<ActivityMetricsResult>))
-            .expect("derives"),
+        &output_schema_for::<Formatted<ActivityMetricsResult>>(),
         &sample,
         "calculate_metrics",
     );
@@ -2479,10 +2432,8 @@ fn calculate_metrics_declares_a_schema_that_accepts_its_payload() {
 
 #[test]
 fn the_analytics_schemas_reject_payloads_missing_a_required_field() {
-    let trends = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(PerformanceTrendsResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let trends = jsonschema::validator_for(&output_schema_for::<PerformanceTrendsResult>())
+        .expect("compiles");
     assert!(
         !trends.is_valid(&json!({
             "metric": "pace",
@@ -2493,10 +2444,8 @@ fn the_analytics_schemas_reject_payloads_missing_a_required_field() {
         "a trend answer with no trend is not something a client can read"
     );
 
-    let metrics = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(ActivityMetricsResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let metrics =
+        jsonschema::validator_for(&output_schema_for::<ActivityMetricsResult>()).expect("compiles");
     assert!(
         !metrics.is_valid(&json!({
             "pace": 5.24,
@@ -2512,8 +2461,7 @@ fn the_analytics_schemas_reject_payloads_missing_a_required_field() {
 
 #[test]
 fn predict_performance_declares_a_schema_that_accepts_both_of_its_answers() {
-    let derived = serde_json::to_value(schemars::schema_for!(Formatted<RacePredictionResult>))
-        .expect("derives");
+    let derived = output_schema_for::<Formatted<RacePredictionResult>>();
     assert_eq!(
         <PredictPerformanceTool as McpTool<dyn ToolRuntime>>::definition(&PredictPerformanceTool)
             .output_schema
@@ -2583,8 +2531,7 @@ fn the_two_race_prediction_shapes_match_exactly_one_arm_each() {
     // Same property the pattern shapes need, and the reason NoRacePrediction
     // carries an optional `error` instead of being split in two: a variant
     // whose required keys are a SUBSET of another's can never be told apart.
-    let schema =
-        serde_json::to_value(schemars::schema_for!(RacePredictionResult)).expect("derives");
+    let schema = output_schema_for::<RacePredictionResult>();
     let defs = schema.get("$defs").cloned().unwrap_or_else(|| json!({}));
     let arm_validators: Vec<_> = schema["anyOf"]
         .as_array()
@@ -2662,62 +2609,54 @@ fn each_admin_schema_is_attached_to_the_tool_it_names() {
             <AdminListSystemCoachesTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminListSystemCoachesTool,
             ),
-            serde_json::to_value(schemars::schema_for!(
-                Formatted<AdminListSystemCoachesResult>
-            ))
-            .expect("derives"),
+            output_schema_for::<Formatted<AdminListSystemCoachesResult>>(),
         ),
         (
             "admin_create_system_coach",
             <AdminCreateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminCreateSystemCoachTool,
             ),
-            serde_json::to_value(schemars::schema_for!(AdminCreateSystemCoachResult))
-                .expect("derives"),
+            output_schema_for::<AdminCreateSystemCoachResult>(),
         ),
         (
             "admin_get_system_coach",
             <AdminGetSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminGetSystemCoachTool,
             ),
-            serde_json::to_value(schemars::schema_for!(Formatted<AdminGetSystemCoachResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<AdminGetSystemCoachResult>>(),
         ),
         (
             "admin_update_system_coach",
             <AdminUpdateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminUpdateSystemCoachTool,
             ),
-            serde_json::to_value(schemars::schema_for!(AdminUpdateSystemCoachResult))
-                .expect("derives"),
+            output_schema_for::<AdminUpdateSystemCoachResult>(),
         ),
         (
             "admin_delete_system_coach",
             <AdminDeleteSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminDeleteSystemCoachTool,
             ),
-            serde_json::to_value(schemars::schema_for!(AdminDeleteSystemCoachResult))
-                .expect("derives"),
+            output_schema_for::<AdminDeleteSystemCoachResult>(),
         ),
         (
             "admin_assign_coach",
             <AdminAssignCoachTool as McpTool<dyn ToolRuntime>>::definition(&AdminAssignCoachTool),
-            serde_json::to_value(schemars::schema_for!(AdminAssignCoachResult)).expect("derives"),
+            output_schema_for::<AdminAssignCoachResult>(),
         ),
         (
             "admin_unassign_coach",
             <AdminUnassignCoachTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminUnassignCoachTool,
             ),
-            serde_json::to_value(schemars::schema_for!(AdminUnassignCoachResult)).expect("derives"),
+            output_schema_for::<AdminUnassignCoachResult>(),
         ),
         (
             "admin_list_coach_assignments",
             <AdminListCoachAssignmentsTool as McpTool<dyn ToolRuntime>>::definition(
                 &AdminListCoachAssignmentsTool,
             ),
-            serde_json::to_value(schemars::schema_for!(AdminListCoachAssignmentsResult))
-                .expect("derives"),
+            output_schema_for::<AdminListCoachAssignmentsResult>(),
         ),
     ] {
         assert_eq!(
@@ -2741,24 +2680,18 @@ fn every_admin_projection_declares_the_visibility_an_operator_decides() {
     // so every admin projection reports it. An admin schema that dropped it
     // would be describing the athlete's view by mistake.
     for (name, schema) in [
-        (
-            "SystemCoachEntry",
-            serde_json::to_value(schemars::schema_for!(SystemCoachEntry)).expect("derives"),
-        ),
+        ("SystemCoachEntry", output_schema_for::<SystemCoachEntry>()),
         (
             "AdminCreateSystemCoachResult",
-            serde_json::to_value(schemars::schema_for!(AdminCreateSystemCoachResult))
-                .expect("derives"),
+            output_schema_for::<AdminCreateSystemCoachResult>(),
         ),
         (
             "AdminGetSystemCoachResult",
-            serde_json::to_value(schemars::schema_for!(AdminGetSystemCoachResult))
-                .expect("derives"),
+            output_schema_for::<AdminGetSystemCoachResult>(),
         ),
         (
             "AdminUpdateSystemCoachResult",
-            serde_json::to_value(schemars::schema_for!(AdminUpdateSystemCoachResult))
-                .expect("derives"),
+            output_schema_for::<AdminUpdateSystemCoachResult>(),
         ),
     ] {
         assert!(
@@ -2795,10 +2728,7 @@ fn admin_list_system_coaches_declares_a_schema_that_accepts_its_payload() {
             &AdminListSystemCoachesTool,
         )
         .output_schema,
-        &serde_json::to_value(schemars::schema_for!(
-            Formatted<AdminListSystemCoachesResult>
-        ))
-        .expect("derives"),
+        &output_schema_for::<Formatted<AdminListSystemCoachesResult>>(),
         &sample,
         "admin_list_system_coaches",
     );
@@ -2830,11 +2760,9 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
         total: 240,
         truncated: true,
     };
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(AdminListCoachAssignmentsResult))
-            .expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<AdminListCoachAssignmentsResult>())
+            .expect("compiles");
     let value = serde_json::to_value(&sample).expect("serializes");
 
     assert!(
@@ -2850,10 +2778,8 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
 
 #[test]
 fn the_admin_schemas_reject_payloads_missing_a_required_field() {
-    let assign = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(AdminAssignCoachResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let assign = jsonschema::validator_for(&output_schema_for::<AdminAssignCoachResult>())
+        .expect("compiles");
     assert!(
         !assign.is_valid(&json!({
             "assigned": true,
@@ -2864,10 +2790,8 @@ fn the_admin_schemas_reject_payloads_missing_a_required_field() {
         "an assignment reply with no assigned_by is not an audit record"
     );
 
-    let unassign = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(AdminUnassignCoachResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let unassign = jsonschema::validator_for(&output_schema_for::<AdminUnassignCoachResult>())
+        .expect("compiles");
     assert!(
         !unassign.is_valid(&json!({ "unassigned": true })),
         "admin_unassign_coach must say which coach and which athlete"
@@ -2897,24 +2821,19 @@ fn each_store_schema_is_attached_to_the_tool_it_names() {
         (
             "browse_coach_store",
             <BrowseCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&BrowseCoachStoreTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<BrowseCoachStoreResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
         ),
         (
             "search_coach_store",
             <SearchCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachStoreTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachStoreResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<SearchCoachStoreResult>>(),
         ),
         (
             "install_coach_from_store",
             <InstallCoachFromStoreTool as McpTool<dyn ToolRuntime>>::definition(
                 &InstallCoachFromStoreTool,
             ),
-            serde_json::to_value(schemars::schema_for!(
-                Formatted<InstallCoachFromStoreResult>
-            ))
-            .expect("derives"),
+            output_schema_for::<Formatted<InstallCoachFromStoreResult>>(),
         ),
     ] {
         assert_eq!(
@@ -2937,7 +2856,7 @@ fn no_store_schema_promises_a_system_prompt() {
     // largest field on a store row; install echoes the same compact shape so
     // a client renders one card either way. A schema that declared the prompt
     // would be promising the tools send something they deliberately withhold.
-    let entry = serde_json::to_value(schemars::schema_for!(StoreCoachEntry)).expect("derives");
+    let entry = output_schema_for::<StoreCoachEntry>();
     assert!(
         !entry["properties"]
             .as_object()
@@ -2959,8 +2878,7 @@ fn the_store_schemas_accept_their_payloads() {
     for (tool, derived, payload) in [
         (
             "browse_coach_store",
-            serde_json::to_value(schemars::schema_for!(Formatted<BrowseCoachStoreResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
             serde_json::to_value(Formatted::Json(BrowseCoachStoreResult {
                 coaches: vec![a_store_coach()],
                 count: 1,
@@ -2971,8 +2889,7 @@ fn the_store_schemas_accept_their_payloads() {
         ),
         (
             "browse_coach_store (last page)",
-            serde_json::to_value(schemars::schema_for!(Formatted<BrowseCoachStoreResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
             // The last page has no cursor to hand back, and an unpublished
             // coach has no publication date. Both are ordinary.
             serde_json::to_value(Formatted::Json(BrowseCoachStoreResult {
@@ -2989,8 +2906,7 @@ fn the_store_schemas_accept_their_payloads() {
         ),
         (
             "search_coach_store",
-            serde_json::to_value(schemars::schema_for!(Formatted<SearchCoachStoreResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<SearchCoachStoreResult>>(),
             serde_json::to_value(Formatted::Json(SearchCoachStoreResult {
                 query: "marathon".to_owned(),
                 count: 1,
@@ -3000,10 +2916,7 @@ fn the_store_schemas_accept_their_payloads() {
         ),
         (
             "install_coach_from_store",
-            serde_json::to_value(schemars::schema_for!(
-                Formatted<InstallCoachFromStoreResult>
-            ))
-            .expect("derives"),
+            output_schema_for::<Formatted<InstallCoachFromStoreResult>>(),
             serde_json::to_value(Formatted::Json(InstallCoachFromStoreResult {
                 installed: true,
                 coach: a_store_coach(),
@@ -3033,13 +2946,12 @@ fn each_sync_schema_is_attached_to_the_tool_it_names() {
             <RefreshProviderDataTool as McpTool<dyn ToolRuntime>>::definition(
                 &RefreshProviderDataTool,
             ),
-            serde_json::to_value(schemars::schema_for!(RefreshProviderDataResult))
-                .expect("derives"),
+            output_schema_for::<RefreshProviderDataResult>(),
         ),
         (
             "get_data_freshness",
             <GetDataFreshnessTool as McpTool<dyn ToolRuntime>>::definition(&GetDataFreshnessTool),
-            serde_json::to_value(schemars::schema_for!(DataFreshnessResult)).expect("derives"),
+            output_schema_for::<DataFreshnessResult>(),
         ),
     ] {
         assert_eq!(
@@ -3061,8 +2973,7 @@ fn both_refresh_shapes_match_exactly_one_arm() {
     // Asked for one provider the tool reports an outcome; asked for all of
     // them it reports what it started. `status` and `provider` are what keep
     // those apart — drop either and a client is guessing.
-    let schema =
-        serde_json::to_value(schemars::schema_for!(RefreshProviderDataResult)).expect("derives");
+    let schema = output_schema_for::<RefreshProviderDataResult>();
     let defs = schema.get("$defs").cloned().unwrap_or_else(|| json!({}));
     let arms: Vec<_> = schema["anyOf"]
         .as_array()
@@ -3119,10 +3030,8 @@ fn a_failed_sync_is_a_reported_outcome_not_a_rejected_payload() {
     // A provider being down is news the athlete can act on, so the tool
     // answers success:false rather than erroring. The schema has to accept
     // that, or the honest answer becomes a protocol violation.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(RefreshProviderDataResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<RefreshProviderDataResult>())
+        .expect("compiles");
     let failed = serde_json::to_value(RefreshProviderDataResult::Single(SingleProviderRefresh {
         provider: "whoop".to_owned(),
         success: false,
@@ -3147,12 +3056,12 @@ fn each_commitment_schema_is_attached_to_the_tool_it_names() {
         (
             "commitment_create",
             <CommitmentCreateTool as McpTool<dyn ToolRuntime>>::definition(&CommitmentCreateTool),
-            serde_json::to_value(schemars::schema_for!(CommitmentCreateResult)).expect("derives"),
+            output_schema_for::<CommitmentCreateResult>(),
         ),
         (
             "commitment_cancel",
             <CommitmentCancelTool as McpTool<dyn ToolRuntime>>::definition(&CommitmentCancelTool),
-            serde_json::to_value(schemars::schema_for!(CommitmentCancelResult)).expect("derives"),
+            output_schema_for::<CommitmentCancelResult>(),
         ),
     ] {
         assert_eq!(
@@ -3175,10 +3084,8 @@ fn a_duplicate_commitment_is_a_valid_answer_not_an_error() {
     // coach can say "already noted" instead of promising a second check. The
     // schema has to accept recorded:false, or the honest answer to a repeat
     // becomes a protocol violation.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(CommitmentCreateResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<CommitmentCreateResult>())
+        .expect("compiles");
 
     for (label, sample) in [
         (
@@ -3222,10 +3129,8 @@ fn a_duplicate_commitment_is_a_valid_answer_not_an_error() {
 fn cancelling_nothing_is_a_valid_answer_too() {
     // False means nothing open matched. The athlete is not committed either
     // way, so it is a success, and the schema must accept it.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(CommitmentCancelResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<CommitmentCancelResult>())
+        .expect("compiles");
     let value = serde_json::to_value(CommitmentCancelResult {
         commitment_id: "c1f0b2d3-0000-4000-8000-000000000002".to_owned(),
         cancelled: false,
@@ -3252,27 +3157,26 @@ fn each_fitness_config_schema_is_attached_to_the_tool_it_names() {
         (
             "get_fitness_config",
             <GetFitnessConfigTool as McpTool<dyn ToolRuntime>>::definition(&GetFitnessConfigTool),
-            serde_json::to_value(schemars::schema_for!(GetFitnessConfigResult)).expect("derives"),
+            output_schema_for::<GetFitnessConfigResult>(),
         ),
         (
             "set_fitness_config",
             <SetFitnessConfigTool as McpTool<dyn ToolRuntime>>::definition(&SetFitnessConfigTool),
-            serde_json::to_value(schemars::schema_for!(SetFitnessConfigResult)).expect("derives"),
+            output_schema_for::<SetFitnessConfigResult>(),
         ),
         (
             "list_fitness_configs",
             <ListFitnessConfigsTool as McpTool<dyn ToolRuntime>>::definition(
                 &ListFitnessConfigsTool,
             ),
-            serde_json::to_value(schemars::schema_for!(ListFitnessConfigsResult)).expect("derives"),
+            output_schema_for::<ListFitnessConfigsResult>(),
         ),
         (
             "delete_fitness_config",
             <DeleteFitnessConfigTool as McpTool<dyn ToolRuntime>>::definition(
                 &DeleteFitnessConfigTool,
             ),
-            serde_json::to_value(schemars::schema_for!(DeleteFitnessConfigResult))
-                .expect("derives"),
+            output_schema_for::<DeleteFitnessConfigResult>(),
         ),
     ] {
         assert_eq!(
@@ -3294,10 +3198,8 @@ fn a_missing_fitness_config_answers_with_a_null_config_not_an_error() {
     // A configuration nobody has saved is a fact about the tenant, not a
     // fault, so the tool reports it. `config: null` has to be describable or
     // the ordinary answer to a first-time read is a protocol violation.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(GetFitnessConfigResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<GetFitnessConfigResult>())
+        .expect("compiles");
     let value = serde_json::to_value(GetFitnessConfigResult {
         configuration_name: "default".to_owned(),
         config: None,
@@ -3324,10 +3226,8 @@ fn deleting_nothing_omits_the_delete_timestamp() {
     // success:false means there was nothing to delete, which leaves the
     // tenant in the state the caller wanted. deleted_at is what separates a
     // delete that happened from one that had nothing to do.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(DeleteFitnessConfigResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<DeleteFitnessConfigResult>())
+        .expect("compiles");
 
     let removed = serde_json::to_value(DeleteFitnessConfigResult {
         success: true,
@@ -3358,8 +3258,7 @@ fn deleting_nothing_omits_the_delete_timestamp() {
 fn the_fitness_config_listing_reports_both_scopes_it_merged() {
     // A name can be tenant-level and overridden per athlete. Reporting only
     // the merged list would hide that, so the two scopes stay on the wire.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(ListFitnessConfigsResult)).expect("derives");
+    let derived = output_schema_for::<ListFitnessConfigsResult>();
     let props = derived["properties"].as_object().expect("object schema");
     for field in [
         "configurations",
@@ -3400,25 +3299,24 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             <GetWeatherForecastTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetWeatherForecastTool,
             ),
-            serde_json::to_value(schemars::schema_for!(WeatherForecastResult)).expect("derives"),
+            output_schema_for::<WeatherForecastResult>(),
         ),
         (
             "discover_routes",
             <DiscoverRoutesTool as McpTool<dyn ToolRuntime>>::definition(&DiscoverRoutesTool),
-            serde_json::to_value(schemars::schema_for!(DiscoverRoutesResult)).expect("derives"),
+            output_schema_for::<DiscoverRoutesResult>(),
         ),
         (
             "get_group_member_activities",
             <GetGroupMemberActivitiesTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetGroupMemberActivitiesTool,
             ),
-            serde_json::to_value(schemars::schema_for!(GroupMemberActivitiesResult))
-                .expect("derives"),
+            output_schema_for::<GroupMemberActivitiesResult>(),
         ),
         (
             "push_training_plan",
             <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
-            serde_json::to_value(schemars::schema_for!(PushReport)).expect("derives"),
+            output_schema_for::<PushReport>(),
         ),
     ] {
         assert_eq!(
@@ -3440,10 +3338,8 @@ fn a_coordinate_forecast_omits_the_place_a_named_one_carries() {
     // The place name is what the caller asked for resolved back to them.
     // A coordinate lookup resolved nothing, so there is nothing to echo, and
     // the key is absent rather than an empty string.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(WeatherForecastResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<WeatherForecastResult>()).expect("compiles");
 
     let named = serde_json::to_value(WeatherForecastResult {
         latitude: 45.5,
@@ -3488,10 +3384,8 @@ fn a_route_with_almost_no_osm_tags_still_validates() {
     // and nothing else is the common case, which is why distance and
     // difficulty are optional — a schema demanding them would reject most of
     // what the tool actually returns.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(DiscoverRoutesResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<DiscoverRoutesResult>()).expect("compiles");
     let value = serde_json::to_value(DiscoverRoutesResult {
         sport_type: "run".to_owned(),
         center: RouteSearchCenter {
@@ -3526,8 +3420,7 @@ fn the_group_projection_carries_no_more_of_a_peer_than_it_should() {
     // it with the group. The projection is deliberately narrow, and the
     // schema is where that narrowness becomes checkable: a field added here
     // is a field shared with the peer's whole group.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(GroupMemberActivity)).expect("derives");
+    let derived = output_schema_for::<GroupMemberActivity>();
     // Sorted, because the contract is which fields are shared, not the order
     // they were declared in: whether a schema's `properties` keeps insertion
     // order or sorts them is a `serde_json` build detail, and pinning it here
@@ -3562,10 +3455,8 @@ fn the_group_projection_carries_no_more_of_a_peer_than_it_should() {
     );
 
     // And the whole answer validates, member named by display name only.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(GroupMemberActivitiesResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<GroupMemberActivitiesResult>())
+        .expect("compiles");
     let value = serde_json::to_value(GroupMemberActivitiesResult {
         member: "Alice".to_owned(),
         group: "Tuesday Track".to_owned(),
@@ -3607,14 +3498,12 @@ fn the_athlete_and_stats_tools_declare_the_models_they_answer_with() {
         (
             "get_athlete",
             <GetAthleteTool as McpTool<dyn ToolRuntime>>::definition(&GetAthleteTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<GetAthleteResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<GetAthleteResult>>(),
         ),
         (
             "get_stats",
             <GetStatsTool as McpTool<dyn ToolRuntime>>::definition(&GetStatsTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<GetStatsResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<GetStatsResult>>(),
         ),
     ] {
         assert_eq!(
@@ -3637,8 +3526,7 @@ fn the_toon_envelope_key_is_fixed_rather_than_named_after_the_tool() {
     // and `stats_toon`. A property name that changes per tool cannot be
     // stated in a schema at all, which is why the envelope keys are fixed —
     // and this is the assertion that keeps someone from reintroducing one.
-    let schema =
-        serde_json::to_value(schemars::schema_for!(Formatted<GetAthleteResult>)).expect("derives");
+    let schema = output_schema_for::<Formatted<GetAthleteResult>>();
 
     // The PROPERTY names, not the rendered text. The envelope's own doc
     // comment names the spellings it replaced, so a substring match reads
@@ -3676,22 +3564,22 @@ fn each_remaining_recipe_schema_is_attached_to_the_tool_it_names() {
             <GetRecipeConstraintsTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetRecipeConstraintsTool,
             ),
-            serde_json::to_value(schemars::schema_for!(RecipeConstraintsResult)).expect("derives"),
+            output_schema_for::<RecipeConstraintsResult>(),
         ),
         (
             "validate_recipe",
             <ValidateRecipeTool as McpTool<dyn ToolRuntime>>::definition(&ValidateRecipeTool),
-            serde_json::to_value(schemars::schema_for!(ValidateRecipeResult)).expect("derives"),
+            output_schema_for::<ValidateRecipeResult>(),
         ),
         (
             "save_recipe",
             <SaveRecipeTool as McpTool<dyn ToolRuntime>>::definition(&SaveRecipeTool),
-            serde_json::to_value(schemars::schema_for!(SaveRecipeResult)).expect("derives"),
+            output_schema_for::<SaveRecipeResult>(),
         ),
         (
             "delete_recipe",
             <DeleteRecipeTool as McpTool<dyn ToolRuntime>>::definition(&DeleteRecipeTool),
-            serde_json::to_value(schemars::schema_for!(DeleteRecipeResult)).expect("derives"),
+            output_schema_for::<DeleteRecipeResult>(),
         ),
     ] {
         assert_eq!(
@@ -3713,10 +3601,8 @@ fn the_two_tdee_fields_travel_together() {
     // Both come off the athlete's stored energy expenditure, so either both
     // are there or neither is. `tdee_based` is always present and says which
     // case it is, so a client reads one field instead of probing for a key.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(RecipeConstraintsResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<RecipeConstraintsResult>())
+        .expect("compiles");
 
     let with_tdee = serde_json::to_value(RecipeConstraintsResult {
         calories: 720.0,
@@ -3772,10 +3658,8 @@ fn an_unmatched_ingredient_reports_a_null_match_and_no_id() {
     // usda_match is an explicit null. There is no id to give in that case, so
     // fdc_id is omitted entirely — and validation_completeness is how the
     // athlete knows the nutrition totals are understated because of it.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(ValidateRecipeResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<ValidateRecipeResult>()).expect("compiles");
     let value = serde_json::to_value(ValidateRecipeResult {
         validated: true,
         servings: 4,
@@ -3839,8 +3723,7 @@ fn compare_activities_declares_a_schema_that_accepts_all_three_modes() {
     // untagged variants this could not work: the empty pr_comparison answer
     // requires only keys every other mode also carries, so it would match
     // several arms and a client could not tell which it held.
-    let derived = serde_json::to_value(schemars::schema_for!(Formatted<CompareActivitiesResult>))
-        .expect("derives");
+    let derived = output_schema_for::<Formatted<CompareActivitiesResult>>();
     assert_eq!(
         <CompareActivitiesTool as McpTool<dyn ToolRuntime>>::definition(&CompareActivitiesTool)
             .output_schema
@@ -3994,12 +3877,12 @@ fn each_physiology_schema_is_attached_to_the_tool_it_names() {
         (
             "set_physiology",
             <SetPhysiologyTool as McpTool<dyn ToolRuntime>>::definition(&SetPhysiologyTool),
-            serde_json::to_value(schemars::schema_for!(SetPhysiologyResult)).expect("derives"),
+            output_schema_for::<SetPhysiologyResult>(),
         ),
         (
             "estimate_vo2max",
             <EstimateVo2maxTool as McpTool<dyn ToolRuntime>>::definition(&EstimateVo2maxTool),
-            serde_json::to_value(schemars::schema_for!(EstimateVo2maxResult)).expect("derives"),
+            output_schema_for::<EstimateVo2maxResult>(),
         ),
     ] {
         assert_eq!(
@@ -4022,8 +3905,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
     // resting heart rate has one field set, and every measurement is Option
     // because of it — reporting an unknown as zero would let a coach reason
     // off a fabricated number.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(SetPhysiologyResult)).expect("derives");
+    let derived = output_schema_for::<SetPhysiologyResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
     let value = serde_json::to_value(SetPhysiologyResult {
         saved: true,
@@ -4064,8 +3946,7 @@ fn the_updated_fields_list_names_fields_never_measurements() {
     // The measurements are health data. The tool logs and reports which
     // fields were set, by name — and this asserts the list stays names, so
     // nobody "improves" it into a map of what was written.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(SetPhysiologyResult)).expect("derives");
+    let derived = output_schema_for::<SetPhysiologyResult>();
     let updated = &derived["properties"]["updated_fields"];
     assert_eq!(
         updated["type"], "array",
@@ -4083,8 +3964,7 @@ fn estimate_vo2max_says_it_did_not_save() {
     // an athlete should confirm a number before it shapes their zones. So the
     // tool reports saved:false and tells the caller what to do next — both
     // are on the wire, and both are asserted rather than assumed.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(EstimateVo2maxResult)).expect("derives");
+    let derived = output_schema_for::<EstimateVo2maxResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
     let value = serde_json::to_value(EstimateVo2maxResult {
         method: "cooper_12_minute".to_owned(),
@@ -4127,34 +4007,31 @@ fn each_sleep_schema_is_attached_to_the_tool_it_names() {
             <AnalyzeSleepQualityTool as McpTool<dyn ToolRuntime>>::definition(
                 &AnalyzeSleepQualityTool,
             ),
-            serde_json::to_value(schemars::schema_for!(Formatted<SleepQualityResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<SleepQualityResult>>(),
         ),
         (
             "calculate_recovery_score",
             <CalculateRecoveryScoreTool as McpTool<dyn ToolRuntime>>::definition(
                 &CalculateRecoveryScoreTool,
             ),
-            serde_json::to_value(schemars::schema_for!(Formatted<RecoveryScoreResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<RecoveryScoreResult>>(),
         ),
         (
             "suggest_rest_day",
             <SuggestRestDayTool as McpTool<dyn ToolRuntime>>::definition(&SuggestRestDayTool),
-            serde_json::to_value(schemars::schema_for!(RestDayResult)).expect("derives"),
+            output_schema_for::<RestDayResult>(),
         ),
         (
             "track_sleep_trends",
             <TrackSleepTrendsTool as McpTool<dyn ToolRuntime>>::definition(&TrackSleepTrendsTool),
-            serde_json::to_value(schemars::schema_for!(Formatted<SleepTrendsResult>))
-                .expect("derives"),
+            output_schema_for::<Formatted<SleepTrendsResult>>(),
         ),
         (
             "optimize_sleep_schedule",
             <OptimizeSleepScheduleTool as McpTool<dyn ToolRuntime>>::definition(
                 &OptimizeSleepScheduleTool,
             ),
-            serde_json::to_value(schemars::schema_for!(SleepScheduleResult)).expect("derives"),
+            output_schema_for::<SleepScheduleResult>(),
         ),
     ] {
         assert_eq!(
@@ -4180,8 +4057,7 @@ fn each_sleep_schema_is_attached_to_the_tool_it_names() {
 /// recovery component changed.
 #[test]
 fn the_cageux_types_carry_their_fields_into_the_declared_schema() {
-    let recovery = serde_json::to_value(schemars::schema_for!(Formatted<RecoveryScoreResult>))
-        .expect("derives");
+    let recovery = output_schema_for::<Formatted<RecoveryScoreResult>>();
     let rendered = serde_json::to_string(&recovery).expect("serializes");
     for field in [
         "overall_score",
@@ -4197,8 +4073,7 @@ fn the_cageux_types_carry_their_fields_into_the_declared_schema() {
         );
     }
 
-    let quality = serde_json::to_value(schemars::schema_for!(Formatted<SleepQualityResult>))
-        .expect("derives");
+    let quality = output_schema_for::<Formatted<SleepQualityResult>>();
     let rendered = serde_json::to_string(&quality).expect("serializes");
     for field in ["duration_score", "stage_quality_score", "efficiency_score"] {
         assert!(
@@ -4212,8 +4087,7 @@ fn the_cageux_types_carry_their_fields_into_the_declared_schema() {
 fn a_night_with_no_hrv_still_validates() {
     // Plenty of devices do not measure HRV. Its absence is the ordinary case
     // on those, not a fault, so the schema has to accept a night without it.
-    let derived = serde_json::to_value(schemars::schema_for!(Formatted<SleepQualityResult>))
-        .expect("derives");
+    let derived = output_schema_for::<Formatted<SleepQualityResult>>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
 
     // Serialized rather than constructed: SleepQualityScore is the science
@@ -4245,7 +4119,7 @@ fn the_rest_day_call_ships_the_evidence_beside_it() {
     // A rest-day verdict with no visible basis is one the athlete cannot
     // argue with. The recommendation, the recovery picture and the individual
     // signals are all declared, so a client can show the reasoning.
-    let derived = serde_json::to_value(schemars::schema_for!(RestDayResult)).expect("derives");
+    let derived = output_schema_for::<RestDayResult>();
     let props = derived["properties"].as_object().expect("object schema");
 
     for field in ["recommendation", "recovery_summary", "key_factors"] {
@@ -4268,46 +4142,42 @@ fn each_configuration_schema_is_attached_to_the_tool_it_names() {
             <GetConfigurationCatalogTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetConfigurationCatalogTool,
             ),
-            serde_json::to_value(schemars::schema_for!(ConfigurationCatalogResult))
-                .expect("derives"),
+            output_schema_for::<ConfigurationCatalogResult>(),
         ),
         (
             "get_configuration_profiles",
             <GetConfigurationProfilesTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetConfigurationProfilesTool,
             ),
-            serde_json::to_value(schemars::schema_for!(ConfigurationProfilesResult))
-                .expect("derives"),
+            output_schema_for::<ConfigurationProfilesResult>(),
         ),
         (
             "get_user_configuration",
             <GetUserConfigurationTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetUserConfigurationTool,
             ),
-            serde_json::to_value(schemars::schema_for!(UserConfigurationResult)).expect("derives"),
+            output_schema_for::<UserConfigurationResult>(),
         ),
         (
             "update_user_configuration",
             <UpdateUserConfigurationTool as McpTool<dyn ToolRuntime>>::definition(
                 &UpdateUserConfigurationTool,
             ),
-            serde_json::to_value(schemars::schema_for!(UpdateUserConfigurationResult))
-                .expect("derives"),
+            output_schema_for::<UpdateUserConfigurationResult>(),
         ),
         (
             "calculate_personalized_zones",
             <CalculatePersonalizedZonesTool as McpTool<dyn ToolRuntime>>::definition(
                 &CalculatePersonalizedZonesTool,
             ),
-            serde_json::to_value(schemars::schema_for!(PersonalizedZonesResult)).expect("derives"),
+            output_schema_for::<PersonalizedZonesResult>(),
         ),
         (
             "validate_configuration",
             <ValidateConfigurationTool as McpTool<dyn ToolRuntime>>::definition(
                 &ValidateConfigurationTool,
             ),
-            serde_json::to_value(schemars::schema_for!(ValidateConfigurationResult))
-                .expect("derives"),
+            output_schema_for::<ValidateConfigurationResult>(),
         ),
     ] {
         assert_eq!(
@@ -4329,8 +4199,7 @@ fn the_catalog_schema_describes_the_parameters_rather_than_an_opaque_blob() {
     // The catalogue is what a client renders a settings screen from, so its
     // shape reaching the declared schema is the whole point of typing it —
     // an opaque object would leave every client guessing at the fields.
-    let schema =
-        serde_json::to_value(schemars::schema_for!(ConfigurationCatalogResult)).expect("derives");
+    let schema = output_schema_for::<ConfigurationCatalogResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
     for field in ["default_value", "valid_range", "description"] {
@@ -4347,8 +4216,7 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
     // computed from somebody else's physiology. So each family is null when
     // its inputs are absent, and `unavailable` names the input that would
     // unlock it — both are declared, and a client can show the prompt.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(PersonalizedZonesResult)).expect("derives");
+    let derived = output_schema_for::<PersonalizedZonesResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
 
     // An athlete who has given nothing: every family null, all three named.
@@ -4389,10 +4257,8 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
 fn a_validation_failure_is_an_answer_not_an_error() {
     // The athlete asked whether their parameters are sound. "No, and here is
     // why" is the answer to that question, so the schema has to accept it.
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(ValidateConfigurationResult)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator = jsonschema::validator_for(&output_schema_for::<ValidateConfigurationResult>())
+        .expect("compiles");
 
     let failed = serde_json::to_value(ValidateConfigurationResult {
         validation_passed: false,
@@ -4430,9 +4296,7 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
     // `Formatted`, because the handler honours the caller's `format` and a
     // TOON caller gets the envelope rather than the bare result. Declaring the
     // bare type described only the JSON half of what the tool answers.
-    let declared =
-        serde_json::to_value(schemars::schema_for!(Formatted<ActivityIntelligenceResult>))
-            .expect("derives");
+    let declared = output_schema_for::<Formatted<ActivityIntelligenceResult>>();
     assert_eq!(
         <GetActivityIntelligenceTool as McpTool<dyn ToolRuntime>>::definition(
             &GetActivityIntelligenceTool
@@ -4453,8 +4317,7 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
          declare what that handler answers with"
     );
 
-    let derived =
-        serde_json::to_value(schemars::schema_for!(ActivityIntelligenceResult)).expect("derives");
+    let derived = output_schema_for::<ActivityIntelligenceResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
     let value = serde_json::to_value(ActivityIntelligenceResult {
         activity_id: "strava-77".to_owned(),
@@ -4527,10 +4390,8 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
 /// of third-party output into an athlete's coaching context.
 #[test]
 fn a_model_reply_that_does_not_fit_is_wrapped_not_passed_through() {
-    let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(ActivityIntelligence)).expect("derives"),
-    )
-    .expect("compiles");
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<ActivityIntelligence>()).expect("compiles");
 
     // Conforming: used as written.
     let conforming = intelligence_from_model_reply(
@@ -4580,8 +4441,7 @@ fn a_model_reply_that_does_not_fit_is_wrapped_not_passed_through() {
 
 #[test]
 fn analyze_weather_impact_declares_a_schema_that_accepts_every_answer() {
-    let derived =
-        serde_json::to_value(schemars::schema_for!(WeatherImpactResult)).expect("derives");
+    let derived = output_schema_for::<WeatherImpactResult>();
     assert_eq!(
         <AnalyzeWeatherImpactTool as McpTool<dyn ToolRuntime>>::definition(
             &AnalyzeWeatherImpactTool
@@ -4673,8 +4533,7 @@ fn the_difficulty_band_travels_as_serde_names_it() {
     .expect("serializes");
     assert_eq!(wire["difficulty_level"], "difficult");
 
-    let schema =
-        serde_json::to_value(schemars::schema_for!(WeatherImpactAssessment)).expect("derives");
+    let schema = output_schema_for::<WeatherImpactAssessment>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
     for band in ["ideal", "challenging", "difficult", "extreme"] {
         assert!(
@@ -4696,19 +4555,19 @@ fn each_workout_schema_is_attached_to_the_tool_it_names() {
             <ListWorkoutTemplatesTool as McpTool<dyn ToolRuntime>>::definition(
                 &ListWorkoutTemplatesTool,
             ),
-            serde_json::to_value(schemars::schema_for!(WorkoutTemplatesResult)).expect("derives"),
+            output_schema_for::<WorkoutTemplatesResult>(),
         ),
         (
             "prescribe_workout",
             <PrescribeWorkoutTool as McpTool<dyn ToolRuntime>>::definition(&PrescribeWorkoutTool),
-            serde_json::to_value(schemars::schema_for!(PrescribeWorkoutResult)).expect("derives"),
+            output_schema_for::<PrescribeWorkoutResult>(),
         ),
         (
             "withdraw_prescribed_workout",
             <WithdrawPrescribedWorkoutTool as McpTool<dyn ToolRuntime>>::definition(
                 &WithdrawPrescribedWorkoutTool,
             ),
-            serde_json::to_value(schemars::schema_for!(WithdrawWorkoutResult)).expect("derives"),
+            output_schema_for::<WithdrawWorkoutResult>(),
         ),
     ] {
         assert_eq!(
@@ -4733,8 +4592,7 @@ fn each_workout_schema_is_attached_to_the_tool_it_names() {
 /// a client could not tell which detail level it received.
 #[test]
 fn the_two_template_detail_levels_stay_distinguishable() {
-    let schema =
-        serde_json::to_value(schemars::schema_for!(WorkoutTemplatesResult)).expect("derives");
+    let schema = output_schema_for::<WorkoutTemplatesResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
     // The summary's own keys, and the full template's, both reachable.
@@ -4758,8 +4616,7 @@ fn prescribing_reports_the_calendar_entry_it_created() {
     // The workout is on the athlete's real calendar by the time this returns.
     // A coach told only "it worked" cannot undo it, so the ledger id and the
     // provider's event id are both declared.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(PrescribeWorkoutResult)).expect("derives");
+    let derived = output_schema_for::<PrescribeWorkoutResult>();
     let props = derived["properties"].as_object().expect("object schema");
 
     for field in [

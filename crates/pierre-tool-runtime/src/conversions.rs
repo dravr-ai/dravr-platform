@@ -20,6 +20,8 @@
 //!   into the wire [`ToolResponse`], preserving the dual `content` + `structuredContent`
 //!   shape the dispatch layer previously produced.
 
+use schemars::generate::SchemaSettings;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
@@ -112,12 +114,48 @@ pub fn task_capable(tool: Tool) -> Tool {
 /// `BTreeMap`s and the rendered schema is byte-stable between builds — the
 /// same property the tool *input* schemas needed when a `HashMap` made them
 /// render differently run to run.
+/// Generated for the SERIALIZE contract, which is what an `outputSchema`
+/// describes: this is the shape the server writes, not one it reads.
+///
+/// The distinction is not cosmetic. Under the default (deserialize) contract
+/// schemars leaves every `Option<T>` out of `required`, because a caller
+/// sending the object could omit it. But this object is not sent to us — we
+/// send it, and serde writes `"heart_rate": null` for a `None` unless the
+/// field carries `skip_serializing_if`. Describing that as optional told a
+/// client the key might be missing when it never is, and left no way to say
+/// "always present, may be null" — the exact distinction between "measured
+/// and absent" and "not part of this answer" that an athlete's reply turns
+/// on. `for_serialize` marks it required and types it as nullable, which is
+/// the truth.
+///
+/// It also fixes the two skip attributes, in the same direction:
+/// `skip_serializing_if` now makes a field optional (it really can be
+/// absent), and a `skip_serializing` field is excluded from the schema
+/// rather than promised.
 #[must_use]
 pub fn answers_with<T: schemars::JsonSchema>(tool: Tool) -> Tool {
     Tool {
-        output_schema: serde_json::to_value(schemars::schema_for!(T)).ok(),
+        output_schema: Some(output_schema_for::<T>()),
         ..tool
     }
+}
+
+/// The schema a tool declares for `T`, as one function.
+///
+/// Public so a test can assert against the schema the tool actually ships
+/// rather than deriving its own. Two call sites that both say
+/// `schemars::schema_for!(T)` look identical and are not: the settings
+/// decide whether an `Option` is required, so a test that derives its own
+/// disagrees with production the moment the settings change — which is
+/// exactly what happened when this moved to the serialize contract, in 37
+/// tests at once. One function, no second opinion.
+#[must_use]
+pub fn output_schema_for<T: schemars::JsonSchema>() -> Value {
+    let schema = SchemaSettings::default()
+        .for_serialize()
+        .into_generator()
+        .into_root_schema_for::<T>();
+    serde_json::to_value(schema).unwrap_or(Value::Null)
 }
 
 /// Serialize a typed tool result into the payload the tool answers with.

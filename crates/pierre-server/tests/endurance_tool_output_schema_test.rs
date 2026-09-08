@@ -29,6 +29,7 @@ use pierre_mcp_server::tools::implementations::endurance_history::{
 use pierre_mcp_server::tools::implementations::endurance_intervals::{
     ActivityStreamsResult, ExportIntervalsTool, ExportRoutesTool, ExtractActivityStreamsTool,
 };
+use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 #[test]
@@ -39,25 +40,24 @@ fn each_endurance_schema_is_attached_to_the_tool_it_names() {
             <ExportLatestSnapshotTool as McpTool<dyn ToolRuntime>>::definition(
                 &ExportLatestSnapshotTool,
             ),
-            serde_json::to_value(schemars::schema_for!(LatestSnapshot)).expect("derives"),
+            output_schema_for::<LatestSnapshot>(),
         ),
         (
             "export_intervals",
             <ExportIntervalsTool as McpTool<dyn ToolRuntime>>::definition(&ExportIntervalsTool),
-            serde_json::to_value(schemars::schema_for!(IntervalsExport)).expect("derives"),
+            output_schema_for::<IntervalsExport>(),
         ),
         (
             "export_routes",
             <ExportRoutesTool as McpTool<dyn ToolRuntime>>::definition(&ExportRoutesTool),
-            serde_json::to_value(schemars::schema_for!(RouteSummary)).expect("derives"),
+            output_schema_for::<RouteSummary>(),
         ),
         (
             "compute_training_history",
             <ComputeTrainingHistoryTool as McpTool<dyn ToolRuntime>>::definition(
                 &ComputeTrainingHistoryTool,
             ),
-            serde_json::to_value(schemars::schema_for!(ComputeTrainingHistoryResult))
-                .expect("derives"),
+            output_schema_for::<ComputeTrainingHistoryResult>(),
         ),
     ] {
         assert_eq!(
@@ -80,7 +80,7 @@ fn the_snapshot_schema_describes_the_metrics_the_contract_names() {
     // factor, variability index, aerobic decoupling and time in zone. A
     // schema that did not describe them would be advertising a shape the
     // athlete cannot rely on.
-    let schema = serde_json::to_value(schemars::schema_for!(LatestSnapshot)).expect("derives");
+    let schema = output_schema_for::<LatestSnapshot>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
     for promised in [
@@ -103,8 +103,7 @@ fn compute_training_history_reports_the_window_it_actually_used() {
     // echoes the range it computed. rows_upserted is how a coach tells a
     // recompute that had days to work with from one that did not — zero is
     // a valid answer for a window the athlete did not train in.
-    let derived =
-        serde_json::to_value(schemars::schema_for!(ComputeTrainingHistoryResult)).expect("derives");
+    let derived = output_schema_for::<ComputeTrainingHistoryResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
 
     let empty_window = serde_json::to_value(ComputeTrainingHistoryResult {
@@ -140,19 +139,19 @@ fn the_cageux_dependent_endurance_tools_declare_their_shapes() {
             <GetTrainingHistoryTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetTrainingHistoryTool,
             ),
-            serde_json::to_value(schemars::schema_for!(TrainingHistoryResult)).expect("derives"),
+            output_schema_for::<TrainingHistoryResult>(),
         ),
         (
             "extract_activity_streams",
             <ExtractActivityStreamsTool as McpTool<dyn ToolRuntime>>::definition(
                 &ExtractActivityStreamsTool,
             ),
-            serde_json::to_value(schemars::schema_for!(ActivityStreamsResult)).expect("derives"),
+            output_schema_for::<ActivityStreamsResult>(),
         ),
         (
             "export_dossier",
             <ExportDossierTool as McpTool<dyn ToolRuntime>>::definition(&ExportDossierTool),
-            serde_json::to_value(schemars::schema_for!(DossierExport)).expect("derives"),
+            output_schema_for::<DossierExport>(),
         ),
     ] {
         assert_eq!(
@@ -177,8 +176,7 @@ fn the_cageux_dependent_endurance_tools_declare_their_shapes() {
 /// becomes a promise rather than a habit.
 #[test]
 fn a_training_history_day_never_ships_a_bare_form_number() {
-    let schema =
-        serde_json::to_value(schemars::schema_for!(TrainingHistoryResult)).expect("derives");
+    let schema = output_schema_for::<TrainingHistoryResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
     for required in ["tsb_pct_of_ctl", "form_band", "interpretation"] {
@@ -210,8 +208,7 @@ fn the_interpretation_reaches_the_schema_with_its_framing_intact() {
     // matched prose. One banned "injury risk" and failed on a doc comment
     // that FORBIDS the framing; one asserted a runtime string that a schema
     // never carries. Assert the structure, and the one description you wrote.
-    let schema =
-        serde_json::to_value(schemars::schema_for!(TrainingHistoryResult)).expect("derives");
+    let schema = output_schema_for::<TrainingHistoryResult>();
     let interpretation = &schema["$defs"]["FormInterpretation"]["properties"];
 
     for key in [
