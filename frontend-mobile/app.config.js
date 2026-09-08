@@ -85,7 +85,10 @@ module.exports = {
       {
         android: {
           minSdkVersion: 24,
-          compileSdkVersion: 35,
+          // 36 is what androidx.core 1.17 demands, and @maplibre/maplibre-react-native
+          // pulls that in. Compiling against 35 fails checkReleaseAarMetadata before
+          // a single source file is built; the EAS log names the requirement.
+          compileSdkVersion: 36,
           targetSdkVersion: 35,
           enableProguardInReleaseBuilds: true,
           enableShrinkResourcesInReleaseBuilds: true,
