@@ -370,7 +370,8 @@ Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK
 | `CLI_LLM_BINARY` | Override binary path (skip `which` detection) | Auto-detected |
 | `CLI_LLM_TIMEOUT_SECS` | Timeout per LLM subprocess call in seconds | `120` |
 | `CLI_LLM_EXTRA_ARGS` | Comma-separated extra CLI arguments | (empty) |
-| `CLI_LLM_WORKING_DIR` | Working directory for subprocess execution | Current directory |
+| `CLI_LLM_WORKING_DIR` | Working directory for the CLI runners other than Copilot headless | Current directory |
+| `COPILOT_HEADLESS_WORKING_DIR` | Directory the `copilot --acp` subprocess runs in and the `cwd` of every session; Copilot loads `.mcp.json`, agent files and custom instructions from it, so a checkout here hands the model that checkout's tooling | A scratch directory under the system temp dir, never the server's cwd |
 
 #### Fallback Configuration
 

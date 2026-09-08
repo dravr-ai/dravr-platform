@@ -266,8 +266,13 @@ export CLI_LLM_TIMEOUT_SECS=120
 # Comma-separated extra arguments passed to the CLI binary
 export CLI_LLM_EXTRA_ARGS=
 
-# Working directory for subprocess execution (default: current directory)
+# Working directory for the CLI runners other than Copilot headless (default: current directory)
 export CLI_LLM_WORKING_DIR=
+
+# Directory the copilot --acp subprocess runs in and the cwd of every session.
+# Copilot loads .mcp.json, agent files and custom instructions from it, so it
+# must never be a checkout (default: a scratch directory under the temp dir)
+export COPILOT_HEADLESS_WORKING_DIR=
 ```
 
 See [LLM Provider Integration](llm-providers.md) for full provider documentation including the three-way tool loop dispatch and all supported models.
