@@ -74,8 +74,9 @@ dropping every vault write.
 claim hooks no-op silently. Coordinate in chat instead: name the issue you are taking before you
 start it. **`curl` does not rescue this.** The proxy authenticates `api.github.com` as the real user,
 but only for repositories **attached to the session**, and only on an allowlisted set of paths. A repo
-that is not attached answers `403` rather than GitHub's `404` — measured for `dravr-carnet` and
-`dravr-vault` from a single-repo session — and a path outside the allowlist is refused outright with
+that is not attached answers `403` rather than GitHub's `404` — the tell that something in front of
+GitHub refused, since GitHub hides a private repo behind `404` — and a path outside the allowlist is
+refused outright with
 *Access to this GitHub API path is not permitted through this proxy*.
 
 **Installing `gh` does not help, and this was measured, not reasoned.** `apt-get install -y gh` works
