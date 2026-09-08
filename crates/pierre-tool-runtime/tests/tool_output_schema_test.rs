@@ -1518,7 +1518,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             "toggle_coach_favorite",
             output_schema_for::<ToggleCoachFavoriteResult>(),
             serde_json::to_value(ToggleCoachFavoriteResult {
-                coach_id: "6bd0b0f4-0000-4000-8000-000000000007".to_owned(),
+                agent_id: "6bd0b0f4-0000-4000-8000-000000000007".to_owned(),
                 is_favorite: true,
             })
             .expect("serializes"),
@@ -1527,7 +1527,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             "hide_coach",
             output_schema_for::<HideCoachResult>(),
             serde_json::to_value(HideCoachResult {
-                coach_id: "6bd0b0f4-0000-4000-8000-000000000008".to_owned(),
+                agent_id: "6bd0b0f4-0000-4000-8000-000000000008".to_owned(),
                 is_hidden: true,
             })
             .expect("serializes"),
@@ -1536,7 +1536,7 @@ fn the_narrow_coach_projections_accept_their_payloads() {
             "show_coach",
             output_schema_for::<ShowCoachResult>(),
             serde_json::to_value(ShowCoachResult {
-                coach_id: "6bd0b0f4-0000-4000-8000-000000000009".to_owned(),
+                agent_id: "6bd0b0f4-0000-4000-8000-000000000009".to_owned(),
                 is_hidden: false,
                 removed_preference: true,
             })
@@ -2741,7 +2741,7 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
     // rows predating the assigned_by column have no operator to name. A
     // schema demanding either would reject a listing the tool really sends.
     let sample = AdminListCoachAssignmentsResult {
-        coach_id: "b21f0f4e-0000-4000-8000-000000000002".to_owned(),
+        agent_id: "b21f0f4e-0000-4000-8000-000000000002".to_owned(),
         assignments: vec![
             CoachAssignmentEntry {
                 user_id: "u-1".to_owned(),
