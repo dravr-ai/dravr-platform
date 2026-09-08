@@ -57,8 +57,20 @@ signature=$(printf '%s' "$report" | jq -r '[.caps[] | .evidence] | sort | join("
 [ -n "$signature" ] || exit 0
 [ "$(jq -r '.signature // empty' "$state" 2>/dev/null)" = "$signature" ] && exit 0
 
+# A ceiling on top of the per-state latch. The latch alone bounds repetition only while the
+# state holds still, and in a shared checkout it does not: a peer editing beside you produces a
+# new signature every few minutes, so a session could be stopped again and again over work that
+# was never its own. A session told three times has learned everything a fourth telling would
+# add. After that the gate is permanently quiet for this session and the accountability is
+# entirely the session's — which is where it belongs, and is the same shape as carnet's
+# auto-claim hook, which also warns once and then stands down.
+blocks=$(jq -r '.blocks // 0' "$state" 2>/dev/null); blocks=${blocks:-0}
+case "$blocks" in ''|*[!0-9]*) blocks=0 ;; esac
+[ "$blocks" -ge 3 ] && exit 0
+
 jq -n --arg s "$signature" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson score "$score" \
-   '{signature:$s, blockedAt:$at, score:$score}' > "$state" 2>/dev/null || true
+   --argjson n "$((blocks + 1))" \
+   '{signature:$s, blockedAt:$at, score:$score, blocks:$n}' > "$state" 2>/dev/null || true
 
 reason=$(printf '%s' "$report" | jq -r '
     "bilan says this session is at \(.score)/10, not done. Outstanding:\n"

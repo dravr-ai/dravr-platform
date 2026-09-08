@@ -39,6 +39,12 @@ new_repo() {
     printf '%s' "$root/work"
 }
 
+# SessionStart runs this at t=0 against whatever state the checkout is in, so every test that
+# measures a change has to establish the starting point first — otherwise the first bilan run
+# creates the baseline itself and correctly treats the change as inherited.
+baseline_now() { ( cd "$1" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" \
+    bash "$BILAN" baseline >/dev/null 2>&1 ); }
+
 run() { # <repo> [args...]
     local repo=$1; shift
     ( cd "$repo" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" \
@@ -53,6 +59,7 @@ printf '\nbilan tests\n\n'
 
 # ---- clean repo scores 10
 R=$(new_repo)
+baseline_now "$R"
 out=$(run "$R")
 check "clean repo has no real cap" 0 "$(real_caps "$out")"
 check "--cheap can never report 10" 9 "$(printf '%s' "$out" | jq -r .score)"
@@ -75,7 +82,8 @@ check "the untracked evidence names the file" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("stray\\.md"))] | length')"
 rm -f "$R/stray.md"
 
-# ---- unpushed commit caps at 8
+# ---- a commit made after the baseline is this session's, and caps at 8
+baseline_now "$R"
 echo three >> "$R/a.txt"
 git -C "$R" commit -q -am second
 out=$(run "$R")
@@ -174,10 +182,11 @@ rm -f "$CFG/bilan/"*.baseline
 
 # ---- a peer's unpushed commit is inherited the same way a dirty file is
 rm -f "$CFG/bilan/"*.ack.json "$CFG/bilan/"*.baseline*
+baseline_now "$R"                       # observing from here: the commit below is this session's
 echo peer-commit > "$R/peer.txt"
 git -C "$R" add peer.txt && git -C "$R" commit -qm "a peer's cherry-pick"
-check "an unpushed commit caps at 8" 8 "$(run "$R" | jq -r .score)"
-( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" baseline >/dev/null 2>&1 )
+check "a commit made after the baseline caps at 8" 8 "$(run "$R" | jq -r .score)"
+baseline_now "$R"                       # now re-observe: the same commit is pre-existing
 out=$(run "$R")
 check "a commit unpushed before the baseline does not cap" 0 "$(real_caps "$out")"
 check "the inherited commit is stated as a note" 1 \
@@ -206,6 +215,23 @@ check "a finished task is not counted" 0 \
     "$(task_run | jq '[.caps[] | select(.evidence | test("background task"))] | length')"
 rm -rf "$CFG/scratch"
 
+# ---- the deliverable, not just the repo. A session doing research or writing a document
+# commits nothing and holds no issue, so every repo check comes back clean; its own todo list is
+# the only thing that knows it is not finished.
+TD="$CFG/tasks/$SID"
+mkdir -p "$TD"
+printf '{"status":"completed","subject":"read the synthesis"}\n'      > "$TD/1.json"
+printf '{"status":"in_progress","subject":"publish the artifact"}\n'  > "$TD/2.json"
+out=$(run "$R")
+check "an open todo caps at 7" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap==7) | select(.evidence | test("todo"))] | length')"
+check "it names the unfinished one, not the done one" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("publish the artifact")) | select(.evidence | test("read the synthesis") | not)] | length')"
+printf '{"status":"completed","subject":"publish the artifact"}\n'    > "$TD/2.json"
+check "all todos done means no cap" 0 \
+    "$(run "$R" | jq '[.caps[] | select(.evidence | test("todo"))] | length')"
+rm -rf "$CFG/tasks"
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }
@@ -216,6 +242,24 @@ check "stop gate respects stop_hook_active" "" "$(gate true | jq -r '.decision /
 check "block reason names the remedy" 1 "$(gate false >/dev/null; echo 1)"
 git -C "$R" checkout -q -- a.txt
 check "stop gate is silent on a clean tree" "" "$(gate false | jq -r '.decision // empty')"
+
+# A session must never be trapped. The per-state latch bounds repetition only while the state
+# holds still; in a shared checkout a peer editing beside you makes a new signature every few
+# minutes. Three tellings is the ceiling, then the gate stands down for good.
+rm -f "$CFG/bilan/"*.json "$CFG/bilan/"*.baseline*
+baseline_now "$R"
+: > "$CFG/blocks.txt"
+for i in 1 2 3 4 5; do
+    # A different file each round, so each is a genuinely new signature — churning one file
+    # keeps the same path set and the per-state latch alone would silence it.
+    echo "churn" > "$R/churn-$i.txt" && git -C "$R" add "churn-$i.txt"
+    d=$(gate false | jq -r '.decision // empty'); printf '%s\n' "${d:--}" >> "$CFG/blocks.txt"
+done
+check "the gate blocks at most three times per session" 3 \
+    "$(grep -c '^block$' "$CFG/blocks.txt")"
+check "and is silent for every attempt after that" 2 \
+    "$(grep -c '^-$' "$CFG/blocks.txt")"
+git -C "$R" reset -q HEAD -- . 2>/dev/null; rm -f "$R"/churn-*.txt
 
 # A cap of 9 is reported but never worth refusing a stop over.
 touch "$R/scratch.md"

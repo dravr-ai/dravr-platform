@@ -122,6 +122,21 @@ ack_reason_for() { # <field> <signature>
 # changed hash as "now mine" would hand their work back to the cap it was meant to escape.
 baseline_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').baseline"; }
 
+# A session with NO baseline cannot attribute anything, and defaulting to "it is all yours" is
+# how one unpushed commit in the shared checkout came to block every other session in the fleet
+# over work none of them had done — a session doing design-only research was told to push two
+# commits it had never made. When the baseline is missing entirely, bilan has not been watching
+# this session, so it starts watching now: the state it finds on its first run is the state it
+# inherited. It can only ever measure change from the moment it began observing, and claiming
+# otherwise is what did the damage.
+ensure_baseline() {
+    local f
+    f=$(baseline_file) || return 0
+    [ -f "$f" ] && return 0
+    cmd_baseline >/dev/null 2>&1
+    say_note "no baseline existed for this session — everything already uncommitted or unpushed is treated as inherited, and only changes from here are this session's"
+}
+
 cmd_baseline() {
     local f u up
     f=$(baseline_file) || return 0
@@ -484,6 +499,28 @@ check_running_tasks() {
           "wait for them, or TaskStop them deliberately — closing the session loses the work"
 }
 
+# The deepest blind spot, named by a session that scored 10/10 with its artifact unwritten:
+# "bilan measures repo state, and this session deliberately touches none of it — the 10 is
+# honest about the repo and silent about the deliverable." A session whose work is research, a
+# document, or a published artifact commits nothing, holds no issue and triggers no CI, so every
+# check came back clean and the number said done.
+#
+# The session's own todo list is the missing measurement. It is the session declaring what it
+# set out to do, Claude Code keeps it per session under tasks/<session-id>/, and an item still
+# pending or in progress is the session's own statement that it is not finished.
+check_open_todos() {
+    local dir n subjects
+    dir="$CFG/tasks/$SESSION_ID"
+    [ -d "$dir" ] || return 0
+    n=$(jq -r 'select(.status == "pending" or .status == "in_progress") | .subject // .description // "?"' \
+        "$dir"/*.json 2>/dev/null | grep -c . ) || return 0
+    [ "${n:-0}" -gt 0 ] || return 0
+    subjects=$(jq -r 'select(.status == "pending" or .status == "in_progress") | .subject // .description // "?"' \
+        "$dir"/*.json 2>/dev/null | head -3 | cut -c1-60 | tr '\n' '·' | sed 's/·/ · /g; s/ · $//')
+    cap 7 "❌" "$n todo(s) still open: $subjects" \
+          "finish them, or drop the ones you are not doing — an open todo is this session saying it is not done"
+}
+
 # ------------------------------------------------------------------ checks · dev stack
 check_dev_stack() {
     local lib="$REPO_ROOT/bin/dev-processes.sh" f name up=""
@@ -579,6 +616,7 @@ friction_line() {
 
 # ------------------------------------------------------------------ run
 run_checks() {
+    ensure_baseline
     check_worktree
     check_unpushed
     check_stash
@@ -589,6 +627,7 @@ run_checks() {
     check_limitation_markers
     check_dev_stack
     check_running_tasks
+    check_open_todos
     # A measurement taken with checks switched off must not be allowed to say "done". --cheap
     # skips CI entirely, and a session quoted its cheap 10/10 as completion while a lane was
     # still red and four agents were running. The reduced measurement now cannot reach 10 by
