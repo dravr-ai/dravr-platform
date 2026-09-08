@@ -7,8 +7,7 @@
 #![allow(missing_docs)]
 
 use pierre_tool_runtime::protocol::provider_helpers::{
-    build_activities_success_response, create_auth_error_response, create_no_token_response,
-    extract_provider,
+    create_auth_error_response, create_no_token_response, extract_provider,
 };
 
 #[test]
@@ -108,89 +107,6 @@ fn test_auth_error_response_metadata() {
             metadata.get("provider"),
             Some(&serde_json::Value::String("garmin".to_owned()))
         );
-    }
-}
-
-#[test]
-fn test_build_activities_success_response() {
-    use chrono::Utc;
-    use pierre_core::models::{ActivityBuilder, SportType};
-    use uuid::Uuid;
-
-    let now = Utc::now();
-    let activities = vec![
-        ActivityBuilder::new("123", "Morning Run", SportType::Run, now, 1800, "test")
-            .distance_meters(5000.0)
-            .build(),
-        ActivityBuilder::new("456", "Evening Ride", SportType::Ride, now, 3600, "test")
-            .distance_meters(25000.0)
-            .build(),
-    ];
-
-    let user_id = Uuid::new_v4();
-    let tenant_id = Some("tenant-123".to_owned());
-
-    let response = build_activities_success_response(&activities, "strava", user_id, tenant_id);
-
-    assert!(response.success);
-    assert!(response.error.is_none());
-    assert!(response.result.is_some());
-
-    if let Some(ref result) = response.result {
-        assert_eq!(result.get("count"), Some(&serde_json::json!(2)));
-        assert_eq!(
-            result.get("provider"),
-            Some(&serde_json::Value::String("strava".to_owned()))
-        );
-    }
-
-    // Check metadata
-    assert!(response.metadata.is_some());
-    if let Some(ref metadata) = response.metadata {
-        assert_eq!(
-            metadata.get("total_activities"),
-            Some(&serde_json::Value::Number(2.into()))
-        );
-        assert_eq!(
-            metadata.get("user_id"),
-            Some(&serde_json::Value::String(user_id.to_string()))
-        );
-        assert_eq!(
-            metadata.get("tenant_id"),
-            Some(&serde_json::Value::String("tenant-123".to_owned()))
-        );
-        assert_eq!(
-            metadata.get("provider"),
-            Some(&serde_json::Value::String("strava".to_owned()))
-        );
-        assert_eq!(
-            metadata.get("cached"),
-            Some(&serde_json::Value::Bool(false))
-        );
-    }
-}
-
-#[test]
-fn test_build_activities_empty_list() {
-    use uuid::Uuid;
-
-    let activities = vec![];
-    let user_id = Uuid::new_v4();
-
-    let response = build_activities_success_response(&activities, "garmin", user_id, None);
-
-    assert!(response.success);
-    if let Some(ref result) = response.result {
-        assert_eq!(result.get("count"), Some(&serde_json::json!(0)));
-    }
-
-    assert!(response.metadata.is_some());
-    if let Some(ref metadata) = response.metadata {
-        assert_eq!(
-            metadata.get("total_activities"),
-            Some(&serde_json::Value::Number(0.into()))
-        );
-        assert_eq!(metadata.get("tenant_id"), Some(&serde_json::Value::Null));
     }
 }
 

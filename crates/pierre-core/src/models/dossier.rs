@@ -21,7 +21,7 @@ use super::{Pillar, UserPhysiologicalProfile};
 /// `kind` and `source` are carried as their stable string slugs to keep this
 /// type free of a `pierre-memory` dependency. The `object` field is
 /// user-authored free text and must be treated as untrusted at render time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DossierFact {
     /// `FactKind` slug (e.g. `goal`, `injury`, `north_star`, `medical`).
     pub kind: String,
@@ -59,7 +59,7 @@ pub struct DossierFact {
 /// Per Endurance's Open Decision #1 the dossier is **not** persisted as
 /// its own row. Composition lives in
 /// [`pierre_database::DossierRepository`](https://docs.dravr.ai/db/dossier).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Dossier {
     /// User this dossier belongs to.
     pub user_id: Uuid,

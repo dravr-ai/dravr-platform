@@ -18,14 +18,20 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::info;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::conversions::{
+    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
+};
 use crate::implementations::configuration::{derive_power_zone_set, power_zones_payload};
 use crate::implementations::data_helpers::read_only_annotations;
+use crate::implementations::lactate_thresholds_output::{
+    BandRow, CurveFit, DeterminedThreshold, LactatePowerZones, LactateThresholdsResult,
+    StoredThresholds, ThresholdReport, UndeterminedThreshold,
+};
 use crate::implementations::physiology::optional_number;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -190,44 +196,55 @@ impl EstimateLactateThresholdsTool {
 
     /// One construct's verdict: the method, what it marks, its paper, and
     /// either the located point or the reason it could not be located.
-    fn outcome_payload(method: LactateThresholdMethod, outcome: &ThresholdOutcome) -> Value {
-        let mut payload = json!({
-            "method": method.as_str(),
-            "marks": method.threshold(),
-            "reference": method.reference(),
-        });
+    fn outcome_payload(
+        method: LactateThresholdMethod,
+        outcome: &ThresholdOutcome,
+    ) -> ThresholdReport {
         match outcome {
             ThresholdOutcome::Determined(point) => {
-                payload["outcome"] = json!("determined");
-                payload["intensity"] = json!(round_to(point.intensity, 1));
-                payload["lactate_mmol"] = json!(round_to(point.lactate_mmol, 2));
-                payload["heart_rate"] = json!(point.heart_rate.map(|hr| round_to(hr, 0)));
+                ThresholdReport::Determined(DeterminedThreshold {
+                    method: method.as_str().to_owned(),
+                    marks: method.threshold().to_owned(),
+                    reference: method.reference().to_owned(),
+                    outcome: "determined".to_owned(),
+                    intensity: round_to(point.intensity, 1),
+                    lactate_mmol: round_to(point.lactate_mmol, 2),
+                    heart_rate: point.heart_rate.map(|hr| round_to(hr, 0)),
+                })
             }
             ThresholdOutcome::NotDeterminable { reason } => {
-                payload["outcome"] = json!("not_determinable");
-                payload["reason"] = json!(reason);
+                ThresholdReport::NotDeterminable(UndeterminedThreshold {
+                    method: method.as_str().to_owned(),
+                    marks: method.threshold().to_owned(),
+                    reference: method.reference().to_owned(),
+                    outcome: "not_determinable".to_owned(),
+                    reason: reason.clone(),
+                })
             }
         }
-        payload
     }
 
     /// Power zones anchored on the modified-Dmax LT2 when the stages are in
     /// watts — the same derivation `set_physiology` persists for an FTP.
-    fn power_zones(thresholds: &LactateThresholds, config: &TrainingZonesConfig) -> Value {
+    fn power_zones(
+        thresholds: &LactateThresholds,
+        config: &TrainingZonesConfig,
+    ) -> LactatePowerZones {
         const ANCHOR: &str = "lt2_modified_dmax";
+        let unavailable = |reason: &str| LactatePowerZones {
+            anchor: ANCHOR.to_owned(),
+            available: false,
+            reason: Some(reason.to_owned()),
+            ftp_watts: None,
+            zones: None,
+        };
         if thresholds.unit != LactateIntensityUnit::Watts {
-            return json!({
-                "anchor": ANCHOR,
-                "available": false,
-                "reason": "power zones need stages in watts; the band table carries the paces",
-            });
+            return unavailable(
+                "power zones need stages in watts; the band table carries the paces",
+            );
         }
         let Some(point) = thresholds.lt2_modified_dmax.point() else {
-            return json!({
-                "anchor": ANCHOR,
-                "available": false,
-                "reason": "modified Dmax could not locate LT2 on these stages",
-            });
+            return unavailable("modified Dmax could not locate LT2 on these stages");
         };
         // cageux bounds every stage to 1–2500 W, so the rounded threshold
         // is positive and far inside u32.
@@ -235,19 +252,18 @@ impl EstimateLactateThresholdsTool {
         let ftp_watts = point.intensity.round() as u32;
         derive_power_zone_set(ftp_watts, config).map_or_else(
             || {
-                json!({
-                    "anchor": ANCHOR,
-                    "available": false,
-                    "reason": "the configured zone percentages do not produce increasing boundaries at this threshold",
-                })
+                unavailable(
+                    "the configured zone percentages do not produce increasing boundaries at this threshold",
+                )
             },
             |zones| {
-                json!({
-                    "anchor": ANCHOR,
-                    "available": true,
-                    "ftp_watts": ftp_watts,
-                    "zones": power_zones_payload(&zones),
-                })
+                LactatePowerZones {
+                    anchor: ANCHOR.to_owned(),
+                    available: true,
+                    reason: None,
+                    ftp_watts: Some(ftp_watts),
+                    zones: Some(power_zones_payload(&zones)),
+                }
             },
         )
     }
@@ -300,37 +316,49 @@ impl EstimateLactateThresholdsTool {
         thresholds: &LactateThresholds,
         profile: Option<&UserPhysiologicalProfile>,
         config: &TrainingZonesConfig,
-    ) -> Value {
-        json!({
-            "unit": thresholds.unit.as_str(),
-            "stage_count": thresholds.stage_count,
-            "lt1": Self::outcome_payload(LactateThresholdMethod::LogLog, &thresholds.lt1_log_log),
-            "lt2": [
-                Self::outcome_payload(LactateThresholdMethod::ModifiedDmax, &thresholds.lt2_modified_dmax),
+    ) -> LactateThresholdsResult {
+        LactateThresholdsResult {
+            unit: thresholds.unit.as_str().to_owned(),
+            stage_count: thresholds.stage_count,
+            lt1: Self::outcome_payload(LactateThresholdMethod::LogLog, &thresholds.lt1_log_log),
+            lt2: vec![
+                Self::outcome_payload(
+                    LactateThresholdMethod::ModifiedDmax,
+                    &thresholds.lt2_modified_dmax,
+                ),
                 Self::outcome_payload(LactateThresholdMethod::Dmax, &thresholds.lt2_dmax),
                 Self::outcome_payload(LactateThresholdMethod::Obla4, &thresholds.lt2_obla_4mmol),
             ],
-            "band_table": thresholds.band_table.iter().map(|row| json!({
-                "lactate_mmol": row.lactate_mmol,
-                "intensity": round_to(row.intensity, 1),
-                "heart_rate": row.heart_rate.map(|hr| round_to(hr, 0)),
-            })).collect::<Vec<_>>(),
-            "curve_fit": {
-                "model": "lactate = c0 + c1·t + c2·t² + c3·t³, t = effort normalised to 0..1 across the stages",
-                "coefficients": thresholds.curve.coefficients.iter().map(|c| round_to(*c, 4)).collect::<Vec<_>>(),
-                "r_squared": round_to(thresholds.curve.r_squared, 4),
+            band_table: thresholds
+                .band_table
+                .iter()
+                .map(|row| BandRow {
+                    lactate_mmol: row.lactate_mmol,
+                    intensity: round_to(row.intensity, 1),
+                    heart_rate: row.heart_rate.map(|hr| round_to(hr, 0)),
+                })
+                .collect(),
+            curve_fit: CurveFit {
+                model: "lactate = c0 + c1·t + c2·t² + c3·t³, t = effort normalised to 0..1 across the stages".to_owned(),
+                coefficients: thresholds
+                    .curve
+                    .coefficients
+                    .iter()
+                    .map(|c| round_to(*c, 4))
+                    .collect(),
+                r_squared: round_to(thresholds.curve.r_squared, 4),
             },
-            "power_zones": Self::power_zones(thresholds, config),
-            "stored_profile": {
-                "ftp_watts": profile.and_then(|p| p.ftp_watts),
-                "threshold_pace_sec_per_km": profile.and_then(|p| p.threshold_pace_sec_per_km),
-                "max_hr": profile.and_then(|p| p.max_hr),
+            power_zones: Self::power_zones(thresholds, config),
+            stored_profile: StoredThresholds {
+                ftp_watts: profile.and_then(|p| p.ftp_watts),
+                threshold_pace_sec_per_km: profile.and_then(|p| p.threshold_pace_sec_per_km),
+                max_hr: profile.and_then(|p| p.max_hr),
             },
-            "framing": "Name the construct with every number: the four do not coincide (Jamnick 2020). 4.0 mmol/L is a convention (Heck 1985; critique Faude 2009), not the athlete's threshold; trained athletes turn at 2.5–4.0 mmol/L (Seiler-Viken 2025).",
-            "ordering_warning": Self::ordering_note(thresholds),
-            "saved": false,
-            "to_store": Self::to_store(thresholds.unit),
-        })
+            framing: "Name the construct with every number: the four do not coincide (Jamnick 2020). 4.0 mmol/L is a convention (Heck 1985; critique Faude 2009), not the athlete's threshold; trained athletes turn at 2.5–4.0 mmol/L (Seiler-Viken 2025).".to_owned(),
+            ordering_warning: Self::ordering_note(thresholds),
+            saved: false,
+            to_store: Self::to_store(thresholds.unit).to_owned(),
+        }
     }
 }
 
@@ -343,12 +371,12 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
             required: Some(vec!["unit".to_owned(), "stages".to_owned()]),
             ..Default::default()
         };
-        tool_definition(
+        answers_with::<LactateThresholdsResult>(tool_definition(
             "estimate_lactate_thresholds",
             "Locate the athlete's lactate thresholds from a step test they report — each stage's power in watts or pace in seconds per kilometre, its blood lactate in mmol/L, and heart rate if a strap was worn. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each under its own name with the intensity, lactate and heart rate at that point; the lactate band table from 1.0 to 4.0 mmol/L; and power zones anchored on the modified-Dmax LT2 when the stages are in watts. Call it when the athlete reports a test such as '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Needs at least four stages, each harder than the last. This only estimates: to keep a threshold, call set_physiology with ftp_watts or threshold_pace_sec_per_km after the athlete confirms it.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -406,11 +434,10 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
                 "analyzed a lactate step test"
             );
 
-            Ok(ToolResult::ok(Self::payload(
-                &thresholds,
-                profile.as_ref(),
-                zones_config,
-            )))
+            ok_typed(
+                "estimate_lactate_thresholds",
+                Self::payload(&thresholds, profile.as_ref(), zones_config),
+            )
         }
         .await;
         tool_result_to_response(result)

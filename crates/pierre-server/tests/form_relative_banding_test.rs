@@ -18,6 +18,7 @@ use pierre_groups::strategies::summarization::{
 };
 use pierre_groups::GroupService;
 use pierre_intelligence::TrainingLoadCalculator;
+use pierre_tool_runtime::implementations::analytics::output::ProvidersUsed;
 use pierre_tool_runtime::implementations::analytics::{
     analyze_detailed_training_load, UserPhysiologicalParams,
 };
@@ -330,7 +331,10 @@ fn health_flags_raise_no_form_flag_without_a_chronic_base() {
 
 #[test]
 fn training_load_payload_reports_form_pct_and_band() {
-    let payload = analyze_detailed_training_load(
+    // Serialized, because the subject of this test is the payload the model
+    // reads rather than the struct behind it — the untagged enum puts the
+    // analysed arm on the wire bare, so these are the keys a coach sees.
+    let payload = serde_json::to_value(analyze_detailed_training_load(
         &elite_block_activities(),
         "month",
         &UserPhysiologicalParams {
@@ -341,7 +345,12 @@ fn training_load_payload_reports_form_pct_and_band() {
             weight_kg: None,
         },
         &pierre_intelligence::AlgorithmConfig::default(),
-    );
+        ProvidersUsed {
+            activity_provider: "strava".to_owned(),
+            sleep_provider: None,
+        },
+    ))
+    .expect("the load payload serializes");
 
     let ctl = payload["load_metrics"]["ctl"]
         .as_f64()

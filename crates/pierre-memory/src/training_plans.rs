@@ -46,7 +46,7 @@ use pierre_core::models::{FuelingProtocol, WorkoutStep};
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle of a [`TrainingPlan`] outline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
     /// The plan currently guiding this athlete (at most one per coach).
@@ -87,7 +87,7 @@ impl PlanStatus {
 
 /// Lifecycle of a [`PlanWeek`]. Past-ness is derived from `week_start` at
 /// read time — a week that elapsed is simply in the past, not a status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WeekStatus {
     /// The current prescription for its calendar week.
@@ -120,7 +120,7 @@ impl WeekStatus {
 /// Race priority in the athlete's calendar, borrowed from standard coaching
 /// nomenclature: A = the goal, B = tune-up raced for a result, C = training
 /// race / no taper.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum RacePriority {
     /// Goal race the plan builds toward.
@@ -149,7 +149,7 @@ impl RacePriority {
 /// The outline's `goal_race` is a **snapshot** taken at plan time; the living
 /// source of truth for what the athlete wants is the pillar `Goal` user fact
 /// linked via `goal_fact_id`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GoalRace {
     /// Race name as the athlete calls it ("Big Red").
     pub name: String,
@@ -164,7 +164,7 @@ pub struct GoalRace {
 /// Who chose the plan's flavour — the provenance that makes the choice
 /// measurable (D4: the rule proposes, a human may overrule, the override
 /// rate is the falsification test).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SelectedBy {
     /// The selection rule's top-ranked flavour, taken as proposed.
@@ -194,7 +194,7 @@ impl SelectedBy {
 /// stored plan still says what it was built on after the catalogue moves.
 ///
 /// `PartialEq` only: the inputs snapshot carries the weekly hours as a float.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FlavourSelection {
     /// Catalogue flavour id (`polarized-classic`, `hvlit-foundation`, …).
     pub id: String,
@@ -229,7 +229,7 @@ pub struct FlavourSelection {
 /// `intent` stays the coach's voice for this athlete. The targets are optional
 /// because a coach may lay out a season by hand without stating them — the
 /// save-time rails only measure what a phase states.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PlanPhase {
     /// What kind of phase this is.
     pub kind: PhaseKind,
@@ -305,7 +305,9 @@ impl PlanPhase {
 
 /// The parameters a planned day fills in on its template, inside the
 /// template's ranges — what makes template use measurable at save time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 pub struct TemplateParams {
     /// Sets, when the template has them.
     #[serde(
@@ -357,7 +359,7 @@ impl TemplateParams {
 }
 
 /// One prescribed day inside a [`PlanWeek`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PlannedDay {
     /// Civil date, `YYYY-MM-DD`.
     pub date: String,
@@ -416,7 +418,7 @@ impl PlannedDay {
 
 /// The plan outline (macrocycle): goal-race snapshot, block structure, and
 /// strategy. Tenant-scoped; at most one `active` per (tenant, user, coach).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TrainingPlan {
     /// Stable identifier.
     pub id: String,
@@ -465,7 +467,7 @@ pub struct TrainingPlan {
 
 /// One microcycle: the day-by-day prescription for a single calendar week of
 /// a [`TrainingPlan`]. At most one `active` per (plan, `week_start`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PlanWeek {
     /// Stable identifier.
     pub id: String,

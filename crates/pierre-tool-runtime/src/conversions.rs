@@ -25,9 +25,11 @@ use std::hash::BuildHasher;
 
 use dravr_tronc::mcp::schema::{Content, TaskSupport, Tool, ToolExecution, ToolResponse};
 use dravr_tronc::mcp::tool::ToolCapabilities as TroncCapabilities;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
+use serde::Serialize;
 
 use crate::capabilities::ToolCapabilities;
 
@@ -88,6 +90,127 @@ pub fn task_capable(tool: Tool) -> Tool {
             task_support: TaskSupport::Optional,
         }),
         ..tool
+    }
+}
+
+/// Declare the shape this tool answers with, derived from the Rust type it
+/// actually returns.
+///
+/// Wraps [`tool_definition`] the way [`task_capable`] does, so declaring an
+/// output schema costs one call site rather than a new parameter on every
+/// tool that has not been typed yet.
+///
+/// Derived, never hand-written, and that is the whole point. MCP requires a
+/// tool that declares `outputSchema` to answer with conforming
+/// `structuredContent`, so a schema is a promise about the payload. A
+/// hand-written one is a promise nothing keeps: the first person to add a
+/// field to a `json!` literal makes it a lie that a conforming client
+/// validates against and rejects. Taking both from `T` means the compiler is
+/// what keeps them agreeing.
+///
+/// `schemars` is configured without `preserve_order`, so its object maps are
+/// `BTreeMap`s and the rendered schema is byte-stable between builds — the
+/// same property the tool *input* schemas needed when a `HashMap` made them
+/// render differently run to run.
+#[must_use]
+pub fn answers_with<T: schemars::JsonSchema>(tool: Tool) -> Tool {
+    Tool {
+        output_schema: serde_json::to_value(schemars::schema_for!(T)).ok(),
+        ..tool
+    }
+}
+
+/// Serialize a typed tool result into the payload the tool answers with.
+///
+/// Fails loudly rather than degrading: a tool that declares an `outputSchema`
+/// and then answers with something else is worse than one that errors, because
+/// a conforming client rejects the reply and the athlete sees nothing either
+/// way — but only the error says why.
+///
+/// # Errors
+///
+/// Returns [`AppError::internal`] when `payload` does not serialize. For a
+/// type that derives `Serialize` over owned data this cannot happen in
+/// practice; it is an error rather than a panic because the alternative is
+/// taking the server down over one malformed reply.
+pub fn ok_typed<T: Serialize>(tool: &str, payload: T) -> AppResult<ToolResult> {
+    serde_json::to_value(payload)
+        .map(ToolResult::ok)
+        .map_err(|e| AppError::internal(format!("{tool} result did not serialize: {e}")))
+}
+
+/// A tool payload after the caller's `format` argument has been applied.
+///
+/// Which shape arrives depends on the REQUEST rather than the data, which is
+/// why this is a type rather than three call sites deciding for themselves:
+/// `format=json` sends the tool's own shape, `format=toon` sends a compact
+/// string envelope, and a TOON conversion that fails falls back to JSON while
+/// saying so. Untagged, so the derived schema is an `anyOf` over exactly
+/// those three arms — schemars emits `anyOf` for an untagged enum, not
+/// `oneOf`, so the schema does not itself assert the arms are mutually
+/// exclusive. A client tells them apart by the keys: `toon` and `result` are
+/// the envelope's, and they are fixed rather than per-tool for that reason.
+///
+/// The envelope keys are fixed (`toon`, `result`) rather than derived from a
+/// per-tool `data_key`. A property name that changes per tool cannot be stated
+/// in a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /
+/// `results_toon` spelling is gone — the key no longer carries information the
+/// tool name already gives, and the contract is now expressible.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum Formatted<T> {
+    /// `format=json`, the default: the tool's own shape, unchanged.
+    Json(T),
+    /// `format=toon`: the payload rendered as one compact TOON string.
+    Toon {
+        /// The rendered payload.
+        toon: String,
+        /// Always `toon`.
+        format: String,
+    },
+    /// TOON was asked for and could not be produced. The payload still arrives,
+    /// as JSON, and says why it is not what was requested — a caller that
+    /// silently received JSON would parse it as TOON and fail further away.
+    Fallback {
+        /// The payload, unformatted.
+        result: T,
+        /// Always `json`.
+        format: String,
+        /// Always true; present so the fallback is detectable on its own.
+        format_fallback: bool,
+        /// Why TOON rendering failed.
+        format_error: String,
+    },
+}
+
+/// Apply the caller's requested output format to a typed payload.
+///
+/// One copy. It previously existed verbatim in two tool modules — 17 identical
+/// lines each, nine call sites between them — with a third variant in
+/// `protocol::format`, so the TOON envelope had three places to drift.
+pub fn apply_format<T: Serialize>(payload: T, format: OutputFormat) -> Formatted<T> {
+    match format {
+        OutputFormat::Json => Formatted::Json(payload),
+        OutputFormat::Toon => match serde_json::to_value(&payload) {
+            Ok(value) => match format_output(&value, OutputFormat::Toon) {
+                Ok(formatted) => Formatted::Toon {
+                    toon: formatted.data,
+                    format: "toon".to_owned(),
+                },
+                Err(e) => Formatted::Fallback {
+                    result: payload,
+                    format: "json".to_owned(),
+                    format_fallback: true,
+                    format_error: e.to_string(),
+                },
+            },
+            Err(e) => Formatted::Fallback {
+                result: payload,
+                format: "json".to_owned(),
+                format_fallback: true,
+                format_error: e.to_string(),
+            },
+        },
     }
 }
 

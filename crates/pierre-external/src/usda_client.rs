@@ -75,7 +75,7 @@ impl Default for UsdaClientConfig {
 }
 
 /// USDA Food Search Result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FoodSearchResult {
     /// `FoodData` Central ID
     #[serde(rename = "fdcId")]

@@ -14,9 +14,10 @@ use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
 use pierre_services::plan_calendar_push::{
-    desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, CALENDAR_PROVIDER,
+    desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, PushReport,
+    CALENDAR_PROVIDER,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -25,10 +26,12 @@ use super::training_plan_telemetry::{
     athlete_today, emit_calendar_sync_completed, emit_calendar_sync_failed,
 };
 use super::training_plans::{load_conversation, resolve_coach_slug};
+use super::training_plans_output::{CalendarBlock, CalendarEntry, CalendarPreview};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -57,14 +60,14 @@ pub(super) async fn calendar_block(
     user_id: Uuid,
     active_weeks: &[PlanWeek],
     today: NaiveDate,
-) -> AppResult<Value> {
+) -> AppResult<CalendarBlock> {
     let live = repos
         .prescribed_workouts
         .list_live_calendar_events(tenant, user_id, CALENDAR_PROVIDER, Some(today))
         .await?;
     let desired = desired_entries(user_id, active_weeks, today);
     let pending = diff_against_ledger(&desired, &live)?;
-    let entries: Vec<Value> = live
+    let entries: Vec<CalendarEntry> = live
         .iter()
         .map(|row| {
             // The pushed payload names the entry whatever its source: a plan
@@ -78,23 +81,24 @@ pub(super) async fn calendar_block(
                         .map(str::to_owned)
                 })
                 .or_else(|| row.template_slug.clone());
-            json!({
-                "prescription_id": row.id,
-                "date": row.prescribed_for_date.format("%Y-%m-%d").to_string(),
-                "source": row.source,
-                "name": name,
-                "provider_event_id": row.provider_event_id,
-                "pushed_at": row.updated_at,
-            })
+            CalendarEntry {
+                prescription_id: row.id,
+                date: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
+                source: row.source,
+                name,
+                provider_event_id: row.provider_event_id.clone(),
+                pushed_at: row.updated_at,
+            }
         })
         .collect();
-    let mut block = json!({
-        "provider": CALENDAR_PROVIDER,
-        "entries": entries,
-        "pending": pending,
-        "stale": pending.is_stale(),
-    });
-    if block["entries"].as_array().is_some_and(Vec::is_empty) {
+    let mut block = CalendarBlock {
+        provider: CALENDAR_PROVIDER.to_owned(),
+        entries,
+        pending,
+        stale: pending.is_stale(),
+        scope: None,
+    };
+    if block.entries.is_empty() {
         // An empty ledger is not an empty calendar, and the difference is the
         // whole answer to "do I have a race today". This block is Dravr's record
         // of what Dravr pushed; nothing here reads the athlete's own calendar,
@@ -103,12 +107,15 @@ pub(super) async fn calendar_block(
         // `entries: []` under a key called `calendar` will otherwise report it as
         // "nothing on your calendar" — which it did, to an athlete asking whether
         // he had a race (2026-08-28).
-        block["scope"] = json!(concat!(
-            "Dravr has scheduled nothing. This lists only what Dravr pushed to ",
-            "the athlete's calendar provider — it is NOT a view of their calendar. ",
-            "An empty list says nothing about races or events they entered ",
-            "themselves; say so rather than reporting they have none."
-        ));
+        block.scope = Some(
+            concat!(
+                "Dravr has scheduled nothing. This lists only what Dravr pushed to ",
+                "the athlete's calendar provider — it is NOT a view of their calendar. ",
+                "An empty list says nothing about races or events they entered ",
+                "themselves; say so rather than reporting they have none."
+            )
+            .to_owned(),
+        );
     }
     Ok(block)
 }
@@ -125,7 +132,7 @@ pub(super) async fn calendar_preview_after_save(
     user_id: Uuid,
     plan_id: &str,
     today: NaiveDate,
-) -> Option<Value> {
+) -> Option<CalendarPreview> {
     let live = best_effort(
         repos
             .prescribed_workouts
@@ -148,11 +155,11 @@ pub(super) async fn calendar_preview_after_save(
         diff_against_ledger(&desired, &live),
         "calendar preview could not be computed",
     )?;
-    Some(json!({
-        "provider": CALENDAR_PROVIDER,
-        "pending": pending,
-        "stale": pending.is_stale(),
-    }))
+    Some(CalendarPreview {
+        provider: CALENDAR_PROVIDER.to_owned(),
+        pending,
+        stale: pending.is_stale(),
+    })
 }
 
 /// The preview is best-effort: a step that fails is logged with what it was
@@ -200,7 +207,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<PushReport>(task_capable(tool_definition(
             "push_training_plan",
             "Put the athlete's active training plan on their Intervals.icu calendar, or \
              bring the calendar up to date after the plan changed: creates the days that \
@@ -213,7 +220,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              from_date.",
             schema,
             Some(destructive_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -297,9 +304,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 emit_calendar_sync_completed(tenant, user_id, CALENDAR_PROVIDER, PUSH_TOOL, landed);
             }
 
-            let payload = serde_json::to_value(&report)
-                .map_err(|e| AppError::internal(format!("serialize push report: {e}")))?;
-            Ok(ToolResult::ok(payload))
+            ok_typed("push_training_plan", &report)
         }
         .await;
         tool_result_to_response(result)

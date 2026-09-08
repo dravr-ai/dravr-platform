@@ -50,6 +50,9 @@ pub(crate) mod handler_bridge;
 #[cfg(feature = "tools-admin")]
 pub mod admin;
 
+/// Answer shapes for the admin coach tools, and their derived schemas.
+pub mod admin_output;
+
 /// Analytics tools: `analyze_activity`, `calculate_metrics`,
 /// `analyze_performance_trends`, etc. (`tools-analytics` feature).
 #[cfg(feature = "tools-analytics")]
@@ -59,6 +62,10 @@ pub mod analytics;
 #[cfg(feature = "tools-coaches")]
 pub mod coaches;
 
+/// Answer shapes for the coach tools, split out because `coaches` is at its
+/// size ceiling.
+pub mod coaches_output;
+
 /// Result envelope and annotation sets shared by the coach tools (`tools-coaches` feature).
 #[cfg(feature = "tools-coaches")]
 mod coaches_tool_shape;
@@ -67,6 +74,9 @@ mod coaches_tool_shape;
 /// etc. (`tools-config` feature).
 #[cfg(feature = "tools-config")]
 pub mod configuration;
+
+/// Answer shapes for the configuration tools, and their derived schemas.
+pub mod configuration_output;
 
 /// Provider connection tools: `connect_provider`, `get_connection_status`,
 /// `disconnect_provider` (`tools-connection` feature).
@@ -95,6 +105,9 @@ pub mod stored_data;
 #[cfg(feature = "tools-data")]
 pub mod endurance_workouts;
 
+/// Answer shapes for the endurance workout tools, and their derived schemas.
+pub mod endurance_workouts_output;
+
 /// Fitness configuration tools (`tools-config` feature).
 #[cfg(feature = "tools-config")]
 pub mod fitness_config;
@@ -113,9 +126,13 @@ pub mod physiology;
 /// (`tools-config` feature).
 #[cfg(feature = "tools-config")]
 pub mod lactate_thresholds;
+/// What `estimate_lactate_thresholds` answers with
+pub mod lactate_thresholds_output;
 
 /// The coach-facing per-activity DTO rendered by `mode=summary`.
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+/// What `get_activities` answers with — its own envelope, not a `Formatted<T>`.
+pub mod activities_output;
 pub mod activity_summary;
 
 /// Shared support for the fitness-provider API tools.
@@ -130,6 +147,11 @@ pub mod fitness_support;
 /// `analyze_goal_feasibility` (`tools-goals` feature).
 #[cfg(feature = "tools-goals")]
 pub mod goals;
+
+/// Answer shapes for the goal tools, split out because `goals` is at its size
+/// ceiling (`tools-goals` feature).
+#[cfg(feature = "tools-goals")]
+pub mod goals_output;
 
 /// Group tools: consent-gated peer activity fetch (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
@@ -148,6 +170,8 @@ pub mod memory;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
 /// recommend_plan_flavour — the profile through the selection rule, and the season it implies.
 pub mod plan_flavour;
+/// What `recommend_plan_flavour` answers with.
+pub mod plan_flavour_output;
 pub mod plan_scope;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]
@@ -161,6 +185,8 @@ pub mod training_plan_telemetry;
 /// The vision half of a save payload — flavour provenance, phase targets, template references.
 pub mod training_plan_vision;
 pub mod training_plans;
+/// What the training-plan tools answer with, and the calendar block they share.
+pub mod training_plans_output;
 
 /// Mobility / stretching / yoga tools (`tools-mobility` feature).
 #[cfg(feature = "tools-mobility")]

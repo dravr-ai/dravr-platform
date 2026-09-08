@@ -36,7 +36,7 @@ use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::ramp_check::assess_ramp;
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::warn;
 
 use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
@@ -56,7 +56,11 @@ use super::training_plan_vision::{
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
+};
+use crate::implementations::training_plans_output::{
+    GetTrainingPlanResult, SaveTrainingPlanResult, SavedWeek,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -588,12 +592,12 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         );
         properties.insert("athlete".to_owned(), athlete_prop());
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<GetTrainingPlanResult>(tool_definition(
             "get_training_plan",
             "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
             schema,
             Some(read_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -655,12 +659,17 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 // — and plan entries of a plan since abandoned, which the
                 // block's `pending.remove` counts.
                 let calendar = calendar_block(repos, tenant, scope.user_id, &[], today).await?;
-                return Ok(ToolResult::ok(json!({
-                    "plan": Value::Null,
-                    "athlete": scope.acting_for,
-                    "message": "no active training plan — build one with the athlete and persist it via save_training_plan",
-                    "calendar": calendar,
-                })));
+                return ok_typed(
+                    "get_training_plan",
+                    GetTrainingPlanResult {
+                        plan: None,
+                        athlete: scope.acting_for.clone(),
+                        message: Some("no active training plan — build one with the athlete and persist it via save_training_plan".to_owned()),
+                        weeks: None,
+                        goal_stale: None,
+                        calendar,
+                    },
+                );
             };
             let weeks = repos
                 .training_plans
@@ -680,13 +689,17 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let calendar =
                 calendar_block(repos, tenant, scope.user_id, &active_weeks, today).await?;
 
-            Ok(ToolResult::ok(json!({
-                "plan": plan,
-                "athlete": scope.acting_for,
-                "weeks": weeks,
-                "goal_stale": goal_stale,
-                "calendar": calendar,
-            })))
+            ok_typed(
+                "get_training_plan",
+                GetTrainingPlanResult {
+                    plan: Some(plan),
+                    athlete: scope.acting_for.clone(),
+                    message: None,
+                    weeks: Some(weeks),
+                    goal_stale: Some(goal_stale),
+                    calendar,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -721,12 +734,12 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         );
         properties.insert("athlete".to_owned(), athlete_prop());
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
             "Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -999,28 +1012,29 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 "{} on {}",
                 bundle.plan.goal_race.name, bundle.plan.goal_race.date
             );
-            let week_ids: Vec<Value> = bundle
+            let week_ids: Vec<SavedWeek> = bundle
                 .weeks
                 .iter()
-                .map(|saved| {
-                    json!({
-                        "week_start": saved.week_start,
-                        "week_id": saved.id,
-                        "superseded": saved.supersedes_id.is_some(),
-                    })
+                .map(|saved| SavedWeek {
+                    week_start: saved.week_start.clone(),
+                    week_id: saved.id.clone(),
+                    superseded: saved.supersedes_id.is_some(),
                 })
                 .collect();
 
-            Ok(ToolResult::ok(json!({
-                "plan_id": bundle.plan.id,
-                "athlete": scope.acting_for,
-                "goal_race": race_summary,
-                "superseded_plan_id": bundle.superseded_plan_id,
-                "goal_fact_id": goal_fact_id,
-                "weeks_saved": week_ids.len(),
-                "weeks": week_ids,
-                "calendar": calendar,
-            })))
+            ok_typed(
+                "save_training_plan",
+                SaveTrainingPlanResult {
+                    plan_id: bundle.plan.id.clone(),
+                    athlete: scope.acting_for.clone(),
+                    goal_race: race_summary,
+                    superseded_plan_id: bundle.superseded_plan_id.clone(),
+                    goal_fact_id,
+                    weeks_saved: week_ids.len(),
+                    weeks: week_ids,
+                    calendar,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

@@ -287,7 +287,7 @@ pub fn desired_entries(user_id: Uuid, weeks: &[PlanWeek], from: NaiveDate) -> Ve
 /// This is the preview `save_training_plan` reports after a save so the
 /// athlete learns the calendar is behind, and the count `get_training_plan`
 /// shows next to the calendar block.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct PushPreview {
     /// Entries the ledger has no live row for.
     pub create: usize,
@@ -349,7 +349,7 @@ fn session_hash(session: &PlannedSession) -> AppResult<String> {
 }
 
 /// Why a wanted entry was left as it is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SkipReason {
     /// The athlete changed the entry on the provider after Dravr wrote it.
@@ -357,7 +357,7 @@ pub enum SkipReason {
 }
 
 /// An entry the push left alone, and why.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct SkippedEntry {
     /// The entry's key.
     pub external_id: String,
@@ -370,7 +370,7 @@ pub struct SkippedEntry {
 }
 
 /// An entry whose write the provider or the ledger refused.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct FailedEntry {
     /// The entry's key.
     pub external_id: String,
@@ -383,7 +383,7 @@ pub struct FailedEntry {
 }
 
 /// What a push did.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct PushReport {
     /// Provider the plan was pushed to.
     pub provider: String,

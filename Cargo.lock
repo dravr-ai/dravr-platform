@@ -1361,14 +1361,14 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.10.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.10.0#2862e76748805a0a2e0fda1d799f9db7e8837eee"
+version = "0.11.1"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.11.1#4d030febc965f0921ba9a28c69f5c06d5abee74d"
 dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
  "rayon",
- "schemars 0.9.0",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1430,8 +1430,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=7db58db5f08
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.54"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.54#b356099aee0eaf5a99dda2db86d0bc6a9cd885fb"
+version = "0.1.55"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.55#88c0a626278097a218f2b1fe68e0beb310b514c7"
 dependencies = [
  "async-trait",
  "axum",
@@ -1452,11 +1452,11 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.2.7"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.7#6855f5089e565b4c053c8a784b874ae470c996d2"
+version = "0.2.8"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.8#a6f30d2bf3b9c3cde031e5c285d812a82f571760"
 dependencies = [
  "chrono",
- "schemars 0.9.0",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2412,7 +2412,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3669,6 +3669,7 @@ dependencies = [
  "pierre-middleware",
  "reqwest 0.12.28",
  "reqwest-middleware",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "tokio",
@@ -3725,6 +3726,7 @@ dependencies = [
  "reqwest 0.12.28",
  "reqwest-middleware",
  "ring",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "sha2",
@@ -3817,6 +3819,7 @@ dependencies = [
  "pierre-cache",
  "pierre-core",
  "reqwest 0.12.28",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "tokio",
@@ -3837,6 +3840,7 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest 0.12.28",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "sha2",
@@ -3971,6 +3975,7 @@ version = "0.3.0"
 dependencies = [
  "chrono",
  "pierre-core",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "uuid",
@@ -4339,6 +4344,7 @@ dependencies = [
  "pierre-weather",
  "rand 0.9.4",
  "reqwest 0.12.28",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "sha2",
@@ -4384,6 +4390,7 @@ dependencies = [
  "chrono-tz",
  "dravr-tronc",
  "futures-util",
+ "jsonschema",
  "lru",
  "num-traits",
  "pierre-auth",
@@ -4410,6 +4417,7 @@ dependencies = [
  "pierre-weather",
  "regex",
  "reqwest 0.12.28",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -4472,6 +4480,7 @@ dependencies = [
  "hmac",
  "html-escape",
  "http",
+ "jsonschema",
  "jsonwebtoken 10.3.0",
  "num-traits",
  "photograveur",
@@ -4531,6 +4540,7 @@ dependencies = [
  "reqwest-middleware",
  "ring",
  "rsa",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -4769,7 +4779,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4808,7 +4818,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -5391,10 +5401,8 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cd191f9397d57d581cddd31014772520aa448f65ef991055d7f61582c65165f"
 dependencies = [
- "chrono",
  "dyn-clone",
  "ref-cast",
- "schemars_derive 0.9.0",
  "serde",
  "serde_json",
 ]
@@ -5405,23 +5413,13 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
 dependencies = [
+ "chrono",
  "dyn-clone",
  "ref-cast",
- "schemars_derive 1.2.1",
+ "schemars_derive",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "schemars_derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5016d94c77c6d32f0b8e08b781f7dc8a90c2007d4e77472cc2807bc10a8438fe"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_derive_internals",
- "syn",
+ "uuid",
 ]
 
 [[package]]
@@ -7087,7 +7085,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

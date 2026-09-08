@@ -23,10 +23,21 @@
 
 pub(crate) mod inner;
 
+/// The shapes the analytics tools answer with, and their derived schemas.
+pub mod output;
+pub mod recommendations_output;
+
 // The training-load payload builder is reachable from integration tests: this
 // crate keeps tests external, so content coverage of the JSON the model reads
 // needs the builder public. Its production caller is the tool handler below.
 pub use inner::{analyze_detailed_training_load, UserPhysiologicalParams};
+// Its own line: the pre-push moved-symbol check reads `pub use` line by line,
+// so folding this into the list above wraps it past 100 columns and the
+// symbols there stop being visible to the scan.
+pub use inner::intelligence_from_model_reply;
+// Its own line: rustfmt wraps a longer `pub use` past 100 columns, and the
+// moved-symbol guard scans lines.
+pub use inner::sampled_or_wrapped;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -38,8 +49,15 @@ use tracing::info;
 use crate::capabilities::{PROVIDER_ANALYTICS, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
+    tool_result_to_response, Formatted,
 };
+use crate::implementations::analytics::output::{
+    ActivityIntelligenceResult, ActivityMetricsResult, CompareActivitiesResult, FitnessScoreResult,
+    ImperialWeather, MetricWeather, PatternsResult, PerformanceTrendsResult, RacePredictionResult,
+    TrainingLoadResult, WeatherImpactAssessment, WeatherImpactResult, WeatherReading,
+};
+use crate::implementations::analytics::recommendations_output::RecommendationsResult;
 use crate::implementations::fitness_support::process_activity_analysis;
 use crate::implementations::handler_bridge;
 use crate::protocol::auth::AuthService;
@@ -135,12 +153,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<TrainingLoadResult>>(task_capable(tool_definition(
             "analyze_training_load",
             "Analyze training load using CTL (chronic training load), ATL (acute training load), and TSB (training stress balance) metrics to assess fitness, fatigue, and form",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -200,12 +218,12 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<PatternsResult>>(task_capable(tool_definition(
             "detect_patterns",
             "Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -265,12 +283,12 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<FitnessScoreResult>>(task_capable(tool_definition(
             "calculate_fitness_score",
             "Calculate an overall fitness score (0-100) based on training consistency, CTL, training volume, and recovery balance",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -346,12 +364,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["activity_id".to_owned()]));
-        task_capable(tool_definition(
+        answers_with::<WeatherImpactResult>(task_capable(tool_definition(
             "analyze_weather_impact",
             "Analyze how weather conditions affected activity performance, including temperature, humidity, wind, and precipitation impact",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -424,14 +442,20 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
         let (Some(latitude), Some(longitude)) =
             (activity.start_latitude(), activity.start_longitude())
         else {
-            return Ok(ToolResult::ok(json!({
-                "activity_id": activity_id,
-                "activity_name": activity.name(),
-                "weather": null,
-                "impact": null,
-                "note": "Activity has no GPS location data — weather analysis requires start coordinates",
-                "units": units
-            })));
+            return ok_typed(
+                "analyze_weather_impact",
+                WeatherImpactResult {
+                    activity_id: activity_id.to_owned(),
+                    activity_name: activity.name().to_owned(),
+                    weather: None,
+                    impact: None,
+                    note: Some(
+                        "Activity has no GPS location data — weather analysis requires start coordinates"
+                            .to_owned(),
+                    ),
+                    units: units.to_owned(),
+                },
+            );
         };
 
         let cache_repo = context.resources.repos().weather_cache.clone();
@@ -448,14 +472,17 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
         {
             Ok(sample) => sample,
             Err(pierre_weather::WeatherError::Disabled) => {
-                return Ok(ToolResult::ok(json!({
-                    "activity_id": activity_id,
-                    "activity_name": activity.name(),
-                    "weather": null,
-                    "impact": null,
-                    "note": "Weather provider is disabled by configuration",
-                    "units": units
-                })));
+                return ok_typed(
+                    "analyze_weather_impact",
+                    WeatherImpactResult {
+                        activity_id: activity_id.to_owned(),
+                        activity_name: activity.name().to_owned(),
+                        weather: None,
+                        impact: None,
+                        note: Some("Weather provider is disabled by configuration".to_owned()),
+                        units: units.to_owned(),
+                    },
+                );
             }
             Err(e) => {
                 return Ok(ToolResult::error(json!({
@@ -469,18 +496,22 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
         let impact = analyze_weather_impact(&weather);
 
         let weather_json = if units == "imperial" {
-            json!({
-                "temperature_fahrenheit": f64::from(weather.temperature_celsius).mul_add(CELSIUS_TO_FAHRENHEIT_FACTOR, FAHRENHEIT_OFFSET).round(),
-                "humidity_percentage": weather.humidity_percentage,
-                "wind_speed_mph": weather.wind_speed_kmh.map(|w| (w * KMH_TO_MPH_FACTOR * 10.0).round() / 10.0),
-                "conditions": weather.conditions
+            WeatherReading::Imperial(ImperialWeather {
+                temperature_fahrenheit: f64::from(weather.temperature_celsius)
+                    .mul_add(CELSIUS_TO_FAHRENHEIT_FACTOR, FAHRENHEIT_OFFSET)
+                    .round(),
+                humidity_percentage: weather.humidity_percentage,
+                wind_speed_mph: weather
+                    .wind_speed_kmh
+                    .map(|w| f64::from((w * KMH_TO_MPH_FACTOR * 10.0).round() / 10.0)),
+                conditions: weather.conditions,
             })
         } else {
-            json!({
-                "temperature_celsius": weather.temperature_celsius,
-                "humidity_percentage": weather.humidity_percentage,
-                "wind_speed_kmh": weather.wind_speed_kmh,
-                "conditions": weather.conditions
+            WeatherReading::Metric(MetricWeather {
+                temperature_celsius: weather.temperature_celsius,
+                humidity_percentage: weather.humidity_percentage,
+                wind_speed_kmh: weather.wind_speed_kmh,
+                conditions: weather.conditions,
             })
         };
 
@@ -489,17 +520,21 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             activity_id, impact.difficulty_level
         );
 
-        Ok(ToolResult::ok(json!({
-            "activity_id": activity_id,
-            "activity_name": activity.name(),
-            "weather": weather_json,
-            "impact": {
-                "difficulty_level": impact.difficulty_level,
-                "impact_factors": impact.impact_factors,
-                "performance_adjustment": impact.performance_adjustment
+        ok_typed(
+            "analyze_weather_impact",
+            WeatherImpactResult {
+                activity_id: activity_id.to_owned(),
+                activity_name: activity.name().to_owned(),
+                weather: Some(weather_json),
+                impact: Some(WeatherImpactAssessment {
+                    difficulty_level: impact.difficulty_level.clone(),
+                    impact_factors: impact.impact_factors.clone(),
+                    performance_adjustment: impact.performance_adjustment,
+                }),
+                note: None,
+                units: units.to_owned(),
             },
-            "units": units
-        })))
+        )
         }
         .await;
         tool_result_to_response(result)
@@ -537,12 +572,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<ActivityIntelligenceResult>>(task_capable(tool_definition(
             "analyze_activity",
             "Perform deep analysis of an individual activity including insights, metrics, and anomaly detection",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -644,12 +679,12 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<ActivityIntelligenceResult>>(task_capable(tool_definition(
             "get_activity_intelligence",
             "Get AI-powered intelligence insights and recommendations for a specific activity",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -732,12 +767,12 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<ActivityMetricsResult>>(task_capable(tool_definition(
             "calculate_metrics",
             "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -809,12 +844,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             properties,
             Some(vec!["provider".to_owned(), "metric".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<PerformanceTrendsResult>>(task_capable(tool_definition(
             "analyze_performance_trends",
             "Analyze performance trends over time with statistical analysis and insights for a specific metric",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -898,12 +933,12 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             properties,
             Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
         );
-        task_capable(tool_definition(
+        answers_with::<Formatted<CompareActivitiesResult>>(task_capable(tool_definition(
             "compare_activities",
             "Compare an activity against similar activities, personal bests, or a specific other activity",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -964,12 +999,12 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<RecommendationsResult>>(task_capable(tool_definition(
             "generate_recommendations",
             "Generate personalized training recommendations",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1030,12 +1065,12 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<RacePredictionResult>>(task_capable(tool_definition(
             "predict_performance",
             "Predict future performance based on training",
             schema,
             Some(analytics_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

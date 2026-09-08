@@ -4,12 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{PerformanceTrendsResult, TrendStatistics};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::api_limits::MAX_ACTIVITY_LIMIT;
 use pierre_intelligence::{
     MetricType, SafeMetricExtractor, StatisticalAnalyzer, TrendDataPoint, TrendDirection,
@@ -38,7 +40,8 @@ async fn fetch_and_analyze_trends(
     metric: &str,
     timeframe: &str,
     user_uuid: uuid::Uuid,
-) -> UniversalResponse {
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
     use MAX_ACTIVITY_LIMIT;
 
     match provider
@@ -53,26 +56,30 @@ async fn fetch_and_analyze_trends(
                 dedupe_and_report(&raw_activities, &DedupConfig::default());
             let analysis = analyze_performance_trend(&activities, metric, timeframe);
 
-            UniversalResponse {
-                success: true,
-                result: Some(analysis),
-                error: None,
-                metadata: Some({
-                    let mut map = HashMap::new();
-                    map.insert(
-                        "user_id".to_owned(),
-                        serde_json::Value::String(user_uuid.to_string()),
-                    );
-                    map
-                }),
-            }
+            apply_format_typed(
+                UniversalResponse {
+                    success: true,
+                    result: None,
+                    error: None,
+                    metadata: Some({
+                        let mut map = HashMap::new();
+                        map.insert(
+                            "user_id".to_owned(),
+                            serde_json::Value::String(user_uuid.to_string()),
+                        );
+                        map
+                    }),
+                },
+                analysis,
+                output_format,
+            )
         }
-        Err(e) => UniversalResponse {
+        Err(e) => Ok(UniversalResponse {
             success: false,
             result: None,
             error: Some(format!("Failed to fetch activities: {e}")),
             metadata: None,
-        },
+        }),
     }
 }
 
@@ -81,30 +88,32 @@ fn analyze_performance_trend(
     activities: &[Activity],
     metric: &str,
     timeframe: &str,
-) -> serde_json::Value {
+) -> PerformanceTrendsResult {
     use SafeMetricExtractor;
 
     if activities.is_empty() {
-        return serde_json::json!({
-            "metric": metric,
-            "timeframe": timeframe,
-            "trend": "no_data",
-            "activities_analyzed": 0,
-            "insights": ["No activities found for analysis"]
-        });
+        return PerformanceTrendsResult {
+            metric: metric.to_owned(),
+            timeframe: timeframe.to_owned(),
+            trend: "no_data".to_owned(),
+            activities_analyzed: 0,
+            statistics: None,
+            insights: vec!["No activities found for analysis".to_owned()],
+        };
     }
 
     // Parse metric string to MetricType
     let metric_type = match parse_metric_type(metric) {
         Ok(mt) => mt,
         Err(error_msg) => {
-            return serde_json::json!({
-                "metric": metric,
-                "timeframe": timeframe,
-                "trend": "invalid_metric",
-                "activities_analyzed": 0,
-                "insights": [error_msg]
-            });
+            return PerformanceTrendsResult {
+                metric: metric.to_owned(),
+                timeframe: timeframe.to_owned(),
+                trend: "invalid_metric".to_owned(),
+                activities_analyzed: 0,
+                statistics: None,
+                insights: vec![error_msg],
+            };
         }
     };
 
@@ -117,36 +126,46 @@ fn analyze_performance_trend(
         .collect();
 
     if filtered_activities.len() < 2 {
-        return serde_json::json!({
-            "metric": metric,
-            "timeframe": timeframe,
-            "trend": "needs_more_data",
-            "activities_analyzed": filtered_activities.len(),
-            "insights": [format!("Need at least 2 activities for trend analysis. Found {}", filtered_activities.len())]
-        });
+        return PerformanceTrendsResult {
+            metric: metric.to_owned(),
+            timeframe: timeframe.to_owned(),
+            trend: "needs_more_data".to_owned(),
+            activities_analyzed: filtered_activities.len(),
+            statistics: None,
+            insights: vec![format!(
+                "Need at least 2 activities for trend analysis. Found {}",
+                filtered_activities.len()
+            )],
+        };
     }
 
     // Extract metric values using SafeMetricExtractor
     let Ok(data_points_with_timestamp) =
         SafeMetricExtractor::extract_metric_values(&filtered_activities, metric_type)
     else {
-        return serde_json::json!({
-            "metric": metric,
-            "timeframe": timeframe,
-            "trend": "insufficient_data",
-            "activities_analyzed": filtered_activities.len(),
-            "insights": [format!("Metric '{metric}' not available in enough activities")]
-        });
+        return PerformanceTrendsResult {
+            metric: metric.to_owned(),
+            timeframe: timeframe.to_owned(),
+            trend: "insufficient_data".to_owned(),
+            activities_analyzed: filtered_activities.len(),
+            statistics: None,
+            insights: vec![format!(
+                "Metric '{metric}' not available in enough activities"
+            )],
+        };
     };
 
     if data_points_with_timestamp.len() < 2 {
-        return serde_json::json!({
-            "metric": metric,
-            "timeframe": timeframe,
-            "trend": "insufficient_data",
-            "activities_analyzed": filtered_activities.len(),
-            "insights": [format!("Metric '{metric}' not available in enough activities")]
-        });
+        return PerformanceTrendsResult {
+            metric: metric.to_owned(),
+            timeframe: timeframe.to_owned(),
+            trend: "insufficient_data".to_owned(),
+            activities_analyzed: filtered_activities.len(),
+            statistics: None,
+            insights: vec![format!(
+                "Metric '{metric}' not available in enough activities"
+            )],
+        };
     }
 
     // Convert to TrendDataPoint format and perform regression
@@ -159,7 +178,7 @@ fn compute_trend_statistics(
     timeframe: &str,
     metric_type: MetricType,
     data_points_with_timestamp: &[(chrono::DateTime<chrono::Utc>, f64)],
-) -> serde_json::Value {
+) -> PerformanceTrendsResult {
     // Convert to TrendDataPoint format
     let trend_data_points: Vec<TrendDataPoint> = data_points_with_timestamp
         .iter()
@@ -172,13 +191,14 @@ fn compute_trend_statistics(
 
     // Perform linear regression using StatisticalAnalyzer
     let Ok(regression_result) = StatisticalAnalyzer::linear_regression(&trend_data_points) else {
-        return serde_json::json!({
-            "metric": metric,
-            "timeframe": timeframe,
-            "trend": "calculation_error",
-            "activities_analyzed": trend_data_points.len(),
-            "insights": ["Unable to calculate trend statistics"]
-        });
+        return PerformanceTrendsResult {
+            metric: metric.to_owned(),
+            timeframe: timeframe.to_owned(),
+            trend: "calculation_error".to_owned(),
+            activities_analyzed: trend_data_points.len(),
+            statistics: None,
+            insights: vec!["Unable to calculate trend statistics".to_owned()],
+        };
     };
 
     // Calculate simple average for comparison
@@ -210,25 +230,25 @@ fn compute_trend_statistics(
         data_points_with_timestamp,
     );
 
-    serde_json::json!({
-        "metric": metric,
-        "timeframe": timeframe,
-        "trend": trend_direction,
-        "activities_analyzed": data_points_with_timestamp.len(),
-        "statistics": {
-            "slope": regression_result.slope,
-            "r_squared": regression_result.r_squared,
-            "confidence": regression_result.r_squared,
-            "correlation": regression_result.correlation,
-            "standard_error": regression_result.standard_error,
-            "p_value": regression_result.p_value,
-            "moving_average_7day": moving_avg,
-            "start_value": data_points_with_timestamp.first().map(|(_, v)| v),
-            "end_value": data_points_with_timestamp.last().map(|(_, v)| v),
-            "percent_change": calculate_percent_change(data_points_with_timestamp),
-        },
-        "insights": insights,
-    })
+    PerformanceTrendsResult {
+        metric: metric.to_owned(),
+        timeframe: timeframe.to_owned(),
+        trend: trend_direction.to_owned(),
+        activities_analyzed: data_points_with_timestamp.len(),
+        statistics: Some(TrendStatistics {
+            slope: regression_result.slope,
+            r_squared: regression_result.r_squared,
+            confidence: regression_result.r_squared,
+            correlation: regression_result.correlation,
+            standard_error: regression_result.standard_error,
+            p_value: regression_result.p_value,
+            moving_average_7day: moving_avg,
+            start_value: data_points_with_timestamp.first().map(|&(_, v)| v),
+            end_value: data_points_with_timestamp.last().map(|&(_, v)| v),
+            percent_change: calculate_percent_change(data_points_with_timestamp),
+        }),
+        insights,
+    }
 }
 
 /// Parse metric string to `MetricType`
@@ -425,7 +445,9 @@ pub fn handle_analyze_performance_trends(
                     }
                 }
 
-                let result = fetch_and_analyze_trends(provider, metric, timeframe, user_uuid).await;
+                let result =
+                    fetch_and_analyze_trends(provider, metric, timeframe, user_uuid, output_format)
+                        .await?;
 
                 // Report completion on success
                 if result.success {
@@ -438,8 +460,7 @@ pub fn handle_analyze_performance_trends(
                     }
                 }
 
-                // Apply format transformation
-                Ok(apply_format_to_response(result, "trends", output_format))
+                Ok(result)
             }
             Err(response) => Ok(response),
         }

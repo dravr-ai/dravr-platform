@@ -600,7 +600,7 @@ impl User {
 ///
 /// Contains physiological data used for calculating personalized heart rate zones,
 /// pace zones, and other performance thresholds based on individual fitness metrics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct UserPhysiologicalProfile {
     /// User `ID` this profile belongs to
     pub user_id: Uuid,

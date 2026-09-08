@@ -181,7 +181,7 @@ fn clamp_f64_to_f32(value: f64) -> f32 {
 }
 
 /// Weather impact analysis result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WeatherImpact {
     /// Classified difficulty level based on weather conditions
     pub difficulty_level: WeatherDifficulty,
@@ -192,7 +192,7 @@ pub struct WeatherImpact {
 }
 
 /// Weather difficulty classification
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum WeatherDifficulty {
     /// Perfect conditions for optimal performance

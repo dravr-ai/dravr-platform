@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::env;
 
 /// Main fitness configuration structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FitnessConfig {
     /// Map of sport type IDs to display names
     pub sport_types: HashMap<String, String>,
@@ -24,7 +24,7 @@ pub struct FitnessConfig {
 }
 
 /// Intelligence analysis configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct IntelligenceConfig {
     /// Effort level threshold values
     pub effort_thresholds: EffortThresholds,
@@ -37,7 +37,7 @@ pub struct IntelligenceConfig {
 }
 
 /// Effort level thresholds for categorizing workout intensity
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EffortThresholds {
     /// Maximum heart rate percentage for light effort (0-1.0)
     pub light_max: f32,
@@ -49,7 +49,7 @@ pub struct EffortThresholds {
 }
 
 /// Heart rate zone thresholds (as percentage of max HR)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ZoneThresholds {
     /// Maximum percentage for recovery zone (Zone 1)
     pub recovery_max: f32,
@@ -63,7 +63,7 @@ pub struct ZoneThresholds {
 }
 
 /// Weather detection and mapping configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WeatherMapping {
     /// Keywords for detecting rain in weather descriptions
     pub rain_keywords: Vec<String>,
@@ -74,7 +74,7 @@ pub struct WeatherMapping {
 }
 
 /// Personal record detection configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PersonalRecordConfig {
     /// Minimum pace improvement percentage to count as PR (0-1.0)
     pub pace_improvement_threshold: f32,
@@ -85,7 +85,7 @@ pub struct PersonalRecordConfig {
 }
 
 /// Weather API configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WeatherApiConfig {
     /// Weather provider name (e.g., "openweathermap")
     pub provider: String,

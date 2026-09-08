@@ -25,7 +25,7 @@ use dravr_cageux::visitor::{DecouplingDetector, NormalizedPowerCalculator, TimeS
 use serde::{Deserialize, Serialize};
 
 /// One row in `intervals.json` representing a single lap or interval.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IntervalRow {
     /// 1-based interval index inside the activity.
     pub index: u32,
@@ -60,7 +60,7 @@ pub struct IntervalRow {
 }
 
 /// Endurance `intervals.json` payload for a single activity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IntervalsExport {
     /// Provider activity id.
     pub activity_id: String,

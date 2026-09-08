@@ -10,9 +10,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::{FormReading, TenantId};
+use pierre_core::models::{
+    DailyTrainingState, FormBand, FormInterpretation, FormReading, TenantId,
+};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::services::training_history_compute::{
     compute_and_persist_history, fetch_history_rows, DEFAULT_BACKFILL_DAYS,
@@ -23,11 +26,64 @@ use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
+
+/// One day of training state, with its form reading attached.
+///
+/// The stored row is flattened in rather than nested: this is what
+/// `get_training_history` has always sent, and a coach reading `ctl` should
+/// not have to know whether it sits under a `state` key.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TrainingHistoryDay {
+    /// The persisted daily rollup.
+    #[serde(flatten)]
+    pub state: DailyTrainingState,
+    /// Form as a percentage of this athlete's own CTL, rounded. Null when
+    /// there is no chronic base to normalise against — form cannot be judged
+    /// at all in that case, and a zero would read as "balanced".
+    pub tsb_pct_of_ctl: Option<f64>,
+    /// The band that percentage falls in. Never an injury verdict.
+    pub form_band: FormBand,
+}
+
+/// What `get_training_history` answers with.
+///
+/// Every row carries its own form reading, and the payload carries the method
+/// that produced it. This is the tool the endurance coach prompt calls first;
+/// shipping bare ctl/atl/tsb floats is how a raw `-77` reached an athlete as a
+/// diagnosis nobody could explain (registre#199).
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TrainingHistoryResult {
+    /// First day of the window, as `YYYY-MM-DD`.
+    pub from: String,
+    /// Last day, inclusive.
+    pub to: String,
+    /// One entry per day that has a rollup.
+    pub days: Vec<TrainingHistoryDay>,
+    /// What the numbers mean and how they were computed.
+    pub interpretation: FormInterpretation,
+}
+
+/// What `compute_training_history` answers with.
+///
+/// A write tool that reports its own scope. The window is echoed because the
+/// caller may have passed none and taken the default, and `rows_upserted` is
+/// how a coach knows whether the recompute actually had days to work with —
+/// zero is a valid answer for a window the athlete did not train in.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ComputeTrainingHistoryResult {
+    /// First day of the window recomputed, as `YYYY-MM-DD`.
+    pub from: String,
+    /// Last day of the window, inclusive.
+    pub to: String,
+    /// How many daily rows were written or overwritten.
+    pub rows_upserted: usize,
+}
 
 fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {
@@ -122,7 +178,7 @@ pub struct ComputeTrainingHistoryTool;
 impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
     fn definition(&self) -> Tool {
         let schema = date_range_schema();
-        task_capable(tool_definition(
+        answers_with::<ComputeTrainingHistoryResult>(task_capable(tool_definition(
             "compute_training_history",
             "Compute and persist Endurance daily training-state rollups for the \
              authenticated user across the requested window — CTL, ATL, TSB \
@@ -133,7 +189,7 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
              window is the last 90 days.",
             schema,
             Some(write_safe_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -161,11 +217,14 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
             let count =
                 compute_and_persist_history(&context.resources, tenant_id, user_id, from, to)
                     .await?;
-            Ok(ToolResult::ok(json!({
-                "from": from.format("%Y-%m-%d").to_string(),
-                "to": to.format("%Y-%m-%d").to_string(),
-                "rows_upserted": count,
-            })))
+            ok_typed(
+                "compute_training_history",
+                ComputeTrainingHistoryResult {
+                    from: from.format("%Y-%m-%d").to_string(),
+                    to: to.format("%Y-%m-%d").to_string(),
+                    rows_upserted: count,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -179,7 +238,7 @@ pub struct GetTrainingHistoryTool;
 impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
     fn definition(&self) -> Tool {
         let schema = date_range_schema();
-        tool_definition(
+        answers_with::<TrainingHistoryResult>(tool_definition(
             "get_training_history",
             "Fetch persisted Endurance daily training-state rollups for the \
              authenticated user across the requested window. Returns \
@@ -193,7 +252,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
              last 90 days.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -225,31 +284,30 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             // a raw `-77` reached an athlete as a diagnosis nobody could explain
             // (registre#199).
             let params = &context.resources.cageux_config().algorithms.params;
-            let days: Vec<Value> = rows
+            let days: Vec<TrainingHistoryDay> = rows
                 .iter()
                 .map(|row| {
-                    let mut value = serde_json::to_value(row).unwrap_or_else(|_| json!({}));
                     let reading = FormReading::new(row.ctl, row.atl, row.tsb);
-                    if let Some(obj) = value.as_object_mut() {
-                        obj.insert(
-                            "tsb_pct_of_ctl".to_owned(),
-                            json!(reading.form_pct.map(f64::round)),
-                        );
-                        obj.insert("form_band".to_owned(), json!(reading.band));
+                    TrainingHistoryDay {
+                        state: row.clone(),
+                        tsb_pct_of_ctl: reading.form_pct.map(f64::round),
+                        form_band: reading.band,
                     }
-                    value
                 })
                 .collect();
 
-            Ok(ToolResult::ok(json!({
-                "from": from.format("%Y-%m-%d").to_string(),
-                "to": to.format("%Y-%m-%d").to_string(),
-                "days": days,
-                "interpretation": FormReading::interpretation(
-                    params.training_load_ctl_days,
-                    params.training_load_atl_days,
-                ),
-            })))
+            ok_typed(
+                "get_training_history",
+                TrainingHistoryResult {
+                    from: from.format("%Y-%m-%d").to_string(),
+                    to: to.format("%Y-%m-%d").to_string(),
+                    days,
+                    interpretation: FormReading::interpretation(
+                        params.training_load_ctl_days,
+                        params.training_load_atl_days,
+                    ),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

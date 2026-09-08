@@ -152,7 +152,9 @@ pub struct CalendarEventRef {
 }
 
 /// Which write path produced a calendar ledger row.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CalendarEventSource {
     /// A single session written by `prescribe_workout`.

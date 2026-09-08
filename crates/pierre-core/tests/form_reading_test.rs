@@ -118,7 +118,7 @@ fn the_json_metrics_carry_the_band_and_the_percentage() {
 #[test]
 fn the_interpretation_states_the_method_and_the_windows() {
     let value = FormReading::interpretation(42, 7);
-    let method = value["method"].as_str().expect("method key must exist");
+    let method = &value.method;
 
     assert!(
         method.contains("CTL - ATL"),
@@ -139,7 +139,7 @@ fn the_interpretation_states_the_method_and_the_windows() {
 #[test]
 fn the_interpretation_follows_the_configured_windows() {
     let value = FormReading::interpretation(28, 5);
-    let method = value["method"].as_str().unwrap();
+    let method = &value.method;
 
     assert!(
         method.contains("28") && method.contains('5'),
@@ -154,9 +154,7 @@ fn the_interpretation_follows_the_configured_windows() {
 #[test]
 fn the_interpretation_separates_deep_fatigue_from_overtraining() {
     let value = FormReading::interpretation(42, 7);
-    let note = value["deep_fatigue_is_not_overtraining"]
-        .as_str()
-        .expect("the distinction must be stated in the payload");
+    let note = &value.deep_fatigue_is_not_overtraining;
 
     assert!(
         note.contains("planned overload"),
@@ -167,8 +165,12 @@ fn the_interpretation_separates_deep_fatigue_from_overtraining() {
 
 #[test]
 fn no_key_in_the_interpretation_frames_form_as_injury_risk() {
+    // Serialized, not field by field: the point is that NO key anywhere in
+    // the payload frames form as risk, including any added later.
     let value = FormReading::interpretation(42, 7);
-    let serialized = value.to_string().to_lowercase();
+    let serialized = serde_json::to_string(&value)
+        .expect("the interpretation serializes")
+        .to_lowercase();
 
     for banned in ["injury risk", "risk of injury", "dangerous", "red zone"] {
         assert!(

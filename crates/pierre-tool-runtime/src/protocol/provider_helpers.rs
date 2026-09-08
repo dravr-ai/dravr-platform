@@ -397,45 +397,6 @@ pub fn create_auth_error_response(provider_name: &str, error: &str) -> Universal
     }
 }
 
-/// Build success response for activities from any provider
-pub fn build_activities_success_response(
-    activities: &[Activity],
-    provider_name: &str,
-    user_uuid: uuid::Uuid,
-    tenant_id: Option<String>,
-) -> UniversalResponse {
-    UniversalResponse {
-        success: true,
-        result: Some(json!({
-            "activities": activities,
-            "provider": provider_name,
-            "count": activities.len()
-        })),
-        error: None,
-        metadata: Some({
-            let mut map = HashMap::new();
-            map.insert(
-                "total_activities".to_owned(),
-                JsonValue::Number(activities.len().into()),
-            );
-            map.insert(
-                "user_id".to_owned(),
-                JsonValue::String(user_uuid.to_string()),
-            );
-            map.insert(
-                "tenant_id".to_owned(),
-                tenant_id.map_or(JsonValue::Null, JsonValue::String),
-            );
-            map.insert(
-                "provider".to_owned(),
-                JsonValue::String(provider_name.to_owned()),
-            );
-            map.insert("cached".to_owned(), JsonValue::Bool(false));
-            map
-        }),
-    }
-}
-
 /// Get OAuth config for a provider, with logging
 pub fn get_provider_oauth_config(provider_name: &str) -> OAuthProviderConfig {
     let config = get_oauth_config(provider_name);

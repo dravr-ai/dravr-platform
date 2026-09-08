@@ -14,22 +14,47 @@ use pierre_fitness_compute::latest_snapshot::{
     build_latest_snapshot, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
 };
 use pierre_fitness_compute::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
+use serde::Serialize;
 use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
+use pierre_core::models::Dossier;
+use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
 use tracing::warn;
+
+/// What `export_dossier` answers with.
+///
+/// The composed dossier with the estimated lactate thresholds alongside it.
+/// The dossier is flattened in rather than nested, which is what this tool
+/// has always sent.
+///
+/// `threshold_estimate` is always present, empty when nothing is known.
+/// That is the dossier's own "empty slots, not 404" contract: a coach reading
+/// the payload can tell "no FTP on file" from "this tool does not report
+/// thresholds", and a key that appears only sometimes cannot.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DossierExport {
+    /// Physiology, zones, goals and the durable facts, as composed.
+    #[serde(flatten)]
+    pub dossier: Dossier,
+    /// LT1/LT2 heart rate, power and pace derived from the profile — Coggan
+    /// for power, Seiler-style anchors for pace. Gives the dossier training
+    /// zone anchors even when the athlete has measured none directly.
+    pub threshold_estimate: ThresholdEstimate,
+}
 
 /// Lower bound on the analysis window. Mirrors the constant in
 /// `routes/endurance.rs` so HTTP and MCP clamp the same way.
@@ -129,7 +154,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             required: Some(Vec::new()),
             ..Default::default()
         };
-        task_capable(tool_definition(
+        answers_with::<LatestSnapshot>(task_capable(tool_definition(
             "export_latest_snapshot",
             "Export the Endurance 'latest.json' snapshot for the authenticated user — \
              per-activity intensity factor, efficiency factor, variability index, \
@@ -140,7 +165,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
              contract. The response shape mirrors `GET /api/v1/endurance/latest`.",
             schema,
             Some(read_only_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -205,7 +230,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             required: Some(Vec::new()),
             ..Default::default()
         };
-        task_capable(tool_definition(
+        answers_with::<DossierExport>(task_capable(tool_definition(
             "export_dossier",
             "Export the Endurance 'dossier.json' aggregate for the authenticated \
              user — physiological profile (VO2max, FTP, threshold pace, fitness \
@@ -215,7 +240,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
              Mirrors `GET /api/v1/endurance/dossier`.",
             schema,
             Some(read_only_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -245,8 +270,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                 .dossier
                 .compose_dossier(tenant_id, user_id)
                 .await?;
-            let mut payload = serde_json::to_value(&dossier)
-                .map_err(|e| AppError::internal(format!("serialize dossier: {e}")))?;
+            let dossier = dossier;
 
             // Surface estimated lactate thresholds (LT1/LT2 heart rate, power, and
             // pace) derived from the athlete's physiological profile — Coggan
@@ -263,16 +287,14 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                 .await?;
             let estimate =
                 ThresholdEstimate::from_inputs(threshold_inputs_from_profile(physiology.as_ref()));
-            if let Value::Object(map) = &mut payload {
-                map.insert(
-                    "threshold_estimate".to_owned(),
-                    serde_json::to_value(estimate).map_err(|e| {
-                        AppError::internal(format!("serialize threshold estimate: {e}"))
-                    })?,
-                );
-            }
 
-            Ok(ToolResult::ok(payload))
+            ok_typed(
+                "export_dossier",
+                DossierExport {
+                    dossier,
+                    threshold_estimate: estimate,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

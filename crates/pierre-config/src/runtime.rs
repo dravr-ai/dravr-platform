@@ -46,7 +46,7 @@ pub struct RuntimeConfig {
 }
 
 /// Configuration value types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 #[serde(tag = "type", content = "value")]
 pub enum ConfigValue {
     /// Floating point number value

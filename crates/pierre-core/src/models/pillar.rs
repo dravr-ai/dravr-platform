@@ -17,7 +17,19 @@ use super::onboarding::TopicVisibility;
 /// and the rendered OKF bundle. Mobility folds into [`Pillar::TrainingAndMovement`];
 /// it is a facet of training, not a seventh pillar. The marketplace `CoachCategory`
 /// (which still carries a `mobility` value) is a deliberately separate taxonomy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Pillar {
     /// Training & Movement — workouts, load, and mobility/flexibility.

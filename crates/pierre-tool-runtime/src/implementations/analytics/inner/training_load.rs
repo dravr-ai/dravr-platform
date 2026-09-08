@@ -4,7 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{
+    LoadMetrics, LoadRecoveryContext, NoTrainingLoad, ProvidersUsed, TrainingLoadDetail,
+    TrainingLoadResult, TrainingZone, WeeklyTss,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -162,13 +166,15 @@ pub fn analyze_detailed_training_load(
     timeframe: &str,
     params: &UserPhysiologicalParams,
     algorithm_config: &AlgorithmConfig,
-) -> serde_json::Value {
+    providers_used: ProvidersUsed,
+) -> TrainingLoadResult {
     use TrainingLoadCalculator;
 
     if activities.is_empty() {
-        return serde_json::json!({
-            "timeframe": timeframe,
-            "message": "No activities found for training load analysis",
+        return TrainingLoadResult::NoData(NoTrainingLoad {
+            timeframe: timeframe.to_owned(),
+            message: "No activities found for training load analysis".to_owned(),
+            providers_used,
         });
     }
 
@@ -191,9 +197,10 @@ pub fn analyze_detailed_training_load(
         params.resting_hr,
         params.weight_kg,
     ) else {
-        return serde_json::json!({
-            "timeframe": timeframe,
-            "message": "Unable to calculate training load - insufficient activity data",
+        return TrainingLoadResult::NoData(NoTrainingLoad {
+            timeframe: timeframe.to_owned(),
+            message: "Unable to calculate training load - insufficient activity data".to_owned(),
+            providers_used,
         });
     };
 
@@ -233,30 +240,32 @@ pub fn analyze_detailed_training_load(
             .push("High fitness level - maintain or add recovery weeks".to_owned());
     }
 
-    serde_json::json!({
-        "timeframe": timeframe,
-        "load_metrics": {
-            "ctl": ctl.round(),
-            "atl": atl.round(),
-            "tsb": tsb.round(),
-            "tsb_pct_of_ctl": form_pct.map(f64::round),
-            "weekly_tss": weekly_tss,
+    TrainingLoadResult::Analyzed(Box::new(TrainingLoadDetail {
+        timeframe: timeframe.to_owned(),
+        load_metrics: LoadMetrics {
+            ctl: ctl.round(),
+            atl: atl.round(),
+            tsb: tsb.round(),
+            tsb_pct_of_ctl: form_pct.map(f64::round),
+            weekly_tss,
         },
-        "form_band": band,
-        "form_assessment": band.label(),
-        "taper_status": taper_recommendation,
-        "periodization_suggestions": periodization_suggestions,
-        "training_zones": classify_training_load(ctl),
-        "recommendations": generate_load_recommendations(ctl, band, form_pct),
-        "activities_analyzed": training_load.tss_history.len(),
+        form_band: band,
+        form_assessment: band.label().to_owned(),
+        taper_status: taper_recommendation.to_owned(),
+        periodization_suggestions,
+        training_zones: classify_training_load(ctl),
+        recommendations: generate_load_recommendations(ctl, band, form_pct),
+        activities_analyzed: training_load.tss_history.len(),
         // The one shared key, so this surface and `get_training_history` cannot
         // describe the same number two different ways (registre#199).
-        "interpretation": FormReading::interpretation(ctl_days, atl_days),
-    })
+        interpretation: FormReading::interpretation(ctl_days, atl_days),
+        recovery_context: None,
+        providers_used,
+    }))
 }
 
 /// Calculate weekly TSS totals from `TssDataPoint` history (Phase 1 format)
-fn calculate_weekly_tss_from_history(tss_history: &[TssDataPoint]) -> Vec<serde_json::Value> {
+fn calculate_weekly_tss_from_history(tss_history: &[TssDataPoint]) -> Vec<WeeklyTss> {
     use HashMap;
 
     if tss_history.is_empty() {
@@ -280,11 +289,9 @@ fn calculate_weekly_tss_from_history(tss_history: &[TssDataPoint]) -> Vec<serde_
 
     weeks
         .iter()
-        .map(|(week, tss)| {
-            serde_json::json!({
-                "week": week,
-                "total_tss": tss.round(),
-            })
+        .map(|(week, tss)| WeeklyTss {
+            week: *week,
+            total_tss: tss.round(),
         })
         .collect()
 }
@@ -309,29 +316,25 @@ const fn taper_status(band: FormBand) -> &'static str {
 }
 
 /// Classify training load level
-fn classify_training_load(ctl: f64) -> serde_json::Value {
-    let level = if ctl < 25.0 {
-        "Beginner"
+fn classify_training_load(ctl: f64) -> TrainingZone {
+    // Both halves come out of one comparison. Deriving the range by matching
+    // on the level string again let the two drift apart silently.
+    let (level, ctl_range) = if ctl < 25.0 {
+        ("Beginner", "< 25")
     } else if ctl < 45.0 {
-        "Intermediate"
+        ("Intermediate", "25-45")
     } else if ctl < 70.0 {
-        "Advanced"
+        ("Advanced", "45-70")
     } else if ctl < 100.0 {
-        "Elite"
+        ("Elite", "70-100")
     } else {
-        "Very High"
+        ("Very High", "> 100")
     };
 
-    serde_json::json!({
-        "level": level,
-        "ctl_range": match level {
-            "Beginner" => "< 25",
-            "Intermediate" => "25-45",
-            "Advanced" => "45-70",
-            "Elite" => "70-100",
-            _ => "> 100",
-        },
-    })
+    TrainingZone {
+        level: level.to_owned(),
+        ctl_range: ctl_range.to_owned(),
+    }
 }
 
 /// Generate load-specific recommendations from the athlete's form band.
@@ -518,6 +521,10 @@ pub fn handle_analyze_training_load(
                             timeframe,
                             &physio_params,
                             &executor.cageux_config().algorithms,
+                            ProvidersUsed {
+                                activity_provider: provider_name.clone(),
+                                sleep_provider: sleep_provider.map(str::to_owned),
+                            },
                         );
 
                         // Fire intelligence-driven notification triggers based on computed metrics
@@ -540,19 +547,18 @@ pub fn handle_analyze_training_load(
                             .await
                             {
                                 Ok(context) => {
-                                    // Add recovery context to analysis
-                                    if let Some(obj) = analysis.as_object_mut() {
-                                        obj.insert(
-                                            "recovery_context".to_owned(),
-                                            serde_json::json!({
-                                                "sleep_quality_score": context.sleep_quality_score,
-                                                "recovery_status": context.recovery_status,
-                                                "hrv_available": context.hrv_rmssd.is_some(),
-                                                "hrv_rmssd": context.hrv_rmssd,
-                                                "sleep_hours": context.sleep_hours,
-                                                "sleep_provider": sleep_provider_name,
-                                            }),
-                                        );
+                                    // Only the analysed arm has somewhere to put
+                                    // it; the empty answers have no load to give
+                                    // sleep context to.
+                                    if let TrainingLoadResult::Analyzed(detail) = &mut analysis {
+                                        detail.recovery_context = Some(LoadRecoveryContext {
+                                            sleep_quality_score: context.sleep_quality_score,
+                                            recovery_status: context.recovery_status.clone(),
+                                            hrv_available: context.hrv_rmssd.is_some(),
+                                            hrv_rmssd: context.hrv_rmssd,
+                                            sleep_hours: context.sleep_hours,
+                                            sleep_provider: sleep_provider_name.to_owned(),
+                                        });
                                     }
                                     Some(context)
                                 }
@@ -569,17 +575,6 @@ pub fn handle_analyze_training_load(
                             None
                         };
 
-                        // Add provider info
-                        if let Some(obj) = analysis.as_object_mut() {
-                            obj.insert(
-                                "providers_used".to_owned(),
-                                serde_json::json!({
-                                    "activity_provider": provider_name,
-                                    "sleep_provider": sleep_provider,
-                                }),
-                            );
-                        }
-
                         // Report completion
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(
@@ -591,7 +586,7 @@ pub fn handle_analyze_training_load(
 
                         let result = UniversalResponse {
                             success: true,
-                            result: Some(analysis),
+                            result: None,
                             error: None,
                             metadata: Some({
                                 let mut map = HashMap::new();
@@ -619,12 +614,7 @@ pub fn handle_analyze_training_load(
                             }),
                         };
 
-                        // Apply format transformation
-                        Ok(apply_format_to_response(
-                            result,
-                            "training_load",
-                            output_format,
-                        ))
+                        apply_format_typed(result, analysis, output_format)
                     }
                     Err(e) => Ok(UniversalResponse {
                         success: false,
@@ -652,7 +642,7 @@ fn fire_training_load_notifications(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id_str: Option<&str>,
-    analysis: &serde_json::Value,
+    analysis: &TrainingLoadResult,
 ) {
     let Some(service) = &resources.notification_service() else {
         return;
@@ -665,11 +655,18 @@ fn fire_training_load_notifications(
     };
     let tenant_id = TenantId(tenant_uuid);
 
-    // Extract load metrics from the analysis JSON
-    let metrics = &analysis["load_metrics"];
-    let atl = metrics["atl"].as_f64().unwrap_or(0.0);
-    let ctl = metrics["ctl"].as_f64().unwrap_or(0.0);
-    let tsb = metrics["tsb"].as_f64().unwrap_or(0.0);
+    // Only an analysed load has metrics to alert on. Reading them off the
+    // typed value means a renamed field is a compile error rather than a
+    // silent zero, which is what `as_f64().unwrap_or(0.0)` gave: a missing
+    // `ctl` read as 0.0 and disabled both alerts.
+    let TrainingLoadResult::Analyzed(detail) = analysis else {
+        return;
+    };
+    let (atl, ctl, tsb) = (
+        detail.load_metrics.atl,
+        detail.load_metrics.ctl,
+        detail.load_metrics.tsb,
+    );
 
     // Trigger training load alert when ATL > RATIO * CTL
     if ctl > 0.0 && atl > ctl * TRAINING_LOAD_ALERT_ATL_RATIO {

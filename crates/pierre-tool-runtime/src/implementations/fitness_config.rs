@@ -19,12 +19,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -35,6 +37,80 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
+
+/// What `get_fitness_config` answers with.
+///
+/// One shape for both answers: a missing configuration is a fact about the
+/// tenant, not a fault, so it reports `config: null` with `source` saying
+/// where the answer came from rather than erroring.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetFitnessConfigResult {
+    /// The configuration asked for, echoed back.
+    pub configuration_name: String,
+    /// The configuration; null when none is stored under that name.
+    pub config: Option<FitnessConfig>,
+    /// Where the answer came from: `database`, or `not_found`.
+    pub source: String,
+    /// Why there is no configuration. Absent when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// RFC 3339 timestamp of the read, so a cached answer is recognisable.
+    pub retrieved_at: String,
+}
+
+/// What `set_fitness_config` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SetFitnessConfigResult {
+    /// Always true: the tool errors rather than reporting a failed save.
+    pub success: bool,
+    /// The stored row's identifier.
+    pub config_id: String,
+    /// The name it was saved under.
+    pub configuration_name: String,
+    /// Whether it was saved for one athlete or for the whole tenant.
+    pub user_level: bool,
+    /// What to tell the operator, already written.
+    pub message: String,
+    /// RFC 3339 timestamp of the write.
+    pub saved_at: String,
+}
+
+/// What `list_fitness_configs` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ListFitnessConfigsResult {
+    /// Every name visible to this athlete, user-level and tenant-level
+    /// merged and sorted, with no duplicates.
+    pub configurations: Vec<String>,
+    /// The names stored for this athlete specifically.
+    pub user_specific: Vec<String>,
+    /// The names stored for the whole tenant. A name in both lists is
+    /// overridden per athlete, which is why both are reported.
+    pub tenant_level: Vec<String>,
+    /// How many distinct names `configurations` holds.
+    pub total_count: usize,
+    /// RFC 3339 timestamp of the read.
+    pub retrieved_at: String,
+}
+
+/// What `delete_fitness_config` answers with.
+///
+/// Deleting something that was not there answers `success: false` rather than
+/// erroring — the configuration is gone either way — so `deleted_at` is what
+/// separates a delete that happened from one that had nothing to do.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DeleteFitnessConfigResult {
+    /// Whether a configuration was actually removed.
+    pub success: bool,
+    /// The name asked about, echoed back.
+    pub configuration_name: String,
+    /// Whether the delete was scoped to one athlete or the whole tenant.
+    pub user_level: bool,
+    /// What to tell the operator, already written.
+    pub message: String,
+    /// RFC 3339 timestamp of the delete. Absent when nothing was deleted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>,
+}
 
 /// Require the caller's tenant. Errors if the tool was invoked without
 /// one — never fabricates from the user uuid (see
@@ -69,12 +145,12 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
             },
         );
         let schema = object_schema(properties, Some(vec![]));
-        tool_definition(
+        answers_with::<GetFitnessConfigResult>(tool_definition(
             "get_fitness_config",
             "Get fitness configuration for the current user (falls back to tenant default)",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -109,24 +185,33 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
                 .await?;
 
             config.map_or_else(
-            || {
-                Ok(ToolResult::ok(json!({
-                    "configuration_name": configuration_name,
-                    "config": null,
-                    "source": "not_found",
-                    "message": format!("No configuration found with name '{configuration_name}'"),
-                    "retrieved_at": Utc::now().to_rfc3339(),
-                })))
-            },
-            |fitness_config| {
-                Ok(ToolResult::ok(json!({
-                    "configuration_name": configuration_name,
-                    "config": fitness_config,
-                    "source": "database",
-                    "retrieved_at": Utc::now().to_rfc3339(),
-                })))
-            },
-        )
+                || {
+                    ok_typed(
+                        "get_fitness_config",
+                        GetFitnessConfigResult {
+                            configuration_name: configuration_name.to_owned(),
+                            config: None,
+                            source: "not_found".to_owned(),
+                            message: Some(format!(
+                                "No configuration found with name '{configuration_name}'"
+                            )),
+                            retrieved_at: Utc::now().to_rfc3339(),
+                        },
+                    )
+                },
+                |fitness_config| {
+                    ok_typed(
+                        "get_fitness_config",
+                        GetFitnessConfigResult {
+                            configuration_name: configuration_name.to_owned(),
+                            config: Some(fitness_config),
+                            source: "database".to_owned(),
+                            message: None,
+                            retrieved_at: Utc::now().to_rfc3339(),
+                        },
+                    )
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -174,12 +259,12 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["config".to_owned()]));
-        tool_definition(
+        answers_with::<SetFitnessConfigResult>(tool_definition(
             "set_fitness_config",
             "Save or update fitness configuration for the current user or tenant",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -235,14 +320,17 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
                     .await?
             };
 
-            Ok(ToolResult::ok(json!({
-                "success": true,
-                "config_id": config_id,
-                "configuration_name": configuration_name,
-                "user_level": user_level,
-                "message": format!("Configuration '{}' saved successfully", configuration_name),
-                "saved_at": Utc::now().to_rfc3339(),
-            })))
+            ok_typed(
+                "set_fitness_config",
+                SetFitnessConfigResult {
+                    success: true,
+                    config_id,
+                    configuration_name: configuration_name.to_owned(),
+                    user_level,
+                    message: format!("Configuration '{configuration_name}' saved successfully"),
+                    saved_at: Utc::now().to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -269,12 +357,12 @@ impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
             },
         );
         let schema = object_schema(properties, Some(vec![]));
-        tool_definition(
+        answers_with::<ListFitnessConfigsResult>(tool_definition(
             "list_fitness_configs",
             "List all available fitness configuration names for the user and tenant",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -325,13 +413,16 @@ impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
             }
             all_configs.sort();
 
-            Ok(ToolResult::ok(json!({
-                "configurations": all_configs,
-                "user_specific": user_configs,
-                "tenant_level": tenant_configs,
-                "total_count": all_configs.len(),
-                "retrieved_at": Utc::now().to_rfc3339(),
-            })))
+            ok_typed(
+                "list_fitness_configs",
+                ListFitnessConfigsResult {
+                    total_count: all_configs.len(),
+                    configurations: all_configs,
+                    user_specific: user_configs,
+                    tenant_level: tenant_configs,
+                    retrieved_at: Utc::now().to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -368,12 +459,12 @@ impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["configuration_name".to_owned()]));
-        tool_definition(
+        answers_with::<DeleteFitnessConfigResult>(tool_definition(
             "delete_fitness_config",
             "Delete a fitness configuration by name",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -388,55 +479,61 @@ impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-        let configuration_name = args
-            .get("configuration_name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("configuration_name is required"))?;
+            let configuration_name = args
+                .get("configuration_name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("configuration_name is required"))?;
 
-        let user_level = args
-            .get("user_level")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
+            let user_level = args
+                .get("user_level")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
 
-        tracing::debug!(
-            user_id = %ctx.user_id,
-            config_name = %configuration_name,
-            user_level = %user_level,
-            "Deleting fitness configuration"
-        );
+            tracing::debug!(
+                user_id = %ctx.user_id,
+                config_name = %configuration_name,
+                user_level = %user_level,
+                "Deleting fitness configuration"
+            );
 
-        let repo = ctx.resources.repos().fitness_config.as_ref();
-        let user_id_str = ctx.user_id.to_string();
-        let tenant_id = require_tenant_id(&ctx)?;
+            let repo = ctx.resources.repos().fitness_config.as_ref();
+            let user_id_str = ctx.user_id.to_string();
+            let tenant_id = require_tenant_id(&ctx)?;
 
-        let user_id_option = if user_level {
-            Some(user_id_str.as_str())
-        } else {
-            // Tenant-level config deletion requires admin privileges
-            ctx.require_admin().await?;
-            None
-        };
+            let user_id_option = if user_level {
+                Some(user_id_str.as_str())
+            } else {
+                // Tenant-level config deletion requires admin privileges
+                ctx.require_admin().await?;
+                None
+            };
 
-        let deleted = repo
-            .delete_config(tenant_id, user_id_option, configuration_name)
-            .await?;
+            let deleted = repo
+                .delete_config(tenant_id, user_id_option, configuration_name)
+                .await?;
 
-        if deleted {
-            Ok(ToolResult::ok(json!({
-                "success": true,
-                "configuration_name": configuration_name,
-                "user_level": user_level,
-                "message": format!("Configuration '{}' deleted successfully", configuration_name),
-                "deleted_at": Utc::now().to_rfc3339(),
-            })))
-        } else {
-            Ok(ToolResult::ok(json!({
-                "success": false,
-                "configuration_name": configuration_name,
-                "user_level": user_level,
-                "message": format!("Configuration '{}' not found", configuration_name),
-            })))
-        }
+            ok_typed(
+                "delete_fitness_config",
+                if deleted {
+                    DeleteFitnessConfigResult {
+                        success: true,
+                        configuration_name: configuration_name.to_owned(),
+                        user_level,
+                        message: format!(
+                            "Configuration '{configuration_name}' deleted successfully"
+                        ),
+                        deleted_at: Some(Utc::now().to_rfc3339()),
+                    }
+                } else {
+                    DeleteFitnessConfigResult {
+                        success: false,
+                        configuration_name: configuration_name.to_owned(),
+                        user_level,
+                        message: format!("Configuration '{configuration_name}' not found"),
+                        deleted_at: None,
+                    }
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

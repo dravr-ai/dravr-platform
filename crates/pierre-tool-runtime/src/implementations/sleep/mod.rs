@@ -17,6 +17,9 @@
 
 pub(crate) mod inner;
 
+/// The shapes the sleep tools answer with, and their derived schemas.
+pub mod output;
+
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -26,9 +29,13 @@ use serde_json::Value;
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, task_capable, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::implementations::handler_bridge;
+use crate::implementations::sleep::output::{
+    RecoveryScoreResult, RestDayResult, SleepQualityResult, SleepScheduleResult, SleepTrendsResult,
+};
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -96,13 +103,13 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<Formatted<SleepQualityResult>>(tool_definition(
             "analyze_sleep_quality",
             "Analyze last night's sleep to generate quality scores and insights. \
              Fetches from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -208,13 +215,13 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<Formatted<RecoveryScoreResult>>(task_capable(tool_definition(
             "calculate_recovery_score",
             "Calculate holistic recovery score combining training stress, sleep, and HRV. \
              Fetches sleep and activity data from connected providers automatically",
             schema,
             None,
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -317,13 +324,13 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<RestDayResult>(task_capable(tool_definition(
             "suggest_rest_day",
             "Get AI-powered recommendation on whether to rest or train. \
              Fetches sleep and activity data from connected providers automatically",
             schema,
             None,
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -415,13 +422,13 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<Formatted<SleepTrendsResult>>(tool_definition(
             "track_sleep_trends",
             "Analyze sleep patterns over time to identify trends and insights. \
              Fetches history from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -484,12 +491,12 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
             },
         );
         let schema = object_schema(properties, None);
-        task_capable(tool_definition(
+        answers_with::<SleepScheduleResult>(task_capable(tool_definition(
             "optimize_sleep_schedule",
             "Get personalized sleep schedule recommendations based on training and recovery needs",
             schema,
             None,
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {

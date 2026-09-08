@@ -28,6 +28,7 @@
 //! engine so the edges are defined once. Nothing in this module re-derives a
 //! threshold.
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::FormBand;
@@ -112,15 +113,42 @@ impl FormReading {
     /// answer "how do you calculate this" from the payload instead of admitting
     /// it cannot.
     #[must_use]
-    pub fn interpretation(ctl_days: i64, atl_days: i64) -> Value {
-        json!({
-            "ctl": format!("Chronic Training Load - fitness ({ctl_days}-day exponentially-weighted average of daily TSS)"),
-            "atl": format!("Acute Training Load - fatigue ({atl_days}-day exponentially-weighted average of daily TSS)"),
-            "tsb": "Training Stress Balance - form (CTL - ATL); interpret via tsb_pct_of_ctl, not the raw number",
-            "tsb_pct_of_ctl": "Form relative to this athlete's own fitness. null when there is no chronic base to normalize against, in which case form cannot be judged at all",
-            "form_band": "The band tsb_pct_of_ctl falls in: insufficient_history when tsb_pct_of_ctl is null, deep_fatigue below -30%, heavy_block -30% to -20%, productive -20% to -10%, balanced -10% to +5%, fresh +5% to +20%, detraining above +20%. Describes fatigue relative to fitness; it is not an injury prediction",
-            "method": format!("TSB = CTL - ATL, both exponentially-weighted moving averages of daily TSS over {ctl_days} and {atl_days} days. Daily TSS is estimated from power against FTP where available, else heart rate against LTHR, else pace. Days are the athlete's own calendar days."),
-            "deep_fatigue_is_not_overtraining": "A deeply negative form reading is the expected signal during a planned overload block. It describes accumulated fatigue relative to fitness, and says nothing on its own about whether the athlete is overtrained.",
-        })
+    pub fn interpretation(ctl_days: i64, atl_days: i64) -> FormInterpretation {
+        FormInterpretation {
+            ctl: format!("Chronic Training Load - fitness ({ctl_days}-day exponentially-weighted average of daily TSS)"),
+            atl: format!("Acute Training Load - fatigue ({atl_days}-day exponentially-weighted average of daily TSS)"),
+            tsb: "Training Stress Balance - form (CTL - ATL); interpret via tsb_pct_of_ctl, not the raw number".to_owned(),
+            tsb_pct_of_ctl: "Form relative to this athlete's own fitness. null when there is no chronic base to normalize against, in which case form cannot be judged at all".to_owned(),
+            form_band: "The band tsb_pct_of_ctl falls in: insufficient_history when tsb_pct_of_ctl is null, deep_fatigue below -30%, heavy_block -30% to -20%, productive -20% to -10%, balanced -10% to +5%, fresh +5% to +20%, detraining above +20%. Describes fatigue relative to fitness; it is not an injury prediction".to_owned(),
+            method: format!("TSB = CTL - ATL, both exponentially-weighted moving averages of daily TSS over {ctl_days} and {atl_days} days. Daily TSS is estimated from power against FTP where available, else heart rate against LTHR, else pace. Days are the athlete's own calendar days."),
+            deep_fatigue_is_not_overtraining: "A deeply negative form reading is the expected signal during a planned overload block. It describes accumulated fatigue relative to fitness, and says nothing on its own about whether the athlete is overtrained.".to_owned(),
+        }
     }
+}
+
+/// What every form-bearing payload says about its own numbers.
+///
+/// One type rather than a `json!` per surface: this is the shared key that
+/// stops `get_training_history` and `analyze_training_load` describing the
+/// same number two different ways (registre#199). A tool declaring an
+/// outputSchema needs it typed, not just consistent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FormInterpretation {
+    /// What CTL is.
+    pub ctl: String,
+    /// What ATL is.
+    pub atl: String,
+    /// What TSB is, and why the raw number is not the thing to read.
+    pub tsb: String,
+    /// What form relative to the athlete's own fitness means, and what a
+    /// null one means.
+    pub tsb_pct_of_ctl: String,
+    /// The bands, their edges, and that they are not an injury prediction.
+    pub form_band: String,
+    /// How the numbers were computed, so a coach can answer "how do you
+    /// calculate this" from the payload instead of admitting it cannot.
+    pub method: String,
+    /// That a deeply negative reading is the expected signal in a planned
+    /// overload block, not evidence of overtraining.
+    pub deep_fatigue_is_not_overtraining: String,
 }

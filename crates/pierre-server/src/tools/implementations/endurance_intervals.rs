@@ -14,21 +14,40 @@ use pierre_fitness_compute::intervals::build_intervals;
 use pierre_fitness_compute::routes::{
     build_route_summary_from_streams, route_summary_from_cache, stream_route_identity,
 };
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
+use pierre_core::models::TimeSeriesData;
+use pierre_fitness_compute::intervals::IntervalsExport;
+use pierre_fitness_compute::routes::RouteSummary;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    capabilities_to_tronc, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activity_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
+
+/// What `extract_activity_streams` answers with.
+///
+/// The provider's raw series, unaggregated. `sample_count` is on the wire
+/// beside them because the series can be long and a caller deciding whether
+/// to ask for it at all should not have to receive it first to find out.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ActivityStreamsResult {
+    /// The activity these came from.
+    pub activity_id: String,
+    /// How many samples each series carries.
+    pub sample_count: usize,
+    /// Heart rate, power, cadence, GPS and altitude as recorded.
+    pub streams: TimeSeriesData,
+}
 
 fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {
@@ -118,7 +137,7 @@ pub struct ExportIntervalsTool;
 impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
     fn definition(&self) -> Tool {
         let schema = activity_id_schema();
-        tool_definition(
+        answers_with::<IntervalsExport>(tool_definition(
             "export_intervals",
             "Export the Endurance 'intervals.json' shape for a single activity — \
              one row per lap with avg HR, normalized power, intensity factor, and \
@@ -128,7 +147,7 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
              GET /api/v1/endurance/intervals/{activity_id}.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -178,7 +197,7 @@ pub struct ExportRoutesTool;
 impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
     fn definition(&self) -> Tool {
         let schema = activity_id_schema();
-        tool_definition(
+        answers_with::<RouteSummary>(tool_definition(
             "export_routes",
             "Export the Endurance 'routes.json' shape for a single activity — \
              GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, \
@@ -187,7 +206,7 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
              GET /api/v1/endurance/routes/{activity_id}.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -300,7 +319,7 @@ pub struct ExtractActivityStreamsTool;
 impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
     fn definition(&self) -> Tool {
         let schema = activity_id_schema();
-        tool_definition(
+        answers_with::<ActivityStreamsResult>(tool_definition(
             "extract_activity_streams",
             "Return the raw per-second time-series streams for a single activity — \
              heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), \
@@ -310,7 +329,7 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
              Endurance tools (export_intervals / export_routes) don't cover.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -342,13 +361,14 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;
-            Ok(ToolResult::ok(json!({
-                "activity_id": activity_id,
-                "sample_count": stream.timestamps.len(),
-                "streams": serde_json::to_value(stream).map_err(|e| {
-                    AppError::internal(format!("serialize stream: {e}"))
-                })?,
-            })))
+            ok_typed(
+                "extract_activity_streams",
+                ActivityStreamsResult {
+                    activity_id: activity_id.clone(),
+                    sample_count: stream.timestamps.len(),
+                    streams: stream.clone(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

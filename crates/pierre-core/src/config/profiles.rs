@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Predefined configuration profiles
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 #[serde(tag = "type")]
 #[derive(Default)]
 pub enum ConfigProfile {
@@ -188,7 +188,7 @@ impl ConfigProfile {
 }
 
 /// Zone analysis granularity
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub enum ZoneGranularity {
     /// Standard 5-zone model
     Standard,
@@ -199,7 +199,7 @@ pub enum ZoneGranularity {
 }
 
 /// Athlete fitness level
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub enum FitnessLevel {
     /// Beginner athlete (0-1 years experience)
     Beginner,

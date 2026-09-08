@@ -43,8 +43,10 @@ use crate::activity_fetch::{
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
+use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::data_helpers::{
     backfill_placeholder_message, historical_backfill_fetch_limit, historical_window_read_limit,
@@ -197,12 +199,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
         // All parameters are optional.
         let schema = object_schema(properties, None);
 
-        task_capable(tool_definition(
+        answers_with::<GetActivitiesResult>(task_capable(tool_definition(
             "get_activities",
             "Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Use `sort_by` to honor an explicit ordering request (e.g. longest-to-shortest). Supports sport-type filtering and pagination.",
             schema,
             Some(read_only_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -755,12 +757,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             && context.resources.backfill_notifier().is_some();
                         let message =
                             backfill_placeholder_message(&display_provider, started, followed_up);
-                        return Ok(ToolResult::ok(json!({
-                            "status": "backfilling",
-                            "provider": display_provider,
-                            "backfill_started": started,
-                            "message": message,
-                        })));
+                        return ok_typed(
+                            "get_activities",
+                            GetActivitiesResult::Backfilling(BackfillPlaceholder {
+                                status: "backfilling".to_owned(),
+                                provider: display_provider.clone(),
+                                backfill_started: started,
+                                message,
+                            }),
+                        );
                     }
                 }
             } else {
@@ -1030,6 +1035,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     );
                 }
             }
+            // Declared, so the shape above is the shape the schema names.
+            debug_assert!(
+                response.result.as_ref().is_some_and(Value::is_object),
+                "get_activities answers with an object or not at all"
+            );
 
             handler_bridge::map_universal_response("get_activities", Ok(response))
         }

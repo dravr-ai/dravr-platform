@@ -76,7 +76,11 @@ fn schema_from_definition(def: Tool) -> ToolSchema {
         description: def.description,
         input_schema,
         annotations: def.annotations,
-        output_schema: None,
+        // Carried, not reparsed. A tool declares this by deriving it from its
+        // result type, and the derived document is what the client validates
+        // `structuredContent` against — dropping it here is what left 104
+        // declared schemas invisible on the wire.
+        output_schema: def.output_schema,
         execution: def.execution,
     }
 }

@@ -137,7 +137,9 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
         // preserve_order, so an unsorted render reshuffles on every request.
         input_schema: to_canonical_value(&schema.input_schema),
         annotations: schema.annotations,
-        output_schema: None,
+        // Canonical for the same reason as the input schema: two replicas must
+        // answer `tools/list` with the same bytes.
+        output_schema: schema.output_schema.as_ref().map(to_canonical_value),
         execution: schema.execution,
     }
 }

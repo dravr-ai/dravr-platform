@@ -21,12 +21,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use serde_json::{json, Value};
+use schemars::JsonSchema;
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -54,6 +56,72 @@ fn forget_annotations() -> ToolAnnotations {
     }
 }
 
+/// One learned playbook, as `list_coaching_playbooks` reports it.
+///
+/// Distinct from `pierre_memory::playbooks::Playbook`: that is the stored row,
+/// carrying tenant, user and coach identifiers the athlete's own client has no
+/// business reading. This is the projection the tool actually sends.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PlaybookEntry {
+    /// Stable identifier, and what `forget_playbook` takes.
+    pub id: String,
+    /// The situation the playbook responds to.
+    pub trigger: TriggerEntry,
+    /// The action it prescribes.
+    pub intervention: InterventionEntry,
+    /// Times the intervention worked.
+    pub success_count: u32,
+    /// Times it did not.
+    pub failure_count: u32,
+    /// Times the outcome carried no clear signal.
+    pub neutral_count: u32,
+    /// Wilson lower bound on the success rate, so a 1/1 never outranks an 18/20.
+    pub confidence: f32,
+    /// RFC 3339 timestamp of the most recent outcome; absent if never labeled.
+    pub last_outcome_at: Option<String>,
+}
+
+/// The trigger half of a [`PlaybookEntry`].
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TriggerEntry {
+    /// Which pattern fired.
+    pub kind: String,
+    /// Sport it is scoped to, or absent when it applies across sports.
+    pub sport: Option<String>,
+    /// How pronounced the trigger was, as a band rather than a raw figure.
+    pub magnitude: String,
+}
+
+/// The intervention half of a [`PlaybookEntry`].
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct InterventionEntry {
+    /// Which action the playbook prescribes.
+    pub kind: String,
+    /// Its size where one applies; absent for interventions that carry none.
+    pub magnitude: Option<i32>,
+}
+
+/// What `list_coaching_playbooks` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ListCoachingPlaybooksResult {
+    /// The playbooks learned for this athlete, ranked by confidence.
+    pub playbooks: Vec<PlaybookEntry>,
+    /// How many were returned.
+    pub count: usize,
+}
+
+/// What `forget_playbook` answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ForgetPlaybookResult {
+    /// Rows removed. A COUNT, not a flag: it is 0 when the id was not this
+    /// athlete's, which is the same answer as "no such playbook" on purpose —
+    /// a caller must not be able to probe another athlete's ids by the shape
+    /// of the reply.
+    pub deleted: u64,
+    /// The id that was asked for, echoed back.
+    pub playbook_id: String,
+}
+
 // ============================================================================
 // ListCoachingPlaybooksTool — read what the coach has learned about the athlete
 // ============================================================================
@@ -74,12 +142,12 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
             },
         );
         let schema = object_schema(properties, None);
-        tool_definition(
+        answers_with::<ListCoachingPlaybooksResult>(tool_definition(
             "list_coaching_playbooks",
             "List the coaching playbooks the harness has learned for this athlete — the trigger→intervention patterns and how well each has worked (success/failure counts + confidence). Use this to tell the athlete what you have learned about what works for them.",
             schema,
             Some(read_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -113,33 +181,38 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
                 .list_all_user_playbooks(&tenant_id, &user_id, limit)
                 .await?;
 
-            let payload: Vec<_> = playbooks
+            let entries: Vec<PlaybookEntry> = playbooks
                 .into_iter()
-                .map(|p| {
-                    json!({
-                        "id": p.id,
-                        "trigger": {
-                            "kind": p.trigger.kind.as_str(),
-                            "sport": p.trigger.sport,
-                            "magnitude": p.trigger.magnitude.as_str(),
-                        },
-                        "intervention": {
-                            "kind": p.intervention.kind.as_str(),
-                            "magnitude": p.intervention.magnitude,
-                        },
-                        "success_count": p.success_count,
-                        "failure_count": p.failure_count,
-                        "neutral_count": p.neutral_count,
-                        "confidence": p.confidence,
-                        "last_outcome_at": p.last_outcome_at.map(|t| t.to_rfc3339()),
-                    })
+                .map(|p| PlaybookEntry {
+                    id: p.id,
+                    trigger: TriggerEntry {
+                        kind: p.trigger.kind.as_str().to_owned(),
+                        sport: p.trigger.sport,
+                        magnitude: p.trigger.magnitude.as_str().to_owned(),
+                    },
+                    intervention: InterventionEntry {
+                        kind: p.intervention.kind.as_str().to_owned(),
+                        magnitude: p.intervention.magnitude,
+                    },
+                    success_count: p.success_count,
+                    failure_count: p.failure_count,
+                    neutral_count: p.neutral_count,
+                    confidence: p.confidence,
+                    last_outcome_at: p.last_outcome_at.map(|t| t.to_rfc3339()),
                 })
                 .collect();
 
-            Ok(ToolResult::ok(json!({
-                "playbooks": payload,
-                "count": payload.len(),
-            })))
+            let payload = ListCoachingPlaybooksResult {
+                count: entries.len(),
+                playbooks: entries,
+            };
+            Ok(ToolResult::ok(serde_json::to_value(payload).map_err(
+                |e| {
+                    AppError::internal(format!(
+                        "list_coaching_playbooks result did not serialize: {e}"
+                    ))
+                },
+            )?))
         }
         .await;
         tool_result_to_response(result)
@@ -168,12 +241,12 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["playbook_id".to_owned()]));
-        tool_definition(
+        answers_with::<ForgetPlaybookResult>(tool_definition(
             "forget_playbook",
             "Delete one learned coaching playbook by id (GDPR forget). The athlete can only forget their own playbooks.",
             schema,
             Some(forget_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -207,10 +280,13 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
                 .delete_playbook(&tenant_id, &user_id, &playbook_id)
                 .await?;
 
-            Ok(ToolResult::ok(json!({
-                "deleted": removed,
-                "playbook_id": playbook_id,
-            })))
+            let payload = ForgetPlaybookResult {
+                deleted: removed,
+                playbook_id,
+            };
+            Ok(ToolResult::ok(serde_json::to_value(payload).map_err(
+                |e| AppError::internal(format!("forget_playbook result did not serialize: {e}")),
+            )?))
         }
         .await;
         tool_result_to_response(result)

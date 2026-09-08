@@ -4,13 +4,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{
+    DayFrequency, HardEasyPatternResult, InsufficientPatternData, IntensityDistribution,
+    OvertrainingResult, PatternsResult, VolumeProgressionResult, WeeklySchedulePatternResult,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::{
     HardEasyPattern, OvertrainingSignals, PatternDetector, RiskLevel, VolumeProgressionPattern,
@@ -39,7 +44,8 @@ async fn fetch_and_detect_patterns(
     pattern_type: &str,
     user_uuid: uuid::Uuid,
     user_timezone: Option<&str>,
-) -> UniversalResponse {
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
     use DEFAULT_ACTIVITY_LIMIT;
 
     match provider
@@ -53,26 +59,30 @@ async fn fetch_and_detect_patterns(
                 dedupe_and_report(&raw_activities, &DedupConfig::default());
             let analysis = detect_activity_patterns(&activities, pattern_type, user_timezone);
 
-            UniversalResponse {
-                success: true,
-                result: Some(analysis),
-                error: None,
-                metadata: Some({
-                    let mut map = HashMap::new();
-                    map.insert(
-                        "user_id".to_owned(),
-                        serde_json::Value::String(user_uuid.to_string()),
-                    );
-                    map
-                }),
-            }
+            apply_format_typed(
+                UniversalResponse {
+                    success: true,
+                    result: None,
+                    error: None,
+                    metadata: Some({
+                        let mut map = HashMap::new();
+                        map.insert(
+                            "user_id".to_owned(),
+                            serde_json::Value::String(user_uuid.to_string()),
+                        );
+                        map
+                    }),
+                },
+                analysis,
+                output_format,
+            )
         }
-        Err(e) => UniversalResponse {
+        Err(e) => Ok(UniversalResponse {
             success: false,
             result: None,
             error: Some(format!("Failed to fetch activities: {e}")),
             metadata: None,
-        },
+        }),
     }
 }
 
@@ -81,16 +91,16 @@ fn detect_activity_patterns(
     activities: &[Activity],
     pattern_type: &str,
     user_timezone: Option<&str>,
-) -> serde_json::Value {
+) -> PatternsResult {
     use PatternDetector;
 
     if activities.len() < 3 {
-        return serde_json::json!({
-            "pattern_type": pattern_type,
-            "activities_analyzed": activities.len(),
-            "patterns_detected": [],
-            "insights": ["Need at least 3 activities for pattern detection"],
-            "confidence": "insufficient_data",
+        return PatternsResult::Insufficient(InsufficientPatternData {
+            pattern_type: pattern_type.to_owned(),
+            activities_analyzed: activities.len(),
+            patterns_detected: vec![],
+            insights: vec!["Need at least 3 activities for pattern detection".to_owned()],
+            confidence: "insufficient_data".to_owned(),
         });
     }
 
@@ -115,7 +125,7 @@ fn detect_activity_patterns(
 }
 
 /// Format weekly schedule pattern results for JSON response
-fn format_weekly_schedule(pattern: &WeeklySchedulePattern) -> serde_json::Value {
+fn format_weekly_schedule(pattern: &WeeklySchedulePattern) -> PatternsResult {
     use chrono::Weekday;
 
     // Convert Weekday enum to string
@@ -132,14 +142,12 @@ fn format_weekly_schedule(pattern: &WeeklySchedulePattern) -> serde_json::Value 
     };
 
     // Build preferred days list with frequencies
-    let preferred_days: Vec<serde_json::Value> = pattern
+    let preferred_days: Vec<DayFrequency> = pattern
         .day_frequencies
         .iter()
-        .map(|(day, &count)| {
-            serde_json::json!({
-                "day": day,
-                "frequency": count,
-            })
+        .map(|(day, &count)| DayFrequency {
+            day: day.clone(),
+            frequency: count,
         })
         .collect();
 
@@ -166,23 +174,23 @@ fn format_weekly_schedule(pattern: &WeeklySchedulePattern) -> serde_json::Value 
         "low"
     };
 
-    serde_json::json!({
-        "pattern_type": "weekly_schedule",
-        "preferred_training_days": preferred_days,
-        "patterns_detected": patterns,
-        "insights": if patterns.is_empty() {
+    PatternsResult::WeeklySchedule(Box::new(WeeklySchedulePatternResult {
+        pattern_type: "weekly_schedule".to_owned(),
+        preferred_training_days: preferred_days,
+        insights: if patterns.is_empty() {
             vec!["No strong weekly schedule pattern detected - training is variable".to_owned()]
         } else {
             patterns.clone()
         },
-        "consistency_score": pattern.consistency_score,
-        "avg_activities_per_week": pattern.avg_activities_per_week,
-        "confidence": confidence,
-    })
+        patterns_detected: patterns,
+        consistency_score: pattern.consistency_score,
+        avg_activities_per_week: pattern.avg_activities_per_week,
+        confidence: confidence.to_owned(),
+    }))
 }
 
 /// Format hard/easy pattern results for JSON response
-fn format_hard_easy_pattern(pattern: &HardEasyPattern) -> serde_json::Value {
+fn format_hard_easy_pattern(pattern: &HardEasyPattern) -> PatternsResult {
     let mut insights = vec![pattern.pattern_description.clone()];
 
     if !pattern.adequate_recovery {
@@ -195,26 +203,26 @@ fn format_hard_easy_pattern(pattern: &HardEasyPattern) -> serde_json::Value {
         "low"
     };
 
-    serde_json::json!({
-        "pattern_type": "training_blocks",
-        "pattern_detected": pattern.pattern_detected,
-        "intensity_distribution": {
-            "hard_percentage": pattern.hard_percentage,
-            "easy_percentage": pattern.easy_percentage,
+    PatternsResult::HardEasy(Box::new(HardEasyPatternResult {
+        pattern_type: "training_blocks".to_owned(),
+        pattern_detected: pattern.pattern_detected,
+        intensity_distribution: IntensityDistribution {
+            hard_percentage: pattern.hard_percentage,
+            easy_percentage: pattern.easy_percentage,
         },
-        "adequate_recovery": pattern.adequate_recovery,
-        "patterns_detected": if pattern.pattern_detected {
+        adequate_recovery: pattern.adequate_recovery,
+        patterns_detected: if pattern.pattern_detected {
             vec![pattern.pattern_description.clone()]
         } else {
-            Vec::<String>::new()
+            Vec::new()
         },
-        "insights": insights,
-        "confidence": confidence,
-    })
+        insights,
+        confidence: confidence.to_owned(),
+    }))
 }
 
 /// Format volume progression pattern results for JSON response
-fn format_volume_progression(pattern: &VolumeProgressionPattern) -> serde_json::Value {
+fn format_volume_progression(pattern: &VolumeProgressionPattern) -> PatternsResult {
     use VolumeTrend;
 
     let mut insights = Vec::new();
@@ -245,21 +253,21 @@ fn format_volume_progression(pattern: &VolumeProgressionPattern) -> serde_json::
         ));
     }
 
-    serde_json::json!({
-        "pattern_type": "progression",
-        "trend": trend_description,
-        "weekly_volumes": pattern.weekly_volumes,
-        "week_numbers": pattern.week_numbers,
-        "volume_spikes_detected": pattern.volume_spikes_detected,
-        "spike_weeks": pattern.spike_weeks,
-        "patterns_detected": insights.clone(),
-        "insights": insights,
-        "confidence": "medium",
-    })
+    PatternsResult::VolumeProgression(Box::new(VolumeProgressionResult {
+        pattern_type: "progression".to_owned(),
+        trend: trend_description.to_owned(),
+        weekly_volumes: pattern.weekly_volumes.clone(),
+        week_numbers: pattern.week_numbers.clone(),
+        volume_spikes_detected: pattern.volume_spikes_detected,
+        spike_weeks: pattern.spike_weeks.clone(),
+        patterns_detected: insights.clone(),
+        insights,
+        confidence: "medium".to_owned(),
+    }))
 }
 
 /// Format overtraining signals results for JSON response
-fn format_overtraining_signals(signals: &OvertrainingSignals) -> serde_json::Value {
+fn format_overtraining_signals(signals: &OvertrainingSignals) -> PatternsResult {
     use RiskLevel;
 
     let mut warning_signs = Vec::new();
@@ -306,21 +314,24 @@ fn format_overtraining_signals(signals: &OvertrainingSignals) -> serde_json::Val
         ],
     };
 
-    serde_json::json!({
-        "pattern_type": "overtraining",
-        "risk_level": risk_level_str,
-        "warning_signs": warning_signs,
-        "insights": if warning_signs.is_empty() {
-            vec!["No significant overtraining signs detected - training load appears manageable".to_owned()]
+    PatternsResult::Overtraining(Box::new(OvertrainingResult {
+        pattern_type: "overtraining".to_owned(),
+        risk_level: risk_level_str.to_owned(),
+        insights: if warning_signs.is_empty() {
+            vec![
+                "No significant overtraining signs detected - training load appears manageable"
+                    .to_owned(),
+            ]
         } else {
             warning_signs.clone()
         },
-        "hr_drift_detected": signals.hr_drift_detected,
-        "performance_decline": signals.performance_decline,
-        "insufficient_recovery": signals.insufficient_recovery,
-        "confidence": "medium",
-        "recommendations": recommendations,
-    })
+        warning_signs,
+        hr_drift_detected: signals.hr_drift_detected,
+        performance_decline: signals.performance_decline,
+        insufficient_recovery: signals.insufficient_recovery,
+        confidence: "medium".to_owned(),
+        recommendations: recommendations.into_iter().map(ToOwned::to_owned).collect(),
+    }))
 }
 
 /// Handle `detect_patterns` tool - detect patterns in activity data
@@ -423,8 +434,9 @@ pub fn handle_detect_patterns(
                     pattern_type,
                     user_uuid,
                     user_timezone.as_deref(),
+                    output_format,
                 )
-                .await;
+                .await?;
 
                 // Report completion on success
                 if result.success {
@@ -437,8 +449,7 @@ pub fn handle_detect_patterns(
                     }
                 }
 
-                // Apply format transformation
-                Ok(apply_format_to_response(result, "patterns", output_format))
+                Ok(result)
             }
             Err(response) => Ok(response),
         }

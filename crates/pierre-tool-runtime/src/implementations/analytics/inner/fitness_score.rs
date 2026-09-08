@@ -4,7 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{
+    FitnessComponents, FitnessInterpretation, FitnessLoadMetrics, FitnessScoreDetail,
+    FitnessScoreResult, NoFitnessScore, ProvidersUsed, RecoveryAdjustment,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -48,7 +52,7 @@ async fn fetch_and_calculate_recovery_adjustment(
     user_uuid: uuid::Uuid,
     tenant_id: Option<&str>,
     sleep_provider_name: &str,
-    analysis: &mut serde_json::Value,
+    analysis: &mut FitnessScoreResult,
 ) -> Result<RecoveryAdjustmentInfo, String> {
     use crate::protocol::sleep_helpers::fetch_provider_sleep_data;
 
@@ -77,25 +81,26 @@ async fn fetch_and_calculate_recovery_adjustment(
         0.90 // Poor recovery: -10%
     };
 
-    // Apply adjustment to fitness score in the analysis
-    if let Some(obj) = analysis.as_object_mut() {
-        if let Some(serde_json::Value::Number(score)) = obj.get("fitness_score") {
-            if let Some(current_score) = score.as_i64() {
-                // Safe: fitness score is 0-100, adjustment factor is 0.9-1.1, result fits in i64
-                #[allow(clippy::cast_precision_loss)]
-                #[allow(clippy::cast_possible_truncation)]
-                let adjusted_score = ((current_score as f64) * adjustment_factor).round() as i64;
-                obj.insert(
-                    "fitness_score".to_owned(),
-                    serde_json::Value::Number(adjusted_score.into()),
-                );
-                obj.insert(
-                    "fitness_score_unadjusted".to_owned(),
-                    serde_json::Value::Number(current_score.into()),
-                );
-            }
-        }
-    }
+    // Apply the adjustment to whichever arm carries the score. Both do: the
+    // empty answers report a zero rather than omitting it, so a client
+    // charting the adjusted and unadjusted lines gets a point either way.
+    let (score, unadjusted) = match analysis {
+        FitnessScoreResult::Scored(detail) => (
+            &mut detail.fitness_score,
+            &mut detail.fitness_score_unadjusted,
+        ),
+        FitnessScoreResult::NoData(empty) => (
+            &mut empty.fitness_score,
+            &mut empty.fitness_score_unadjusted,
+        ),
+    };
+    // Safe: the score is 0-100 and the factor 0.9-1.05, so the product is in
+    // range for an i32 and the fraction is what `round` is for.
+    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_possible_truncation)]
+    let adjusted = (f64::from(*score) * adjustment_factor).round() as i32;
+    *unadjusted = Some(*score);
+    *score = adjusted;
 
     Ok(RecoveryAdjustmentInfo {
         recovery_score,
@@ -110,16 +115,20 @@ fn calculate_fitness_metrics(
     activities: &[Activity],
     timeframe: &str,
     algorithm_config: &AlgorithmConfig,
-) -> serde_json::Value {
+    providers_used: ProvidersUsed,
+) -> FitnessScoreResult {
     use chrono::{Duration, Utc};
     use TrainingLoadCalculator;
 
     if activities.is_empty() {
-        return serde_json::json!({
-            "timeframe": timeframe,
-            "fitness_score": 0,
-            "level": "Beginner",
-            "message": "No activities found for fitness calculation",
+        return FitnessScoreResult::NoData(NoFitnessScore {
+            timeframe: timeframe.to_owned(),
+            fitness_score: 0,
+            level: BEGINNER.to_owned(),
+            message: "No activities found for fitness calculation".to_owned(),
+            fitness_score_unadjusted: None,
+            recovery_adjustment: None,
+            providers_used,
         });
     }
 
@@ -139,11 +148,14 @@ fn calculate_fitness_metrics(
         .collect();
 
     if filtered_activities.is_empty() {
-        return serde_json::json!({
-            "timeframe": timeframe,
-            "fitness_score": 0,
-            "level": "Beginner",
-            "message": format!("No activities found in the last {timeframe_days} days"),
+        return FitnessScoreResult::NoData(NoFitnessScore {
+            timeframe: timeframe.to_owned(),
+            fitness_score: 0,
+            level: BEGINNER.to_owned(),
+            message: format!("No activities found in the last {timeframe_days} days"),
+            fitness_score_unadjusted: None,
+            recovery_adjustment: None,
+            providers_used,
         });
     }
 
@@ -182,28 +194,31 @@ fn calculate_fitness_metrics(
     #[allow(clippy::cast_possible_truncation)]
     let fitness_score_int = fitness_score.round() as i32;
 
-    serde_json::json!({
-        "timeframe": timeframe,
-        "fitness_score": fitness_score_int,
-        "level": fitness_level,
-        "trend": trend,
-        "components": {
-            "ctl_score": ctl_score.round(),
-            "consistency_score": consistency_score.round(),
-            "performance_score": performance_score.round(),
+    FitnessScoreResult::Scored(Box::new(FitnessScoreDetail {
+        timeframe: timeframe.to_owned(),
+        fitness_score: fitness_score_int,
+        level: fitness_level.to_owned(),
+        trend: trend.to_owned(),
+        components: FitnessComponents {
+            ctl_score: ctl_score.round(),
+            consistency_score: consistency_score.round(),
+            performance_score: performance_score.round(),
         },
-        "metrics": {
-            "ctl": ctl.round(),
-            "atl": atl.round(),
-            "tsb": tsb.round(),
+        metrics: FitnessLoadMetrics {
+            ctl: ctl.round(),
+            atl: atl.round(),
+            tsb: tsb.round(),
         },
-        "activities_analyzed": filtered_activities.len(),
-        "interpretation": {
-            "ctl": "Chronic Training Load - long-term fitness (42-day average)",
-            "consistency": "Training frequency and regularity",
-            "performance": "Pace/speed improvement over time",
+        activities_analyzed: filtered_activities.len(),
+        interpretation: FitnessInterpretation {
+            ctl: "Chronic Training Load - long-term fitness (42-day average)".to_owned(),
+            consistency: "Training frequency and regularity".to_owned(),
+            performance: "Pace/speed improvement over time".to_owned(),
         },
-    })
+        fitness_score_unadjusted: None,
+        recovery_adjustment: None,
+        providers_used,
+    }))
 }
 
 /// Calculate consistency score: percentage of weeks with 3+ activities
@@ -304,6 +319,10 @@ fn calculate_performance_trend(activities: &[Activity]) -> f64 {
     score.clamp(0.0, 100.0)
 }
 
+/// The level a zero score classifies to, named because the two empty answers
+/// report it without running the classifier.
+const BEGINNER: &str = "Beginner";
+
 /// Classify fitness level based on composite score (0-100)
 fn classify_fitness_level(score: f64) -> &'static str {
     if score >= 80.0 {
@@ -315,7 +334,7 @@ fn classify_fitness_level(score: f64) -> &'static str {
     } else if score >= 20.0 {
         "Developing"
     } else {
-        "Beginner"
+        BEGINNER
     }
 }
 
@@ -479,6 +498,10 @@ pub fn handle_calculate_fitness_score(
                             &activities,
                             timeframe,
                             &executor.cageux_config().algorithms,
+                            ProvidersUsed {
+                                activity_provider: provider_name.clone(),
+                                sleep_provider: sleep_provider.map(str::to_owned),
+                            },
                         );
 
                         // If sleep_provider is specified, fetch recovery data and adjust score
@@ -516,24 +539,18 @@ pub fn handle_calculate_fitness_score(
                         }
 
                         // Add recovery and provider info to response
-                        if let Some(obj) = analysis.as_object_mut() {
-                            if let Some(ref info) = recovery_info {
-                                obj.insert(
-                                    "recovery_adjustment".to_owned(),
-                                    serde_json::json!({
-                                        "recovery_score": info.recovery_score,
-                                        "adjustment_factor": info.adjustment_factor,
-                                        "sleep_provider": info.provider_name,
-                                    }),
-                                );
+                        let adjustment = recovery_info.as_ref().map(|info| RecoveryAdjustment {
+                            recovery_score: info.recovery_score,
+                            adjustment_factor: info.adjustment_factor,
+                            sleep_provider: info.provider_name.clone(),
+                        });
+                        match &mut analysis {
+                            FitnessScoreResult::Scored(detail) => {
+                                detail.recovery_adjustment = adjustment;
                             }
-                            obj.insert(
-                                "providers_used".to_owned(),
-                                serde_json::json!({
-                                    "activity_provider": provider_name,
-                                    "sleep_provider": sleep_provider,
-                                }),
-                            );
+                            FitnessScoreResult::NoData(empty) => {
+                                empty.recovery_adjustment = adjustment;
+                            }
                         }
 
                         // Fire fitness improvement notification if trend is improving
@@ -547,7 +564,7 @@ pub fn handle_calculate_fitness_score(
 
                         let result = UniversalResponse {
                             success: true,
-                            result: Some(analysis),
+                            result: None,
                             error: None,
                             metadata: Some({
                                 let mut map = HashMap::new();
@@ -576,11 +593,7 @@ pub fn handle_calculate_fitness_score(
                         };
 
                         // Apply format transformation
-                        Ok(apply_format_to_response(
-                            result,
-                            "fitness_score",
-                            output_format,
-                        ))
+                        apply_format_typed(result, analysis, output_format)
                     }
                     Err(e) => Ok(UniversalResponse {
                         success: false,
@@ -602,7 +615,7 @@ fn fire_fitness_improvement_notification(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id_str: Option<&str>,
-    analysis: &serde_json::Value,
+    analysis: &FitnessScoreResult,
 ) {
     let Some(service) = &resources.notification_service() else {
         return;
@@ -615,8 +628,11 @@ fn fire_fitness_improvement_notification(
     };
     let tenant_id = TenantId(tenant_uuid);
 
-    let trend = analysis["trend"].as_str().unwrap_or("");
-    let score = analysis["fitness_score"].as_i64().unwrap_or(0);
+    // Only the scored arm can be improving; the empty answers carry no trend.
+    let FitnessScoreResult::Scored(detail) = analysis else {
+        return;
+    };
+    let (trend, score) = (detail.trend.as_str(), detail.fitness_score);
 
     // Only trigger when fitness trend is improving and score is meaningful
     if trend == "improving" && score > 0 {

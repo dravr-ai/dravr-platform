@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::info;
 
@@ -48,7 +49,8 @@ use crate::athlete_display_name::fetch_user_display_name;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, task_capable, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -225,22 +227,73 @@ fn resolve_unique_peer<'a>(
 /// Project an activity to the compact shape the coach reasons over. Mirrors the
 /// fields a coach asks about (distance, duration, climbing, power, HR) without
 /// the full activity payload's timeseries/laps token cost.
-fn project_activity(a: &Activity) -> Value {
-    json!({
-        "id": a.id(),
-        "name": a.name(),
-        "sport": format!("{:?}", a.sport_type()),
-        "start_date": a.start_date().to_rfc3339(),
-        "distance_km": a.distance_meters().map(|m| m / 1000.0),
-        "duration_minutes": a.duration_seconds() / 60,
-        "elevation_gain_m": a.elevation_gain(),
-        "average_heart_rate": a.average_heart_rate(),
-        "max_heart_rate": a.max_heart_rate(),
-        "average_power": a.average_power(),
-        "max_power": a.max_power(),
-        "calories": a.calories(),
-        "provider": a.provider(),
-    })
+fn project_activity(a: &Activity) -> GroupMemberActivity {
+    GroupMemberActivity {
+        id: a.id().to_owned(),
+        name: a.name().to_owned(),
+        sport: format!("{:?}", a.sport_type()),
+        start_date: a.start_date().to_rfc3339(),
+        distance_km: a.distance_meters().map(|m| m / 1000.0),
+        duration_minutes: a.duration_seconds() / 60,
+        elevation_gain_m: a.elevation_gain(),
+        average_heart_rate: a.average_heart_rate(),
+        max_heart_rate: a.max_heart_rate(),
+        average_power: a.average_power(),
+        max_power: a.max_power(),
+        calories: a.calories(),
+        provider: a.provider().to_owned(),
+    }
+}
+
+/// One of a group member's activities, as the consent-gated peer read
+/// reports it.
+///
+/// A deliberately narrow projection: this is another athlete's data, shown
+/// because they consented to share it with the group, so it carries what a
+/// training partner would compare against and nothing more. No GPS track, no
+/// notes, no device details.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GroupMemberActivity {
+    /// Provider-scoped activity identifier.
+    pub id: String,
+    /// The activity's title.
+    pub name: String,
+    /// Sport, as the provider classified it.
+    pub sport: String,
+    /// RFC 3339 start timestamp.
+    pub start_date: String,
+    /// Distance in kilometres; absent for an activity with no distance.
+    pub distance_km: Option<f64>,
+    /// Moving time in whole minutes.
+    pub duration_minutes: u64,
+    /// Elevation gained in metres; absent when the device recorded none.
+    pub elevation_gain_m: Option<f64>,
+    /// Mean heart rate; absent without a strap.
+    pub average_heart_rate: Option<u32>,
+    /// Peak heart rate; absent without a strap.
+    pub max_heart_rate: Option<u32>,
+    /// Mean power in watts; absent without a meter.
+    pub average_power: Option<u32>,
+    /// Peak power in watts; absent without a meter.
+    pub max_power: Option<u32>,
+    /// Energy in kilocalories, as the provider estimated it.
+    pub calories: Option<u32>,
+    /// Which provider the activity came from.
+    pub provider: String,
+}
+
+/// What `get_group_member_activities` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GroupMemberActivitiesResult {
+    /// The member whose activities these are, by display name — never their
+    /// account identifier.
+    pub member: String,
+    /// The group the consent was granted through.
+    pub group: String,
+    /// How many activities came back, after de-duplication and the limit.
+    pub count: usize,
+    /// The activities, newest first.
+    pub activities: Vec<GroupMemberActivity>,
 }
 
 /// Fetch a consenting group member's activities (consent-gated peer fetch).
@@ -314,7 +367,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 
         let schema = object_schema(properties, Some(vec!["member".to_owned()]));
 
-        task_capable(tool_definition(
+        answers_with::<GroupMemberActivitiesResult>(task_capable(tool_definition(
             "get_group_member_activities",
             "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to \
              read a peer's data in a group chat — `get_activities` always returns YOUR own data, \
@@ -324,7 +377,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
              not shared their data via `/group consent yes`; the error's `reason` says why.",
             schema,
             Some(read_only_annotations()),
-        ))
+        )))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -486,13 +539,17 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             activities.sort_by_key(|a| Reverse(a.start_date()));
             activities.truncate(limit);
 
-            let rendered: Vec<Value> = activities.iter().map(project_activity).collect();
-            Ok(ToolResult::ok(json!({
-                "member": resolved.display_name,
-                "group": resolved.group_name,
-                "count": rendered.len(),
-                "activities": rendered,
-            })))
+            let rendered: Vec<GroupMemberActivity> =
+                activities.iter().map(project_activity).collect();
+            ok_typed(
+                "get_group_member_activities",
+                GroupMemberActivitiesResult {
+                    member: resolved.display_name.clone(),
+                    group: resolved.group_name.clone(),
+                    count: rendered.len(),
+                    activities: rendered,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

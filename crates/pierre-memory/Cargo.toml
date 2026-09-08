@@ -17,6 +17,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
+# The training-plan types are what `get_training_plan` answers with, so they
+# have to be able to describe themselves — same reason pierre-core carries it.
+schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
 
 [lints]
 workspace = true

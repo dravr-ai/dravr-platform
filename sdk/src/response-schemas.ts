@@ -246,9 +246,19 @@ export const AthleteSchema = z.object({
 
 export const GetAthleteResponseSchema = z.object({
   athlete: AthleteSchema.optional(),
-  athlete_toon: z.string().optional(),
+  // `format: "toon"` replaces the whole payload with this one string. The key
+  // is `toon` for every tool, not `athlete_toon` — a property name that
+  // changes per tool cannot be stated in the outputSchema the server now
+  // declares, so it is fixed.
+  toon: z.string().optional(),
+  // A TOON encoding that fails falls back to JSON and says so, putting the
+  // payload under `result` rather than `athlete`. The server sends the whole
+  // named envelope there — `GetAthleteResult { athlete }` — not a bare
+  // athlete, so this nests.
+  result: z.object({ athlete: AthleteSchema }).optional(),
   format: z.enum(["json", "toon"]).optional(),
   format_fallback: z.boolean().optional(),
+  format_error: z.string().optional(),
 });
 
 /**
@@ -277,9 +287,12 @@ export const GetStatsResponseSchema = z.object({
     all_run_totals: ActivityTotalsSchema.optional(),
     all_swim_totals: ActivityTotalsSchema.optional(),
   }).optional(),
-  stats_toon: z.string().optional(),
+  // Fixed envelope keys — see GetAthleteResponseSchema for why.
+  toon: z.string().optional(),
+  result: z.unknown().optional(),
   format: z.enum(["json", "toon"]).optional(),
   format_fallback: z.boolean().optional(),
+  format_error: z.string().optional(),
 });
 
 // --------------------------------------------------------------------------
@@ -290,13 +303,28 @@ export const GetActivityIntelligenceResponseSchema = z.object({
   activity_id: z.string(),
   activity_type: z.string().optional(),
   timestamp: TimestampSchema.optional(),
+  // Only the prose lives here. `performance_metrics` used to be nested
+  // inside this block and is now a sibling, deliberately: when the client's
+  // LLM writes the analysis it writes THIS object, and the athlete's
+  // distance and heart rate must not be somewhere a model can restate them.
   intelligence: z.object({
     summary: z.string().optional(),
     insights: InsightsArraySchema.optional(),
     recommendations: RecommendationsArraySchema.optional(),
-    performance_metrics: z.record(z.string(), z.unknown()).optional(),
+    // `deterministic` when the server wrote the prose, `mcp_sampling` when
+    // the client's model did.
+    source: z.enum(["deterministic", "mcp_sampling"]).optional(),
   }).optional(),
-  analysis_source: z.enum(["mcp_sampling", "static"]).optional(),
+  performance_metrics: z.record(z.string(), z.unknown()).optional(),
+  // Present only when the activity asked for did not exist and the most
+  // recent one was analysed instead.
+  auto_selected: z.object({
+    reason: z.string(),
+    selected_activity: z.string(),
+    selected_activity_name: z.string(),
+    selected_activity_date: z.string(),
+    available_activities: z.array(z.string()),
+  }).optional(),
 });
 
 export const AnalyzeActivityResponseSchema = GetActivityIntelligenceResponseSchema;

@@ -24,7 +24,14 @@ use tracing::warn;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
+};
+use crate::implementations::configuration_output::{
+    ConfigurationCatalogResult, ConfigurationProfileEntry, ConfigurationProfilesResult,
+    HeartRateZone, HeartRateZones, PaceZone, PaceZones, PersonalizedZones, PersonalizedZonesResult,
+    PowerZoneBand, PowerZones, UpdateUserConfigurationResult, UserConfigurationResult,
+    ValidateConfigurationResult, ZoneCalculations, ZoneInputProfile,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -99,13 +106,13 @@ fn build_configuration_payload(
     user_uuid: &uuid::Uuid,
     configuration: &Value,
     has_overrides: bool,
-) -> Value {
-    json!({
-        "user_id": user_uuid.to_string(),
-        "active_profile": if has_overrides { "custom" } else { "default" },
-        "configuration": configuration,
-        "available_parameters": AVAILABLE_PARAMETERS_COUNT
-    })
+) -> UserConfigurationResult {
+    UserConfigurationResult {
+        user_id: user_uuid.to_string(),
+        active_profile: if has_overrides { "custom" } else { "default" }.to_owned(),
+        configuration: configuration.clone(),
+        available_parameters: AVAILABLE_PARAMETERS_COUNT,
+    }
 }
 
 /// Zone calculation inputs, each carrying whether it is actually known.
@@ -228,15 +235,15 @@ fn extract_zone_parameters(args: &Value, stored: Option<&UserPhysiologicalProfil
     }
 }
 
-fn create_user_profile(params: &ZoneParams) -> Value {
-    json!({
-        "vo2_max": params.vo2_max,
-        "resting_hr": params.resting_hr,
-        "max_hr": params.max_hr,
-        "ftp": params.ftp_watts,
-        "lactate_threshold": params.lactate_threshold,
-        "sport_efficiency": params.sport_efficiency
-    })
+fn create_user_profile(params: &ZoneParams) -> ZoneInputProfile {
+    ZoneInputProfile {
+        vo2_max: params.vo2_max,
+        resting_hr: params.resting_hr,
+        max_hr: params.max_hr,
+        ftp: params.ftp_watts,
+        lactate_threshold: params.lactate_threshold,
+        sport_efficiency: params.sport_efficiency,
+    }
 }
 
 fn calculate_zone_offset(hr_range: u64, percentage: u32) -> u64 {
@@ -281,33 +288,42 @@ pub(crate) fn derive_hr_zone_set(resting_hr: u16, max_hr: u16) -> Option<HrZoneS
 ///
 /// Zone 1 opens above the recovery floor rather than at the resting rate, so
 /// its minimum is derived here rather than read off the zone set.
-fn heart_rate_zones_payload(resting_hr: u16, max_hr: u16, zones: &HrZoneSet) -> Value {
+fn heart_rate_zones_payload(resting_hr: u16, max_hr: u16, zones: &HrZoneSet) -> HeartRateZones {
     let hr_range = u64::from(max_hr).saturating_sub(u64::from(resting_hr));
     let zone_1_min = u64::from(resting_hr) + calculate_zone_offset(hr_range, ZONE_1_MIN_PERMILLE);
-    json!({
-        "zone_1": { "name": "Active Recovery", "min_hr": zone_1_min, "max_hr": zones.z1_max },
-        "zone_2": { "name": "Aerobic Base", "min_hr": zones.z1_max, "max_hr": zones.z2_max },
-        "zone_3": { "name": "Aerobic Threshold", "min_hr": zones.z2_max, "max_hr": zones.z3_max },
-        "zone_4": { "name": "Lactate Threshold", "min_hr": zones.z3_max, "max_hr": zones.z4_max },
-        "zone_5": { "name": "VO2 Max", "min_hr": zones.z4_max, "max_hr": zones.z5_max }
-    })
+    let band = |name: &str, min: u64, max: u16| HeartRateZone {
+        name: name.to_owned(),
+        min_hr: min,
+        max_hr: u64::from(max),
+    };
+    HeartRateZones {
+        zone_1: band("Active Recovery", zone_1_min, zones.z1_max),
+        zone_2: band("Aerobic Base", u64::from(zones.z1_max), zones.z2_max),
+        zone_3: band("Aerobic Threshold", u64::from(zones.z2_max), zones.z3_max),
+        zone_4: band("Lactate Threshold", u64::from(zones.z3_max), zones.z4_max),
+        zone_5: band("VO2 Max", u64::from(zones.z4_max), zones.z5_max),
+    }
 }
 
 /// Describe how the zones were derived, plus the two threshold heart rates.
-fn zone_calculations_payload(params: &ZoneParams, resting_hr: u16, max_hr: u16) -> Value {
+fn zone_calculations_payload(
+    params: &ZoneParams,
+    resting_hr: u16,
+    max_hr: u16,
+) -> ZoneCalculations {
     let hr_range = u64::from(max_hr).saturating_sub(u64::from(resting_hr));
     let lactate_threshold_hr =
         u64::from(resting_hr) + calculate_zone_offset(hr_range, LACTATE_THRESHOLD_PERMILLE);
     let aerobic_threshold_hr =
         u64::from(resting_hr) + calculate_zone_offset(hr_range, AEROBIC_THRESHOLD_PERMILLE);
-    json!({
-        "method": "heart_rate_reserve",
-        "lactate_threshold_hr": lactate_threshold_hr,
-        "aerobic_threshold_hr": aerobic_threshold_hr,
-        "sport_efficiency_factor": params.sport_efficiency,
-        "pace_formula": "Pace = 3.5 / (VO2 / body_weight)",
-        "power_estimation": "Power = 0.98 * body_weight * VO2_max"
-    })
+    ZoneCalculations {
+        method: "heart_rate_reserve".to_owned(),
+        lactate_threshold_hr,
+        aerobic_threshold_hr,
+        sport_efficiency_factor: params.sport_efficiency,
+        pace_formula: "Pace = 3.5 / (VO2 / body_weight)".to_owned(),
+        power_estimation: "Power = 0.98 * body_weight * VO2_max".to_owned(),
+    }
 }
 
 /// Render the VDOT pace zones for a tool payload.
@@ -315,7 +331,7 @@ fn zone_calculations_payload(params: &ZoneParams, resting_hr: u16, max_hr: u16) 
 /// Every zone is a configured fraction of the velocity the athlete holds at
 /// `VO2max`, which [`velocity_at_vo2max`] derives from Daniels' oxygen-cost
 /// curve — the platform's one inversion of that relation.
-fn calculate_pace_zones_from_vo2max(vo2_max: f64, config: &TrainingZonesConfig) -> Value {
+fn calculate_pace_zones_from_vo2max(vo2_max: f64, config: &TrainingZonesConfig) -> PaceZones {
     let base_velocity = velocity_at_vo2max(vo2_max);
 
     let easy_velocity = base_velocity * config.vdot_easy_zone_percent;
@@ -344,13 +360,17 @@ fn calculate_pace_zones_from_vo2max(vo2_max: f64, config: &TrainingZonesConfig) 
         format!("{minutes}:{seconds:02}")
     };
 
-    json!({
-        "zone_1_easy": { "min_pace": format_pace(easy_velocity * 0.85), "max_pace": format_pace(easy_velocity * 0.95) },
-        "zone_2_moderate": { "min_pace": format_pace(tempo_velocity * 0.9), "max_pace": format_pace(tempo_velocity * 1.05) },
-        "zone_3_threshold": { "min_pace": format_pace(threshold_velocity * 0.95), "max_pace": format_pace(threshold_velocity * 1.05) },
-        "zone_4_interval": { "min_pace": format_pace(interval_velocity * 0.95), "max_pace": format_pace(interval_velocity * 1.05) },
-        "zone_5_repetition": { "min_pace": format_pace(repetition_velocity * 0.95), "max_pace": format_pace(repetition_velocity * 1.05) }
-    })
+    let band = |lo: f64, hi: f64| PaceZone {
+        min_pace: format_pace(lo),
+        max_pace: format_pace(hi),
+    };
+    PaceZones {
+        zone_1_easy: band(easy_velocity * 0.85, easy_velocity * 0.95),
+        zone_2_moderate: band(tempo_velocity * 0.9, tempo_velocity * 1.05),
+        zone_3_threshold: band(threshold_velocity * 0.95, threshold_velocity * 1.05),
+        zone_4_interval: band(interval_velocity * 0.95, interval_velocity * 1.05),
+        zone_5_repetition: band(repetition_velocity * 0.95, repetition_velocity * 1.05),
+    }
 }
 
 /// Derive typed power-zone boundaries from FTP.
@@ -390,14 +410,18 @@ pub(crate) fn derive_power_zone_set(
 }
 
 /// Render power zones for a tool payload from the typed boundaries.
-pub(crate) fn power_zones_payload(zones: &PowerZoneSet) -> Value {
-    json!({
-        "zone_1": { "min_watts": 0, "max_watts": zones.z1_max },
-        "zone_2": { "min_watts": zones.z1_max, "max_watts": zones.z2_max },
-        "zone_3": { "min_watts": zones.z2_max, "max_watts": zones.z3_max },
-        "zone_4": { "min_watts": zones.z3_max, "max_watts": zones.z4_max },
-        "zone_5": { "min_watts": zones.z4_max, "max_watts": zones.z5_max }
-    })
+pub(crate) fn power_zones_payload(zones: &PowerZoneSet) -> PowerZones {
+    let band = |min: u32, max: u32| PowerZoneBand {
+        min_watts: min,
+        max_watts: max,
+    };
+    PowerZones {
+        zone_1: band(0, zones.z1_max),
+        zone_2: band(zones.z1_max, zones.z2_max),
+        zone_3: band(zones.z2_max, zones.z3_max),
+        zone_4: band(zones.z3_max, zones.z4_max),
+        zone_5: band(zones.z4_max, zones.z5_max),
+    }
 }
 
 pub(crate) fn validate_parameter_ranges(
@@ -542,12 +566,12 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<ConfigurationCatalogResult>(tool_definition(
             "get_configuration_catalog",
             "Get the complete catalog of available configuration options",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -561,8 +585,12 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
         _args: Value,
     ) -> ToolResponse {
         let result: AppResult<ToolResult> = async move {
-            let catalog = CatalogBuilder::build();
-            Ok(ToolResult::ok(json!({ "catalog": catalog })))
+            ok_typed(
+                "get_configuration_catalog",
+                ConfigurationCatalogResult {
+                    catalog: CatalogBuilder::build(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -586,12 +614,12 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<ConfigurationProfilesResult>(tool_definition(
             "get_configuration_profiles",
             "Get available configuration profile templates",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -606,22 +634,22 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
     ) -> ToolResponse {
         let result: AppResult<ToolResult> = async move {
             let profile_templates = ProfileTemplates::all();
-            let profiles: Vec<Value> = profile_templates
+            let profiles: Vec<ConfigurationProfileEntry> = profile_templates
                 .into_iter()
-                .map(|(name, profile)| {
-                    json!({
-                        "name": name,
-                        "profile": profile,
-                        "description": format!("Configuration profile: {name}")
-                    })
+                .map(|(name, profile)| ConfigurationProfileEntry {
+                    description: format!("Configuration profile: {name}"),
+                    name,
+                    profile,
                 })
                 .collect();
 
-            let total_count = profiles.len();
-            Ok(ToolResult::ok(json!({
-                "profiles": profiles,
-                "total_count": total_count
-            })))
+            ok_typed(
+                "get_configuration_profiles",
+                ConfigurationProfilesResult {
+                    total_count: profiles.len(),
+                    profiles,
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -645,12 +673,12 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<UserConfigurationResult>(tool_definition(
             "get_user_configuration",
             "Get your current training configuration settings",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -689,11 +717,10 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
                 });
 
                 let configuration = normalize_stored_configuration(&stored_config);
-                Ok(ToolResult::ok(build_configuration_payload(
-                    &user_uuid,
-                    &configuration,
-                    true,
-                )))
+                ok_typed(
+                    "get_user_configuration",
+                    build_configuration_payload(&user_uuid, &configuration, true),
+                )
             }
             Ok(None) => {
                 let default_configuration = json!({
@@ -705,11 +732,10 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
                     "session_overrides": {},
                     "last_modified": chrono::Utc::now().to_rfc3339()
                 });
-                Ok(ToolResult::ok(build_configuration_payload(
-                    &user_uuid,
-                    &default_configuration,
-                    false,
-                )))
+                ok_typed(
+                    "get_user_configuration",
+                    build_configuration_payload(&user_uuid, &default_configuration, false),
+                )
             }
             Err(e) => Ok(ToolResult::error(json!({
                 "error": format!("Failed to get user configuration: {e}")
@@ -750,12 +776,12 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
         );
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        answers_with::<UpdateUserConfigurationResult>(tool_definition(
             "update_user_configuration",
             "Update your training configuration settings",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -806,12 +832,15 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
             {
                 Ok(()) => {
                     let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
-                    Ok(ToolResult::ok(json!({
-                        "user_id": user_uuid.to_string(),
-                        "updated_configuration": configuration,
-                        "changes_applied": param_count,
-                        "message": "Configuration updated successfully"
-                    })))
+                    ok_typed(
+                        "update_user_configuration",
+                        UpdateUserConfigurationResult {
+                            user_id: user_uuid.to_string(),
+                            updated_configuration: configuration,
+                            changes_applied: param_count,
+                            message: "Configuration updated successfully".to_owned(),
+                        },
+                    )
                 }
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to update configuration: {e}")
@@ -900,12 +929,12 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             ..Default::default()
         };
 
-        tool_definition(
+        answers_with::<PersonalizedZonesResult>(tool_definition(
             "calculate_personalized_zones",
             "Calculate training zones from the athlete's own measurements, falling back to their saved physiology for anything not supplied here. Zone families whose inputs are unknown are listed under `unavailable` instead of being estimated; `input_sources` says where each number came from.",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -953,15 +982,15 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             let (heart_rate_zones, zone_calculations) =
                 match (params.resting_hr, params.max_hr) {
                     (Some(resting_hr), Some(max_hr)) => derive_hr_zone_set(resting_hr, max_hr)
-                        .map_or((Value::Null, Value::Null), |set| {
+                        .map_or((None, None), |set| {
                             (
-                                heart_rate_zones_payload(resting_hr, max_hr, &set),
-                                zone_calculations_payload(&params, resting_hr, max_hr),
+                                Some(heart_rate_zones_payload(resting_hr, max_hr, &set)),
+                                Some(zone_calculations_payload(&params, resting_hr, max_hr)),
                             )
                         }),
-                    _ => (Value::Null, Value::Null),
+                    _ => (None, None),
                 };
-            if heart_rate_zones.is_null() {
+            if heart_rate_zones.is_none() {
                 unavailable.insert(
                     "heart_rate_zones".to_owned(),
                     json!("needs both resting_hr and max_hr — supply them here or save them with set_physiology"),
@@ -970,10 +999,8 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
 
             let pace_zones = params
                 .vo2_max
-                .map_or(Value::Null, |vo2_max| {
-                    calculate_pace_zones_from_vo2max(vo2_max, zones_config)
-                });
-            if pace_zones.is_null() {
+                .map(|vo2_max| calculate_pace_zones_from_vo2max(vo2_max, zones_config));
+            if pace_zones.is_none() {
                 unavailable.insert(
                     "pace_zones".to_owned(),
                     json!("needs vo2_max — supply it here or save it with set_physiology"),
@@ -984,26 +1011,29 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                 .ftp_watts
                 .and_then(|ftp| derive_power_zone_set(ftp, zones_config))
                 .as_ref()
-                .map_or(Value::Null, power_zones_payload);
-            if power_zones.is_null() {
+                .map(power_zones_payload);
+            if power_zones.is_none() {
                 unavailable.insert(
                     "power_zones".to_owned(),
                     json!("needs ftp — supply it here or save it with set_physiology"),
                 );
             }
 
-            Ok(ToolResult::ok(json!({
-                "user_profile": user_profile,
-                "input_sources": params.sources,
-                "personalized_zones": {
-                    "heart_rate_zones": heart_rate_zones,
-                    "pace_zones": pace_zones,
-                    "power_zones": power_zones,
-                    "ftp": params.ftp_watts
+            ok_typed(
+                "calculate_personalized_zones",
+                PersonalizedZonesResult {
+                    user_profile,
+                    input_sources: Value::Object(params.sources.clone()),
+                    personalized_zones: PersonalizedZones {
+                        heart_rate_zones,
+                        pace_zones,
+                        power_zones,
+                        ftp: params.ftp_watts,
+                    },
+                    unavailable: Value::Object(unavailable),
+                    zone_calculations,
                 },
-                "unavailable": unavailable,
-                "zone_calculations": zone_calculations
-            })))
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -1031,12 +1061,12 @@ impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
         );
         let schema = object_schema(properties, Some(vec!["parameters".to_owned()]));
 
-        tool_definition(
+        answers_with::<ValidateConfigurationResult>(tool_definition(
             "validate_configuration",
             "Validate configuration parameters for physiological correctness",
             schema,
             None,
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1077,24 +1107,35 @@ impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
 
                     let validation_passed = ranges_valid && relationships_valid && pattern_valid;
 
-                    return Ok(ToolResult::ok(json!({
-                        "validation_passed": validation_passed,
-                        "parameters_validated": param_count,
-                        "message": if validation_passed {
-                            "Configuration parameters are valid"
-                        } else {
-                            "Configuration validation failed"
+                    return ok_typed(
+                        "validate_configuration",
+                        ValidateConfigurationResult {
+                            validation_passed,
+                            parameters_validated: param_count,
+                            message: if validation_passed {
+                                "Configuration parameters are valid"
+                            } else {
+                                "Configuration validation failed"
+                            }
+                            .to_owned(),
+                            errors: if errors.is_empty() {
+                                None
+                            } else {
+                                Some(errors)
+                            },
                         },
-                        "errors": if errors.is_empty() { Value::Null } else { json!(errors) }
-                    })));
+                    );
                 }
 
-                Ok(ToolResult::ok(json!({
-                    "validation_passed": true,
-                    "parameters_validated": param_count,
-                    "message": "Configuration parameters are valid",
-                    "errors": Value::Null
-                })))
+                ok_typed(
+                    "validate_configuration",
+                    ValidateConfigurationResult {
+                        validation_passed: true,
+                        parameters_validated: param_count,
+                        message: "Configuration parameters are valid".to_owned(),
+                        errors: None,
+                    },
+                )
             } else {
                 Ok(ToolResult::error(json!({
                     "validation_passed": false,

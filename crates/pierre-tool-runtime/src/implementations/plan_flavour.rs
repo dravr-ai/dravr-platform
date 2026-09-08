@@ -25,7 +25,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::info;
 
 use super::data_helpers::read_only_annotations;
@@ -35,7 +35,12 @@ use super::training_plans::load_conversation;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
+};
+use crate::implementations::plan_flavour_output::{
+    FlavourInputsEcho, InputSource, LabelledExclusion, LabelledFlavour, LabelledVerdict,
+    LaidPhaseReport, PlanFlavourResult, SeasonReport, ShareRange,
 };
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -491,95 +496,127 @@ impl RecommendPlanFlavourTool {
             .cloned()
     }
 
-    /// The verdict exactly as the kernel serializes it, so the coach can pass
-    /// it back into `save_training_plan.flavour.verdict` verbatim and the
-    /// stored snapshot deserializes into the same type — plus, on every
-    /// ranked and excluded entry, a `label`: the flavour in the athlete's own
-    /// words and locale, which is what the coach says out loud while the id
-    /// stays the coach's name for it. An unknown field is ignored on the way
-    /// back in, so the label costs the round-trip nothing.
-    fn verdict_json(v: &FlavourVerdict, label: &FlavourLabels<'_>) -> Value {
-        let mut verdict = serde_json::to_value(v).unwrap_or(Value::Null);
-        for list in ["ranked", "excluded"] {
-            if let Some(entries) = verdict.get_mut(list).and_then(Value::as_array_mut) {
-                for entry in entries {
-                    let Some(id) = entry.get("id").and_then(Value::as_str).map(str::to_owned)
-                    else {
-                        continue;
-                    };
-                    if let Some(map) = entry.as_object_mut() {
-                        map.insert("label".to_owned(), json!(label.of(&id)));
-                    }
-                }
-            }
+    /// The verdict, with every ranked and excluded flavour also named in the
+    /// athlete's own words and locale.
+    ///
+    /// The label is what the coach says out loud while the id stays the
+    /// coach's name for it. Every other field is the kernel's own, and an
+    /// unknown field is ignored on the way back in, so the coach can still
+    /// pass this to `save_training_plan.flavour.verdict` verbatim and have
+    /// the stored snapshot deserialize into `FlavourVerdict`.
+    fn verdict_json(v: &FlavourVerdict, label: &FlavourLabels<'_>) -> LabelledVerdict {
+        LabelledVerdict {
+            ranked: v
+                .ranked
+                .iter()
+                .map(|s| LabelledFlavour {
+                    id: s.id.clone(),
+                    label: label.of(&s.id),
+                    score: s.score,
+                    reasons: s.reasons.clone(),
+                })
+                .collect(),
+            excluded: v
+                .excluded
+                .iter()
+                .map(|e| LabelledExclusion {
+                    id: e.id.clone(),
+                    label: label.of(&e.id),
+                    reasons: e.reasons.clone(),
+                })
+                .collect(),
+            confidence: v.confidence,
+            missing_inputs: v.missing_inputs.clone(),
+            coach_pinned: v.coach_pinned.clone(),
         }
-        verdict
     }
 
-    /// The inputs as the kernel serializes them — so they pass back into
-    /// `save_training_plan.flavour.inputs` verbatim — with `measurements` as
-    /// the set the rule actually fired on (effort when nothing is on file),
-    /// plus the hours tier and where each input came from.
-    fn inputs_json(resolved: &Resolved, tier: HoursTier) -> Value {
-        let mut inputs = serde_json::to_value(&resolved.inputs).unwrap_or(Value::Null);
-        if let Some(map) = inputs.as_object_mut() {
-            map.insert(
-                "measurements".to_owned(),
-                json!(resolved
-                    .inputs
-                    .effective_measurements()
-                    .iter()
-                    .map(|m| m.as_str())
-                    .collect::<Vec<_>>()),
-            );
-            map.insert("hours_tier".to_owned(), json!(tier.as_str()));
-            map.insert(
-                "sources".to_owned(),
-                json!(resolved
-                    .sources
-                    .iter()
-                    .map(|(k, s)| json!({ "input": k, "from": s.as_str() }))
-                    .collect::<Vec<_>>()),
-            );
+    /// The inputs the verdict was reached on, and where each came from.
+    fn inputs_json(resolved: &Resolved, tier: HoursTier) -> FlavourInputsEcho {
+        FlavourInputsEcho {
+            hours_per_week: resolved.inputs.hours_per_week,
+            hours_tier: tier.as_str().to_owned(),
+            sessions_per_week: resolved.inputs.sessions_per_week,
+            training_age: resolved.inputs.training_age,
+            training_age_years: resolved.inputs.training_age_years,
+            event_class: resolved.inputs.event_class,
+            weeks_to_goal: resolved.inputs.weeks_to_goal,
+            // The EFFECTIVE set, not the raw one: what the athlete can
+            // actually measure is what decides whether a flavour is runnable.
+            measurements: resolved.inputs.effective_measurements(),
+            recovery_speed: resolved.inputs.recovery_speed,
+            injury_load: resolved.inputs.injury_load,
+            interval_experience: resolved.inputs.interval_experience,
+            sport_mix: resolved.inputs.sport_mix,
+            season_phase: resolved.inputs.season_phase,
+            coach_preference: resolved.inputs.coach_preference.clone(),
+            sources: resolved
+                .sources
+                .iter()
+                .map(|(k, s)| InputSource {
+                    input: (*k).to_owned(),
+                    from: s.as_str().to_owned(),
+                })
+                .collect(),
         }
-        inputs
     }
 
-    fn phase_json(p: &LaidPhase) -> Value {
-        json!({
-            "kind": p.kind.as_str(),
-            "start": p.start.format("%Y-%m-%d").to_string(),
-            "weeks": p.weeks,
-            "purpose": p.purpose,
-            "volume_share_of_peak": { "min": p.volume_share_of_peak.min, "max": p.volume_share_of_peak.max },
-            "flavour_override": p.flavour_override.map(FlavourFamily::as_str),
-            "key_sessions": p.key_sessions.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
-            "loading_pattern": p.loading_pattern.to_string(),
-            "peak": p.peak.format("%Y-%m-%d").to_string(),
-        })
+    fn phase_json(p: &LaidPhase) -> LaidPhaseReport {
+        LaidPhaseReport {
+            kind: p.kind.as_str().to_owned(),
+            start: p.start.format("%Y-%m-%d").to_string(),
+            weeks: p.weeks,
+            purpose: p.purpose.clone(),
+            volume_share_of_peak: ShareRange {
+                min: p.volume_share_of_peak.min,
+                max: p.volume_share_of_peak.max,
+            },
+            flavour_override: p
+                .flavour_override
+                .map(|f| FlavourFamily::as_str(f).to_owned()),
+            key_sessions: p
+                .key_sessions
+                .iter()
+                .map(|k| k.as_str().to_owned())
+                .collect(),
+            loading_pattern: p.loading_pattern.to_string(),
+            peak: p.peak.format("%Y-%m-%d").to_string(),
+        }
     }
 
-    fn season_json(layout: Option<&SeasonLayout>, skeleton_id: Option<&str>) -> Value {
+    fn season_json(layout: Option<&SeasonLayout>, skeleton_id: Option<&str>) -> SeasonReport {
+        let base = SeasonReport {
+            status: String::new(),
+            skeleton_id: skeleton_id.map(str::to_owned),
+            note: None,
+            needs_weeks: None,
+            has_weeks: None,
+            phases: Vec::new(),
+            shrunk: Vec::new(),
+        };
         match layout {
-            None => {
-                json!({ "status": "no_goal", "note": "no goal race is known; pass event_class and weeks_to_goal, or save an outline with a goal race first" })
-            }
+            None => SeasonReport {
+                status: "no_goal".to_owned(),
+                skeleton_id: None,
+                note: Some("no goal race is known; pass event_class and weeks_to_goal, or save an outline with a goal race first".to_owned()),
+                ..base
+            },
             Some(SeasonLayout::NotEnoughRunway {
                 needs_weeks,
                 has_weeks,
-            }) => json!({
-                "status": "not_enough_runway",
-                "skeleton_id": skeleton_id,
-                "needs_weeks": needs_weeks,
-                "has_weeks": has_weeks,
-                "note": "the skeleton cannot be compressed into this runway; move the goal or choose another skeleton rather than squeezing every phase",
-            }),
-            Some(SeasonLayout::Laid { phases, shrunk }) => json!({
-                "status": "laid",
-                "skeleton_id": skeleton_id,
-                "phases": phases.iter().map(Self::phase_json).collect::<Vec<_>>(),
-                "shrunk": shrunk.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
-            }),
+            }) => SeasonReport {
+                status: "not_enough_runway".to_owned(),
+                needs_weeks: Some(*needs_weeks),
+                has_weeks: Some(*has_weeks),
+                note: Some("the skeleton cannot be compressed into this runway; move the goal or choose another skeleton rather than squeezing every phase".to_owned()),
+                ..base
+            },
+            Some(SeasonLayout::Laid { phases, shrunk }) => SeasonReport {
+                status: "laid".to_owned(),
+                phases: phases.iter().map(Self::phase_json).collect(),
+                shrunk: shrunk.iter().map(|k| k.as_str().to_owned()).collect(),
+                ..base
+            },
         }
     }
 }
@@ -635,12 +672,12 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 "sessions_per_week".to_owned(),
             ]),
         );
-        tool_definition(
+        answers_with::<PlanFlavourResult>(tool_definition(
             "recommend_plan_flavour",
             "Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome through save_training_plan, passing `verdict` and `inputs` through exactly as returned here, with selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. This only recommends; it writes nothing.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -756,12 +793,18 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 "recommended a plan flavour"
             );
 
-            Ok(ToolResult::ok(json!({
-                "athlete": scope.acting_for,
-                "verdict": Self::verdict_json(&verdict, &labels),
-                "season": Self::season_json(layout.as_ref(), skeleton.as_ref().map(|s| s.id.as_str())),
-                "inputs": Self::inputs_json(&resolved, tier),
-            })))
+            ok_typed(
+                "recommend_plan_flavour",
+                PlanFlavourResult {
+                    athlete: scope.acting_for.clone(),
+                    verdict: Self::verdict_json(&verdict, &labels),
+                    season: Self::season_json(
+                        layout.as_ref(),
+                        skeleton.as_ref().map(|s| s.id.as_str()),
+                    ),
+                    inputs: Self::inputs_json(&resolved, tier),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

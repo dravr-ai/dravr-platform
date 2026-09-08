@@ -76,6 +76,9 @@ all-database = ["database-errors", "sqlx-types"]
 
 [dependencies]
 thiserror = "2.0"
+# Derives the JSON Schemas the MCP tools declare as their outputSchema.
+# chrono04 + uuid1: these types carry DateTime<Utc> and Uuid.
+schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
@@ -119,10 +122,10 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4
 
 # Standalone sports science intelligence engine (dravr-cageux)
 # pierre-core re-exports Activity, SportType, and intelligence types
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.10.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.11.1" }
 
 # Health and wellness domain models with composition-based provider traits
-dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.7" }
+dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.8" }
 
 # Standalone Stripe billing capability — gated behind the `billing-stripe`
 # feature so the trait-only `billing` feature stays vendor-free. The

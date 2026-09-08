@@ -773,6 +773,93 @@ async fn test_external_tool_with_builtin_tools() {
 }
 
 // ============================================================================
+// Declared output schemas on the wire
+// ============================================================================
+
+/// A tool that declares an `outputSchema` obliges itself to answer with
+/// conforming `structuredContent`, and the client can only hold it to that if
+/// the schema actually arrives.
+///
+/// It has to survive two conversions to get there — the registry's
+/// `schema_from_definition` and the dispatcher's `schema_to_tool` — and both
+/// once wrote `output_schema: None`, so every declared schema was dropped
+/// where no unit test could see it: each tool's `definition()` still carried
+/// one, and that is what the per-tool pairing tests read.
+///
+/// So this asserts the wire, not the definition. It also asserts the document
+/// arrives whole: schemas are derived, and a derived schema uses `$defs` and a
+/// union `type` for an optional field, which is the vocabulary a typed
+/// intermediate silently dropped.
+#[tokio::test]
+async fn test_list_tools_carries_every_declared_output_schema() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.coach.database)
+        .await
+        .expect("Failed to create user");
+
+    let dispatcher = PierreToolDispatcher::new(resources.clone());
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let tools = dispatcher
+        .list_tools(&state, &tronc_context(user_id, None, true))
+        .await;
+
+    // What the registry says is declared, read straight off each tool.
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let mut declared: Vec<&str> = registry
+        .tool_names()
+        .into_iter()
+        .filter(|name| {
+            registry
+                .get(name)
+                .is_some_and(|tool| tool.definition().output_schema.is_some())
+        })
+        .collect();
+    declared.sort_unstable();
+    assert!(
+        declared.len() > 100,
+        "the typed set should be nearly every tool, found {}",
+        declared.len()
+    );
+
+    let mut delivered: Vec<&str> = tools
+        .iter()
+        .filter(|tool| tool.output_schema.is_some())
+        .map(|tool| tool.name.as_str())
+        .collect();
+    delivered.sort_unstable();
+
+    assert_eq!(
+        delivered, declared,
+        "every tool that declares an output schema must advertise it in          tools/list — a conversion that drops it leaves the client unable to          validate a reply the tool promised"
+    );
+
+    // And it arrives as the document it was derived as. `list_workout_templates`
+    // returns the training catalogue's template graph, so its schema carries
+    // `$defs` and a nullable-uuid union — both of which a typed intermediate
+    // could not hold.
+    let templates = tools
+        .iter()
+        .find(|tool| tool.name == "list_workout_templates")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("list_workout_templates declares an output schema");
+
+    assert!(
+        templates
+            .get("$defs")
+            .is_some_and(|defs| defs.as_object().is_some_and(|defs| defs.len() > 5)),
+        "the referenced subschemas must travel with the schema that uses them"
+    );
+    let rendered = serde_json::to_string(templates).expect("serializes");
+    assert!(
+        rendered.contains(r#"["string","null"]"#),
+        "an optional field's union type must reach the client intact"
+    );
+}
+
+// ============================================================================
 // SEP-2663 Task-Support Advertisement
 // ============================================================================
 

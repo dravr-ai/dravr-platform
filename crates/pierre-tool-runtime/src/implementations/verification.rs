@@ -21,14 +21,16 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::claim_extractor::ExtractedClaim;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
-use serde_json::{json, Value};
+use schemars::JsonSchema;
+use serde::Serialize;
+use serde_json::Value;
 
 use pierre_services::claim_verification;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -130,12 +132,12 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             properties,
             Some(vec!["claim".to_owned(), "category".to_owned()]),
         );
-        tool_definition(
+        answers_with::<VerifyClaimResult>(tool_definition(
             "verify_claim",
             "Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → personalized physiology → evidence corpus) and return a structured verdict with evidence strength and optional citations. Use this before emitting any physiological, nutrition, training, or supplement claim you are not certain about.",
             schema,
             Some(verify_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -204,19 +206,46 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 .insert_claim_verdict(&params)
                 .await?;
 
-            Ok(ToolResult::ok(json!({
-                "verdict_id": verdict.id,
-                "status": matches_status(outcome.status),
-                "evidence_strength": outcome.evidence_strength.as_str(),
-                "layer_fired": outcome.layer_fired.as_str(),
-                "confidence": outcome.confidence,
-                "explanation": outcome.explanation,
-                "evidence_refs": outcome.evidence_refs,
-            })))
+            let payload = VerifyClaimResult {
+                verdict_id: verdict.id,
+                status: matches_status(outcome.status).to_owned(),
+                evidence_strength: outcome.evidence_strength.as_str().to_owned(),
+                layer_fired: outcome.layer_fired.as_str().to_owned(),
+                confidence: outcome.confidence,
+                explanation: outcome.explanation,
+                evidence_refs: outcome.evidence_refs,
+            };
+            Ok(ToolResult::ok(serde_json::to_value(payload).map_err(
+                |e| AppError::internal(format!("verify_claim result did not serialize: {e}")),
+            )?))
         }
         .await;
         tool_result_to_response(result)
     }
+}
+
+/// The structured verdict `verify_claim` answers with.
+///
+/// Both halves of the contract come from this type: `answers_with` derives the
+/// declared `outputSchema` from it, and `execute` serializes an instance of it
+/// as the payload. They cannot drift, because adding a field here changes both
+/// and removing one stops compiling.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct VerifyClaimResult {
+    /// Stable identifier of the persisted verdict.
+    pub verdict_id: String,
+    /// Whether the claim was supported, contradicted, or left unverified.
+    pub status: String,
+    /// How strong the supporting evidence is.
+    pub evidence_strength: String,
+    /// Which layer of the pipeline decided — rhetoric, bounds, physiology, corpus.
+    pub layer_fired: String,
+    /// Confidence in the verdict, 0.0 to 1.0.
+    pub confidence: f32,
+    /// Why the pipeline reached this verdict, in the coach's words.
+    pub explanation: String,
+    /// Citations backing the verdict; absent when the layer that fired cites none.
+    pub evidence_refs: Option<String>,
 }
 
 const fn matches_status(s: ClaimStatus) -> &'static str {

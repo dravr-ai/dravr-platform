@@ -19,7 +19,7 @@ use pierre_core::models::{
     SportType, TenantId, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -33,7 +33,12 @@ use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response,
+};
+use crate::implementations::endurance_workouts_output::{
+    PrescribeWorkoutResult, TemplateFit, WithdrawWorkoutResult, WorkoutTemplateFilters,
+    WorkoutTemplateRow, WorkoutTemplateSummary, WorkoutTemplatesResult,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -424,28 +429,30 @@ fn sport_arg(args: &Value, bank: &[WorkoutTemplate]) -> AppResult<Option<SportTy
 }
 
 /// The fields a coach picks a session by, without the steps.
-fn summary_row(template: &WorkoutTemplate) -> AppResult<Value> {
+fn summary_row(template: &WorkoutTemplate) -> AppResult<WorkoutTemplateSummary> {
     let params = serde_json::to_value(&template.params)
         .map_err(|e| AppError::internal(format!("serialize template params: {e}")))?;
-    Ok(json!({
-        "slug": template.slug,
-        "name": template.name,
-        "purpose": template.purpose,
-        "sport": template.sport,
-        "sport_variants": template.sport_variants,
-        "duration_minutes": template.duration_minutes,
-        "intensity_distribution": template.intensity_distribution,
-        "evidence_tier": template.evidence_tier,
-        "caveat": template.caveat,
-        "params": params,
-        "fit": {
-            "phases": template.fit.phases,
-            "readiness_min": template.fit.readiness_min,
-            "max_per_week": template.fit.max_per_week,
-            "min_spacing_hours": template.fit.min_spacing_hours,
+    // The ENUMS, not their Debug names: every one is a serde enum and the
+    // untyped payload serialized them, so `{:?}` would change the wire.
+    Ok(WorkoutTemplateSummary {
+        slug: template.slug.clone(),
+        name: template.name.clone(),
+        purpose: template.purpose,
+        sport: template.sport.clone(),
+        sport_variants: template.sport_variants.clone(),
+        duration_minutes: template.duration_minutes,
+        intensity_distribution: template.intensity_distribution,
+        evidence_tier: template.evidence_tier,
+        caveat: template.caveat.clone(),
+        params,
+        fit: TemplateFit {
+            phases: template.fit.phases.clone(),
+            readiness_min: template.fit.readiness_min,
+            max_per_week: template.fit.max_per_week,
+            min_spacing_hours: template.fit.min_spacing_hours,
         },
-        "is_compiled_in": template.is_compiled_in,
-    }))
+        is_compiled_in: template.is_compiled_in,
+    })
 }
 
 /// `list_workout_templates` — the workout bank, filtered by purpose, phase
@@ -505,7 +512,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             },
         );
         let schema = object_schema(properties, Some(Vec::new()));
-        tool_definition(
+        answers_with::<WorkoutTemplatesResult>(tool_definition(
             "list_workout_templates",
             "List the workout template bank by what a session is for. Every \
              template carries a purpose (recovery, endurance, endurance_long, \
@@ -521,7 +528,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
              pushes to the athlete's Intervals.icu calendar.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -564,29 +571,29 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
                 templates.extend(own.into_iter().filter(|t| filter.matches(t)));
             }
 
-            let rows = match detail {
+            let rows: Vec<WorkoutTemplateRow> = match detail {
                 ListDetail::Summary => templates
                     .iter()
-                    .map(summary_row)
-                    .collect::<AppResult<Vec<Value>>>()?,
+                    .map(|t| summary_row(t).map(|r| WorkoutTemplateRow::Summary(Box::new(r))))
+                    .collect::<AppResult<Vec<_>>>()?,
                 ListDetail::Full => templates
                     .iter()
-                    .map(|t| {
-                        serde_json::to_value(t)
-                            .map_err(|e| AppError::internal(format!("serialize template: {e}")))
-                    })
-                    .collect::<AppResult<Vec<Value>>>()?,
+                    .map(|t| WorkoutTemplateRow::Full(Box::new(t.clone())))
+                    .collect(),
             };
-            Ok(ToolResult::ok(json!({
-                "count": rows.len(),
-                "filters": {
-                    "purpose": filter.purpose,
-                    "phase": filter.phase,
-                    "sport": filter.sport,
-                    "detail": detail.as_str(),
+            ok_typed(
+                "list_workout_templates",
+                WorkoutTemplatesResult {
+                    count: rows.len(),
+                    filters: WorkoutTemplateFilters {
+                        purpose: filter.purpose.map(|p| format!("{p:?}")),
+                        phase: filter.phase.map(|p| format!("{p:?}")),
+                        sport: filter.sport.map(|s| format!("{s:?}")),
+                        detail: detail.as_str().to_owned(),
+                    },
+                    templates: rows,
                 },
-                "templates": rows,
-            })))
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -714,7 +721,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["date".to_owned()]));
-        tool_definition(
+        answers_with::<PrescribeWorkoutResult>(tool_definition(
             "prescribe_workout",
             "Write one workout onto the athlete's Intervals.icu calendar for a \
              given date, and record it in the prescribed_workouts ledger. \
@@ -730,7 +737,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              is changed in place instead. withdraw_prescribed_workout removes one.",
             schema,
             Some(write_safe_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -883,17 +890,22 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 ))
             })?;
 
-            Ok(ToolResult::ok(json!({
-                "prescription_id": prescription_id,
-                "provider": CALENDAR_PROVIDER,
-                "provider_event_id": event_id,
-                "replaced_prescription_id": previous.as_ref().map(|(prev, _)| prev.id),
-                "template_slug": template.slug,
-                "name": template.name,
-                "duration_minutes": template.duration_minutes,
-                "scheduled_for": date.format("%Y-%m-%d").to_string(),
-                "status": PrescribedWorkout::STATUS_PUSHED,
-            })))
+            ok_typed(
+                "prescribe_workout",
+                PrescribeWorkoutResult {
+                    prescription_id,
+                    provider: CALENDAR_PROVIDER.to_owned(),
+                    provider_event_id: event_id,
+                    replaced_prescription_id: previous
+                        .as_ref()
+                        .map(|(prev, _)| prev.id),
+                    template_slug: template.slug.clone(),
+                    name: template.name.clone(),
+                    duration_minutes: template.duration_minutes,
+                    scheduled_for: date.format("%Y-%m-%d").to_string(),
+                    status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -921,7 +933,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["prescription_id".to_owned()]));
-        tool_definition(
+        answers_with::<WithdrawWorkoutResult>(tool_definition(
             "withdraw_prescribed_workout",
             "Remove a workout that prescribe_workout wrote to the athlete's Intervals.icu \
              calendar: deletes the calendar entry and marks the prescription withdrawn. \
@@ -930,7 +942,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
              (push_training_plan). Args: prescription_id.",
             schema,
             Some(destructive_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -1001,14 +1013,17 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                     ))
                 })?;
 
-            Ok(ToolResult::ok(json!({
-                "prescription_id": prescription_id,
-                "provider": CALENDAR_PROVIDER,
-                "provider_event_id": event_id,
-                "name": row.template_slug,
-                "scheduled_for": row.prescribed_for_date.format("%Y-%m-%d").to_string(),
-                "status": PrescribedWorkout::STATUS_WITHDRAWN,
-            })))
+            ok_typed(
+                "withdraw_prescribed_workout",
+                WithdrawWorkoutResult {
+                    prescription_id,
+                    provider: CALENDAR_PROVIDER.to_owned(),
+                    provider_event_id: event_id,
+                    name: row.template_slug.clone(),
+                    scheduled_for: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
+                    status: PrescribedWorkout::STATUS_WITHDRAWN.to_owned(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

@@ -4,7 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::output::{
+    ActivityIntelligence, ActivityIntelligenceResult, ActivityPerformanceMetrics,
+    AutoSelectedActivity,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{
     auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
@@ -15,6 +19,7 @@ use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::business_thresholds::{
     ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
 };
@@ -113,47 +118,31 @@ async fn create_intelligence_response(
     tenant_id: Option<String>,
     sampling_peer: Option<&Arc<SamplingPeer>>,
     resources: &dyn ToolRuntime,
-) -> UniversalResponse {
-    // Try MCP sampling first if available (uses client's LLM)
-    if let Some(peer) = sampling_peer {
-        match generate_activity_intelligence_via_sampling(peer, resources, activity).await {
-            Ok(llm_analysis) => {
-                info!("Generated activity intelligence using MCP sampling");
-                return UniversalResponse {
-                    success: true,
-                    result: Some(llm_analysis),
-                    error: None,
-                    metadata: Some({
-                        let mut map = HashMap::new();
-                        map.insert(
-                            "activity_id".to_owned(),
-                            serde_json::Value::String(activity_id.to_owned()),
-                        );
-                        map.insert(
-                            "user_id".to_owned(),
-                            serde_json::Value::String(user_uuid.to_string()),
-                        );
-                        if let Some(tid) = tenant_id.clone() {
-                            map.insert("tenant_id".to_owned(), serde_json::Value::String(tid));
-                        }
-                        map.insert(
-                            "analysis_source".to_owned(),
-                            serde_json::Value::String("mcp_sampling".to_owned()),
-                        );
-                        map
-                    }),
-                };
-            }
-            Err(e) => {
-                warn!(
-                    "MCP sampling failed, falling back to static analysis: {}",
-                    e
-                );
+) -> (
+    ActivityIntelligenceResult,
+    HashMap<String, serde_json::Value>,
+) {
+    // The client's LLM writes the analysis when one is available. Its reply
+    // has to parse into the shape this tool declares — a model that answers
+    // something else is wrapped, not passed through, because whatever it
+    // emitted would otherwise become the tool's answer unchecked and no
+    // outputSchema could describe that.
+    let sampled = match sampling_peer {
+        Some(peer) => {
+            match generate_activity_intelligence_via_sampling(peer, resources, activity).await {
+                Ok(intelligence) => {
+                    info!("Generated activity intelligence using MCP sampling");
+                    Some(intelligence)
+                }
+                Err(e) => {
+                    warn!("MCP sampling failed, falling back to static analysis: {e}");
+                    None
+                }
             }
         }
-    }
+        None => None,
+    };
 
-    // Fall back to static analysis
     let (insights, recommendations) = generate_activity_insights(activity);
 
     let summary = format!(
@@ -166,33 +155,36 @@ async fn create_intelligence_response(
         u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX))).unwrap_or(u32::MAX),
     ) / 60.0;
 
-    let analysis = serde_json::json!({
-        "activity_id": activity_id,
-        "activity_type": format!("{:?}", activity.sport_type()),
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "intelligence": {
-            "summary": summary,
-            "insights": insights,
-            "recommendations": recommendations,
-            "performance_metrics": {
-                "distance_km": activity.distance_meters().map(|d| d / METERS_PER_KILOMETER),
-                "duration_minutes": Some(duration_minutes),
-                "elevation_meters": activity.elevation_gain(),
-                "average_heart_rate": activity.average_heart_rate(),
-                "max_heart_rate": activity.max_heart_rate(),
-                "calories": activity.calories()
-            }
-        }
+    // The identifying fields and the metrics are ours on BOTH paths. Only the
+    // prose may come from a model, and an LLM asked to restate an athlete's
+    // distance will sometimes get it wrong.
+    let intelligence = sampled.unwrap_or_else(|| ActivityIntelligence {
+        summary,
+        insights,
+        recommendations: recommendations.into_iter().map(ToOwned::to_owned).collect(),
+        source: "deterministic".to_owned(),
     });
 
-    let metadata = build_intelligence_metadata(activity_id, user_uuid, tenant_id);
+    let analysis = ActivityIntelligenceResult {
+        activity_id: activity_id.to_owned(),
+        activity_type: format!("{:?}", activity.sport_type()),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        intelligence,
+        performance_metrics: ActivityPerformanceMetrics {
+            distance_km: activity.distance_meters().map(|d| d / METERS_PER_KILOMETER),
+            duration_minutes: Some(duration_minutes),
+            elevation_meters: activity.elevation_gain(),
+            average_heart_rate: activity.average_heart_rate(),
+            max_heart_rate: activity.max_heart_rate(),
+            calories: activity.calories(),
+        },
+        auto_selected: None,
+    };
 
-    UniversalResponse {
-        success: true,
-        result: Some(analysis),
-        error: None,
-        metadata: Some(metadata),
-    }
+    (
+        analysis,
+        build_intelligence_metadata(activity_id, user_uuid, tenant_id),
+    )
 }
 
 /// Fetch activity and create intelligence response
@@ -215,10 +207,11 @@ async fn fetch_and_analyze_activity(
     tenant_id: Option<String>,
     sampling_peer: Option<&Arc<SamplingPeer>>,
     resources: &dyn ToolRuntime,
-) -> UniversalResponse {
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
     match provider.get_activity(activity_id).await {
         Ok(activity) => {
-            create_intelligence_response(
+            let (analysis, metadata) = create_intelligence_response(
                 &activity,
                 activity_id,
                 user_uuid,
@@ -226,7 +219,17 @@ async fn fetch_and_analyze_activity(
                 sampling_peer,
                 resources,
             )
-            .await
+            .await;
+            apply_format_typed(
+                UniversalResponse {
+                    success: true,
+                    result: None,
+                    error: None,
+                    metadata: Some(metadata),
+                },
+                analysis,
+                output_format,
+            )
         }
         Err(e) => {
             // Handle NotFound by auto-fetching recent activities
@@ -250,7 +253,7 @@ async fn fetch_and_analyze_activity(
                         let most_recent = &activities[0];
 
                         // Analyze the most recent activity automatically
-                        let mut response = create_intelligence_response(
+                        let (mut analysis, metadata) = create_intelligence_response(
                             most_recent,
                             most_recent.id(),
                             user_uuid,
@@ -260,45 +263,57 @@ async fn fetch_and_analyze_activity(
                         )
                         .await;
 
-                        // Add auto-selection note to the result
-                        if let Some(result) = response.result.as_mut() {
-                            result["auto_selected"] = serde_json::json!({
-                                "reason": format!("Activity '{activity_id}' not found"),
-                                "selected_activity": most_recent.id(),
-                                "selected_activity_name": most_recent.name(),
-                                "selected_activity_date": most_recent.start_date().format("%Y-%m-%d").to_string(),
-                                "available_activities": activity_list
-                            });
-                        }
+                        // Say so on the payload rather than beside it: a client
+                        // that reports "your activity" about a substitute is
+                        // the failure this field exists to prevent.
+                        analysis.auto_selected = Some(AutoSelectedActivity {
+                            reason: format!("Activity '{activity_id}' not found"),
+                            selected_activity: most_recent.id().to_owned(),
+                            selected_activity_name: most_recent.name().to_owned(),
+                            selected_activity_date: most_recent
+                                .start_date()
+                                .format("%Y-%m-%d")
+                                .to_string(),
+                            available_activities: activity_list,
+                        });
 
-                        return response;
+                        return apply_format_typed(
+                            UniversalResponse {
+                                success: true,
+                                result: None,
+                                error: None,
+                                metadata: Some(metadata),
+                            },
+                            analysis,
+                            output_format,
+                        );
                     }
                     Ok(_) => {
-                        return UniversalResponse {
+                        return Ok(UniversalResponse {
                             success: false,
                             result: None,
                             error: Some(format!("Activity '{activity_id}' not found and no activities available in your account.")),
                             metadata: None,
-                        };
+                        });
                     }
                     Err(fetch_err) => {
-                        return UniversalResponse {
+                        return Ok(UniversalResponse {
                             success: false,
                             result: None,
                             error: Some(format!("Activity '{activity_id}' not found. Failed to fetch available activities: {fetch_err}")),
                             metadata: None,
-                        };
+                        });
                     }
                 }
             }
 
             // Other errors - generic message
-            UniversalResponse {
+            Ok(UniversalResponse {
                 success: false,
                 result: None,
                 error: Some(format!("Failed to fetch activity {activity_id}: {e}")),
                 metadata: None,
-            }
+            })
         }
     }
 }
@@ -320,7 +335,7 @@ async fn generate_activity_intelligence_via_sampling(
     sampling_peer: &Arc<SamplingPeer>,
     resources: &dyn ToolRuntime,
     activity: &Activity,
-) -> AppResult<serde_json::Value> {
+) -> AppResult<ActivityIntelligence> {
     use {Content, CreateMessageRequest, ModelPreferences, PromptMessage};
 
     // Prepare activity data for LLM analysis
@@ -379,17 +394,33 @@ async fn generate_activity_intelligence_via_sampling(
 
     let result = sampling_peer.create_message(request).await?;
 
-    // Parse LLM response
-    serde_json::from_str::<serde_json::Value>(&result.content.text).or_else(|_| {
-        // Wrap non-JSON response
-        Ok(serde_json::json!({
-            "summary": result.content.text,
-            "insights": [result.content.text],
-            "recommendations": [],
-            "analysis_type": "ai_powered",
-            "source": "mcp_sampling"
-        }))
-    })
+    Ok(intelligence_from_model_reply(&result.content.text))
+}
+
+/// Turn a model's reply into the shape this tool declares.
+///
+/// The reply must parse into `ActivityIntelligence`. Anything else — prose, a
+/// different JSON object, a truncated one — is wrapped rather than passed
+/// through, because before this the parsed `Value` became the tool's answer
+/// whatever it said, and no `outputSchema` can describe "whatever the
+/// client's model emitted".
+///
+/// `source` is overwritten either way: a model does not get to claim its
+/// analysis was written here.
+#[must_use]
+pub fn intelligence_from_model_reply(text: &str) -> ActivityIntelligence {
+    serde_json::from_str::<ActivityIntelligence>(text).map_or_else(
+        |_| ActivityIntelligence {
+            summary: text.to_owned(),
+            insights: vec![text.to_owned()],
+            recommendations: Vec::new(),
+            source: "mcp_sampling".to_owned(),
+        },
+        |mut parsed| {
+            "mcp_sampling".clone_into(&mut parsed.source);
+            parsed
+        },
+    )
 }
 
 /// Handle `get_activity_intelligence` tool - get AI analysis for activity (async)
@@ -486,8 +517,9 @@ pub fn handle_get_activity_intelligence(
                     request.tenant_id,
                     executor.resources.sampling_peer(),
                     &*executor.resources,
+                    output_format,
                 )
-                .await;
+                .await?;
 
                 // Report completion on success
                 if result.success {
@@ -500,12 +532,7 @@ pub fn handle_get_activity_intelligence(
                     }
                 }
 
-                // Apply format transformation
-                Ok(apply_format_to_response(
-                    result,
-                    "intelligence",
-                    output_format,
-                ))
+                Ok(result)
             }
             Err(response) => {
                 // A lapsed or missing token must surface as the TYPED auth

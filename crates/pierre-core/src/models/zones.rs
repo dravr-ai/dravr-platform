@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// [`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries
 /// per-activity time-in-zone counts. `HrZoneSet` is the per-user definition;
 /// `HeartRateZone` is the per-activity occupancy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct HrZoneSet {
     /// Upper bound of Zone 1 (active recovery / very easy) in bpm.
     pub z1_max: u16,
@@ -80,7 +80,7 @@ impl HrZoneSet {
 ///
 /// Each `zN_max` is the upper bound (inclusive) of zone `N` in watts. Same
 /// monotonicity invariant as [`HrZoneSet`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PowerZoneSet {
     /// Upper bound of Zone 1 (active recovery) in watts.
     pub z1_max: u32,
@@ -145,7 +145,9 @@ impl PowerZoneSet {
 /// `above_max_seconds` equals total samples in the analyzed window. Used by
 /// the Endurance `latest.json` payload to surface polarized-distribution
 /// stats (Z1+Z2 share vs Z3 share vs Z4+Z5 share) to coaches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 pub struct ZoneDistribution {
     /// Seconds spent in zone 1 (active recovery / very easy).
     pub z1_seconds: u32,

@@ -19,10 +19,12 @@
 //! `build_activities_success_response`, etc.) are `pub(crate)` so the same
 //! tool modules can call them directly.
 
+use crate::implementations::activities_output::ActivitiesPayload;
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::ActivitySummary;
+use crate::implementations::athlete_stats::{GetAthleteResult, GetStatsResult};
 use crate::implementations::data_helpers::activity_coverage_note;
-use crate::protocol::format::build_formatted_response;
+use crate::protocol::format::formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::protocol::ProtocolError;
@@ -215,7 +217,7 @@ pub struct PaginationInfo {
 
 /// Token usage estimation for LLM context management
 /// Helps users understand how much of their context window is being used
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct TokenEstimate {
     /// Estimated tokens for this response
     pub estimated_tokens: usize,
@@ -271,7 +273,7 @@ impl TokenEstimate {
 
 /// Analysis type for activity retrieval - helps determine appropriate data requirements
 /// Each type has different minimum data needs for meaningful analysis
-#[derive(Debug, Clone, Copy, Serialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Default, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalysisType {
     /// General overview of recent training (default: 2 weeks minimum)
@@ -313,7 +315,7 @@ impl AnalysisType {
 }
 
 /// Breakdown of activities by sport type for sufficiency assessment
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct ActivityTypeBreakdown {
     /// Sport type name (e.g., "run", "ride", "swim")
     pub sport_type: String,
@@ -325,7 +327,7 @@ pub struct ActivityTypeBreakdown {
 
 /// Data sufficiency assessment for activity retrieval
 /// Guides LLMs on whether they have enough data for analysis
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct DataSufficiency {
     /// Number of full weeks covered by the returned activities
     pub weeks_covered: u32,
@@ -341,7 +343,7 @@ pub struct DataSufficiency {
 
 /// Context metadata for activity retrieval responses
 /// Provides LLMs with guidance on data sufficiency and whether to fetch more
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct ActivityRetrievalContext {
     /// Type of analysis being performed
     pub analysis_type: AnalysisType,
@@ -377,7 +379,7 @@ pub struct ActivityRetrievalContext {
 /// provider-side type carries `chrono::DateTime` values and the full sport
 /// enum, this serializes them to strings so the JSON shape stays portable
 /// across MCP / A2A / REST consumers and stable across cageux upgrades.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct FragmentDedupSummary {
     /// Total activities the detector saw (one per row returned by the provider).
     pub raw_count: usize,
@@ -393,7 +395,7 @@ pub struct FragmentDedupSummary {
 }
 
 /// A single overlapping-recording group surfaced to the LLM.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct FragmentGroupSummary {
     /// Activity id selected as the canonical session for this group.
     pub canonical_id: String,
@@ -447,7 +449,7 @@ impl FragmentDedupSummary {
 }
 
 /// Date range for activity retrieval
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct DateRange {
     /// Earliest activity date in ISO 8601 format
     pub start: String,
@@ -960,22 +962,6 @@ fn prepare_activity_data(
     }
 }
 
-/// Add common fields (pagination, token estimate, time window flag, retrieval context) to activity response JSON
-fn add_common_response_fields(
-    json_val: &mut Value,
-    pagination: Option<&PaginationInfo>,
-    token_estimate: &TokenEstimate,
-    retrieval_context: &ActivityRetrievalContext,
-) {
-    if let Some(page_info) = pagination {
-        json_val["offset"] = json!(page_info.offset);
-        json_val["limit"] = json!(page_info.limit);
-        json_val["has_more"] = json!(page_info.has_more);
-    }
-    json_val["token_estimate"] = json!(token_estimate);
-    json_val["retrieval_context"] = json!(retrieval_context);
-}
-
 /// Parameters for building an activities success response
 pub(crate) struct ActivitiesResponseParams<'a> {
     pub activities: &'a [Activity],
@@ -1048,6 +1034,8 @@ pub(crate) fn build_activities_success_response(
             }
         };
 
+    let activities_len = activities.len();
+
     // Detect fragment groups across the activity slice so the LLM (and any
     // downstream telemetry) can distinguish raw GPS recordings from distinct
     // training sessions. Computed once here, threaded into both the prose
@@ -1075,77 +1063,50 @@ pub(crate) fn build_activities_success_response(
         Some(&fragment_report),
     );
 
-    // Format the activities data according to the requested format
-    let (mut result_json, format_used) = match output_format {
-        OutputFormat::Toon => match format_output(&data_value, OutputFormat::Toon) {
-            Ok(formatted) => {
-                let mut json_val = json!({
-                    "activity_list": activity_list,
-                    "activities_toon": formatted.data,
-                    "provider": provider_name,
-                    "count": activities.len(),
-                    "mode": mode_used,
-                    "format": "toon"
-                });
-                add_common_response_fields(
-                    &mut json_val,
-                    pagination,
-                    &token_estimate,
-                    &retrieval_context,
-                );
-                (json_val, "toon")
-            }
-            Err(e) => {
-                warn!("TOON serialization failed, falling back to JSON: {e}");
-                let mut json_val = json!({
-                    "activity_list": activity_list,
-                    "activities": data_value,
-                    "provider": provider_name,
-                    "count": activities.len(),
-                    "mode": mode_used,
-                    "format": "json",
-                    "format_fallback": true,
-                    "format_error": e.to_string()
-                });
-                add_common_response_fields(
-                    &mut json_val,
-                    pagination,
-                    &token_estimate,
-                    &retrieval_context,
-                );
-                (json_val, "json")
-            }
-        },
-        OutputFormat::Json => {
-            let mut json_val = json!({
-                "activity_list": activity_list,
-                "activities": data_value,
-                "provider": provider_name,
-                "count": activities.len(),
-                "mode": mode_used,
-                "format": "json"
-            });
-            add_common_response_fields(
-                &mut json_val,
-                pagination,
-                &token_estimate,
-                &retrieval_context,
-            );
-            (json_val, "json")
-        }
+    // One payload, three ways of filling it. The TOON key stays
+    // `activities_toon` rather than the fixed `toon` the other typed tools
+    // use: `prefetch.rs` reads `activity_list` and `count` at the top level
+    // (that one key instead of the whole reply is what keeps ~3k tokens per
+    // grounded turn out of the prompt) and the SDK models the siblings, so
+    // nesting the payload would break both.
+    let base = |activities, activities_toon, format: &str| ActivitiesPayload {
+        activity_list: activity_list.clone(),
+        activities,
+        activities_toon,
+        provider: provider_name.to_owned(),
+        count: activities_len,
+        mode: mode_used.to_owned(),
+        format: format.to_owned(),
+        format_fallback: None,
+        format_error: None,
+        offset: pagination.map(|p| p.offset),
+        limit: pagination.map(|p| p.limit),
+        has_more: pagination.map(|p| p.has_more),
+        token_estimate: token_estimate.clone(),
+        retrieval_context: retrieval_context.clone(),
+        coverage: None,
+        reconnect_required: None,
     };
 
-    // Surface honest window coverage when the served slice was truncated, so the
-    // LLM frames "N total in this window, showing the most recent M" instead of
-    // anchoring on the oldest shown activity. LLM-facing (tool result, not the
-    // input schema) → no SDK/contremaitre/locale drift.
-    if let Some(coverage) =
-        activity_coverage_note(window_total, activities.len(), window_span.as_ref())
-    {
-        if let Some(obj) = result_json.as_object_mut() {
-            obj.insert("coverage".to_owned(), coverage);
-        }
-    }
+    let (mut payload, format_used) = match output_format {
+        OutputFormat::Toon => match format_output(&data_value, OutputFormat::Toon) {
+            Ok(formatted) => (base(None, Some(formatted.data), "toon"), "toon"),
+            Err(e) => {
+                warn!("TOON serialization failed, falling back to JSON: {e}");
+                let mut fallen = base(Some(data_value), None, "json");
+                fallen.format_fallback = Some(true);
+                fallen.format_error = Some(e.to_string());
+                (fallen, "json")
+            }
+        },
+        OutputFormat::Json => (base(Some(data_value), None, "json"), "json"),
+    };
+
+    // Surface honest window coverage when the served slice was truncated, so
+    // the LLM frames "N total in this window, showing the most recent M"
+    // instead of anchoring on the oldest shown activity. LLM-facing (tool
+    // result, not the input schema) → no SDK/contremaitre/locale drift.
+    payload.coverage = activity_coverage_note(window_total, activities_len, window_span.as_ref());
 
     let metadata = build_activities_metadata(
         activities.len(),
@@ -1157,7 +1118,7 @@ pub(crate) fn build_activities_success_response(
     );
     UniversalResponse {
         success: true,
-        result: Some(result_json),
+        result: serde_json::to_value(payload).ok(),
         error: None,
         metadata: Some(metadata),
     }
@@ -1181,12 +1142,10 @@ pub(crate) async fn try_get_cached_athlete(
         );
         metadata.insert("cached".to_owned(), Value::Bool(true));
 
-        return Ok(Some(build_formatted_response(
-            &cached_athlete,
-            "athlete",
-            output_format,
-            metadata,
-        )?));
+        let payload = GetAthleteResult {
+            athlete: cached_athlete,
+        };
+        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
     }
     info!("Cache miss for athlete profile");
     Ok(None)
@@ -1223,7 +1182,7 @@ pub(crate) async fn fetch_and_cache_athlete(
             );
             metadata.insert("cached".to_owned(), Value::Bool(false));
 
-            build_formatted_response(&athlete, "athlete", output_format, metadata)
+            formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
         }
         Err(e) => Ok(UniversalResponse {
             success: false,
@@ -1308,12 +1267,10 @@ pub(crate) async fn try_get_cached_stats(
         );
         metadata.insert("cached".to_owned(), Value::Bool(true));
 
-        return Ok(Some(build_formatted_response(
-            &cached_stats,
-            "stats",
-            output_format,
-            metadata,
-        )?));
+        let payload = GetStatsResult {
+            stats: cached_stats,
+        };
+        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
     }
     info!("Cache miss for stats");
     Ok(None)
@@ -1417,5 +1374,5 @@ pub(crate) async fn fetch_and_cache_stats(
     }
 
     let metadata = create_stats_metadata(user_uuid, tenant_id, false);
-    build_formatted_response(&stats, "stats", output_format, metadata)
+    formatted_response(&GetStatsResult { stats }, output_format, metadata)
 }

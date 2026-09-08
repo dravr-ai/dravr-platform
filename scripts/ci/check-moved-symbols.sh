@@ -126,7 +126,34 @@ for f in "${changed_src[@]}"; do
           } | sort -u \
             | grep -v -F "$f" \
             | while IFS= read -r candidate; do
-                if grep -Eq "(^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|$)" "$candidate"; then
+                # The name has to appear in the SAME `use` statement as the old
+                # module path. Matching it anywhere in the file flagged every
+                # file that imports one item from the old module and the moved
+                # item from its new home — `data.rs` imports
+                # `resolve_provider_for_tool` from `provider_helpers` and
+                # `build_activities_success_response` from `fitness_support`,
+                # and read as an offender for a path it does not use.
+                #
+                # `use` statements run to their `;`, so join them first: a
+                # rustfmt-wrapped group puts the path and the name on
+                # different lines.
+                if awk -v path="$suffix" -v inner="$inner" -v item="$name" '
+                    /^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ { stmt = $0; collecting = 1 }
+                    collecting && !/^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ { stmt = stmt " " $0 }
+                    collecting && /;/ {
+                        collecting = 0
+                        # Either spelling reaches the module: another crate
+                        # writes it fully qualified, the owning crate writes
+                        # `crate::`.
+                        names_path = index(stmt, path "::") > 0 ||
+                            (inner != "" && index(stmt, "crate::" inner "::") > 0)
+                        if (names_path &&
+                            match(stmt, "(^|[^A-Za-z0-9_])" item "([^A-Za-z0-9_]|$)")) {
+                            found = 1
+                        }
+                    }
+                    END { exit(found ? 0 : 1) }
+                  ' "$candidate"; then
                     echo "$candidate"
                 fi
               done || true)"

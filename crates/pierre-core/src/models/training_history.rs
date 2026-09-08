@@ -23,7 +23,7 @@ use uuid::Uuid;
 /// them — e.g. ACWR needs at least 28 days of activity, monotony needs at
 /// least 7 days. `None` here is the deterministic-output rule applied to
 /// derived state: never substitute zero for "insufficient history".
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DailyTrainingState {
     /// Calendar date this row covers, on the athlete's own civil clock.
     ///

@@ -4,14 +4,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::format::{apply_format_to_response, extract_output_format};
+use crate::implementations::analytics::recommendations_output::{
+    CorePrinciples, RacePredictionSummary, RecommendationMetrics, RecommendationsResult,
+    TrainingSummary, WeekStructure,
+};
+use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
 use chrono::{Duration, Utc};
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
-use pierre_config::constants::time_constants;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::AppResult;
 use pierre_core::models::Activity;
@@ -55,7 +58,7 @@ async fn generate_recommendations_via_sampling(
     resources: &dyn ToolRuntime,
     activities: &[Activity],
     recommendation_type: &str,
-) -> AppResult<serde_json::Value> {
+) -> AppResult<RecommendationsResult> {
     use {Content, CreateMessageRequest, ModelPreferences, PromptMessage};
 
     // Prepare activity summary for LLM analysis
@@ -122,18 +125,89 @@ async fn generate_recommendations_via_sampling(
 
     let result = sampling_peer.create_message(request).await?;
 
-    // Parse LLM response as JSON
-    let response_text = &result.content.text;
-    serde_json::from_str::<serde_json::Value>(response_text).or_else(|_| {
-        // If LLM didn't return pure JSON, wrap the text in a response structure
-        Ok(serde_json::json!({
-            "recommendation_type": recommendation_type,
-            "recommendations": [response_text],
-            "priority": "medium",
-            "reasoning": "Generated via MCP sampling",
-            "source": "mcp_sampling"
-        }))
-    })
+    // Validate the model's reply against the shape this tool declares, and
+    // fall back when it does not fit. Passing an arbitrary `Value` through
+    // made whatever the client's LLM emitted the tool's answer unchecked —
+    // a contract no outputSchema could state, and third-party output landing
+    // in an athlete's coaching context unread.
+    Ok(sampled_or_wrapped(
+        &result.content.text,
+        recommendation_type,
+    ))
+}
+
+/// Take the model's reply when it fits the declared shape, and wrap it as
+/// prose when it does not.
+///
+/// Public within the crate so the wrapping has a test. The model is the one
+/// input this tool does not control, and "it fit" versus "it did not" is the
+/// whole of what an `outputSchema` promises here.
+#[must_use]
+pub fn sampled_or_wrapped(response_text: &str, recommendation_type: &str) -> RecommendationsResult {
+    let mut sampled =
+        serde_json::from_str::<RecommendationsResult>(response_text).unwrap_or_else(|_| {
+            base_recommendations(
+                recommendation_type,
+                "medium",
+                "Generated via MCP sampling".to_owned(),
+                vec![response_text.to_owned()],
+            )
+        });
+    // Ours either way: a model that names itself something else is not
+    // allowed to hide that a model wrote this.
+    sampled.source = Some("mcp_sampling".to_owned());
+    sampled
+}
+
+/// A metrics block with nothing measured, for a mode to fill the fields it
+/// does measure and leave the rest absent.
+const fn empty_metrics() -> RecommendationMetrics {
+    RecommendationMetrics {
+        avg_activities_per_week: None,
+        consistency_score: None,
+        volume_spike_detected: None,
+        ctl: None,
+        atl: None,
+        tsb: None,
+        hr_drift_detected: None,
+        risk_level: None,
+        pattern_detected: None,
+        pattern_description: None,
+        hard_percentage: None,
+        easy_percentage: None,
+        adequate_recovery: None,
+    }
+}
+
+/// The four fields every mode fills, so a new mode cannot forget one.
+pub(super) fn base_recommendations(
+    recommendation_type: &str,
+    priority: &str,
+    reasoning: String,
+    recommendations: Vec<String>,
+) -> RecommendationsResult {
+    RecommendationsResult {
+        recommendation_type: recommendation_type.to_owned(),
+        priority: priority.to_owned(),
+        reasoning,
+        recommendations,
+        source: None,
+        suggested_structure: Vec::new(),
+        recovery_status: None,
+        recovery_actions: Vec::new(),
+        intensity_guidance: Vec::new(),
+        primary_sport: None,
+        race_predictions: None,
+        periodization_phases: Vec::new(),
+        recovery_window: None,
+        key_insights: Vec::new(),
+        meal_suggestions: Vec::new(),
+        macronutrient_targets: None,
+        activity_summary: None,
+        training_summary: None,
+        core_principles: None,
+        metrics: None,
+    }
 }
 
 /// Generate personalized training recommendations
@@ -142,14 +216,14 @@ fn generate_training_recommendations(
     recommendation_type: &str,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
-) -> serde_json::Value {
+) -> RecommendationsResult {
     if activities.is_empty() {
-        return serde_json::json!({
-            "recommendation_type": recommendation_type,
-            "recommendations": ["Start with 2-3 easy activities per week to build base fitness"],
-            "priority": "medium",
-            "reasoning": "No recent training data available",
-        });
+        return base_recommendations(
+            recommendation_type,
+            "medium",
+            "No recent training data available".to_owned(),
+            vec!["Start with 2-3 easy activities per week to build base fitness".to_owned()],
+        );
     }
 
     // Filter to last 4 weeks for recommendation generation
@@ -161,12 +235,12 @@ fn generate_training_recommendations(
         .collect();
 
     if recent_activities.is_empty() {
-        return serde_json::json!({
-            "recommendation_type": recommendation_type,
-            "recommendations": ["Resume training gradually - start with 2-3 easy sessions per week"],
-            "priority": "high",
-            "reasoning": "No training activity in the last 4 weeks",
-        });
+        return base_recommendations(
+            recommendation_type,
+            "high",
+            "No training activity in the last 4 weeks".to_owned(),
+            vec!["Resume training gradually - start with 2-3 easy sessions per week".to_owned()],
+        );
     }
 
     match recommendation_type {
@@ -180,7 +254,9 @@ fn generate_training_recommendations(
         "goal_specific" => {
             generate_goal_specific_recommendations(&recent_activities, algorithm_config)
         }
-        "nutrition" => generate_nutrition_recommendations(&recent_activities),
+        "nutrition" => {
+            super::recommendations_nutrition::generate_nutrition_recommendations(&recent_activities)
+        }
         _ => generate_comprehensive_recommendations(&recent_activities, algorithm_config),
     }
 }
@@ -190,7 +266,7 @@ fn generate_training_plan_recommendations(
     activities: &[Activity],
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
-) -> serde_json::Value {
+) -> RecommendationsResult {
     // Analyze volume progression to detect spikes
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
     // The athlete's civil clock. Only the consistency score is read from this
@@ -264,39 +340,52 @@ fn generate_training_plan_recommendations(
 
     // Provide structured weekly plan based on consistency
     let suggested_structure = if weekly_schedule.avg_activities_per_week < 3.0 {
-        vec![serde_json::json!({
-            "focus": "Build frequency",
-            "sessions_per_week": 3,
-            "key_workouts": ["Easy run", "Tempo run", "Long run"],
-        })]
+        vec![WeekStructure {
+            focus: "Build frequency".to_owned(),
+            sessions_per_week_min: 3,
+            sessions_per_week_max: 3,
+            key_workouts: vec![
+                "Easy run".to_owned(),
+                "Tempo run".to_owned(),
+                "Long run".to_owned(),
+            ],
+        }]
     } else if weekly_schedule.avg_activities_per_week <= 5.0 {
-        vec![serde_json::json!({
-            "focus": "Balanced training",
-            "sessions_per_week": 4,
-            "key_workouts": ["2 easy runs", "1 quality session (intervals/tempo)", "1 long run"],
-        })]
+        vec![WeekStructure {
+            focus: "Balanced training".to_owned(),
+            sessions_per_week_min: 4,
+            sessions_per_week_max: 4,
+            key_workouts: vec![
+                "2 easy runs".to_owned(),
+                "1 quality session (intervals/tempo)".to_owned(),
+                "1 long run".to_owned(),
+            ],
+        }]
     } else {
-        vec![serde_json::json!({
-            "focus": "High volume management",
-            "sessions_per_week": "5-6",
-            "key_workouts": ["Mostly easy runs (80%)", "1-2 quality sessions", "1 long run"],
-        })]
+        vec![WeekStructure {
+            focus: "High volume management".to_owned(),
+            sessions_per_week_min: 5,
+            sessions_per_week_max: 6,
+            key_workouts: vec![
+                "Mostly easy runs (80%)".to_owned(),
+                "1-2 quality sessions".to_owned(),
+                "1 long run".to_owned(),
+            ],
+        }]
     };
 
-    serde_json::json!({
-        "recommendation_type": "training_plan",
-        "priority": priority,
-        "reasoning": reasoning,
-        "recommendations": recommendations,
-        "suggested_structure": suggested_structure,
-        "metrics": {
-            "avg_activities_per_week": weekly_schedule.avg_activities_per_week,
-            "consistency_score": weekly_schedule.consistency_score,
-            "volume_spike_detected": volume_pattern.volume_spikes_detected,
-            "ctl": training_load.as_ref().map(|l| l.ctl),
-            "atl": training_load.as_ref().map(|l| l.atl),
-        },
-    })
+    RecommendationsResult {
+        suggested_structure,
+        metrics: Some(RecommendationMetrics {
+            avg_activities_per_week: Some(weekly_schedule.avg_activities_per_week),
+            consistency_score: Some(weekly_schedule.consistency_score),
+            volume_spike_detected: Some(volume_pattern.volume_spikes_detected),
+            ctl: training_load.as_ref().map(|l| l.ctl),
+            atl: training_load.as_ref().map(|l| l.atl),
+            ..empty_metrics()
+        }),
+        ..base_recommendations("training_plan", priority, reasoning, recommendations)
+    }
 }
 
 /// Helper to process TSB status and add recommendations
@@ -404,7 +493,7 @@ const fn recovery_actions_for(band: FormBand) -> &'static [&'static str] {
 fn generate_recovery_recommendations(
     activities: &[Activity],
     algorithm_config: &AlgorithmConfig,
-) -> serde_json::Value {
+) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
@@ -463,29 +552,30 @@ fn generate_recovery_recommendations(
     // Provide recovery-specific tips for the band the narrative just reported
     let recovery_actions = recovery_actions_for(form_band);
 
-    serde_json::json!({
-        "recommendation_type": "recovery",
-        "priority": priority,
-        "reasoning": reasoning,
-        "recovery_status": recovery_status,
-        "recommendations": recommendations,
-        "recovery_actions": recovery_actions,
-        "metrics": {
-            "tsb": training_load.as_ref().map(|l| l.tsb),
-            "ctl": training_load.as_ref().map(|l| l.ctl),
-            "atl": training_load.as_ref().map(|l| l.atl),
-            "hr_drift_detected": overtraining_signals.hr_drift_detected,
-            "risk_level": match overtraining_signals.risk_level {
-                RiskLevel::Low => "low",
-                RiskLevel::Moderate => "moderate",
-                RiskLevel::High => "high",
-            },
-        },
-    })
+    RecommendationsResult {
+        recovery_status: Some(recovery_status.to_owned()),
+        recovery_actions: recovery_actions.iter().map(|a| (*a).to_owned()).collect(),
+        metrics: Some(RecommendationMetrics {
+            tsb: training_load.as_ref().map(|l| l.tsb),
+            ctl: training_load.as_ref().map(|l| l.ctl),
+            atl: training_load.as_ref().map(|l| l.atl),
+            hr_drift_detected: Some(overtraining_signals.hr_drift_detected),
+            risk_level: Some(
+                match overtraining_signals.risk_level {
+                    RiskLevel::Low => "low",
+                    RiskLevel::Moderate => "moderate",
+                    RiskLevel::High => "high",
+                }
+                .to_owned(),
+            ),
+            ..empty_metrics()
+        }),
+        ..base_recommendations("recovery", priority, reasoning, recommendations)
+    }
 }
 
 /// Generate intensity recommendations using hard/easy pattern detection
-fn generate_intensity_recommendations(activities: &[Activity]) -> serde_json::Value {
+fn generate_intensity_recommendations(activities: &[Activity]) -> RecommendationsResult {
     use PatternDetector;
 
     // Detect hard/easy pattern
@@ -501,12 +591,12 @@ fn generate_intensity_recommendations(activities: &[Activity]) -> serde_json::Va
             "Unable to detect clear intensity pattern - ensure heart rate data is available"
                 .to_owned(),
         );
-        return serde_json::json!({
-            "recommendation_type": "intensity",
-            "priority": "low",
-            "reasoning": "Insufficient heart rate data for analysis",
-            "recommendations": recommendations,
-        });
+        return base_recommendations(
+            "intensity",
+            "low",
+            "Insufficient heart rate data for analysis".to_owned(),
+            recommendations,
+        );
     }
 
     // Analyze 80/20 principle adherence
@@ -565,27 +655,28 @@ fn generate_intensity_recommendations(activities: &[Activity]) -> serde_json::Va
         ]
     };
 
-    serde_json::json!({
-        "recommendation_type": "intensity",
-        "priority": priority,
-        "reasoning": reasoning,
-        "recommendations": recommendations,
-        "intensity_guidance": intensity_guidance,
-        "metrics": {
-            "pattern_detected": pattern.pattern_detected,
-            "pattern_description": pattern.pattern_description,
-            "hard_percentage": pattern.hard_percentage,
-            "easy_percentage": pattern.easy_percentage,
-            "adequate_recovery": pattern.adequate_recovery,
-        },
-    })
+    RecommendationsResult {
+        intensity_guidance: intensity_guidance
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
+        metrics: Some(RecommendationMetrics {
+            pattern_detected: Some(pattern.pattern_detected),
+            pattern_description: Some(pattern.pattern_description.clone()),
+            hard_percentage: Some(pattern.hard_percentage),
+            easy_percentage: Some(pattern.easy_percentage),
+            adequate_recovery: Some(pattern.adequate_recovery),
+            ..empty_metrics()
+        }),
+        ..base_recommendations("intensity", priority, reasoning, recommendations)
+    }
 }
 
 /// Generate goal-specific recommendations using performance prediction
 fn generate_goal_specific_recommendations(
     activities: &[Activity],
     algorithm_config: &AlgorithmConfig,
-) -> serde_json::Value {
+) -> RecommendationsResult {
     use HashMap;
     use PerformancePredictor;
 
@@ -630,11 +721,15 @@ fn generate_goal_specific_recommendations(
         if let Ok(predictions) =
             PerformancePredictor::generate_race_predictions(distance, time, algorithm_config)
         {
-            race_predictions = Some(serde_json::json!({
-                "based_on": format!("{:.1}km in {}", distance / METERS_PER_KILOMETER, PerformancePredictor::format_time(time)),
-                "vdot": predictions.vdot,
-                "race_times": predictions.predictions,
-            }));
+            race_predictions = Some(RacePredictionSummary {
+                based_on: format!(
+                    "{:.1}km in {}",
+                    distance / METERS_PER_KILOMETER,
+                    PerformancePredictor::format_time(time)
+                ),
+                vdot: predictions.vdot,
+                race_times: predictions.predictions.clone(),
+            });
 
             recommendations.push(format!(
                 "Your VDOT is {:.1} - use this to set appropriate training paces",
@@ -658,204 +753,29 @@ fn generate_goal_specific_recommendations(
         recommendations.push("Gradually increase training volume by 5-10% per week".to_owned());
     }
 
-    serde_json::json!({
-        "recommendation_type": "goal_specific",
-        "priority": priority,
-        "reasoning": "Based on recent performance and sport type",
-        "primary_sport": primary_sport,
-        "recommendations": recommendations,
-        "race_predictions": race_predictions,
-        "periodization_phases": [
-            "Base Phase: Build aerobic foundation (4-8 weeks)",
-            "Build Phase: Add tempo and threshold work (4-6 weeks)",
-            "Peak Phase: Race-specific intensity (2-3 weeks)",
-            "Taper: Reduce volume, maintain sharpness (1-2 weeks)",
+    RecommendationsResult {
+        primary_sport: Some(primary_sport.to_owned()),
+        race_predictions,
+        periodization_phases: vec![
+            "Base Phase: Build aerobic foundation (4-8 weeks)".to_owned(),
+            "Build Phase: Add tempo and threshold work (4-6 weeks)".to_owned(),
+            "Peak Phase: Race-specific intensity (2-3 weeks)".to_owned(),
+            "Taper: Reduce volume, maintain sharpness (1-2 weeks)".to_owned(),
         ],
-    })
-}
-
-/// Generate nutrition recommendations based on recent activity
-/// Calculate activity nutrition metrics (duration, calories, intensity)
-fn calculate_nutrition_metrics(activity: &Activity) -> (f64, f64, &'static str) {
-    use time_constants;
-
-    let duration_hours = f64::from(
-        u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX))).unwrap_or(u32::MAX),
-    ) / time_constants::SECONDS_PER_HOUR_F64;
-
-    let calories_burned = f64::from(activity.calories().unwrap_or_else(|| {
-        let duration_mins = u32::try_from(activity.duration_seconds() / 60).unwrap_or(u32::MAX);
-        duration_mins * 10
-    }));
-
-    let intensity = activity.average_heart_rate().map_or(
-        if duration_hours > 1.5 {
-            "moderate"
-        } else {
-            "low"
-        },
-        |avg_hr| {
-            let avg_hr_f64 = f64::from(avg_hr);
-            if avg_hr_f64 > 160.0 {
-                "high"
-            } else if avg_hr_f64 > 130.0 {
-                "moderate"
-            } else {
-                "low"
-            }
-        },
-    );
-
-    (duration_hours, calories_burned, intensity)
-}
-
-/// Calculate macronutrient needs based on workout intensity and duration
-fn calculate_macronutrient_needs(intensity: &str, duration_hours: f64) -> (f64, f64, f64) {
-    let protein_g = if intensity == "high" || duration_hours > 1.5 {
-        30.0 + (duration_hours * 5.0).min(20.0)
-    } else {
-        20.0 + (duration_hours * 5.0).min(15.0)
-    };
-
-    let carbs_g = duration_hours * 70.0;
-    let hydration_ml = duration_hours * 750.0;
-
-    (protein_g, carbs_g, hydration_ml)
-}
-
-/// Build meal suggestions based on workout intensity
-fn build_meal_suggestions(intensity: &str) -> Vec<serde_json::Value> {
-    let mut suggestions = vec![
-        serde_json::json!({
-            "option": "Quick Recovery Shake",
-            "description": "Protein shake with banana and honey",
-            "protein_g": 25,
-            "carbs_g": 50,
-            "timing": "Immediate (0-15 min)"
-        }),
-        serde_json::json!({
-            "option": "Greek Yogurt Bowl",
-            "description": "200g Greek yogurt with granola, berries, and honey",
-            "protein_g": 20,
-            "carbs_g": 60,
-            "timing": "Within 30 minutes"
-        }),
-        serde_json::json!({
-            "option": "Recovery Meal",
-            "description": "Grilled chicken with sweet potato and vegetables",
-            "protein_g": 35,
-            "carbs_g": 50,
-            "timing": "Within 2 hours"
-        }),
-    ];
-
-    if intensity == "high" {
-        suggestions.push(serde_json::json!({
-            "option": "Endurance Option",
-            "description": "Pasta with lean meat sauce and mixed salad",
-            "protein_g": 30,
-            "carbs_g": 80,
-            "timing": "Within 2 hours"
-        }));
+        ..base_recommendations(
+            "goal_specific",
+            priority,
+            "Based on recent performance and sport type".to_owned(),
+            recommendations,
+        )
     }
-
-    suggestions
-}
-
-fn generate_nutrition_recommendations(activities: &[Activity]) -> serde_json::Value {
-    let most_recent = activities.iter().max_by_key(|a| a.start_date());
-
-    if most_recent.is_none() {
-        return serde_json::json!({
-            "recommendation_type": "nutrition",
-            "priority": "medium",
-            "reasoning": "No recent activity data available",
-            "recommendations": [
-                "Maintain balanced nutrition with adequate protein (1.6-2.2g/kg body weight)",
-                "Stay hydrated throughout the day (2-3 liters water)",
-                "Eat regular meals with complex carbohydrates, lean protein, and healthy fats"
-            ],
-        });
-    }
-
-    let Some(activity) = most_recent else {
-        return serde_json::json!({
-            "recommendations": ["No recent activities found for nutrition analysis"],
-        });
-    };
-
-    let (duration_hours, calories_burned, intensity) = calculate_nutrition_metrics(activity);
-    let (protein_g, carbs_g, hydration_ml) =
-        calculate_macronutrient_needs(intensity, duration_hours);
-
-    let mut recommendations = vec![
-        format!(
-            "Within 30 minutes: Consume {:.0}g protein and {:.0}g carbohydrates for optimal recovery",
-            protein_g,
-            carbs_g * 0.5
-        ),
-        format!(
-            "Rehydrate with {:.0}-{:.0}ml of water or electrolyte drink",
-            hydration_ml,
-            hydration_ml * 1.3
-        ),
-    ];
-
-    if intensity == "high" || duration_hours > 1.0 {
-        recommendations.push(
-            "Follow up with a complete meal within 2 hours to fully replenish glycogen stores"
-                .to_owned(),
-        );
-    }
-
-    let meal_suggestions = build_meal_suggestions(intensity);
-
-    let mut key_insights = vec![
-        format!(
-            "Activity burned approximately {:.0} calories",
-            calories_burned
-        ),
-        format!("Workout intensity: {intensity} - adjust nutrition accordingly"),
-    ];
-
-    if duration_hours > 1.5 {
-        key_insights
-            .push("Extended duration activity - prioritize carbohydrate replenishment".to_owned());
-    }
-
-    serde_json::json!({
-        "recommendation_type": "nutrition",
-        "priority": if intensity == "high" { "high" } else { "medium" },
-        "reasoning": format!(
-            "Based on {:.1} hour {intensity} intensity {:?} with {:.0} calories burned",
-            duration_hours,
-            activity.sport_type(),
-            calories_burned
-        ),
-        "recovery_window": "Critical recovery period: 0-2 hours post-workout",
-        "key_insights": key_insights,
-        "recommendations": recommendations,
-        "meal_suggestions": meal_suggestions,
-        "macronutrient_targets": {
-            "protein_g": protein_g.round(),
-            "carbohydrates_g": carbs_g.round(),
-            "hydration_ml": hydration_ml.round(),
-        },
-        "activity_summary": {
-            "name": &activity.name(),
-            "type": &activity.sport_type(),
-            "duration_minutes": activity.duration_seconds() / 60,
-            "distance_km": activity.distance_meters().map(|d| (d / 1000.0).round()),
-            "calories": calories_burned.round(),
-        }
-    })
 }
 
 /// Generate comprehensive recommendations combining all analyses
 fn generate_comprehensive_recommendations(
     activities: &[Activity],
     algorithm_config: &AlgorithmConfig,
-) -> serde_json::Value {
+) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
@@ -946,28 +866,31 @@ fn generate_comprehensive_recommendations(
     recommendations.push("Include 1-2 complete rest days per week".to_owned());
     recommendations.push("Prioritize sleep quality (7-9 hours per night)".to_owned());
 
-    serde_json::json!({
-        "recommendation_type": "comprehensive",
-        "priority": priority,
-        "reasoning": "Holistic analysis of training load, volume, and intensity patterns",
-        "key_insights": key_insights,
-        "recommendations": recommendations,
-        "training_summary": {
-            "activities_analyzed": activities.len(),
-            "ctl": training_load.as_ref().map(|l| l.ctl),
-            "atl": training_load.as_ref().map(|l| l.atl),
-            "tsb": training_load.as_ref().map(|l| l.tsb),
-            "volume_spike_detected": volume_pattern.volume_spikes_detected,
-            "intensity_pattern_detected": intensity_pattern.pattern_detected,
-            "overtraining_signals": overtraining.hr_drift_detected || overtraining.performance_decline,
-        },
-        "core_principles": {
-            "consistency": "Regular training beats sporadic hard efforts",
-            "recovery": "Fitness improves during rest, not during training",
-            "progression": "Increase volume gradually (10% rule)",
-            "intensity": "Follow 80/20 rule (80% easy, 20% hard)",
-        },
-    })
+    RecommendationsResult {
+        key_insights,
+        training_summary: Some(TrainingSummary {
+            activities_analyzed: activities.len(),
+            ctl: training_load.as_ref().map(|l| l.ctl),
+            atl: training_load.as_ref().map(|l| l.atl),
+            tsb: training_load.as_ref().map(|l| l.tsb),
+            volume_spike_detected: volume_pattern.volume_spikes_detected,
+            intensity_pattern_detected: intensity_pattern.pattern_detected,
+            overtraining_signals: overtraining.hr_drift_detected
+                || overtraining.performance_decline,
+        }),
+        core_principles: Some(CorePrinciples {
+            consistency: "Regular training beats sporadic hard efforts".to_owned(),
+            recovery: "Fitness improves during rest, not during training".to_owned(),
+            progression: "Increase volume gradually (10% rule)".to_owned(),
+            intensity: "Follow 80/20 rule (80% easy, 20% hard)".to_owned(),
+        }),
+        ..base_recommendations(
+            "comprehensive",
+            priority,
+            "Holistic analysis of training load, volume, and intensity patterns".to_owned(),
+            recommendations,
+        )
+    }
 }
 
 /// Handle `generate_recommendations` tool - generate training recommendations
@@ -1128,7 +1051,7 @@ pub fn handle_generate_recommendations(
 
                         let result = UniversalResponse {
                             success: true,
-                            result: Some(analysis),
+                            result: None,
                             error: None,
                             metadata: Some({
                                 let mut map = HashMap::new();
@@ -1140,12 +1063,7 @@ pub fn handle_generate_recommendations(
                             }),
                         };
 
-                        // Apply format transformation
-                        Ok(apply_format_to_response(
-                            result,
-                            "recommendations",
-                            output_format,
-                        ))
+                        apply_format_typed(result, analysis, output_format)
                     }
                     Err(e) => Ok(UniversalResponse {
                         success: false,

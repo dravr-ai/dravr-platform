@@ -49,7 +49,7 @@ pub struct ThresholdInputs {
 }
 
 /// Per-modality LT1 / LT2 estimates.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ThresholdEstimate {
     /// Aerobic threshold heart rate in bpm.
     #[serde(default, skip_serializing_if = "Option::is_none")]

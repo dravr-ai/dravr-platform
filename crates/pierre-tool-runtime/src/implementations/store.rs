@@ -31,6 +31,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::info;
 
@@ -48,13 +49,12 @@ use pierre_services::coach_store::{
 use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
-use super::coaches_tool_shape::{
-    extract_format, finalize_payload, read_only_annotations, write_annotations,
-};
+use super::coaches_tool_shape::{extract_format, read_only_annotations, write_annotations};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
+    answers_with, apply_format, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -82,17 +82,79 @@ pub fn create_store_tools() -> Vec<Box<dyn RuntimeTool>> {
 /// Project one store coach into the compact shape a coaching turn reasons
 /// over. The system prompt is never included: browse and search return many
 /// coaches, and the prompt is by far the largest field on the row.
-fn project(coach: &StoreCoach) -> Value {
-    json!({
-        "id": coach.id,
-        "title": coach.title,
-        "description": coach.description,
-        "category": coach.category.as_str(),
-        "tags": coach.tags,
-        "sample_prompts": coach.sample_prompts,
-        "install_count": coach.install_count,
-        "published_at": coach.published_at,
-    })
+fn project(coach: &StoreCoach) -> StoreCoachEntry {
+    StoreCoachEntry {
+        id: coach.id.to_string(),
+        title: coach.title.clone(),
+        description: coach.description.clone(),
+        category: coach.category.as_str().to_owned(),
+        tags: coach.tags.clone(),
+        sample_prompts: coach.sample_prompts.clone(),
+        install_count: coach.install_count,
+        published_at: coach.published_at.clone(),
+    }
+}
+
+/// One store coach as the browse, search and install tools report it.
+///
+/// The system prompt is deliberately absent. Browse and search return many
+/// coaches and the prompt is by far the largest field on the row; install
+/// echoes the same compact shape so a client renders one card either way.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct StoreCoachEntry {
+    /// Identifier `install_coach_from_store` takes.
+    pub id: String,
+    /// Display name, as its author wrote it.
+    pub title: String,
+    /// What the coach is for; absent when its author gave none.
+    pub description: Option<String>,
+    /// Which shelf it sits on.
+    pub category: String,
+    /// Free-form labels its author set.
+    pub tags: Vec<String>,
+    /// Openers the author suggests, for a client to offer as chips.
+    pub sample_prompts: Vec<String>,
+    /// How many athletes have installed it.
+    pub install_count: u32,
+    /// RFC 3339 timestamp of publication; absent while unpublished.
+    pub published_at: Option<String>,
+}
+
+/// What `browse_coach_store` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct BrowseCoachStoreResult {
+    /// The coaches on this page.
+    pub coaches: Vec<StoreCoachEntry>,
+    /// How many came back.
+    pub count: usize,
+    /// Whether another page follows.
+    pub has_more: bool,
+    /// The cursor that fetches it; absent on the last page.
+    pub next_cursor: Option<String>,
+}
+
+/// What `search_coach_store` answers with.
+///
+/// No cursor: search is a single ranked page, so there is nothing to page to.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SearchCoachStoreResult {
+    /// The query, echoed back.
+    pub query: String,
+    /// How many matched.
+    pub count: usize,
+    /// The matches.
+    pub coaches: Vec<StoreCoachEntry>,
+}
+
+/// What `install_coach_from_store` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct InstallCoachFromStoreResult {
+    /// Always true: the tool errors rather than reporting a failed install.
+    pub installed: bool,
+    /// The installed copy, in the same shape browse and search send.
+    pub coach: StoreCoachEntry,
+    /// What to tell the athlete, already written for them.
+    pub message: String,
 }
 
 /// Read `limit` from tool arguments, clamped to the store's page bounds.
@@ -155,7 +217,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
         );
         let schema = object_schema(properties, None);
 
-        tool_definition(
+        answers_with::<Formatted<BrowseCoachStoreResult>>(tool_definition(
             "browse_coach_store",
             "Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use \
              this when the athlete asks what agents exist, or for an agent of a given kind they \
@@ -163,7 +225,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
              ALREADY in their library. Returns a page plus a `next_cursor` for the following one.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -202,14 +264,13 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
             };
 
             let page = browse_store(&repos, viewer_tenant, &params, &locale).await?;
-            let coaches: Vec<Value> = page.coaches.iter().map(project).collect();
-            let payload = json!({
-                "coaches": coaches,
-                "count": page.coaches.len(),
-                "has_more": page.has_more,
-                "next_cursor": page.next_cursor,
-            });
-            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            let payload = BrowseCoachStoreResult {
+                count: page.coaches.len(),
+                coaches: page.coaches.iter().map(project).collect(),
+                has_more: page.has_more,
+                next_cursor: page.next_cursor,
+            };
+            ok_typed("browse_coach_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -245,7 +306,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
         );
         let schema = object_schema(properties, Some(vec!["query".to_owned()]));
 
-        tool_definition(
+        answers_with::<Formatted<SearchCoachStoreResult>>(tool_definition(
             "search_coach_store",
             "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or \
              'vegetarian nutrition'. Searches the whole marketplace, unlike `search_coaches`, \
@@ -253,7 +314,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
              `install_coach_from_store`.",
             schema,
             Some(read_only_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -287,13 +348,13 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
             let repos = context.resources.data().repos().coach_repos();
             let locale = athlete_locale(&context).await;
             let coaches = search_store(&repos, query, Some(limit_arg(&args)), &locale).await?;
-            let rendered: Vec<Value> = coaches.iter().map(project).collect();
-            let payload = json!({
-                "query": query,
-                "count": rendered.len(),
-                "coaches": rendered,
-            });
-            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            let rendered: Vec<StoreCoachEntry> = coaches.iter().map(project).collect();
+            let payload = SearchCoachStoreResult {
+                query: query.to_owned(),
+                count: rendered.len(),
+                coaches: rendered,
+            };
+            ok_typed("search_coach_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -321,7 +382,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
         );
         let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
 
-        tool_definition(
+        answers_with::<Formatted<InstallCoachFromStoreResult>>(tool_definition(
             "install_coach_from_store",
             "Install a published Agent Store agent into the athlete's own library, creating their \
              personal copy. Call it only once the athlete has asked for that specific agent — \
@@ -329,7 +390,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
              `activate_coach` makes it the agent that answers.",
             schema,
             Some(write_annotations()),
-        )
+        ))
     }
 
     fn capabilities(&self) -> TroncCapabilities {
@@ -374,15 +435,16 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 "install_coach_from_store: coach installed from the store"
             );
 
-            let payload = json!({
-                "installed": true,
-                "coach": project(&installed),
-                "message": format!(
+            let payload = InstallCoachFromStoreResult {
+                installed: true,
+                // "agent library": main renamed the athlete-facing persona.
+                message: format!(
                     "'{}' is now in your agent library. Activate it to start using it.",
                     installed.title
                 ),
-            });
-            Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+                coach: project(&installed),
+            };
+            ok_typed("install_coach_from_store", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)

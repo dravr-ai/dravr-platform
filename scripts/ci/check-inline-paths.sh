@@ -41,7 +41,24 @@ HITS=$(
         [ -f "$f" ] || continue
         awk '
             /^[[:space:]]*(\/\/|\/\*|\*)/            { next }   # comments and doc comments
-            /^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ { next }   # use declarations
+            # Use declarations, including the continuation lines of a
+            # multi-line one. Skipping only the opening line left the body of
+            #   use {
+            #       crate::runtime::ToolRuntime, std::sync::Arc,
+            #   };
+            # exposed, and a path inside an import is not an inline path —
+            # clippy::absolute_paths never fires on `use`, so reporting it
+            # blocks a push for a line whose only fix is to stop importing.
+            /^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ {
+                depth = gsub(/\{/, "{") - gsub(/\}/, "}")
+                if (depth > 0) in_use = 1
+                next
+            }
+            in_use {
+                depth += gsub(/\{/, "{") - gsub(/\}/, "}")
+                if (depth <= 0) in_use = 0
+                next
+            }
             # Attributes, including the continuation lines of a multi-line one.
             # Skipping only the opening `#[` left the body of
             #   #[deprecated(

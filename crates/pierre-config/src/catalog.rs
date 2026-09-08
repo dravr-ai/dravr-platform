@@ -10,7 +10,7 @@ use super::runtime::ConfigValue;
 use serde::{Deserialize, Serialize};
 
 /// Complete configuration catalog
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConfigCatalog {
     /// Configuration categories
     pub categories: Vec<ConfigCategory>,
@@ -21,7 +21,7 @@ pub struct ConfigCatalog {
 }
 
 /// Configuration category
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConfigCategory {
     /// Category name
     pub name: String,
@@ -32,7 +32,7 @@ pub struct ConfigCategory {
 }
 
 /// Configuration module
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConfigModule {
     /// Module name
     pub name: String,
@@ -43,7 +43,7 @@ pub struct ConfigModule {
 }
 
 /// Configuration parameter definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConfigParameter {
     /// Parameter key (e.g., `heart_rate.anaerobic_threshold`)
     pub key: String,
@@ -64,7 +64,7 @@ pub struct ConfigParameter {
 }
 
 /// Parameter data types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ParameterType {
     /// Floating-point numeric value
