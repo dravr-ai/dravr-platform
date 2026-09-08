@@ -79,8 +79,10 @@ session_started_epoch() {
     local f
     f=$(ledger_file) || return 1
     [ -s "$f" ] || return 1
-    date -j -f '%Y-%m-%dT%H:%M:%SZ' "$(head -1 "$f" | jq -r '.at // empty')" +%s 2>/dev/null \
-        || date -d "$(head -1 "$f" | jq -r '.at // empty')" +%s 2>/dev/null
+    # -u: the ledger stamp is UTC, and BSD date otherwise reads it as local time, which put
+    # the session's start hours in the future and made every stash look older than the session.
+    date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$(head -1 "$f" | jq -r '.at // empty')" +%s 2>/dev/null \
+        || date -u -d "$(head -1 "$f" | jq -r '.at // empty')" +%s 2>/dev/null
 }
 
 transcript_path() {
@@ -716,9 +718,20 @@ score() {
     printf '%s' "$min"
 }
 
+score_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').score"; }
+
+publish_score() { # <score>
+    local f top
+    f=$(score_file) || return 0
+    mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
+    top=$(sort -n "$CAPS" 2>/dev/null | head -1 | cut -f3 | cut -c1-60)
+    printf '%s\t%s\t%s\n' "$1" "$(date +%s)" "${top:-nothing outstanding}" > "$f" 2>/dev/null || true
+}
+
 report() {
     local s f_errors f_interrupts f_denials fr icon ev rem c line
     s=$(score)
+    publish_score "$s"
     fr=$(friction_line)
     [ -n "$fr" ] || fr=$(printf '0\t0\t0')
     IFS=$'\t' read -r f_errors f_interrupts f_denials <<< "$fr"

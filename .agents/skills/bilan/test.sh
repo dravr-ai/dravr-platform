@@ -298,10 +298,17 @@ for i in 1 2 3 4 5; do
 done
 # One block per session, ever. A block re-invokes the model on the whole conversation, so a
 # second telling costs a full turn's tokens and adds nothing the first did not say.
-check "the gate blocks at most once per session" 1 \
+check "the gate blocks once, then holds its cooldown" 1 \
     "$(grep -c '^block$' "$CFG/blocks.txt")"
-check "and is silent for every attempt after that" 4 \
+check "and is silent for every attempt inside it" 4 \
     "$(grep -c '^-$' "$CFG/blocks.txt")"
+# ...but it must NOT stand down forever: a session held carnet#384 for nineteen hours after its
+# one and only block, and ChefFamille had to find it by hand.
+st="$CFG/bilan/$(printf '%s' "$SID" | tr -c 'a-zA-Z0-9._-' '_').json"
+check "the block was recorded with a timestamp" 1 "$([ -f "$st" ] && jq -e 'has("blockedAt")' "$st" >/dev/null && echo 1 || echo 0)"
+old=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+jq --arg a "$old" '.blockedAt = $a' "$st" > "$st.tmp" && mv "$st.tmp" "$st"
+check "after the cooldown expires it blocks again" block "$(gate false | jq -r '.decision // empty')"
 git -C "$R" reset -q HEAD -- . 2>/dev/null; rm -f "$R"/churn-*.txt
 
 # A cap of 9 is reported but never worth refusing a stop over.
