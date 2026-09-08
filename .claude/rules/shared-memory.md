@@ -1,7 +1,12 @@
 # Shared platform memory
 
-343 verified facts about this system live in the team vault at
+Several hundred verified facts about this system live in the team vault at
 `../dravr-vault/Claude Memory/platform/` — one file per fact, each with a `description:` line.
+Count them rather than trusting a number written here, because the count only ever grows:
+
+```bash
+ls "../dravr-vault/Claude Memory/platform/"*.md | wc -l    # 354 on 2026-09-08
+```
 
 **They are NOT in your context.** They are shared across every developer and
 session through git, so before concluding something is unknown — a past decision,
@@ -15,7 +20,8 @@ rg -I "^description:" "../dravr-vault/Claude Memory/platform/"              # sk
 In a Claude Code for Web session the vault is a cloned snapshot that can be ~7 days
 stale, so `git -C ../dravr-vault pull` before treating a fact as current.
 
-What is covered, by topic:
+What is covered. The per-topic figures are a hand-classified snapshot and sum to fewer than
+the total above — treat them as relative weight, not as a census:
 
 - **provider capture & sciotte** (37)
 - **messaging & chat surfaces** (23)
