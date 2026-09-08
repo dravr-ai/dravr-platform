@@ -147,9 +147,10 @@ this sha at **9**. One open issue holds the whole session at 6 no matter how muc
 - **Failures never deduct.** A red that is now green, a mistake found and fixed, a rough path:
   none of it lowers the number. It measures completion, and only completion. Friction counts
   (tool errors, interrupts, denials) are printed for context and cap nothing.
-- **The Stop hook runs the same measurement** and refuses the first stop while the state is
-  dirty, once per distinct state signature. After it has told you, the outstanding work is
-  yours, not the hook's.
+- **The Stop hook runs the same measurement** and refuses the first stop while the score is 8 or
+  below, once per distinct state signature. A 9 — an untracked file, CI still running — is
+  reported and never blocks. After it has told you, the outstanding work is yours, not the
+  hook's.
 - It answers *finished*, never *good*. A green bilan on a wrong implementation is still wrong —
   that is what `/code-review` is for.
 </important>

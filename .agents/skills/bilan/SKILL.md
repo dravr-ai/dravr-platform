@@ -61,9 +61,13 @@ your score.
 **`/bilan`** — on demand, the full measurement including CI.
 
 **The Stop gate** (`hooks/stop-gate.sh`) — refuses the first stop while the state is dirty and
-sends the session back to work with the list. It blocks **once per distinct state signature**:
-fix one thing and it speaks again about what is left; fix nothing and it stays quiet, because
-after it has told you the outstanding work is your accountability, not the hook's.
+sends the session back to work with the list. Two things bound it. It blocks **only at 8 or
+below**, so a stray untracked file or a CI run still in flight is reported without interrupting
+anyone — what blocks is a held carnet issue, an unregistered marker, uncommitted tracked files,
+unpushed commits, red CI. And it blocks **once per distinct state signature**: fix one thing and
+it speaks again about what is left; fix nothing and it stays quiet, because after it has told
+you the outstanding work is your accountability, not the hook's. The reason it prints lists
+every cap, including the 9s, so the threshold decides when to interrupt and never what to hide.
 
 **The startup sweep** (`hooks/session-start-sweep.sh`) — the only cover for a session that was
 killed. A `kill -9`, a closed terminal or an exhausted context fires no exit hook, so the dead

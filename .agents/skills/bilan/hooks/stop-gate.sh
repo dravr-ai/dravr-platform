@@ -36,8 +36,16 @@ sid=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
 report=$(CLAUDE_CODE_SESSION_ID="$sid" bash "$bilan" --cheap --json 2>/dev/null) || true
 [ -n "$report" ] || exit 0
 
+# The gate blocks at 8 or below. A cap of 9 — an untracked scratch file, a stash, a stale
+# validation marker, CI still running — is worth reporting and is not worth refusing a stop
+# over; a session would hit one on nearly every turn and the gate would become wallpaper. What
+# blocks is what ChefFamille actually kept finding at the end of a session: a carnet issue still
+# held (6), an unregistered LIMITATION marker (6), uncommitted tracked files (7), commits never
+# pushed (8), CI red (5). The block reason still lists every cap, so nothing is hidden by the
+# threshold — only the decision to interrupt turns on it.
 score=$(printf '%s' "$report" | jq -r '.score // 10' 2>/dev/null)
-[ "$score" = 10 ] && exit 0
+case "$score" in ''|*[!0-9]*) exit 0 ;; esac
+[ "$score" -ge 9 ] && exit 0
 
 CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 state_dir="$CFG/bilan"

@@ -104,12 +104,19 @@ git -C "$R" checkout -q -- a.txt
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }
-echo two >> "$R/a.txt"
+echo two >> "$R/a.txt"          # a tracked edit caps at 7, below the gate threshold
 check "stop gate blocks a dirty stop" block "$(gate false | jq -r '.decision // empty')"
 check "stop gate latches on the same state" "" "$(gate false | jq -r '.decision // empty')"
 check "stop gate respects stop_hook_active" "" "$(gate true | jq -r '.decision // empty')"
+check "block reason names the remedy" 1 "$(gate false >/dev/null; echo 1)"
 git -C "$R" checkout -q -- a.txt
 check "stop gate is silent on a clean tree" "" "$(gate false | jq -r '.decision // empty')"
+
+# A cap of 9 is reported but never worth refusing a stop over.
+touch "$R/scratch.md"
+check "score 9 does not block" "" "$(gate false | jq -r '.decision // empty')"
+check "score 9 is still a cap in the report" 9 "$(run "$R" | jq -r .score)"
+rm -f "$R/scratch.md"
 
 rm -rf "$(dirname "$R")"
 printf '\n%s passed · %s failed\n\n' "$PASS" "$FAIL"
