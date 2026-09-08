@@ -56,12 +56,16 @@ check "clean repo exits 0" 0 "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CO
 echo two >> "$R/a.txt"
 out=$(run "$R")
 check "uncommitted tracked change caps at 7" 7 "$(printf '%s' "$out" | jq -r .score)"
+check "the evidence names the file" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("a\\.txt"))] | length')"
 git -C "$R" checkout -q -- a.txt
 
 # ---- untracked file caps at 9, not 7
 touch "$R/stray.md"
 out=$(run "$R")
 check "untracked file caps at 9" 9 "$(printf '%s' "$out" | jq -r .score)"
+check "the untracked evidence names the file" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("stray\\.md"))] | length')"
 rm -f "$R/stray.md"
 
 # ---- unpushed commit caps at 8

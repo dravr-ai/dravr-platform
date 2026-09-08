@@ -85,18 +85,38 @@ transcript_path() {
 }
 
 # ------------------------------------------------------------------ checks · git
+# Several sessions share the main worktree, so "5 tracked files modified" is not enough to act
+# on: the first live block this gate ever issued was for a peer's embacle pin bump, and the
+# count alone gave no way to see that. Name the files. Ownership is not decidable from here —
+# most edits in this repo go through Bash, so the transcript's file_path arguments see only some
+# of them, and mtime is not authorship — so the gate names what it found, blocks once, and
+# leaves the judgement to the session.
+name_files() { # <max> <newline-separated paths>
+    local max=$1 list names count
+    list=$(printf '%s\n' "$2" | grep -v '^$')
+    count=$(printf '%s\n' "$list" | wc -l | tr -d ' ')
+    names=$(printf '%s\n' "$list" | head -"$max" | tr '\n' ' ')
+    if [ "$count" -gt "$max" ]; then
+        printf '%s and %s more' "$names" "$((count - max))"
+    else
+        printf '%s' "${names% }"
+    fi
+}
+
 check_worktree() {
-    local porcelain tracked untracked
+    local porcelain tracked untracked t_n u_n
     porcelain=$(git status --porcelain 2>/dev/null)
     [ -n "$porcelain" ] || return 0
-    tracked=$(printf '%s\n' "$porcelain" | grep -cv '^??' || true)
-    untracked=$(printf '%s\n' "$porcelain" | grep -c '^??' || true)
-    if [ "${tracked:-0}" -gt 0 ]; then
-        cap 7 "❌" "$tracked tracked file(s) modified and uncommitted" \
-              "commit them, or say why they are deliberately unstaged"
+    tracked=$(printf '%s\n' "$porcelain" | grep -v '^??' | sed 's/^...//')
+    untracked=$(printf '%s\n' "$porcelain" | grep '^??' | sed 's/^...//')
+    t_n=$(printf '%s\n' "$tracked" | grep -cv '^$')
+    u_n=$(printf '%s\n' "$untracked" | grep -cv '^$')
+    if [ "${t_n:-0}" -gt 0 ]; then
+        cap 7 "❌" "$t_n tracked file(s) modified and uncommitted: $(name_files 8 "$tracked")" \
+              "commit them — or, if they are a peer's work in a shared worktree, say so and leave them alone"
     fi
-    if [ "${untracked:-0}" -gt 0 ]; then
-        cap 9 "⚠️" "$untracked untracked file(s) in the worktree" \
+    if [ "${u_n:-0}" -gt 0 ]; then
+        cap 9 "⚠️" "$u_n untracked file(s): $(name_files 8 "$untracked")" \
               "add them, delete them, or move them to the scratchpad"
     fi
 }
