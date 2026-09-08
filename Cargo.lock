@@ -3550,8 +3550,8 @@ dependencies = [
 
 [[package]]
 name = "photograveur"
-version = "0.3.0"
-source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.3.0#a9f72c27affed11801d31259f978c7b3c9c71628"
+version = "0.3.1"
+source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.3.1#9d0d0d650aecfd2095adb0454311d15d3226a0b9"
 dependencies = [
  "chrono",
  "serde",

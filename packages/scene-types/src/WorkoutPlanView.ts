@@ -3,17 +3,19 @@
 /**
  * A training plan, carried verbatim.
  *
- * The platform validates it against `structured-workout.schema.json` before it
- * is ever stored, so this crate neither re-validates nor reshapes it — doing
- * either would make photograveur a second authority on a format contremaitre
- * owns.
+ * The plan is the platform's own projection of the plan an athlete saved: the
+ * phases of the season with the current one flagged, and the weeks of dated
+ * days with their session steps. The platform is the one authority on that
+ * shape, so this crate neither validates nor reshapes it — doing either would
+ * make photograveur a second authority on a projection the platform owns.
  */
 export type WorkoutPlanView = { 
 /**
- * The plan document, exactly as the agent emitted it.
+ * The platform's projection of the saved plan, exactly as it was handed
+ * over.
  */
 plan: unknown, 
 /**
- * The tool the plan was built from.
+ * The tool whose call produced the plan.
  */
 source_tool: string, };
