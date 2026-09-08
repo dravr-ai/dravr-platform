@@ -98,6 +98,23 @@ impl LlmCallRecorder for UsageRepoCallRecorder {
                 cost_usd = cost_usd,
                 "llm call cost"
             );
+            // A real LLM call that accounts for nothing is the silent failure
+            // this warning exists to surface: the row lands priced at zero and,
+            // with no `_estimated` suffix, reads downstream as a measured zero
+            // rather than a missing measurement. It never fails the turn —
+            // losing an accounting row beats failing the athlete — but it must
+            // not pass unseen the way it did for 163 rows in 2026.
+            if record.is_unaccounted() {
+                warn!(
+                    provider = %record.provider,
+                    model = %record.model,
+                    call_type = base_call_type,
+                    success = record.success,
+                    latency_ms = record.latency_ms,
+                    "llm_usage row accounts for nothing: provider reported no usage and no text \
+                     reached the estimator, so this call is recorded as free"
+                );
+            }
             let call_type_owned = if record.token_counts_estimated {
                 format!("{base_call_type}_estimated")
             } else {

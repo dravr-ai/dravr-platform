@@ -25,7 +25,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use pierre_core::llm::TokenUsage;
-use pierre_tool_runtime::llm_call_record::recorded_token_counts;
+use pierre_tool_runtime::llm_call_record::{recorded_token_counts, LlmCallRecord};
 
 /// A realistic assembled prefix: system prompt + tool surface + history.
 /// `48_000` chars is the middle of the 40-55K-token band the ACP path re-sends
@@ -92,5 +92,64 @@ fn a_call_with_no_text_and_no_usage_stays_an_honest_zero() {
         !estimated,
         "nothing was measured and nothing was estimated; marking this estimated would claim \
          a count that was never derived"
+    );
+}
+
+/// A record shaped like a real call, with the counts left to each test.
+fn record(prompt: i64, completion: i64, reasoning: i64, estimated: bool) -> LlmCallRecord {
+    LlmCallRecord {
+        provider: "copilot_headless".to_owned(),
+        model: "claude-sonnet-5".to_owned(),
+        prompt_tokens: prompt,
+        completion_tokens: completion,
+        cached_tokens: 0,
+        cached_write_tokens: 0,
+        reasoning_tokens: reasoning,
+        latency_ms: 1200,
+        success: true,
+        call_sequence: Some(1),
+        token_counts_estimated: estimated,
+        tools_called: Vec::new(),
+    }
+}
+
+#[test]
+fn the_historical_shape_is_recognised_as_unaccounted() {
+    assert!(
+        record(0, 0, 0, false).is_unaccounted(),
+        "all counts zero with no estimated marker is exactly the row written 163 times \
+         between March and June 2026 — priced at zero and indistinguishable downstream \
+         from a measured zero"
+    );
+}
+
+#[test]
+fn a_failed_leg_carrying_its_prompt_is_accounted() {
+    assert!(
+        !record(12_000, 0, 0, true).is_unaccounted(),
+        "the error paths now estimate the prompt they sent; that is a measurement, not a gap"
+    );
+}
+
+#[test]
+fn a_provider_reported_call_is_accounted() {
+    assert!(!record(31, 7, 0, false).is_unaccounted());
+}
+
+#[test]
+fn a_reasoning_only_call_is_accounted() {
+    assert!(
+        !record(0, 0, 44, false).is_unaccounted(),
+        "reasoning tokens are billed at the output rate, so a row carrying only them still \
+         accounts for real spend"
+    );
+}
+
+#[test]
+fn an_estimated_zero_is_not_flagged() {
+    assert!(
+        !record(0, 0, 0, true).is_unaccounted(),
+        "an estimator that measured an empty prompt reported a value; the marker says the \
+         count was derived, and that is the distinction the flag turns on"
     );
 }

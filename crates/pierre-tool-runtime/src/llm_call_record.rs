@@ -98,6 +98,33 @@ pub struct LlmCallRecord {
     pub tools_called: Vec<String>,
 }
 
+impl LlmCallRecord {
+    /// True when this record accounts for nothing at all.
+    ///
+    /// A record reaches the sink for a real LLM invocation, so every one of
+    /// them cost something. All counts zero with [`Self::token_counts_estimated`]
+    /// unset means the provider reported no usage **and** no text reached the
+    /// estimator — the row lands priced at zero and, because it carries no
+    /// `_estimated` suffix, reads downstream as a measured zero rather than a
+    /// missing measurement.
+    ///
+    /// That is not hypothetical. 163 of 454 real `chat`/`messaging` rows
+    /// between March and June 2026 were written this way, so a COGS query over
+    /// that window reads about a third of production LLM calls as free. The
+    /// two fixes that closed it — character-based estimation on the success
+    /// path, then the prompt-only arm on the error paths — each landed for its
+    /// own reason, and nothing asserted the invariant they jointly restored.
+    /// A third provider path that reports no usage and passes no text would
+    /// reintroduce it in silence.
+    #[must_use]
+    pub const fn is_unaccounted(&self) -> bool {
+        !self.token_counts_estimated
+            && self.prompt_tokens == 0
+            && self.completion_tokens == 0
+            && self.reasoning_tokens == 0
+    }
+}
+
 /// Sink that receives one [`LlmCallRecord`] per LLM call.
 ///
 /// Implementations persist the record (typically to `llm_usage`) so
