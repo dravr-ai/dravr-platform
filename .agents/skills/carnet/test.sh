@@ -13,22 +13,35 @@ cleanup() { [ -z "$peer_pid" ] || kill "$peer_pid" 2>/dev/null || true; rm -rf "
 trap cleanup EXIT
 
 # ------------------------------------------------------------------ stub gh
-# Reads come from canned files under $CARNET_STUB; every call is appended to calls.log, with
-# the content of any --body-file captured because carnet.sh deletes that temp file afterwards.
+# Reads come from canned files under $CARNET_STUB; every call is appended to calls.log. A
+# comment and a new issue travel as a JSON payload file (--input) that carnet.sh deletes
+# afterwards, so the stub unwraps .body and .title out of it and logs them as BODY and TITLE.
 mkdir -p "$tmp/bin" "$tmp/stub"
 cat > "$tmp/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 S=$CARNET_STUB
-body=""; prev=""
-for a in "$@"; do [ "$prev" = "--body-file" ] && body=$(cat "$a"); prev=$a; done
-{ printf 'CALL %s\n' "$*"; [ -z "$body" ] || printf 'BODY %s\n' "$body"; printf 'END\n'; } >> "$S/calls.log"
+body=""; title=""; labels=""; prev=""
+for a in "$@"; do
+    if [ "$prev" = "--input" ]; then
+        body=$(jq -r '.body // empty' "$a" 2>/dev/null || true)
+        title=$(jq -r '.title // empty' "$a" 2>/dev/null || true)
+        labels=$(jq -r '.labels // [] | join(",")' "$a" 2>/dev/null || true)
+    fi
+    prev=$a
+done
+{ printf 'CALL %s\n' "$*"
+  [ -z "$title" ]  || printf 'TITLE %s\n' "$title"
+  [ -z "$labels" ] || printf 'LABELS %s\n' "$labels"
+  [ -z "$body" ]  || printf 'BODY %s\n' "$body"
+  printf 'END\n'; } >> "$S/calls.log"
+# Order matters: /issues/N/comments and /issues?query both also match the bare-read pattern.
 case "$1 $2" in
     "api user")                 printf 'tester\n' ;;
     "api repos/"*"/comments")   cat "$S/comments.txt" 2>/dev/null || true ;;
-    "issue view")               cat "$S/issue.json" ;;
-    "issue list")               cat "$S/list.txt" 2>/dev/null || true ;;
-    "issue create")             printf 'https://github.com/dravr-ai/dravr-carnet/issues/321\n' ;;
-    "repo view")                cat "$S/private.txt" 2>/dev/null || printf 'true\n' ;;
+    "api repos/"*"/issues?"*)   cat "$S/list.txt" 2>/dev/null || true ;;
+    "api repos/"*"/issues")     printf 'https://github.com/dravr-ai/dravr-carnet/issues/321\n' ;;
+    "api repos/"*"/issues/"*)   cat "$S/issue.json" ;;
+    "api repos/"*)              cat "$S/private.txt" 2>/dev/null || printf 'true\n' ;;
     *) : ;;
 esac
 exit 0
@@ -64,8 +77,8 @@ printf '{"pid":%s,"sessionId":"%s","name":"PeerSession"}\n' "$peer_pid" "$PEER" 
 
 # ------------------------------------------------------------------ fixtures
 issue() { # <state> <labels-json> <assignees-json>
-    printf '{"number":42,"title":"[test] Thing","url":"https://github.com/dravr-ai/dravr-carnet/issues/42","state":"%s","labels":%s,"assignees":%s}\n' \
-        "$1" "$2" "$3" > "$S/issue.json"
+    printf '{"number":42,"title":"[test] Thing","html_url":"https://github.com/dravr-ai/dravr-carnet/issues/42","state":"%s","labels":%s,"assignees":%s}\n' \
+        "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" "$2" "$3" > "$S/issue.json"
 }
 issue_open()   { issue OPEN '[{"name":"dravr-test"}]' '[]'; }
 issue_held()   { issue OPEN '[{"name":"dravr-test"},{"name":"in-progress"}]' '[{"login":"tester"}]'; }
@@ -91,7 +104,7 @@ assert_grep() { # <desc> <regex> <file>
 }
 assert_no_grep() { if grep -qE -- "$2" "$3"; then bad "$1 — found /$2/ in $(basename "$3")"; else ok "$1"; fi; }
 count_calls() { grep -cE "^CALL $1" "$S/calls.log" || true; }
-WRITES='issue (edit|comment|close|create)'
+WRITES='api .* -X (POST|DELETE|PATCH)'
 
 run_carnet() { # args... ; sets rc, writes $tmp/out and $tmp/err
     rc=0
@@ -114,7 +127,8 @@ section "claim"
 reset
 run_carnet claim 42
 assert_eq "claim on an unclaimed issue exits 0" "$rc" 0
-assert_grep "assigns me and adds the label" 'issue edit 42 -R dravr-ai/dravr-carnet --add-assignee tester --add-label in-progress' "$S/calls.log"
+assert_grep "assigns me" 'issues/42/assignees -X POST -f assignees\[\]=tester' "$S/calls.log"
+assert_grep "adds the label" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 assert_grep "posts a claim marker" '^BODY <!-- carnet-claim \{"v":1,"session":"11111111' "$S/calls.log"
 assert_grep "marker carries the session name" '"name":"TestSession"' "$S/calls.log"
 assert_grep "marker carries repo and branch" '"repo":"dravr-test","branch":"main"' "$S/calls.log"
@@ -126,19 +140,19 @@ comments < <(claim_marker "$ME" TestSession tester "$HOST" "$$")
 run_carnet claim 42
 assert_eq "claim on my own claim is a no-op" "$rc" 0
 assert_grep "says so" "already held by this session" "$tmp/out"
-assert_eq "no tracker write" "$(count_calls 'issue edit')" 0
+assert_eq "no tracker write" "$(count_calls "$WRITES")" 0
 
 reset
 comments < <(claim_marker "$PEER" PeerSession peer "$HOST" "$peer_pid")
 run_carnet claim 42
 assert_eq "refuses a claim held by a live session on this host" "$rc" 2
 assert_grep "names the holder" "held by @peer · session PeerSession \(22222222\) on $HOST, still running" "$tmp/err"
-assert_eq "no tracker write when refused" "$(count_calls 'issue edit')" 0
+assert_eq "no tracker write when refused" "$(count_calls "$WRITES")" 0
 run_carnet claim 42 --steal
 assert_eq "--steal overrides" "$rc" 0
 assert_grep "warns locally" "stealing carnet#42 from live session PeerSession" "$tmp/err"
 assert_grep "the comment says it was stolen from a live session" "Stolen from live session \*\*PeerSession\*\*" "$S/calls.log"
-assert_grep "the displaced human is unassigned" 'issue edit 42 -R dravr-ai/dravr-carnet --remove-assignee peer' "$S/calls.log"
+assert_grep "the displaced human is unassigned" 'issues/42/assignees -X DELETE -f assignees\[\]=peer' "$S/calls.log"
 
 reset
 comments < <(claim_marker "$DEAD" GoneSession peer "$HOST" 999999)
@@ -171,7 +185,7 @@ reset
 run_carnet claim 42 --dry-run
 assert_eq "dry-run exits 0" "$rc" 0
 assert_eq "dry-run writes nothing" "$(count_calls "$WRITES")" 0
-assert_grep "dry-run prints the edit" '\[dry-run\] gh issue edit 42' "$tmp/err"
+assert_grep "dry-run prints the edit" '\[dry-run\] api repos/dravr-ai/dravr-carnet/issues/42' "$tmp/err"
 [ -f "$ledger" ] && bad "dry-run must not touch the ledger" || ok "dry-run leaves no ledger"
 
 # ================================================================== release
@@ -184,14 +198,15 @@ printf '{"kind":"identity","v":1,"session":"%s","name":"TestSession","user":"tes
 : > "$S/calls.log"
 run_carnet release --all --reason session-ended
 assert_eq "release --all exits 0" "$rc" 0
-assert_grep "removes label and assignee" 'issue edit 42 -R dravr-ai/dravr-carnet --remove-label in-progress --remove-assignee tester' "$S/calls.log"
+assert_grep "removes the label" 'issues/42/labels/in-progress -X DELETE' "$S/calls.log"
+assert_grep "removes the assignee" 'issues/42/assignees -X DELETE -f assignees\[\]=tester' "$S/calls.log"
 assert_grep "posts a release marker with the reason" '^BODY <!-- carnet-release \{.*"reason":"session-ended"' "$S/calls.log"
 [ -f "$ledger" ] && bad "ledger removed once empty" || ok "ledger removed once empty"
 
 reset
 run_carnet release 42
 assert_eq "releasing something not held fails" "$rc" 1
-assert_eq "without writing" "$(count_calls 'issue edit')" 0
+assert_eq "without writing" "$(count_calls "$WRITES")" 0
 
 reset
 comments < <(claim_marker "$PEER" PeerSession peer "$HOST" "$peer_pid")
@@ -213,7 +228,7 @@ assert_eq "close with a reason exits 0" "$rc" 0
 assert_grep "the comment carries the reason" '\*\*Why:\*\* fixed in the seeder' "$S/calls.log"
 assert_grep "and the commit URL on the code repo" "https://github.com/dravr-ai/dravr-test/commit/$head_sha" "$S/calls.log"
 assert_grep "the comment is also a release marker" '^BODY <!-- carnet-release \{.*"reason":"closed"' "$S/calls.log"
-assert_grep "then closes" '^CALL issue close 42 -R dravr-ai/dravr-carnet' "$S/calls.log"
+assert_grep "then closes" '^CALL api repos/dravr-ai/dravr-carnet/issues/42 -X PATCH -f state=closed' "$S/calls.log"
 
 reset
 run_carnet close 42 --why x --commit deadbeef
@@ -231,28 +246,28 @@ issue_held
 comments < <(claim_marker "$ME" TestSession tester "$HOST" "$$")
 run_carnet close 42 --why "done"
 assert_eq "closing my own held issue works" "$rc" 0
-assert_grep "and drops label + assignee first" '--remove-label in-progress --remove-assignee tester' "$S/calls.log"
+assert_grep "and drops label + assignee first" 'issues/42/labels/in-progress -X DELETE' "$S/calls.log"
 
 # ================================================================== create
 section "create"
 reset
 run_carnet create --title "Thing is wrong" --label limitation --body "where / what / fix"
 assert_eq "create exits 0" "$rc" 0
-assert_grep "title gets the project prefix" 'issue create -R dravr-ai/dravr-carnet --title \[test\] Thing is wrong' "$S/calls.log"
-assert_grep "project label always, extra labels after" '--label dravr-test --label limitation' "$S/calls.log"
+assert_grep "title gets the project prefix" '^TITLE \[test\] Thing is wrong' "$S/calls.log"
+assert_grep "project label always, extra labels after" '^LABELS dravr-test,limitation' "$S/calls.log"
 assert_grep "prints the URL" "issues/321" "$tmp/out"
 assert_grep "prints the marker hint for a limitation" 'LIMITATION\(registre#321\)' "$tmp/out"
-assert_grep "checked the tracker is private" '^CALL repo view dravr-ai/dravr-carnet --json isPrivate' "$S/calls.log"
+assert_grep "checked the tracker is private" '^CALL api repos/dravr-ai/dravr-carnet -q .private' "$S/calls.log"
 
 reset
 run_carnet create --title "[platform] Already prefixed" --body b
-assert_grep "an existing prefix is kept" '--title \[platform\] Already prefixed --body-file' "$S/calls.log"
+assert_grep "an existing prefix is kept" '^TITLE \[platform\] Already prefixed' "$S/calls.log"
 
 reset
 printf 'false\n' > "$S/private.txt"
 run_carnet create --title T --body b
 assert_eq "a public tracker is refused" "$rc" 1
-assert_eq "and nothing is filed" "$(count_calls 'issue create')" 0
+assert_eq "and nothing is filed" "$(count_calls 'api repos/[^ ]*/issues -X POST')" 0
 
 reset
 run_carnet create --title T < /dev/null
@@ -261,14 +276,15 @@ assert_eq "an empty body is refused" "$rc" 1
 reset
 run_carnet create --title "With claim" --body b --claim
 assert_eq "create --claim exits 0" "$rc" 0
-assert_grep "and claims the new number" 'issue edit 321 -R dravr-ai/dravr-carnet --add-assignee tester --add-label in-progress' "$S/calls.log"
+assert_grep "and claims the new number" 'issues/321/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 
 # ================================================================== label
 section "label"
 reset
 run_carnet label 42 +critical -bug
 assert_eq "label exits 0" "$rc" 0
-assert_grep "adds and removes" 'issue edit 42 -R dravr-ai/dravr-carnet --add-label critical --remove-label bug' "$S/calls.log"
+assert_grep "adds a label" 'issues/42/labels -X POST -f labels\[\]=critical' "$S/calls.log"
+assert_grep "removes a label" 'issues/42/labels/bug -X DELETE' "$S/calls.log"
 
 # ================================================================== status
 section "status"
@@ -324,7 +340,7 @@ assert_grep "an empty ledger still says so" 'holds nothing' "$tmp/out"
 assert_grep "but a prior session id's claims are surfaced" 'other session ids on this machine still list claims' "$tmp/out"
 assert_grep "named, with the issue" 'EarlierMe \(33333333\): 91' "$tmp/out"
 assert_grep "and not asserted as mine" 'NOT necessarily yours' "$tmp/out"
-assert_eq "surfacing them costs no API call" "$(count_calls 'issue view')" 0
+assert_eq "surfacing them costs no API call" "$(count_calls 'api repos/[^ ]*/issues/42$')" 0
 
 # A ledger belonging to someone else, or another machine, is not a candidate for
 # "an earlier me" — adopting a peer's claim would be worse than the false
@@ -355,9 +371,9 @@ printf '%s\n' "$hook_out" > "$tmp/hook"
 assert_eq "prompt hook: one line per distinct issue" "$(grep -c '^carnet#' "$tmp/hook")" 2
 assert_grep "prompt hook: resolves carnet#42" '^carnet#42 · open · unclaimed' "$tmp/hook"
 assert_grep "prompt hook: resolves the URL form" '^carnet#7 ' "$tmp/hook"
-views_before=$(count_calls 'issue view')
+views_before=$(count_calls 'api repos/[^ ]*/issues/42$')
 printf '{"prompt":"carnet#42 again"}' | bash "$here/hooks/prompt-status.sh" > "$tmp/hook2"
-assert_eq "prompt hook: a repeat within a minute is served from cache" "$(count_calls 'issue view')" "$views_before"
+assert_eq "prompt hook: a repeat within a minute is served from cache" "$(count_calls 'api repos/[^ ]*/issues/42$')" "$views_before"
 assert_grep "prompt hook: cached line still printed" '^carnet#42' "$tmp/hook2"
 printf '{"prompt":"nothing about the register"}' | bash "$here/hooks/prompt-status.sh" > "$tmp/hook3"
 assert_eq "prompt hook: silent when no issue is named" "$(wc -c < "$tmp/hook3" | tr -d ' ')" 0
@@ -406,7 +422,7 @@ printf '{"kind":"identity","v":1,"session":"%s","name":"Ender","user":"ender","h
 comments < <(claim_marker "$PEER" Ender ender "$HOST" 1)
 printf '{"session_id":"%s","reason":"exit"}' "$PEER" | bash "$here/hooks/session-end-release.sh" > "$tmp/hook4"
 assert_grep "session-end hook: reports the release" '^🔓 carnet#42 released \(session-ended\)' "$tmp/hook4"
-assert_grep "session-end hook: releases with the ledger's identity" 'issue edit 42 -R dravr-ai/dravr-carnet --remove-label in-progress --remove-assignee ender' "$S/calls.log"
+assert_grep "session-end hook: releases with the ledger's identity" 'issues/42/assignees -X DELETE -f assignees\[\]=ender' "$S/calls.log"
 assert_grep "session-end hook: marker names the ended session" "^BODY <!-- carnet-release \{.*\"session\":\"$PEER\".*\"reason\":\"session-ended\"" "$S/calls.log"
 [ -f "$tmp/cfg/carnet-claims/$PEER.jsonl" ] && bad "session-end hook: ledger removed" || ok "session-end hook: ledger removed"
 : > "$S/calls.log"
@@ -443,7 +459,7 @@ reset; set_pending 42
 auto_claim "$(edit_payload)"
 assert_eq "an edit claims the pending issue" "$rc" 0
 assert_grep "and says so" '^🔒 carnet auto-claimed: 42' "$tmp/ac.out"
-assert_grep "the claim reached the tracker" 'issue edit 42 -R dravr-ai/dravr-carnet --add-assignee tester --add-label in-progress' "$S/calls.log"
+assert_grep "the claim reached the tracker" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 assert_grep "the marker names this session" "^BODY <!-- carnet-claim \{.*\"session\":\"$ME\"" "$S/calls.log"
 
 # Consumed once: a second edit is free.
@@ -491,30 +507,30 @@ assert_eq "git apply --check claims nothing" "$(wc -c < "$S/calls.log" | tr -d '
 # ...but a redirect into a real file is still an edit, /dev/null nearby or not.
 reset; set_pending 42
 auto_claim "$(bash_payload 'grep -rn TODO src/ 2>/dev/null > findings.txt')"
-assert_grep "a real redirect still claims, even beside 2>/dev/null" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "a real redirect still claims, even beside 2>/dev/null" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 
 # A write-shaped Bash command is an edit — this session edits through bash.
 reset; set_pending 42
 auto_claim "$(bash_payload "sed -i '' s/a/b/ f.txt")"
-assert_grep "sed -i claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "sed -i claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 reset; set_pending 42
 auto_claim "$(bash_payload 'cat > note.txt <<EOT')"
-assert_grep "a redirect into a file claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "a redirect into a file claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 reset; set_pending 42
 auto_claim "$(bash_payload 'git commit -m wip')"
-assert_grep "git commit claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "git commit claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 reset; set_pending 42
 auto_claim "$(bash_payload 'git merge origin/main')"
-assert_grep "a real git merge still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "a real git merge still claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 reset; set_pending 42
 auto_claim "$(bash_payload 'git add -A')"
-assert_grep "git add still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "git add still claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 reset; set_pending 42
 auto_claim "$(bash_payload 'git apply my.patch')"
-assert_grep "git apply without --check still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "git apply without --check still claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 reset; set_pending 42
 auto_claim "$(bash_payload 'git reset --hard origin/main')"
-assert_grep "git reset still claims" 'issue edit 42 .*--add-label in-progress' "$S/calls.log"
+assert_grep "git reset still claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 
 # A live peer holding it blocks the edit once, and names them.
 reset; set_pending 42
@@ -523,7 +539,7 @@ auto_claim "$(edit_payload)"
 assert_eq "a live peer's claim blocks the edit" "$rc" 2
 assert_grep "the block names the holder" 'PeerSession' "$tmp/ac.err"
 assert_grep "the block says not to duplicate" 'Do not do this work twice' "$tmp/ac.err"
-assert_no_grep "and steals nothing" 'add-label in-progress' "$S/calls.log"
+assert_no_grep "and steals nothing" 'labels\[\]=in-progress' "$S/calls.log"
 set_pending 42
 auto_claim "$(edit_payload)"
 assert_eq "having said it once, it stops blocking" "$rc" 0
