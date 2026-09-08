@@ -146,6 +146,12 @@ this sha at **9**. One open issue holds the whole session at 6 no matter how muc
   them). For a peer editing *during* your session, `bilan.sh ack --why "…"` clears the cap and
   keeps the reason in the report; it returns the moment one more file is dirtied. Never commit or
   revert them.
+- **An issue you filed is work you owe.** `carnet.sh create` records it; it caps at 6 until you
+  close it with the fix. A session does not file its way out of work — fix first, file only the
+  residue, and if something truly cannot be fixed here, put that decision in front of ChefFamille.
+- **Background tasks and subagents still running cap at 7.** They leave no trace in git, the
+  ledger or CI, and closing the session loses them. Session-scoped: your terminal, your tasks.
+- **`--cheap` can never say 10** — it does not consult CI, so it is not a completion verdict.
 - **Report what it prints.** If you think a cap is wrong, say so in words *and still report the
   script's number* — arguing with the measurement is a conversation, overriding it silently is
   the failure this exists to stop.

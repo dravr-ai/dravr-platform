@@ -12,6 +12,11 @@ FAIL=0
 
 ok()   { printf '  ✅ %s\n' "$1"; PASS=$((PASS + 1)); }
 bad()  { printf '  ❌ %s\n' "$1"; FAIL=$((FAIL + 1)); }
+# Every case here runs --cheap for speed, and --cheap now carries a standing cap at 9 saying it
+# is not a completion verdict. So "clean" is asserted as "no cap other than that one" rather
+# than as a score of 10, which cheap can no longer reach by construction.
+real_caps() { printf '%s' "$1" | jq '[.caps[] | select(.evidence | test("local facts only") | not)] | length'; }
+
 check() { # <description> <expected> <actual>
     if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 — expected '$2', got '$3'"; fi
 }
@@ -49,8 +54,10 @@ printf '\nbilan tests\n\n'
 # ---- clean repo scores 10
 R=$(new_repo)
 out=$(run "$R")
-check "clean repo scores 10" 10 "$(printf '%s' "$out" | jq -r .score)"
-check "clean repo exits 0" 0 "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap --quiet >/dev/null 2>&1 ); echo $?)"
+check "clean repo has no real cap" 0 "$(real_caps "$out")"
+check "--cheap can never report 10" 9 "$(printf '%s' "$out" | jq -r .score)"
+check "--cheap says why it is not a verdict" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("CI was not consulted"))] | length')"
 
 # ---- uncommitted tracked change caps at 7
 echo two >> "$R/a.txt"
@@ -73,7 +80,8 @@ echo three >> "$R/a.txt"
 git -C "$R" commit -q -am second
 out=$(run "$R")
 check "unpushed commit caps at 8" 8 "$(printf '%s' "$out" | jq -r .score)"
-check "unpushed names the remedy" "git push" "$(printf '%s' "$out" | jq -r '.caps[] | select(.cap==8) | .remedy')"
+check "unpushed names the remedy" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap==8) | select(.remedy | test("git push"))] | length')"
 
 # ---- validation marker missing is reported alongside the unpushed commit
 check "missing validation marker is a cap" 1 \
@@ -95,8 +103,10 @@ check "held issue is named in the evidence" 1 \
 printf '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":1000,"at":"2026-09-08T00:00:00Z"}\n' \
     >> "$CFG/carnet-claims/$SID.jsonl"
 out=$(run "$R")
-check "filed issue is reported separately" 1 \
-    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("filed this session"))] | length')"
+# ChefFamille: a session that files an issue must fix it before it stops or claims 10/10.
+check "a filed issue caps at 6, level with a held one" 6 "$(printf '%s' "$out" | jq -r .score)"
+check "filed is reported separately from held" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("filed this session and still open"))] | length')"
 rm -f "$CFG/carnet-claims/$SID.jsonl"
 
 # ---- an unregistered LIMITATION marker caps at 6
@@ -132,7 +142,7 @@ out=$(run "$R")
 # An ack is a recorded statement of ownership, so it CLEARS: a peer's file is not this
 # session's incompleteness, and leaving it at 9 meant a session that had done everything right
 # still could not reach 10.
-check "after ack the cap is gone entirely" 10 "$(printf '%s' "$out" | jq -r .score)"
+check "after ack the cap is gone entirely" 0 "$(real_caps "$out")"
 check "the ack reason stays visible as a note" 1 \
     "$(printf '%s' "$out" | jq '[.notes[] | select(test("pin bump"))] | length')"
 echo second > "$R/b.txt" && git -C "$R" add b.txt
@@ -151,7 +161,7 @@ echo peer-was-mid-edit >> "$R/a.txt"
 check "a file dirty before the baseline caps at 7 without one" 7 "$(run "$R" | jq -r .score)"
 ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" baseline >/dev/null 2>&1 )
 out=$(run "$R")
-check "after the baseline it does not cap at all" 10 "$(printf '%s' "$out" | jq -r .score)"
+check "after the baseline it does not cap at all" 0 "$(real_caps "$out")"
 check "the inherited file is still stated as a note" 1 \
     "$(printf '%s' "$out" | jq '[.notes[] | select(test("already uncommitted"))] | length')"
 echo mine > "$R/c.txt" && git -C "$R" add c.txt
@@ -161,6 +171,40 @@ check "and the cap names only the session's own file" 1 \
 git -C "$R" rm -q -f --cached c.txt >/dev/null 2>&1; rm -f "$R/c.txt"
 git -C "$R" checkout -q -- a.txt
 rm -f "$CFG/bilan/"*.baseline
+
+# ---- a peer's unpushed commit is inherited the same way a dirty file is
+rm -f "$CFG/bilan/"*.ack.json "$CFG/bilan/"*.baseline*
+echo peer-commit > "$R/peer.txt"
+git -C "$R" add peer.txt && git -C "$R" commit -qm "a peer's cherry-pick"
+check "an unpushed commit caps at 8" 8 "$(run "$R" | jq -r .score)"
+( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" baseline >/dev/null 2>&1 )
+out=$(run "$R")
+check "a commit unpushed before the baseline does not cap" 0 "$(real_caps "$out")"
+check "the inherited commit is stated as a note" 1 \
+    "$(printf '%s' "$out" | jq '[.notes[] | select(test("already unpushed"))] | length')"
+git -C "$R" push -q origin HEAD:refs/heads/main
+rm -f "$CFG/bilan/"*.baseline*
+
+# ---- background work is the one incompleteness that leaves no trace in git, the ledger or CI.
+# A session reported 10/10 from --cheap with four subagents still running; closing it would
+# have thrown all of that away.
+TASKS="$CFG/scratch/tasks"
+mkdir -p "$TASKS" "$CFG/scratch/scratchpad"   # ../tasks only resolves if scratchpad exists
+printf 'watching\n\n[exited with code 0]\n' > "$TASKS/finished.output"
+printf 'stopped\n\n[killed]\n'              > "$TASKS/stopped.output"
+: > "$TASKS/orphan.output"                      # no marker, but nobody holds it
+sleep 30 > "$TASKS/live.output" & LIVE=$!
+task_run() { ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" \
+    CLAUDE_SCRATCHPAD_DIR="$CFG/scratch/scratchpad" bash "$BILAN" --cheap --json 2>/dev/null ); }
+out=$(task_run)
+check "a live background task caps at 7" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap==7) | select(.evidence | test("background task"))] | length')"
+check "it names the live one and only it" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("live")) | select(.evidence | test("finished|stopped|orphan") | not)] | length')"
+kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
+check "a finished task is not counted" 0 \
+    "$(task_run | jq '[.caps[] | select(.evidence | test("background task"))] | length')"
+rm -rf "$CFG/scratch"
 
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \

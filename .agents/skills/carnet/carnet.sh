@@ -162,6 +162,18 @@ ledger_filed() {
         '{kind:"filed", tracker:$t, issue:$n, at:$at}' >> "$f"
 }
 
+# Closing an issue this session filed clears its "filed" line: bilan caps on issues a session
+# opened and did not fix, and the cap has to end when the fix lands.
+ledger_drop_filed() {
+    local f tmp
+    f=$(ledger_file) || return 0
+    [ -f "$f" ] || return 0
+    tmp=$(mktemp)
+    jq -c --arg t "$TRACKER" --argjson n "$1" \
+        'select((.kind == "filed" and .tracker == $t and .issue == $n) | not)' "$f" > "$tmp"
+    mv "$tmp" "$f"
+}
+
 ledger_drop() {
     local f tmp
     f=$(ledger_file) || return 0
@@ -357,7 +369,7 @@ cmd_close() { # <n> <why> <commit>
     run gh issue comment "$n" -R "$TRACKER" --body-file "$body" >/dev/null
     run gh issue close "$n" -R "$TRACKER" >/dev/null
     rm -f "$body"
-    [ "$DRY_RUN" = 1 ] || ledger_drop "$n"
+    [ "$DRY_RUN" = 1 ] || ledger_drop "$n"; ledger_drop_filed "$n"
     say "✅ carnet#$n closed · $(jq -r .title <<<"$issue")"
 }
 

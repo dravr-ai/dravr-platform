@@ -22,6 +22,10 @@ or had left a dev stack running. Every one of those facts is machine-checkable, 
 
 Exit code: `0` = 10/10 · `1` = incomplete · `2` = the script itself failed.
 
+**`--cheap` can never report 10.** It skips CI entirely, and a session quoted its cheap 10/10 as
+completion while a lane was still red and four subagents were running. A measurement taken with
+checks switched off is not a completion verdict, and now says so as a standing cap at 9.
+
 ## The rules
 
 1. **Run it before you give a number.** Report the score it prints. If you believe a cap is
@@ -40,12 +44,13 @@ Exit code: `0` = 10/10 · `1` = incomplete · `2` = the script itself failed.
 | Evidence | Caps at |
 |---|---|
 | carnet issue claimed by this session, neither closed nor released | **6** |
+| carnet issue **filed** by this session and still open | **6** |
+| background task or subagent still running | **7** |
 | `LIMITATION(registre#…)` marker added in source naming no live issue | **6** |
 | tracked files modified and uncommitted | **7** |
 | commits not pushed | **8** |
 | CI red on the pushed head | **5** |
 | CI still running, cancelled, or not yet registered | **9** |
-| issues *filed* this session | **9** — name each as deliberate residue |
 | untracked files, stash created this session, branch whose upstream is gone | **9** |
 | `.git/validation-passed` missing, stale, or for another sha | **9** |
 | dev stack from this checkout still up | **9** |
@@ -105,6 +110,26 @@ killed. A `kill -9`, a closed terminal or an exhausted context fires no exit hoo
 session can never report on itself; the next session in the repo looks for it instead, across
 every worktree and every ledger on the machine. It found `carnet#236`, held by a session that
 died on 2026-09-03, five days after the fact.
+
+## Work that leaves no trace
+
+Two kinds of incompleteness are invisible to git, the ledger and CI, and both have produced a
+false 10:
+
+**Background tasks and subagents.** Claude Code writes each one's stream to
+`<scratchpad>/<session-id>/tasks/<id>.output` and closes it with `[exited with code N]` or
+`[killed]`; no marker and a live holder means it never ended. The path carries the session id,
+so ten terminals are ten separate answers — a session is only ever accountable for its own.
+Closing a session with one running throws that work away, so it caps at **7** and blocks the
+gate. bilan runs *inside* one of those streams itself, so a file held by anything in its own
+process ancestry is this invocation, not a task.
+
+**Issues the session filed.** `carnet.sh create` writes a `filed` line to the ledger and
+`close` removes it, so what remains is what this session opened and did not fix. That caps at
+**6** — level with an issue still held, because filing instead of fixing is the same unfinished
+work wearing a label. The standing rule is *fix first, file only the residue*; if something
+genuinely cannot be fixed here, that is a decision to put in front of ChefFamille, not a cap to
+slip past.
 
 ## What it does not do
 

@@ -109,11 +109,11 @@ ack_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SES
 
 signature_of() { printf '%s' "$1" | sort | shasum 2>/dev/null | cut -d' ' -f1; }
 
-ack_reason_for() { # <signature>
+ack_reason_for() { # <field> <signature>
     local f
     f=$(ack_file) || return 1
     [ -f "$f" ] || return 1
-    jq -r --arg s "$1" 'select(.signature == $s) | .why // empty' "$f" 2>/dev/null | grep . || return 1
+    jq -r --arg k "$1" --arg s "$2" 'select(.[$k] == $s) | .why // empty' "$f" 2>/dev/null | grep . || return 1
 }
 
 # Written by the SessionStart hook. A path already dirty when the session opened belongs to
@@ -123,11 +123,21 @@ ack_reason_for() { # <signature>
 baseline_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').baseline"; }
 
 cmd_baseline() {
-    local f
+    local f u up
     f=$(baseline_file) || return 0
     mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
     git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//' > "$f"
-    say "baseline: $(grep -c . "$f" 2>/dev/null || echo 0) file(s) already dirty at session start"
+    # Commits carry the same inheritance as files: a peer's cherry-pick sitting unpushed in the
+    # shared checkout when this session opened is not this session's to push.
+    up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
+    if [ -n "$up" ]; then
+        git rev-list "$up..HEAD" 2>/dev/null > "${f}.commits"
+    else
+        : > "${f}.commits"
+    fi
+    u=$(grep -c . "${f}.commits" 2>/dev/null); u=${u:-0}
+    local d; d=$(grep -c . "$f" 2>/dev/null); d=${d:-0}
+    say "baseline: $d file(s) dirty and $u commit(s) unpushed at session start"
     return 0
 }
 
@@ -140,19 +150,29 @@ not_mine() { # <paths>  -> prints the inherited subset
     printf '%s\n' "$1" | grep -Fxf "$f" 2>/dev/null || true
 }
 
+not_mine_commits() { # <shas> -> prints the inherited subset
+    local f
+    f=$(baseline_file) || return 0
+    [ -s "${f}.commits" ] || return 0
+    printf '%s\n' "$1" | grep -Fxf "${f}.commits" 2>/dev/null || true
+}
+
 cmd_ack() { # <why>
-    local why=$1 f tracked sig
-    [ -n "$why" ] || die "ack needs --why: say whose files these are and why you are leaving them"
+    local why=$1 f tracked commits up sig csig
+    [ -n "$why" ] || die "ack needs --why: say whose work this is and why you are leaving it"
     f=$(ack_file) || die "not inside a Claude Code session"
     tracked=$(git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//')
-    [ -n "$tracked" ] || { say "nothing uncommitted to account for"; return 0; }
-    sig=$(signature_of "$tracked")
+    up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
+    commits=""
+    [ -n "$up" ] && commits=$(git rev-list "$up..HEAD" 2>/dev/null || true)
+    [ -n "$tracked$commits" ] || { say "nothing uncommitted or unpushed to account for"; return 0; }
+    sig=$(signature_of "$tracked"); csig=$(signature_of "$commits")
     mkdir -p "$(dirname "$f")"
-    jq -n --arg s "$sig" --arg w "$why" --arg at "$(now)" \
+    jq -n --arg s "$sig" --arg c "$csig" --arg w "$why" --arg at "$(now)" \
        --arg files "$(printf '%s' "$tracked" | tr '\n' ' ')" \
-       '{signature:$s, why:$w, at:$at, files:$files}' > "$f"
-    say "📌 accounted for: $(printf '%s' "$tracked" | grep -c . ) file(s) — $why"
-    say "   dirty one more file and the cap returns; this covers exactly this set."
+       '{signature:$s, commit_signature:$c, why:$w, at:$at, files:$files}' > "$f"
+    say "📌 accounted for: $(printf '%s\n' "$tracked" | grep -c .) file(s), $(printf '%s\n' "$commits" | grep -c .) commit(s) — $why"
+    say "   this covers exactly that set; dirty one more file or make one more commit and the cap returns."
     return 0
 }
 
@@ -201,7 +221,7 @@ check_worktree() {
         # that had done everything right still could not reach 10. It stays visible in every
         # later report, is keyed to the exact path set, and returns the moment one more file
         # goes dirty.
-        if why=$(ack_reason_for "$(signature_of "$owned")"); then
+        if why=$(ack_reason_for signature "$(signature_of "$owned")"); then
             say_note "$t_n uncommitted file(s) declared not this session's: $why"
         else
             cap 7 "❌" "$t_n tracked file(s) modified and uncommitted: $(name_files 8 "$owned")" \
@@ -214,8 +234,27 @@ check_worktree() {
     fi
 }
 
+# Prints this session's own unpushed shas: everything ahead of upstream, minus what was already
+# unpushed when the session opened, minus what an ack has declared. Empty means this session has
+# nothing of its own waiting to go out — whatever else is sitting in the shared checkout.
+owned_unpushed() {
+    local upstream shas inherited owned
+    upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
+    [ -n "$upstream" ] || return 0
+    shas=$(git rev-list "$upstream..HEAD" 2>/dev/null)
+    [ -n "$shas" ] || return 0
+    ack_reason_for commit_signature "$(signature_of "$shas")" >/dev/null 2>&1 && return 0
+    inherited=$(not_mine_commits "$shas")
+    if [ -n "$inherited" ]; then
+        owned=$(printf '%s\n' "$shas" | grep -Fxv -f <(printf '%s\n' "$inherited") 2>/dev/null || true)
+    else
+        owned=$shas
+    fi
+    printf '%s' "$owned"
+}
+
 check_unpushed() {
-    local upstream ahead shas
+    local upstream ahead shas inherited owned n why
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     if [ -z "$upstream" ]; then
         [ "$BRANCH" = main ] && return 0
@@ -226,10 +265,28 @@ check_unpushed() {
               "git push -u origin $BRANCH"
         return 0
     fi
-    ahead=$(git rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)
-    [ "$ahead" -gt 0 ] || return 0
-    shas=$(git log --format=%h "$upstream..HEAD" 2>/dev/null | tr '\n' ' ')
-    cap 8 "❌" "$ahead commit(s) not pushed to $upstream ($shas)" "git push"
+    shas=$(git rev-list "$upstream..HEAD" 2>/dev/null)
+    [ -n "$shas" ] || return 0
+
+    # A peer's commit already sitting unpushed when this session opened is not this session's
+    # to push — the same inheritance the dirty-file baseline records, one level up. A peer's
+    # cherry-pick landing mid-session held this session at 8 until ack covered it.
+    inherited=$(not_mine_commits "$shas")
+    if [ -n "$inherited" ]; then
+        owned=$(printf '%s\n' "$shas" | grep -Fxv -f <(printf '%s\n' "$inherited") 2>/dev/null || true)
+        say_note "$(printf '%s\n' "$inherited" | grep -c .) commit(s) were already unpushed when this session opened — not its work"
+    else
+        owned=$shas
+    fi
+    n=$(printf '%s\n' "$owned" | grep -cv '^$')
+    [ "${n:-0}" -gt 0 ] || return 0
+
+    if why=$(ack_reason_for commit_signature "$(signature_of "$shas")"); then
+        say_note "$n unpushed commit(s) declared not this session's: $why"
+        return 0
+    fi
+    cap 8 "❌" "$n commit(s) not pushed to $upstream ($(printf '%s\n' "$owned" | cut -c1-8 | tr '\n' ' '))" \
+          "git push — or, if they are a peer's in this shared checkout, bilan.sh ack --why '…'"
 }
 
 check_stash() {
@@ -258,11 +315,11 @@ check_branch_cleanup() {
 }
 
 check_validation_marker() {
-    local marker epoch sha age upstream ahead
-    upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
-    [ -n "$upstream" ] || return 0
-    ahead=$(git rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)
-    [ "$ahead" -gt 0 ] || return 0   # nothing to push, nothing to validate
+    local marker epoch sha age
+    # Only this session's own commits. A peer's inherited cherry-pick is not something this
+    # session can or should validate, and capping on it was the third place the same category
+    # error turned up.
+    [ -n "$(owned_unpushed)" ] || return 0
     marker="$GIT_DIR/validation-passed"
     if [ ! -f "$marker" ]; then
         cap 9 "⚠️" "commits to push but no .git/validation-passed marker" \
@@ -293,18 +350,30 @@ check_carnet_held() {
           "carnet.sh close <n> --why … --commit <sha>, or release <n> --reason …"
 }
 
-# `create` writes a "filed" line, so a session that opened issues instead of fixing them cannot
-# report 10 without saying, per issue, why it is residue rather than the work it was asked to do.
+# `create` writes a "filed" line and `close` removes it, so what remains is what this session
+# opened and did not fix. That caps at 6 — level with an issue still held, and below the Stop
+# gate's threshold, so the session cannot quietly walk away from issues it opened.
+#
+# The standing rule is fix first and file only the residue; this is what makes the second half
+# of it visible. If something genuinely cannot be fixed here, that is a decision to put in front
+# of ChefFamille, not a cap to slip past.
 check_carnet_filed() {
-    local f n list=""
+    local f n list="" state
     f=$(ledger_file) || return 0
     [ -s "$f" ] || return 0
     for n in $(jq -r 'select(.kind == "filed") | .issue' "$f" 2>/dev/null); do
+        # Someone else may have closed it. Only the full run can tell; --cheap keeps the cap,
+        # which is the safe direction for a rule about not walking away from your own issues.
+        if [ "$CHEAP" = 0 ] && command -v gh >/dev/null 2>&1; then
+            state=$(gh issue view "$n" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" \
+                    --json state -q .state 2>/dev/null || echo OPEN)
+            [ "$state" = CLOSED ] && continue
+        fi
         list="$list carnet#$n"
     done
     [ -n "${list// /}" ] || return 0
-    cap 9 "⚠️" "filed this session:${list}" \
-          "name each one as residue you are deliberately not fixing — fix first, file the rest"
+    cap 6 "❌" "filed this session and still open:${list}" \
+          "fix them and close with carnet.sh close <n> --why … --commit <sha> — a session does not file its way out of work"
 }
 
 # A LIMITATION marker is the sanctioned way to ship a gap, but only when it names a live issue.
@@ -355,6 +424,64 @@ check_limitation_markers() {
     [ -n "${bad// /}" ] || return 0
     cap 6 "❌" "LIMITATION marker(s) naming no live issue:${bad}" \
           "run the register-limitation skill — an unregistered gap is invisible debt"
+}
+
+# ------------------------------------------------------------------ checks · in-flight work
+# The failure that prompted this: a session reported 10/10 from --cheap while four subagents and
+# a CI watcher were still running. Closing it would have thrown all of that away. Background
+# work is the one kind of incompleteness that leaves NO trace in git, the ledger or CI — the
+# session is the only thing that knows, and it is exactly what a session forgets when it thinks
+# it is finished.
+#
+# Claude Code writes each background task's stream to <scratchpad>/tasks/<id>.output and closes
+# it with "[exited with code N]" or "[killed]". No marker means it never ended.
+task_dir() {
+    local c
+    for c in "${CLAUDE_SCRATCHPAD_DIR:-}/../tasks" \
+             "/private/tmp/claude-$(id -u)/$(printf '%s' "$REPO_ROOT" | sed 's#[/.]#-#g')/$SESSION_ID/tasks" \
+             "/tmp/claude-$(id -u)/$(printf '%s' "$REPO_ROOT" | sed 's#[/.]#-#g')/$SESSION_ID/tasks"; do
+        [ -d "$c" ] && { printf '%s' "$c"; return 0; }
+    done
+    return 1
+}
+
+# Every pid from this shell up to init. bilan runs inside one of those task streams itself, and
+# its own output file is open and unmarked exactly like a live task's — the third self-match
+# this file has had to answer for. A file held only by this process tree is this invocation.
+my_pids() {
+    local p=$$ out=""
+    while [ -n "$p" ] && [ "$p" != 0 ] && [ "$p" != 1 ]; do
+        out="$out $p"
+        p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+    done
+    printf '%s' "$out"
+}
+
+check_running_tasks() {
+    local dir f pids p mine running=0 names="" id
+    command -v lsof >/dev/null 2>&1 || return 0
+    dir=$(task_dir) || return 0
+    mine=$(my_pids)
+    for f in "$dir"/*.output; do
+        [ -f "$f" ] || continue
+        grep -q '\[exited with code\|\[killed\]' "$f" 2>/dev/null && continue
+        pids=$(lsof -t -- "$f" 2>/dev/null) || continue
+        [ -n "$pids" ] || continue        # nobody holds it: ended without writing a marker
+        # ANY holder in this process's ancestry means the stream is this very invocation —
+        # bilan is itself running inside one. Testing for a holder that is *not* mine reads
+        # backwards: the shell's own subshells are descendants, so they never match the
+        # ancestry walk and every run reported itself as a live task.
+        local is_mine=0
+        for p in $pids; do
+            printf '%s' " $mine " | grep -q " $p " && { is_mine=1; break; }
+        done
+        [ "$is_mine" = 1 ] && continue
+        id=$(basename "$f" .output)
+        running=$((running + 1)); names="$names $id"
+    done
+    [ "$running" -gt 0 ] || return 0
+    cap 7 "❌" "$running background task(s) still running:${names}" \
+          "wait for them, or TaskStop them deliberately — closing the session loses the work"
 }
 
 # ------------------------------------------------------------------ checks · dev stack
@@ -461,7 +588,17 @@ run_checks() {
     check_carnet_filed
     check_limitation_markers
     check_dev_stack
-    [ "$CHEAP" = 1 ] || check_ci
+    check_running_tasks
+    # A measurement taken with checks switched off must not be allowed to say "done". --cheap
+    # skips CI entirely, and a session quoted its cheap 10/10 as completion while a lane was
+    # still red and four agents were running. The reduced measurement now cannot reach 10 by
+    # construction, and says why.
+    if [ "$CHEAP" = 1 ]; then
+        cap 9 "⚠️" "local facts only — CI was not consulted, so this is not a completion verdict" \
+              "run bilan.sh without --cheap before reporting a number"
+    else
+        check_ci
+    fi
 }
 
 score() {
