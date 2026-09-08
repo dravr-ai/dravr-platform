@@ -251,7 +251,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std", "registry", "json"], default-features = false }
 # HTTP tracing middleware
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["trace", "request-id", "cors", "timeout", "limit", "set-header", "catch-panic"] }
+tower-http = { version = "0.6", features = ["trace", "request-id", "cors", "timeout", "limit", "set-header", "catch-panic", "compression-gzip", "compression-br"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"

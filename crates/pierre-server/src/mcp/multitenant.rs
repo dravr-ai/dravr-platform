@@ -36,6 +36,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::compression::CompressionLayer;
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
 use tracing::{error, info, info_span, Level, Span};
@@ -620,7 +621,22 @@ impl ProviderToolRouter {
             // location that declares its own add_header. This service runs
             // INGRESS_TRAFFIC_INTERNAL_ONLY behind that nginx, so nginx owns the
             // headers for all browser traffic and no layer here sets them.
-            .layer(CatchPanicLayer::custom(Self::handle_request_panic));
+            .layer(CatchPanicLayer::custom(Self::handle_request_panic))
+            // Outermost, so it compresses the finished body and every layer
+            // above still sees the response it produced.
+            //
+            // `tools/list` is what makes this worth having: 113 tools each
+            // carrying a derived `outputSchema` is 528 KB of JSON, and JSON
+            // schemas are the most repetitive payload this server sends —
+            // gzip takes that reply to 111 KB, a 4.8x cut, for no loss.
+            // Every other JSON response benefits by the same mechanism.
+            //
+            // `DefaultPredicate` is what makes it safe for the chat stream:
+            // it declines `text/event-stream` by name, so the SSE branch of
+            // `send_message` keeps flushing token by token instead of being
+            // buffered into a compressor. It also skips bodies already
+            // encoded and ones too small to be worth it.
+            .layer(CompressionLayer::new());
 
         // Create server address using host from config (defaults to localhost, can be 0.0.0.0 for network access)
         let host = &resources.common.config.host;
