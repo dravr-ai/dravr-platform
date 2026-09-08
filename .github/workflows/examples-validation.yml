@@ -183,8 +183,42 @@ jobs:
       - name: Run agent_discovery against live server
         run: |
           cd examples/agents/agent_discovery
-          timeout 30 ./target/release/agent-discovery-example 2>&1 | tee output.log
-          grep -q "Successfully fetched agent card" output.log || grep -q "Agent Discovery Demo" output.log
+
+          # Read the example's exit status. GitHub's shell is `bash -e` WITHOUT
+          # pipefail, so the previous `… | tee output.log` reported *tee's*
+          # status and threw the binary's away. The grep that followed then
+          # accepted "Agent Discovery Demo" — a substring of the example's own
+          # FAILURE line, `❌ Agent Discovery Demo Failed: {e}` (main.rs:320) —
+          # so an example that connected to nothing and returned Err still
+          # passed this step. Same defect as the lockbud gate (carnet#399).
+          timeout 30 ./target/release/agent-discovery-example > output.log 2>&1 || {
+            status=$?
+            if [ "$status" -eq 124 ]; then
+              echo "::error::agent_discovery did not finish within 30s — killed by timeout:"
+            else
+              echo "::error::agent_discovery exited ${status}:"
+            fi
+            cat output.log
+            exit 1
+          }
+
+          # Assert the markers only the SUCCESS path can write, so a green step
+          # means the demo ran — not merely that it printed something. The first
+          # proves it reached the server and parsed the agent card
+          # (main.rs:133); the second that the negotiation ran to completion
+          # (main.rs:315), and unlike the old fallback it is not a substring of
+          # the failure line.
+          for marker in \
+            "Successfully fetched agent card" \
+            "Agent Discovery Demo Completed Successfully"
+          do
+            if ! grep -qF "$marker" output.log; then
+              echo "::error::agent_discovery exited 0 but never printed: ${marker}"
+              cat output.log
+              exit 1
+            fi
+          done
+          echo "agent_discovery smoke test passed"
 
       - name: Cleanup
         if: always()
