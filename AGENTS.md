@@ -60,19 +60,24 @@ ls -d ../dravr-vault 2>/dev/null || echo "vault ABSENT"
 Three things stay broken there. Say each out loud when it applies; none of them is to be worked
 around, and two of them have a wrong-looking fix that must not be attempted.
 
-**The vault cannot be cloned from inside the container, so do not try.** The proxy's git credential
-is scoped to the repositories attached to the session, and `git clone` of `dravr-vault` fails with
-`could not read Username for 'https://github.com'` — no credential, not a network block. Reaching it
-requires attaching the repository to the environment, which is configuration outside this repo —
-`curl` is not a way around it either, since the proxy answers `403` for any repo but the attached one. When
-it is absent, report that plainly and name what it costs: prior decisions, the shared-memory facts,
+**The vault reaches a container by being attached to the environment, never by being cloned.** A
+`git clone` of `dravr-vault` from inside fails with `could not read Username for
+'https://github.com'` — the proxy's git credential covers only the repositories attached to the
+session, and `curl` is no way around it either, since an unattached repo answers `403`. Attaching it
+is configuration outside this repo, and it has been done: the vault arrives as `../dravr-vault` with
+its `Claude Memory/platform/` facts readable, so `obsidian-writer` routes there exactly as it does
+locally. If it is ever missing again, report that plainly and name what it costs: prior decisions, the shared-memory facts,
 `Methodology/`, `Features/`, and anywhere durable doc output would have gone. **Never create the
 `claude_docs` symlink against a missing target** — a dangling link reads as configured while silently
 dropping every vault write.
 
-**`gh` is absent**, so the `gh` line in the checklist above fails and `carnet.sh` cannot claim; the
-claim hooks no-op silently. Coordinate in chat instead: name the issue you are taking before you
-start it. **`curl` does not rescue this.** The proxy authenticates `api.github.com` as the real user,
+**`gh` is not installed by default**, so the `gh` line in the checklist above fails and `carnet.sh`
+refuses with `gh is required` — a missing binary, not a missing permission. Two pieces of environment
+configuration fix that together, neither of them a credential: install it from the setup script
+(`apt-get install -y gh`, from Ubuntu universe) and attach the tracker repository. With both,
+claiming works, because `carnet.sh` speaks REST. Until both are in place the claim hooks no-op
+silently, so coordinate in chat: name the issue you are taking before you start it. **Scope still
+binds either way.** The proxy authenticates `api.github.com` as the real user,
 but only for repositories **attached to the session**, and only on an allowlisted set of paths. A repo
 that is not attached answers `403` rather than GitHub's `404` — the tell that something in front of
 GitHub refused, since GitHub hides a private repo behind `404` — and a path outside the allowlist is
