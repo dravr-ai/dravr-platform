@@ -151,6 +151,17 @@ ledger_add() {
         '{kind:"claim", tracker:$t, issue:$n, at:$at}' >> "$f"
 }
 
+# Filed, not claimed. `bilan` reports these so a session cannot end on a pile of new issues
+# without saying, per issue, why it is residue rather than the work it was asked to do.
+ledger_filed() {
+    local f
+    f=$(ledger_file) || return 0
+    mkdir -p "$LEDGER_DIR"
+    [ -s "$f" ] || identity_json | jq -c '. + {kind:"identity"}' > "$f"
+    jq -cn --arg t "$TRACKER" --argjson n "$1" --arg at "$(now)" \
+        '{kind:"filed", tracker:$t, issue:$n, at:$at}' >> "$f"
+}
+
 ledger_drop() {
     local f tmp
     f=$(ledger_file) || return 0
@@ -159,8 +170,9 @@ ledger_drop() {
     jq -c --arg t "$TRACKER" --argjson n "$1" \
         'select((.kind == "claim" and .tracker == $t and .issue == $n) | not)' "$f" > "$tmp"
     mv "$tmp" "$f"
-    # A ledger holding only its identity line is finished.
-    if [ "$(jq -c 'select(.kind == "claim")' "$f" | wc -l | tr -d ' ')" = 0 ]; then rm -f "$f"; fi
+    # A ledger holding only its identity line is finished. "filed" lines count: they outlive
+    # the claims, and bilan reads them at the end of the session.
+    if [ "$(jq -c 'select(.kind == "claim" or .kind == "filed")' "$f" | wc -l | tr -d ' ')" = 0 ]; then rm -f "$f"; fi
 }
 
 ledger_issues() { # <file>
@@ -393,6 +405,7 @@ cmd_create() { # <title> <body> <body_file> <claim> labels...
     fi
     rm -f "$bf"
     n=${url##*/}
+    [ "$DRY_RUN" = 1 ] || [ "$n" = 0 ] || ledger_filed "$n"
     say "📝 $url"
     say "   $title"
     [ $has_limitation = 0 ] || say "   marker: LIMITATION(registre#$n): <name the limited item on this line>"

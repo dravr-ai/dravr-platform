@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$TOOL_INPUT\" | grep -q 'frontend/src/components'; then echo '\ud83d\udca1 Frontend component modified - consider running /design-review'; fi"
+            "command": "if echo \"$TOOL_INPUT\" | grep -q 'frontend/src/components'; then echo '💡 Frontend component modified - consider running /design-review'; fi"
           }
         ]
       }
@@ -28,7 +28,7 @@
           },
           {
             "type": "command",
-            "command": "echo '\u2705 Pierre Design System ready - use /design-review for UI validation'"
+            "command": "echo '✅ Pierre Design System ready - use /design-review for UI validation'"
           },
           {
             "type": "command",
@@ -45,6 +45,11 @@
           {
             "type": "command",
             "command": "bash ./scripts/setup/check-mcp-tokens.sh"
+          },
+          {
+            "type": "command",
+            "timeout": 20,
+            "command": "[ -f .agents/skills/bilan/hooks/session-start-sweep.sh ] && bash .agents/skills/bilan/hooks/session-start-sweep.sh || true"
           }
         ]
       }
@@ -80,6 +85,17 @@
             "type": "command",
             "timeout": 20,
             "command": "[ -f .agents/skills/carnet/hooks/auto-claim.sh ] || exit 0; bash .agents/skills/carnet/hooks/auto-claim.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 15,
+            "command": "[ -f .agents/skills/bilan/hooks/stop-gate.sh ] && bash .agents/skills/bilan/hooks/stop-gate.sh || true"
           }
         ]
       }

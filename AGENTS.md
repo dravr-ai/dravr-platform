@@ -124,6 +124,36 @@ The skill's files live in this repo at `.agents/skills/carnet/`, like the obsidi
 A prompt that only asks about an issue claims nothing: a question never reaches a write tool. When a live peer holds the issue the hook blocks that one tool call and names them — once, not forever. After it has told you, the duplicate work is yours, not the hook's.
 </important>
 
+<important if="you are about to report a completion number, or you think the work is done">
+
+**The number is `bilan`'s number, not yours.** It used to be narrated — it came from the
+session's own account of itself — so a session that *believed* it was finished reported 8 or 10
+while it still held open carnet issues, had commits sitting unpushed, or had left a dev stack
+holding 8081. Every one of those is machine-checkable.
+
+```bash
+.agents/skills/bilan/bilan.sh          # run it BEFORE you give a number
+.agents/skills/bilan/bilan.sh sweep    # what a session that died left behind
+```
+
+The score is `min()` over caps, and each cap prints its own evidence and remedy: a held carnet
+issue or an unregistered `LIMITATION` marker caps at **6**, uncommitted tracked files at **7**,
+unpushed commits at **8**, red CI at **5**, and CI that is running, cancelled or has no row for
+this sha at **9**. One open issue holds the whole session at 6 no matter how much else landed.
+
+- **Report what it prints.** If you think a cap is wrong, say so in words *and still report the
+  script's number* — arguing with the measurement is a conversation, overriding it silently is
+  the failure this exists to stop.
+- **Failures never deduct.** A red that is now green, a mistake found and fixed, a rough path:
+  none of it lowers the number. It measures completion, and only completion. Friction counts
+  (tool errors, interrupts, denials) are printed for context and cap nothing.
+- **The Stop hook runs the same measurement** and refuses the first stop while the state is
+  dirty, once per distinct state signature. After it has told you, the outstanding work is
+  yours, not the hook's.
+- It answers *finished*, never *good*. A green bilan on a wrong implementation is still wrong —
+  that is what `/code-review` is for.
+</important>
+
 <important if="you are committing, branching, merging, or cleaning up git branches">
 
 - **NEVER use `--no-verify`.** **NEVER create or suggest a Pull Request** (`gh pr create`) for platform self-merges — merges happen locally via squash merge. (Carve-outs: cross-repo dependency-notification PRs on sibling repos, and the explicit one-off the user authorizes.)
