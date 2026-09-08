@@ -50,15 +50,27 @@ If it is unset, nothing was bootstrapped for you. Run this once, before any code
 ```bash
 git submodule update --init --recursive     # --recursive: vendor/llm-registre is nested under .build
 git config core.hooksPath .build/hooks      # without this, no commit or push is validated
-[ -d ../dravr-vault ] || git clone https://github.com/dravr-ai/dravr-vault.git ../dravr-vault
-[ -e claude_docs ] || ln -s "../dravr-vault/Work Log" claude_docs
+ls -d ../dravr-vault 2>/dev/null || echo "vault ABSENT"
 ```
 
-Two things stay broken there and are to be said out loud rather than worked around. `gh` is absent
-in a cloud container, so the `gh` line in the checklist above fails and `carnet.sh` cannot claim —
-the claim hooks no-op silently, so **coordinate in chat**: name the issue you are taking before you
-start it. And the bilan sweep never ran, so no baseline exists to tell your uncommitted files from a
-peer's; attribute them by hand instead of assuming they are yours.
+Three things stay broken there. Say each out loud when it applies; none of them is to be worked
+around, and two of them have a wrong-looking fix that must not be attempted.
+
+**The vault cannot be cloned from inside the container, so do not try.** The proxy's git credential
+is scoped to the repositories attached to the session, and `git clone` of `dravr-vault` fails with
+`could not read Username for 'https://github.com'` — no credential, not a network block. Reaching it
+requires attaching the repository to the environment, which is configuration outside this repo. When
+it is absent, report that plainly and name what it costs: prior decisions, the shared-memory facts,
+`Methodology/`, `Features/`, and anywhere durable doc output would have gone. **Never create the
+`claude_docs` symlink against a missing target** — a dangling link reads as configured while silently
+dropping every vault write.
+
+**`gh` is absent**, so the `gh` line in the checklist above fails and `carnet.sh` cannot claim; the
+claim hooks no-op silently. Coordinate in chat instead: name the issue you are taking before you
+start it. For read-only GitHub, `curl` against `api.github.com` is authenticated by the proxy.
+
+**No bilan baseline exists**, since the sweep never ran, so uncommitted files cannot be attributed to
+this session automatically. Attribute them by hand rather than assuming they are yours.
 </important>
 
 <important if="you need to run, build, test, lint, or manage the server / database / tokens">
