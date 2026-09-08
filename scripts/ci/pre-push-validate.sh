@@ -422,6 +422,32 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] \
 fi
 
 # ============================================================================
+# tokio's RwLock is write-preferring with a FIFO queue, so a task holding a
+# read guard that then awaits write() on the same lock waits for itself — and
+# every later reader and writer queues behind the stuck writer, killing the
+# lock for the life of the process. In deployment that is a hang, not a crash:
+# Cloud Run 504s each piled-up request at request_timeout while /health keeps
+# answering, so the poisoned instance stays in rotation.
+#
+# Nothing else here catches it. !Send and clippy::await_holding_lock both cover
+# only a *std* guard across an await; holding a *tokio* guard across an await is
+# the point of tokio locks. Static analysers do not model async guards at all
+# (carnet#399). The remaining net is a test that hangs against a job timeout,
+# but a branch push runs 8 of 515 server test files. Compile-free, whole-tree,
+# and zero findings when it landed — a ratchet, not a cleanup.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] \
+    && [[ -x "$PROJECT_ROOT/scripts/ci/check-async-lock-guards.sh" ]]; then
+    echo "Tier 1h: Async lock guard check"
+    echo "-------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-async-lock-guards.sh"; then
+        echo ""
+        echo "FAIL: async lock guard check failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of
 # every push:
