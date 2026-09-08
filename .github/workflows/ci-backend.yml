@@ -13,6 +13,8 @@ on:
       - 'Cargo.lock'
       - 'deny.toml'
       - 'scripts/ci/**'
+      # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
+      - 'scripts/setup/**'
       # The gate self-tests cover the worktree skill library too.
       - '.claude/skills/lib/**'
       # The fast gate now also reads the clients and the shared packages: the
@@ -32,6 +34,8 @@ on:
       - 'Cargo.lock'
       - 'deny.toml'
       - 'scripts/ci/**'
+      # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
+      - 'scripts/setup/**'
       # The gate self-tests cover the worktree skill library too.
       - '.claude/skills/lib/**'
       - 'frontend/src/**'
