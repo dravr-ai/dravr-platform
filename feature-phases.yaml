@@ -54,6 +54,11 @@ features:
     current: FeatureKey::ApiTokens defaults false, so GET /api/me/features answers false for every user with no tenant or per-user row. Both clients read that one answer — the web Settings API Tokens tab is filtered out of the tab list and snaps back to Profile if the flag drops while the user sits on it, and the mobile Settings token manager is hidden the same way. The token mint, list and revoke endpoints behind it are live and admin-flippable per tenant or per user, so an operator can arm it for a single athlete today
     advance_when: the personal MCP token surface has run armed for a tenant without a support incident and the token lifecycle (expiry, revocation, rotation) is documented for athletes, at which point default_enabled returns true for ApiTokens and the per-user overrides become the exception rather than the only way in
     review_by: 2026-10-31
+  - name: training-plan-week-compliance-rail
+    surface: crates/pierre-tool-runtime/src/implementations/training_plan_compliance.rs
+    current: Log-only — every saved week is measured by dravr-cageux assess_week_compliance against its phase's targets and its flavour's caps (time in zone, hard-session count, spacing between hard sessions, template parameter ranges, hours against the volume target) and the verdict is reported as training_plan.week_assessed with each check reading within, off or unmeasured; nothing warns the agent and nothing refuses a save. The verdict type, the classifier and the three-zone fold are all built and tested in the kernel, so arming is a platform decision about what to do with a verdict, not new measurement
+    advance_when: the compliance base rate is measured over 30 saved fortnights of dev and alpha traffic and unclassified_days is not the dominant reading, at which point the two safety-shaped checks (spacing and ramp) graduate to a warn line in the agent's reply and the ledger entry is re-dated for the refusal phase
+    review_by: 2026-10-31
   # coach-visual-blocks-rail graduated 2026-08-19. Every condition its
   # advance_when named is met: the phase 3 client renderers shipped (612d26995,
   # web + mobile + the messaging rasteriser), 13 of the then-26 agents in

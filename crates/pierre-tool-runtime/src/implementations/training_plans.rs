@@ -41,6 +41,7 @@ use tracing::warn;
 
 use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
+use super::training_plan_compliance::emit_week_compliance;
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
 use super::training_plan_schema::{
     athlete_prop, outline_schema, parse_payload_part, string_prop, weeks_schema,
@@ -997,6 +998,20 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 &user_id,
                 &bundle.plan.id,
                 &bundle.plan.phases,
+            )
+            .await;
+            // The compliance rail, Log-only: every week this save wrote is
+            // measured against its phase's targets and the flavour's caps,
+            // and the verdict reported for the base-rate measurement. It
+            // walks the whole plan so one week's last hard day bounds the
+            // next week's first gap.
+            emit_week_compliance(
+                state,
+                repos,
+                tenant,
+                scope.user_id,
+                &bundle.plan,
+                &bundle.weeks,
             )
             .await;
 

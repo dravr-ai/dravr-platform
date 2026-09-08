@@ -176,6 +176,8 @@ pub mod plan_scope;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]
 pub mod playbooks;
+/// The compliance rail — a saved week measured against its phase and flavour, Log-only.
+pub mod training_plan_compliance;
 /// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
 pub mod training_plan_push;
 /// The schema `save_training_plan` advertises, and the rejection skeleton generated from it.
