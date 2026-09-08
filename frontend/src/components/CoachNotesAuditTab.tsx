@@ -185,7 +185,7 @@ export default function CoachNotesAuditTab() {
             <p className="mt-1 text-xs text-outline">
               Agent personas write notes about a user via the
               <code className="mx-1 rounded bg-surface-container px-1">
-                coach_note_add
+                agent_note_add
               </code>
               tool. Nothing listed means no notes have been authored in this tenant yet.
             </p>

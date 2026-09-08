@@ -122,7 +122,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
     expect(h1Count).toBe(1);
   });
 
-  test('Coach Notes Audit help references coach_note_add not memory.write_note (audit #12)', async ({
+  test('Agent Notes Audit help references agent_note_add not memory.write_note (audit #12)', async ({
     page,
   }) => {
     await page.route('**/api/admin/agent-notes**', (r) =>
@@ -134,7 +134,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
     );
     await setupAndLoginAsAdmin(page);
     await navigateToTab(page, 'Agent Notes Audit');
-    await expect(page.getByText('coach_note_add', { exact: true })).toBeVisible();
+    await expect(page.getByText('agent_note_add', { exact: true })).toBeVisible();
     await expect(page.getByText('memory.write_note')).toHaveCount(0);
   });
 

@@ -67,8 +67,8 @@ const sampleTools: UserEffectiveTool[] = [
     min_plan: 'starter',
   },
   {
-    tool_name: 'admin_assign_coach',
-    display_name: 'Assign Coach',
+    tool_name: 'admin_assign_agent',
+    display_name: 'Assign Agent',
     description: 'Assign a system agent to a specific user (admin only)',
     category: 'admin',
     is_enabled: true,
@@ -141,10 +141,10 @@ describe('UserToolOverrides', () => {
 
     // Admin-category tools are role-gated (stripped from a non-admin's
     // tools/list by the registry), so the per-user panel must not offer
-    // them — showing "Assign Coach: enabled" for a regular user would lie.
+    // them — showing "Assign Agent: enabled" for a regular user would lie.
     expect(screen.queryByText('admin')).not.toBeInTheDocument();
-    expect(screen.queryByText('Assign Coach')).not.toBeInTheDocument();
-    expect(screen.queryByText('admin_assign_coach')).not.toBeInTheDocument();
+    expect(screen.queryByText('Assign Agent')).not.toBeInTheDocument();
+    expect(screen.queryByText('admin_assign_agent')).not.toBeInTheDocument();
   });
 
   it('toggling a tool calls setUserToolOverride with the flipped enablement', async () => {

@@ -263,7 +263,7 @@ else
 
             # Order, not just membership. contremaitre_test asserts EXPECTED_TOOLS
             # is sorted, and Rust sorts &str by bytes: '_' (0x5F) lands before any
-            # lowercase letter, so search_coach_store precedes search_coaches. The
+            # lowercase letter, so search_agent_store precedes search_agents. The
             # set comparison above pipes through `sort -u` and cannot see this, and
             # a hand-inserted name reads as correct to every human alphabet.
             EXPECTED_ORDER="$(awk '/EXPECTED_TOOLS/{f=1} f{print} f&&/^\];/{exit}' "$EXPECTED_FILE" 2>/dev/null \

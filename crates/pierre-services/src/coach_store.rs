@@ -18,7 +18,7 @@
 //! Keeping the projection, the grade re-rank and the install call in one place
 //! is what makes those surfaces the same store: a coach that ranks third in
 //! the web browse ranks third in chat, and installing from any of them — the
-//! REST route, the `install_coach_from_store` tool, `/discover install` —
+//! REST route, the `install_agent_from_store` tool, `/discover install` —
 //! writes the same row and emits `coach.installed` exactly once, from here.
 
 use pierre_core::errors::{AppError, AppResult};
@@ -262,7 +262,7 @@ pub async fn install_store_coach(
         .await?;
 
     // notify: the one emission for every install surface — the REST route,
-    // the `install_coach_from_store` tool and `/discover install` all land
+    // the `install_agent_from_store` tool and `/discover install` all land
     // here, so an install counts exactly once whichever way it came in.
     // Fields are inline because a tool call or a slash command has no route
     // span to carry them.

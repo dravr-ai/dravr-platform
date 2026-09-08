@@ -57,7 +57,7 @@ fn budget_caps_destructive_at_one_per_turn() {
         guardian.decide(SecurityLabels::IRREVERSIBLE, false, None, &turn),
         Decision::Allow
     );
-    turn.record_success("delete_coach", SecurityLabels::IRREVERSIBLE, false);
+    turn.record_success("delete_agent", SecurityLabels::IRREVERSIBLE, false);
 
     // ...the second in the same turn is denied — blast-radius cap, taint-independent.
     assert_eq!(
@@ -180,7 +180,7 @@ fn turn_state_accumulates_taint_and_counts() {
     assert!(!turn.is_tainted());
     turn.record_success("get_activities", SecurityLabels::UNTRUSTED_OUTPUT, false);
     turn.record_success("set_goal", SecurityLabels::empty(), true);
-    turn.record_success("delete_coach", SecurityLabels::IRREVERSIBLE, false);
+    turn.record_success("delete_agent", SecurityLabels::IRREVERSIBLE, false);
     assert!(turn.is_tainted());
     assert_eq!(turn.write_count(), 1);
     assert_eq!(turn.destructive_count(), 1);

@@ -53,7 +53,7 @@ on either database backend.
 
 | Commit | Subject |
 |---|---|
-| `ffe16571` | `coach_note_add`, `coach_followup_schedule`, `remember_fact`, `recall_user_memory` registered via the existing `McpTool` pattern with zero trait edits |
+| `ffe16571` | `agent_note_add`, `agent_followup_schedule`, `remember_fact`, `recall_user_memory` registered via the existing `McpTool` pattern with zero trait edits |
 
 ## Tier 4 — Cross-channel agent sessions
 

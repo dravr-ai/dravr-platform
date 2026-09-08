@@ -478,7 +478,7 @@ fn day(date: &str, slug: Option<&str>) -> Value {
 
 fn plan_payload(coach_id: &str, days: &[Value]) -> Value {
     json!({
-        "coach_id": coach_id,
+        "agent_id": coach_id,
         "outline": {
             "goal_race": { "name": "Parkrun PB", "date": "2026-11-14", "discipline": "run_5k", "priority": "A" },
             "strategy": "house polarized build",

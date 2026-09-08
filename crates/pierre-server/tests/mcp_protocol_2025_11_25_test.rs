@@ -197,14 +197,14 @@ async fn test_tools_include_annotations() {
     assert_eq!(annotations.idempotent_hint, Some(true));
 
     // Verify destructive tools have correct annotations
-    let delete_coach = tools
+    let delete_agent = tools
         .iter()
-        .find(|t| t.name == "delete_coach")
-        .expect("delete_coach tool should exist");
-    let annotations = delete_coach
+        .find(|t| t.name == "delete_agent")
+        .expect("delete_agent tool should exist");
+    let annotations = delete_agent
         .annotations
         .as_ref()
-        .expect("delete_coach should have annotations");
+        .expect("delete_agent should have annotations");
     assert_eq!(annotations.read_only_hint, Some(false));
     assert_eq!(annotations.destructive_hint, Some(true));
 
@@ -348,14 +348,14 @@ async fn test_write_tool_annotations() {
 
     let tools = get_tools();
 
-    let create_coach = tools
+    let create_agent = tools
         .iter()
-        .find(|t| t.name == "create_coach")
-        .expect("create_coach tool should exist");
-    let annotations = create_coach
+        .find(|t| t.name == "create_agent")
+        .expect("create_agent tool should exist");
+    let annotations = create_agent
         .annotations
         .as_ref()
-        .expect("create_coach should have annotations");
+        .expect("create_agent should have annotations");
     assert_eq!(annotations.read_only_hint, Some(false));
     assert_eq!(annotations.destructive_hint, Some(false));
     assert_eq!(annotations.idempotent_hint, Some(true));

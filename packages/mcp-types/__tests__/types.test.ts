@@ -200,7 +200,7 @@ describe('TOOL_NAMES roster', () => {
       'get_activities',
       'get_connection_status',
       'analyze_training_load',
-      'search_coach_store',
+      'search_agent_store',
     ] as const) {
       expect(tools.TOOL_NAMES).toContain(name);
     }

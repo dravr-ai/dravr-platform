@@ -170,7 +170,7 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
             },
         );
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
@@ -191,10 +191,10 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
         );
         let schema = object_schema(
             properties,
-            Some(vec!["content".to_owned(), "coach_id".to_owned()]),
+            Some(vec!["content".to_owned(), "agent_id".to_owned()]),
         );
         answers_with::<CoachNoteAddResult>(tool_definition(
-            "coach_note_add",
+            "agent_note_add",
             "Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
             schema,
             Some(write_annotations()),
@@ -227,7 +227,7 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                     "note content exceeds 2000 character limit",
                 ));
             }
-            let coach_id = require_string_field(&args, "coach_id")?;
+            let coach_id = require_string_field(&args, "agent_id")?;
             let conv_ref = optional_string_field(&args, "conversation_id");
             let user_id = ctx_user_id(&context);
 
@@ -247,7 +247,7 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                 .await?;
 
             ok_typed(
-                "coach_note_add",
+                "agent_note_add",
                 CoachNoteAddResult {
                     note_id: note.id,
                     created_at: note.created_at.to_rfc3339(),
@@ -285,7 +285,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
             },
         );
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Agent making the promise.".to_owned()),
@@ -314,10 +314,10 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
         );
         let schema = object_schema(
             properties,
-            Some(vec!["content".to_owned(), "coach_id".to_owned()]),
+            Some(vec!["content".to_owned(), "agent_id".to_owned()]),
         );
         answers_with::<CoachFollowupScheduleResult>(tool_definition(
-            "coach_followup_schedule",
+            "agent_followup_schedule",
             "Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
             schema,
             Some(write_annotations()),
@@ -352,7 +352,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
                     "followup content exceeds 500 character limit",
                 ));
             }
-            let coach_id = require_string_field(&args, "coach_id")?;
+            let coach_id = require_string_field(&args, "agent_id")?;
             let conv_ref = optional_string_field(&args, "conversation_id");
             let due_at = optional_string_field(&args, "due_at")
                 .map(|s| {
@@ -381,7 +381,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
                 .await?;
 
             ok_typed(
-                "coach_followup_schedule",
+                "agent_followup_schedule",
                 CoachFollowupScheduleResult {
                     followup_id: followup.id,
                     status: "pending".to_owned(),
@@ -450,7 +450,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             },
         );
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
@@ -511,7 +511,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 .and_then(Value::as_f64)
                 .ok_or_else(|| AppError::invalid_input("confidence must be a number"))?;
             let confidence = (confidence_f64 as f32).clamp(0.0, 1.0);
-            let coach_id = optional_string_field(&args, "coach_id");
+            let coach_id = optional_string_field(&args, "agent_id");
             let user_id = ctx_user_id(&context);
 
             let params = UpsertUserFactParams {
@@ -566,7 +566,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
@@ -619,7 +619,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let coach_id = optional_string_field(&args, "coach_id");
+            let coach_id = optional_string_field(&args, "agent_id");
             let kind = optional_string_field(&args, "kind").map(|s| FactKind::parse_lenient(&s));
             let limit = args
                 .get("limit")

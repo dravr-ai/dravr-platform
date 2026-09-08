@@ -185,11 +185,11 @@ fn test_chat_callable_surface_excludes_admin_and_management_tools() {
         .collect();
 
     let forbidden = [
-        "create_coach",
-        "delete_coach",
-        "update_coach",
-        "admin_assign_coach",
-        "admin_create_system_coach",
+        "create_agent",
+        "delete_agent",
+        "update_agent",
+        "admin_assign_agent",
+        "admin_create_system_agent",
         "verify_claim",
     ];
 

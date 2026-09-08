@@ -99,8 +99,8 @@ async fn test_registry_builtin_tools_registration() {
 
     // Verify well-known tools are registered
     assert!(
-        registry.contains("list_coaches"),
-        "list_coaches should be registered"
+        registry.contains("list_agents"),
+        "list_agents should be registered"
     );
     assert!(
         registry.contains("get_activities"),
@@ -183,8 +183,8 @@ async fn test_registry_tools_in_category() {
         "coaches category should have tools"
     );
     assert!(
-        coach_tools.contains(&"list_coaches"),
-        "coaches category should contain list_coaches"
+        coach_tools.contains(&"list_agents"),
+        "coaches category should contain list_agents"
     );
 }
 
@@ -468,11 +468,11 @@ async fn test_get_existing_tool() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    let tool = registry.get("list_coaches");
-    assert!(tool.is_some(), "list_coaches should exist");
+    let tool = registry.get("list_agents");
+    assert!(tool.is_some(), "list_agents should exist");
 
     let tool = tool.unwrap();
-    assert_eq!(tool.definition().name, "list_coaches");
+    assert_eq!(tool.definition().name, "list_agents");
 }
 
 #[tokio::test]
@@ -489,7 +489,7 @@ async fn test_contains_method() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    assert!(registry.contains("list_coaches"));
+    assert!(registry.contains("list_agents"));
     assert!(!registry.contains("nonexistent_tool_xyz"));
 }
 
@@ -501,7 +501,7 @@ async fn test_tool_names_method() {
     let names = registry.tool_names();
 
     assert!(!names.is_empty(), "Should have tool names");
-    assert!(names.contains(&"list_coaches"));
+    assert!(names.contains(&"list_agents"));
     assert!(names.contains(&"get_activities"));
 }
 
@@ -769,7 +769,7 @@ async fn test_external_tool_with_builtin_tools() {
 
     assert_eq!(registry.len(), builtin_count + 1);
     assert!(registry.contains("custom_integration_tool"));
-    assert!(registry.contains("list_coaches")); // Built-in still present
+    assert!(registry.contains("list_agents")); // Built-in still present
 }
 
 // ============================================================================

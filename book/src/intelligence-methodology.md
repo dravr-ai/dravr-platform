@@ -267,19 +267,19 @@ All MCP tools use real calculations from foundation modules. The table below map
 
 | Tool Name | Algorithm/Intelligence | Implementation | Test Files |
 |-----------|------------------------|----------------|------------|
-| `list_coaches` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `create_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `get_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `update_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `delete_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `toggle_favorite` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `search_coaches` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `activate_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `deactivate_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `get_active_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `hide_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `show_coach` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
-| `list_hidden_coaches` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `list_agents` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `create_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `get_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `update_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `delete_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `toggle_agent_favorite` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `search_agents` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `activate_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `deactivate_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `get_active_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `hide_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `show_agent` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
+| `list_hidden_agents` | CRUD via CoachesManager | `database/coaches.rs` | Database integration tests |
 
 #### Admin Tools (`src/tools/implementations/admin.rs`)
 

@@ -154,7 +154,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
         );
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<AdminListSystemCoachesResult>>(tool_definition(
-            "admin_list_system_coaches",
+            "admin_list_system_agents",
             "List all system agents in the tenant (admin only)",
             schema,
             Some(read_only_annotations()),
@@ -217,7 +217,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
                 offset,
             };
 
-            ok_typed("admin_list_system_coaches", apply_format(payload, format))
+            ok_typed("admin_list_system_agents", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)
@@ -309,7 +309,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
         );
         answers_with::<AdminCreateSystemCoachResult>(tool_definition(
-            "admin_create_system_coach",
+            "admin_create_system_agent",
             "Create a new system agent visible to all tenant users (admin only)",
             schema,
             Some(write_annotations()),
@@ -366,7 +366,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to create system agent: {e}")))?;
 
             ok_typed(
-                "admin_create_system_coach",
+                "admin_create_system_agent",
                 AdminCreateSystemCoachResult {
                     id: coach.id.to_string(),
                     title: coach.title,
@@ -397,16 +397,16 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the system agent to retrieve".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema_with_format(properties, Some(vec!["agent_id".to_owned()]));
         answers_with::<Formatted<AdminGetSystemCoachResult>>(tool_definition(
-            "admin_get_system_coach",
+            "admin_get_system_agent",
             "Get detailed information about a system agent (admin only)",
             schema,
             Some(read_only_annotations()),
@@ -434,7 +434,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: coach_id".to_owned())
@@ -461,7 +461,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
                         created_at: c.created_at.to_rfc3339(),
                         updated_at: c.updated_at.to_rfc3339(),
                     };
-                    ok_typed("admin_get_system_coach", apply_format(payload, format))
+                    ok_typed("admin_get_system_agent", apply_format(payload, format))
                 }
                 None => Ok(ToolResult::error(json!({
                     "error": format!("System agent not found: {coach_id}"),
@@ -485,7 +485,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the system agent to update".to_owned()),
@@ -537,9 +537,9 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
         answers_with::<AdminUpdateSystemCoachResult>(tool_definition(
-            "admin_update_system_coach",
+            "admin_update_system_agent",
             "Update an existing system agent (admin only)",
             schema,
             Some(write_annotations()),
@@ -566,7 +566,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: coach_id".to_owned())
@@ -623,7 +623,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
 
             match coach {
                 Some(c) => ok_typed(
-                    "admin_update_system_coach",
+                    "admin_update_system_agent",
                     AdminUpdateSystemCoachResult {
                         id: c.id.to_string(),
                         title: c.title,
@@ -659,16 +659,16 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the system agent to delete".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
         answers_with::<AdminDeleteSystemCoachResult>(tool_definition(
-            "admin_delete_system_coach",
+            "admin_delete_system_agent",
             "Delete a system agent and remove all assignments (admin only)",
             schema,
             Some(destructive_annotations()),
@@ -695,7 +695,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: coach_id".to_owned())
@@ -709,10 +709,10 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
 
             if deleted {
                 ok_typed(
-                    "admin_delete_system_coach",
+                    "admin_delete_system_agent",
                     AdminDeleteSystemCoachResult {
                         deleted: true,
-                        coach_id: coach_id.to_owned(),
+                        agent_id: coach_id.to_owned(),
                     },
                 )
             } else {
@@ -738,7 +738,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the system agent to assign".to_owned()),
@@ -755,10 +755,10 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
         );
         let schema = object_schema(
             properties,
-            Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
+            Some(vec!["agent_id".to_owned(), "user_id".to_owned()]),
         );
         answers_with::<AdminAssignCoachResult>(tool_definition(
-            "admin_assign_coach",
+            "admin_assign_agent",
             "Assign a system agent to a specific user (admin only)",
             schema,
             Some(write_annotations()),
@@ -786,7 +786,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: coach_id".to_owned())
@@ -821,11 +821,11 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
                 .map_err(|e| AppError::internal(format!("Failed to assign coach: {e}")))?;
 
             ok_typed(
-                "admin_assign_coach",
+                "admin_assign_agent",
                 AdminAssignCoachResult {
                     assigned: true,
-                    coach_id: coach_id.to_owned(),
-                    coach_title: coach.title,
+                    agent_id: coach_id.to_owned(),
+                    agent_title: coach.title,
                     user_id: target_user_id.to_string(),
                     assigned_by: admin_user_id.to_string(),
                 },
@@ -848,7 +848,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the system agent to unassign".to_owned()),
@@ -865,10 +865,10 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
         );
         let schema = object_schema(
             properties,
-            Some(vec!["coach_id".to_owned(), "user_id".to_owned()]),
+            Some(vec!["agent_id".to_owned(), "user_id".to_owned()]),
         );
         answers_with::<AdminUnassignCoachResult>(tool_definition(
-            "admin_unassign_coach",
+            "admin_unassign_agent",
             "Remove an agent assignment from a user (admin only)",
             schema,
             Some(destructive_annotations()),
@@ -895,7 +895,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: coach_id".to_owned())
@@ -921,10 +921,10 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
 
             if unassigned {
                 ok_typed(
-                    "admin_unassign_coach",
+                    "admin_unassign_agent",
                     AdminUnassignCoachResult {
                         unassigned: true,
-                        coach_id: coach_id.to_owned(),
+                        agent_id: coach_id.to_owned(),
                         user_id: target_user_id.to_string(),
                     },
                 )
@@ -957,16 +957,16 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the agent to list assignments for".to_owned()),
                 ..Default::default()
             },
         );
-        let schema = object_schema(properties, Some(vec!["coach_id".to_owned()]));
+        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
         answers_with::<AdminListCoachAssignmentsResult>(tool_definition(
-            "admin_list_coach_assignments",
+            "admin_list_agent_assignments",
             "List all assignments for a system agent (admin only)",
             schema,
             Some(read_only_annotations()),
@@ -993,7 +993,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
-                .get("coach_id")
+                .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("coach_id is required to list assignments".to_owned())
@@ -1032,9 +1032,9 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
                 .collect();
 
             ok_typed(
-                "admin_list_coach_assignments",
+                "admin_list_agent_assignments",
                 AdminListCoachAssignmentsResult {
-                    coach_id: coach_id.to_owned(),
+                    agent_id: coach_id.to_owned(),
                     count: assignment_list.len(),
                     assignments: assignment_list,
                     total,

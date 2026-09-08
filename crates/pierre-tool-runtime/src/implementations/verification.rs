@@ -121,7 +121,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             },
         );
         properties.insert(
-            "coach_id".to_owned(),
+            "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Optional agent id for the verdict row.".to_owned()),
@@ -173,7 +173,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 .transpose()?
                 .unwrap_or(EvidenceStrength::Mixed);
             let conversation_id = optional_string_field(&args, "conversation_id");
-            let coach_id = optional_string_field(&args, "coach_id");
+            let coach_id = optional_string_field(&args, "agent_id");
             let user_id = context.user_id.to_string();
 
             let extracted = ExtractedClaim {

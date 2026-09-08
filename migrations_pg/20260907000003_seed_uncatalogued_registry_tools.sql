@@ -37,9 +37,9 @@
 -- changed.
 
 INSERT INTO tool_catalog (id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan) VALUES
-('tc-109', 'estimate_vo2max', 'Estimate VO2max', 'Estimate VO2max from a field test the athlete describes', 'configuration', TRUE, NULL, 'starter'),
-('tc-110', 'estimate_lactate_thresholds', 'Estimate Lactate Thresholds', 'Locate LT1 and LT2 from a step test the athlete reports', 'configuration', TRUE, NULL, 'starter'),
-('tc-111', 'recommend_plan_flavour', 'Recommend Plan Flavour', 'Rank the training flavours an athlete can run and lay out the season', 'configuration', TRUE, NULL, 'starter'),
-('tc-112', 'forget_playbook', 'Forget Playbook', 'Delete one learned coaching playbook by id (GDPR forget)', 'fitness', TRUE, NULL, 'starter'),
-('tc-113', 'verify_claim', 'Verify Claim', 'Check a factual claim against the claim-verification pipeline', 'fitness', TRUE, NULL, 'starter')
+('tc-135', 'estimate_vo2max', 'Estimate VO2max', 'Estimate VO2max from a field test the athlete describes', 'configuration', TRUE, NULL, 'starter'),
+('tc-136', 'estimate_lactate_thresholds', 'Estimate Lactate Thresholds', 'Locate LT1 and LT2 from a step test the athlete reports', 'configuration', TRUE, NULL, 'starter'),
+('tc-137', 'recommend_plan_flavour', 'Recommend Plan Flavour', 'Rank the training flavours an athlete can run and lay out the season', 'configuration', TRUE, NULL, 'starter'),
+('tc-138', 'forget_playbook', 'Forget Playbook', 'Delete one learned coaching playbook by id (GDPR forget)', 'fitness', TRUE, NULL, 'starter'),
+('tc-139', 'verify_claim', 'Verify Claim', 'Check a factual claim against the claim-verification pipeline', 'fitness', TRUE, NULL, 'starter')
 ON CONFLICT DO NOTHING;
