@@ -321,6 +321,18 @@ check "and the ledger is left intact when it cannot be checked" 1 \
     "$(grep -c '"issue":236' "$sweep_ledger")"
 rm -f "$sweep_ledger"
 
+# A worktree someone is still working in is not abandoned work. A session's own cwd is not the
+# signal — every session here sits in the main checkout and reaches a worktree by path — so
+# liveness is a live process inside it, or a file edited recently.
+live_dir=$(mktemp -d -t bilan-live)
+touch "$live_dir/just-edited.txt"
+check "a directory edited moments ago reads as in use" 0 \
+    "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash -c "source <(sed -n '/^worktree_is_live/,/^}/p' \"$BILAN\"); worktree_is_live \"$live_dir\"" ); echo $?)"
+touch -t 202601010000 "$live_dir/just-edited.txt"
+check "and one untouched for hours does not" 1 \
+    "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash -c "source <(sed -n '/^worktree_is_live/,/^}/p' \"$BILAN\"); worktree_is_live \"$live_dir\"" ); echo $?)"
+rm -rf "$live_dir"
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }

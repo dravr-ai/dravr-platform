@@ -835,8 +835,33 @@ is_session_alive() { # <session-id> <pid>
     return 1
 }
 
+# A worktree with an agent actively working in it is not something a dead session left behind.
+# The sweep checked liveness for ledgers and not for worktrees, so it reported every checkout
+# with uncommitted work — including one ChefFamille confirmed was in active use. Same false
+# alarm as the closed issue, one level over.
+#
+# A session's own cwd is NOT the signal, and that was measured: every dravr-platform session on
+# this machine sits in the main checkout and reaches a worktree by path, so the worktree that
+# was actually busy had no session pointing at it. Two things do show it:
+#
+#   * a live process whose cwd is inside it — a dev server started from that checkout,
+#   * a file modified there recently — an agent editing by path leaves no process at all.
+#
+# Either one means someone is there. Abandoned work is quiet AND untouched.
+worktree_is_live() { # <path>
+    local recent
+    if command -v lsof >/dev/null 2>&1 && lsof -a -d cwd -- "$1" >/dev/null 2>&1; then
+        return 0
+    fi
+    # -mmin -120: two hours is long enough that a pause for thought does not read as abandonment,
+    # and short enough that yesterday's leftovers still surface.
+    recent=$(find "$1" -type f -mmin -120 -not -path '*/.git/*' -not -path '*/target/*' \
+             -not -path '*/node_modules/*' -print -quit 2>/dev/null)
+    [ -n "$recent" ]
+}
+
 cmd_sweep() {
-    local dir f id pid name at issues found=0 path="" branch="" dirty ahead line n tmp healed="" seen=""
+    local dir f id pid name at issues found=0 busy=0 path="" branch="" dirty ahead line n tmp healed="" seen=""
     say "BILAN SWEEP · $(basename "$REPO_ROOT")"
     say ""
     # Both accounts' config dirs, plus this session's own if CLAUDE_CONFIG_DIR points somewhere
@@ -889,13 +914,18 @@ cmd_sweep() {
                 dirty=$(git -C "$path" status --porcelain 2>/dev/null | grep -cv '^??' || true)
                 ahead=$(git -C "$path" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
                 if [ "${dirty:-0}" -gt 0 ] || [ "${ahead:-0}" -gt 0 ]; then
-                    found=1
-                    say "  📂 $branch ($path): ${dirty:-0} uncommitted, ${ahead:-0} unpushed"
+                    if worktree_is_live "$path"; then
+                        busy=$((busy + 1))
+                    else
+                        found=1
+                        say "  📂 $branch ($path): ${dirty:-0} uncommitted, ${ahead:-0} unpushed"
+                    fi
                 fi ;;
         esac
     done <<< "$(git worktree list --porcelain 2>/dev/null)"
 
     [ -z "${healed// /}" ] || say "  🧹 cleared from a dead session's ledger, already closed on the tracker:${healed}"
+    [ "$busy" = 0 ] || say "  👷 $busy worktree(s) in active use (a live process or edits in the last 2h) — not reported"
     [ "$found" = 1 ] || [ -n "${healed// /}" ] || say "  ✅ nothing left behind by a dead session"
     return 0
 }
