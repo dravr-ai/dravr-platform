@@ -30,6 +30,37 @@ git status                                        # uncommitted work
 If any workflow on main has been red for 2+ runs, STOP and ask the user "Should I investigate CI before doing X?" before starting the requested task.
 </important>
 
+<important if="you are in a cloud or container session, or the checklist above did not run itself">
+
+**A session whose project root is not this repo loads CLAUDE.md but NOT `.claude/settings.json`.**
+Project settings are read from the project root, so when several repos are attached at once the
+root is their shared *parent* and no repo's settings file loads — not this one's, not a satellite's.
+The instructions you are reading arrive by a separate mechanism and are unaffected, which is why the
+repo looks configured while its hooks, permissions and plugins silently are not. Do not conclude
+"hooks are unsupported here": a single-repo cloud session loads them normally.
+
+One command says which case you are in:
+
+```bash
+echo "${CLAUDE_PROJECT_DIR:-<unset>}"     # unset ⇒ root is not a repo ⇒ NO hook ran this session
+```
+
+If it is unset, nothing was bootstrapped for you. Run this once, before any code work:
+
+```bash
+git submodule update --init --recursive     # --recursive: vendor/llm-registre is nested under .build
+git config core.hooksPath .build/hooks      # without this, no commit or push is validated
+[ -d ../dravr-vault ] || git clone https://github.com/dravr-ai/dravr-vault.git ../dravr-vault
+[ -e claude_docs ] || ln -s "../dravr-vault/Work Log" claude_docs
+```
+
+Two things stay broken there and are to be said out loud rather than worked around. `gh` is absent
+in a cloud container, so the `gh` line in the checklist above fails and `carnet.sh` cannot claim —
+the claim hooks no-op silently, so **coordinate in chat**: name the issue you are taking before you
+start it. And the bilan sweep never ran, so no baseline exists to tell your uncommitted files from a
+peer's; attribute them by hand instead of assuming they are yours.
+</important>
+
 <important if="you need to run, build, test, lint, or manage the server / database / tokens">
 
 **Server & DB** (Pierre MCP Server — port 8081, RESERVED, never start anything else on it):

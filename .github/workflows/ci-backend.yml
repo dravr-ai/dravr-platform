@@ -209,7 +209,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/setup/setup-claude-code-mcp.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
