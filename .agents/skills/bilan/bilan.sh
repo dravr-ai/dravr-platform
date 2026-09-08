@@ -140,7 +140,7 @@ ensure_baseline() {
 }
 
 cmd_baseline() {
-    local f u up
+    local f u up pf
     f=$(baseline_file) || return 0
     mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
     git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//' > "$f"
@@ -154,6 +154,15 @@ cmd_baseline() {
     fi
     # HEAD at session start, so "did this session commit anything at all" is answerable.
     git rev-parse HEAD 2>/dev/null > "${f}.head" || : > "${f}.head"
+    # The dev stack, by (name, pid). A peer starting their stack from this shared checkout
+    # writes pid files that are this CHECKOUT's, and dev_owned only asks whether the process is
+    # alive and unrecycled — never who started it. Name alone would be too coarse: if the peer's
+    # server dies and this session starts its own, the pid differs and it is genuinely ours.
+    : > "${f}.stack"
+    for pf in "$REPO_ROOT"/logs/*.pid; do
+        [ -f "$pf" ] || continue
+        printf '%s %s\n' "$(basename "$pf" .pid)" "$(head -1 "$pf" 2>/dev/null)" >> "${f}.stack"
+    done
     u=$(grep -c . "${f}.commits" 2>/dev/null); u=${u:-0}
     local d; d=$(grep -c . "$f" 2>/dev/null); d=${d:-0}
     say "baseline: $d file(s) dirty and $u commit(s) unpushed at session start"
@@ -591,17 +600,44 @@ opening_ask() {
 
 # ------------------------------------------------------------------ checks · dev stack
 check_dev_stack() {
-    local lib="$REPO_ROOT/bin/dev-processes.sh" f name up=""
+    local lib="$REPO_ROOT/bin/dev-processes.sh" f b name pid up="" inherited=""
     [ -f "$lib" ] || return 0
+    # A `VAR=x . file` prefix does not survive the `.` builtin, so the assignment has to stand
+    # on its own line. The real library computes its own default from BASH_SOURCE and so worked
+    # regardless, which is exactly why the ineffective form went unnoticed.
+    DEV_PROJECT_ROOT="$REPO_ROOT"
+    export DEV_PROJECT_ROOT
     # shellcheck disable=SC1090
-    DEV_PROJECT_ROOT="$REPO_ROOT" . "$lib" >/dev/null 2>&1 || return 0
+    . "$lib" >/dev/null 2>&1 || return 0
+    b=$(baseline_file 2>/dev/null) || b=""
     for f in "$REPO_ROOT"/logs/*.pid; do
         [ -f "$f" ] || continue
         name=$(basename "$f" .pid)
-        dev_owned "$name" >/dev/null 2>&1 && up="$up $name"
+        dev_owned "$name" >/dev/null 2>&1 || continue
+        pid=$(head -1 "$f" 2>/dev/null)
+        # Already running, as this pid, before the session opened: a peer's, and stopping it
+        # would take their servers down. Stated, never scored.
+        # A baseline written before this channel existed has no .stack file at all, and a
+        # session already running when it landed would otherwise have every peer process
+        # attributed to it. Absent means unknown, and unknown is stated, never scored — the same
+        # rule check_measurable uses for a missing baseline.
+        if [ -z "$b" ] || [ ! -f "${b}.stack" ]; then
+            inherited="$inherited $name"
+        elif grep -qxF "$name $pid" "${b}.stack" 2>/dev/null; then
+            inherited="$inherited $name"
+        else
+            up="$up $name"
+        fi
     done
+    if [ -n "${inherited// /}" ]; then
+        if [ -n "$b" ] && [ -f "${b}.stack" ]; then
+            say_note "dev stack running since before this session opened — a peer's, not this session's to stop:${inherited}"
+        else
+            say_note "dev stack up, ownership unknown (this session's baseline predates the stack channel) — check before stopping:${inherited}"
+        fi
+    fi
     [ -n "${up// /}" ] || return 0
-    cap 9 "⚠️" "dev stack from this checkout still up:${up}" \
+    cap 9 "⚠️" "dev stack this session started, still up:${up}" \
           "./bin/stop-server.sh — a running stack holds 8081/8082/5173 against the next session"
 }
 

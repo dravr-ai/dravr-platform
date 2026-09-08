@@ -55,7 +55,7 @@ checks switched off is not a completion verdict, and now says so as a standing c
 | nothing measurable — no commit, no todo | **9** |
 | untracked files, stash created this session, branch whose upstream is gone | **9** |
 | `.git/validation-passed` missing, stale, or for another sha | **9** |
-| dev stack from this checkout still up | **9** |
+| dev stack **this session started** still up | **9** |
 
 ## Uncommitted files that are not this session's
 
@@ -69,6 +69,15 @@ Two mechanisms fix it, and the first needs nothing from you.
 **The baseline.** The SessionStart hook records which tracked files were already dirty when the
 session opened. A path dirty before the session existed is definitionally not its work — that
 much *is* machine-decidable. Those files are stated as a note and never scored.
+
+**The dev stack too.** A peer starting their stack from this shared checkout writes pid files
+that are the *checkout's*, and `dev_owned` only asks whether the process is alive and unrecycled
+— never who started it, which it cannot know. So the baseline records the running set by
+`(name, pid)` as well: a process already up under that pid when the session opened is a peer's,
+stated and never scored. `ack` has no channel for this and should not grow one — the only way to
+clear such a cap would be `./bin/stop-server.sh`, which takes a peer's servers down. When the
+baseline predates this channel entirely, ownership is *unknown* and is stated as such rather
+than blamed on the session.
 
 **`ack`, for what goes dirty afterwards.** A peer editing during your session is not covered by
 the baseline, so you say so once:

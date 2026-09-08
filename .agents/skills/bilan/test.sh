@@ -273,6 +273,35 @@ check "and skips the system-reminder that precedes it" 0 \
     "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap 2>/dev/null ) | grep -c 'ignore me')"
 rm -rf "$CFG/projects"
 
+# ---- a peer's dev stack in the shared checkout is not this session's to stop. Third instance
+# of the same hazard: pid files are the CHECKOUT's, and dev_owned only asks whether the process
+# is alive, never who started it. ack had no channel for it, so the baseline gets one.
+mkdir -p "$R/logs" "$R/bin"
+# Mirrors the real library, including its self-resolving default — without that default a
+# stub silently answers about the wrong directory and every dev-stack case passes vacuously.
+cat > "$R/bin/dev-processes.sh" <<'LIB'
+DEV_PROJECT_ROOT="${DEV_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
+dev_pid_file() { echo "$DEV_PROJECT_ROOT/logs/$1.pid"; }
+dev_owned() { [ -r "$(dev_pid_file "$1")" ] && head -1 "$(dev_pid_file "$1")"; }
+LIB
+printf '%s\n' "$$" > "$R/logs/peer-server.pid"      # already running when the session opens
+rm -f "$CFG/bilan/"*.baseline*
+baseline_now "$R"
+out=$(run "$R")
+check "a stack running before the session does not cap" 0 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("dev stack"))] | length')"
+check "it is stated as a peer's instead" 1 \
+    "$(printf '%s' "$out" | jq '[.notes[] | select(test("since before this session opened"))] | length')"
+printf '%s\n' "$$" > "$R/logs/mine-server.pid"      # started after the baseline
+out=$(run "$R")
+check "a stack this session started does cap at 9" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap==9) | select(.evidence | test("this session started"))] | length')"
+check "and names only the new one" 0 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("this session started")) | select(.evidence | test("peer-server"))] | length')"
+rm -rf "$R/logs" "$R/bin"; rm -f "$CFG/bilan/"*.baseline*
+baseline_now "$R"        # leave a clean starting point: with none, the next case's own edit
+                         # is created before the baseline and correctly reads as inherited
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }
