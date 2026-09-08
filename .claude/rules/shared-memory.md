@@ -12,6 +12,9 @@ rg -il "<keyword>" "../dravr-vault/Claude Memory/platform/"                 # fi
 rg -I "^description:" "../dravr-vault/Claude Memory/platform/"              # skim every fact at once
 ```
 
+In a Claude Code for Web session the vault is a cloned snapshot that can be ~7 days
+stale, so `git -C ../dravr-vault pull` before treating a fact as current.
+
 What is covered, by topic:
 
 - **provider capture & sciotte** (37)
