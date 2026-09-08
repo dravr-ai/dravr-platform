@@ -715,7 +715,7 @@ async fn test_delete_coach_success() -> Result<()> {
     assert!(response.success);
     let result = response.result.unwrap();
     assert!(result["deleted"].as_bool().unwrap());
-    assert_eq!(result["coach_id"].as_str().unwrap(), coach_id);
+    assert_eq!(result["agent_id"].as_str().unwrap(), coach_id);
 
     // Verify it's gone
     let get_request = create_test_request(
@@ -810,7 +810,7 @@ async fn test_toggle_coach_favorite_on() -> Result<()> {
     assert!(response.success);
     let result = response.result.unwrap();
     assert!(result["is_favorite"].as_bool().unwrap());
-    assert_eq!(result["coach_id"].as_str().unwrap(), coach_id);
+    assert_eq!(result["agent_id"].as_str().unwrap(), coach_id);
 
     Ok(())
 }
