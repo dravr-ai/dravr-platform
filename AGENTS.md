@@ -63,7 +63,8 @@ around, and two of them have a wrong-looking fix that must not be attempted.
 **The vault cannot be cloned from inside the container, so do not try.** The proxy's git credential
 is scoped to the repositories attached to the session, and `git clone` of `dravr-vault` fails with
 `could not read Username for 'https://github.com'` — no credential, not a network block. Reaching it
-requires attaching the repository to the environment, which is configuration outside this repo. When
+requires attaching the repository to the environment, which is configuration outside this repo —
+`curl` is not a way around it either, since the proxy answers `403` for any repo but the attached one. When
 it is absent, report that plainly and name what it costs: prior decisions, the shared-memory facts,
 `Methodology/`, `Features/`, and anywhere durable doc output would have gone. **Never create the
 `claude_docs` symlink against a missing target** — a dangling link reads as configured while silently
@@ -71,7 +72,13 @@ dropping every vault write.
 
 **`gh` is absent**, so the `gh` line in the checklist above fails and `carnet.sh` cannot claim; the
 claim hooks no-op silently. Coordinate in chat instead: name the issue you are taking before you
-start it. For read-only GitHub, `curl` against `api.github.com` is authenticated by the proxy.
+start it. **`curl` does not rescue this.** The proxy authenticates `api.github.com` as the real user,
+but only for repositories **attached to the session**, and only on an allowlisted set of paths. A repo
+that is not attached answers `403` rather than GitHub's `404` — measured for `dravr-carnet` and
+`dravr-vault` from a single-repo session — and a path outside the allowlist is refused outright with
+*Access to this GitHub API path is not permitted through this proxy*. Installing `gh` does not change
+this: it is another client through the same proxy, and the proxy overrides the `Authorization` header
+it is given. What changes it is attaching the repository.
 
 **No bilan baseline exists**, since the sweep never ran, so uncommitted files cannot be attributed to
 this session automatically. Attribute them by hand rather than assuming they are yours.
@@ -261,7 +268,7 @@ gh run list --branch main --limit 15 --json headSha,conclusion,status
 
 CI monitoring — use the first that works, NEVER ask the user for a GitHub token:
 1. WebFetch `https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A<branch>` (no PAT quota). Its prose summary is not a verdict — "most workflows succeeded" has hidden a red; confirm a conclusion below before calling anything green.
-2. In a container where `gh` is absent, plain `curl https://api.github.com/repos/dravr-ai/dravr-platform/actions/runs?branch=<branch>` — the agent proxy authenticates it on the wire at 15000/hr. Send no `Authorization` header, and do not read `GH_TOKEN`: it is a placeholder, not a credential.
+2. In a container where `gh` is absent, plain `curl https://api.github.com/repos/dravr-ai/dravr-platform/actions/runs?branch=<branch>` — the agent proxy authenticates it on the wire at 15000/hr. Send no `Authorization` header, and do not read `GH_TOKEN`: it is a placeholder, not a credential. This reaches **only the attached repository, on allowlisted paths** — another dravr repo returns `403`, so do not reach for it as a general GitHub client.
 3. `gh run list --branch <branch>` / single `gh run view <id>` (costs shared 5000/hr quota — use sparingly).
 4. `mcp__github__*` for non-list ops (e.g. commenting on a failure).
 
