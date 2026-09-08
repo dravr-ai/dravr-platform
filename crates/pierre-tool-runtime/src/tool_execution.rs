@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
 use pierre_core::narration::is_degenerate_reply;
-use pierre_core::tokens::{estimate_chat_tokens, join_prompt_text};
+use pierre_core::tokens::join_prompt_text;
 use tracing::{info, warn};
 
 use crate::cli_loop::cli_loop_request;
@@ -28,7 +28,9 @@ use crate::embacle_bridge::{from_embacle_calls, to_embacle_declarations};
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
 use crate::headless_stream;
-use crate::llm_call_record::{accumulate_optional, LlmCallRecord, LlmCallRecorder};
+use crate::llm_call_record::{
+    accumulate_optional, emit_call_record, emit_call_record_with_text, CallRecordInputs,
+};
 use crate::protocol::UniversalResponse;
 use crate::tool_loop_io::{
     GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult, ToolLoopTally,
@@ -136,16 +138,23 @@ pub async fn run_api_tool_loop(
                 r
             }
             Err(e) => {
-                emit_call_record(CallRecordInputs {
-                    recorder: params.call_recorder.as_ref(),
-                    provider: params.provider.name(),
-                    model: params.model,
-                    usage: None,
-                    latency_ms,
-                    success: false,
-                    call_sequence: call_seq,
-                    tools_called: Vec::new(),
-                });
+                // The prompt reached the provider before it failed, so the
+                // abandoned leg is charged for what it actually sent.
+                let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
+                emit_call_record_with_text(
+                    CallRecordInputs {
+                        recorder: params.call_recorder.as_ref(),
+                        provider: params.provider.name(),
+                        model: params.model,
+                        usage: None,
+                        latency_ms,
+                        success: false,
+                        call_sequence: call_seq,
+                        tools_called: Vec::new(),
+                    },
+                    Some(&prompt_text),
+                    None,
+                );
                 // notify: LLM call failed — ok=false so the routing rule
                 // can amplify failures even when sample_rate hides successes.
                 info!(
@@ -476,16 +485,23 @@ pub async fn run_cli_tool_loop(
                 r
             }
             Err(e) => {
-                emit_call_record(CallRecordInputs {
-                    recorder: params.call_recorder.as_ref(),
-                    provider: params.provider.name(),
-                    model: params.model,
-                    usage: None,
-                    latency_ms,
-                    success: false,
-                    call_sequence: call_seq,
-                    tools_called: Vec::new(),
-                });
+                // The prompt reached the provider before it failed, so the
+                // abandoned leg is charged for what it actually sent.
+                let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
+                emit_call_record_with_text(
+                    CallRecordInputs {
+                        recorder: params.call_recorder.as_ref(),
+                        provider: params.provider.name(),
+                        model: params.model,
+                        usage: None,
+                        latency_ms,
+                        success: false,
+                        call_sequence: call_seq,
+                        tools_called: Vec::new(),
+                    },
+                    Some(&prompt_text),
+                    None,
+                );
                 // notify: CLI call failed.
                 info!(
                     target: "notify",
@@ -710,106 +726,6 @@ fn log_iteration_response(iteration: usize, latency_ms: i64, response: &ChatResp
         completion_tokens = response.usage.as_ref().map_or(0, |u| u.completion_tokens),
         "tool loop iteration: provider response received"
     );
-}
-
-/// Hand one [`LlmCallRecord`] to the optional sink. Centralises token
-/// extraction so the three tool-loop variants can share the same
-/// recording contract. `cached_tokens` is zero unless the provider
-/// wrapped its usage in
-/// the provider's own [`pierre_core::llm::TokenUsage`] and forwarded it through
-/// the caller. `call_sequence` is the 1-based turn-local position of
-/// the call (1, 2, 3, ...).
-/// Shared parameters for the [`emit_call_record`] / [`emit_call_record_with_text`]
-/// pair. Bundles every field a recorder needs to capture a single LLM call so
-/// the call sites don't carry a nine/eleven-arg positional signature.
-struct CallRecordInputs<'a> {
-    /// Optional recorder; `None` short-circuits the call (no row written).
-    recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
-    /// Provider name (e.g. `"groq"`, `"gemini"`).
-    provider: &'a str,
-    /// Model identifier as reported by the provider.
-    model: &'a str,
-    /// Token-usage payload reported by the provider; `None` when the provider
-    /// emits no usage and the caller will fall back to text-based estimation.
-    usage: Option<&'a TokenUsage>,
-    /// End-to-end call latency in milliseconds.
-    latency_ms: i64,
-    /// `true` when the call completed without a provider-side error.
-    success: bool,
-    /// 1-based turn-local position of the call.
-    call_sequence: Option<i64>,
-    /// Tool function names invoked during the call.
-    tools_called: Vec<String>,
-}
-
-fn emit_call_record(inputs: CallRecordInputs<'_>) {
-    emit_call_record_with_text(inputs, None, None);
-}
-
-/// Variant of [`emit_call_record`] that estimates token counts from
-/// character-based prompt/completion text when the provider returns
-/// no usage, so CLI runners (Claude Code, Copilot, Cursor, etc.) produce
-/// non-zero usage rows instead of silently dropping.
-fn emit_call_record_with_text(
-    inputs: CallRecordInputs<'_>,
-    prompt_text: Option<&str>,
-    completion_text: Option<&str>,
-) {
-    let CallRecordInputs {
-        recorder,
-        provider,
-        model,
-        usage,
-        latency_ms,
-        success,
-        call_sequence,
-        tools_called,
-    } = inputs;
-    let Some(recorder) = recorder else {
-        return;
-    };
-    let (prompt_tokens, completion_tokens, estimated) = usage.map_or_else(
-        || match (prompt_text, completion_text) {
-            (Some(p), Some(c)) => {
-                let (est_p, est_c) = estimate_chat_tokens(p, c);
-                (i64::from(est_p), i64::from(est_c), true)
-            }
-            _ => (0, 0, false),
-        },
-        |u| {
-            (
-                i64::from(u.prompt_tokens),
-                i64::from(u.completion_tokens),
-                false,
-            )
-        },
-    );
-    // Every cache and reasoning count is read off the same `usage` the prompt
-    // and completion counts come from, so one call can never report two
-    // figures that disagree about the same turn. A provider that reports
-    // nothing leaves these `None`, which prices identically to a measured
-    // zero -- the distinction survives on the wire, not in the billed cost.
-    let cached_tokens = usage
-        .and_then(|u| u.cached_read_tokens)
-        .map_or(0, i64::from);
-    let cached_write_tokens = usage
-        .and_then(|u| u.cached_write_tokens)
-        .map_or(0, i64::from);
-    let reasoning_tokens = usage.and_then(|u| u.reasoning_tokens).map_or(0, i64::from);
-    recorder.record(LlmCallRecord {
-        provider: provider.to_owned(),
-        model: model.to_owned(),
-        prompt_tokens,
-        completion_tokens,
-        cached_tokens,
-        cached_write_tokens,
-        reasoning_tokens,
-        latency_ms,
-        success,
-        call_sequence,
-        token_counts_estimated: estimated,
-        tools_called,
-    });
 }
 
 // Re-export embacle's pure functions for direct use (no type conversion needed)
@@ -1430,16 +1346,22 @@ async fn run_headless_tool_loop(
             r
         }
         Err(e) => {
-            emit_call_record(CallRecordInputs {
-                recorder: params.call_recorder.as_ref(),
-                provider: params.provider.name(),
-                model: params.model,
-                usage: None,
-                latency_ms,
-                success: false,
-                call_sequence: Some(1),
-                tools_called: Vec::new(),
-            });
+            // `prompt_text` is already assembled above for the success
+            // path; the failed leg sent exactly the same prompt.
+            emit_call_record_with_text(
+                CallRecordInputs {
+                    recorder: params.call_recorder.as_ref(),
+                    provider: params.provider.name(),
+                    model: params.model,
+                    usage: None,
+                    latency_ms,
+                    success: false,
+                    call_sequence: Some(1),
+                    tools_called: Vec::new(),
+                },
+                Some(&prompt_text),
+                None,
+            );
             return Err(e);
         }
     };
