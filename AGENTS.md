@@ -76,9 +76,21 @@ start it. **`curl` does not rescue this.** The proxy authenticates `api.github.c
 but only for repositories **attached to the session**, and only on an allowlisted set of paths. A repo
 that is not attached answers `403` rather than GitHub's `404` — measured for `dravr-carnet` and
 `dravr-vault` from a single-repo session — and a path outside the allowlist is refused outright with
-*Access to this GitHub API path is not permitted through this proxy*. Installing `gh` does not change
-this: it is another client through the same proxy, and the proxy overrides the `Authorization` header
-it is given. What changes it is attaching the repository.
+*Access to this GitHub API path is not permitted through this proxy*.
+
+**Installing `gh` does not help, and this was measured, not reasoned.** `apt-get install -y gh` works
+from Ubuntu universe, `gh api user` then succeeds — and two independent walls still stand. First,
+repo scope: an unattached repo answers `403` for every client alike, because the proxy is the gate
+and it overrides whatever `Authorization` header it is handed. The `403` body names an `add_repo`
+mechanism for attaching a repository; that is an access-scope change to put to the user, never one to
+invoke on your own. Second, GraphQL gating: `gh issue` and `gh pr` are GraphQL-based, and the proxy
+serves only a pinned set of PR-review GraphQL operations, so they fail against *every* repo including
+the attached one. Reach issues through REST — `gh api repos/{owner}/{repo}/issues/...` — or not at
+all. This is why `carnet.sh` stays broken here even with `gh` present: it is written against
+`gh issue`.
+
+Do not trust `gh auth status` as a reachability check either. It reports the `GH_TOKEN` placeholder
+invalid while REST calls through the same binary succeed.
 
 **No bilan baseline exists**, since the sweep never ran, so uncommitted files cannot be attributed to
 this session automatically. Attribute them by hand rather than assuming they are yours.
