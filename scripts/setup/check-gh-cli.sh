@@ -23,13 +23,19 @@ fi
 # Containerized environment — cannot install software or run interactive auth
 # ---------------------------------------------------------------------------
 if [ "$IS_CONTAINER" = true ]; then
-    # In containers, gh may be pre-installed or a GH_TOKEN may be injected
+    # GH_TOKEN / GITHUB_TOKEN are not evidence of anything in a cloud session. When the
+    # agent proxy handles GitHub auth they read as a short placeholder ("proxy-injected"),
+    # which is non-empty — so testing them reports a credential the session does not have
+    # while gh is not even installed. Probe the capability instead: the proxy injects the
+    # real credential on the wire, so an unauthenticated request to the API answers 200 as
+    # the authenticated user, at the app-installation rate limit rather than the anonymous one.
     if command -v gh &>/dev/null && gh auth status &>/dev/null; then
         echo "✅ gh CLI ready (container) - can monitor workflows"
         echo "CI_MONITORING=gh"
-    elif [ -n "$GH_TOKEN" ] || [ -n "$GITHUB_TOKEN" ]; then
-        echo "✅ GitHub token available (container) - can monitor workflows"
-        echo "CI_MONITORING=gh"
+    elif [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://api.github.com/user 2>/dev/null)" = "200" ]; then
+        echo "✅ GitHub API authenticated by the agent proxy (container) - gh absent, curl works"
+        echo "CI_MONITORING=curl"
+        echo "GH_VIA_PROXY: curl against https://api.github.com is authenticated on the wire — send no Authorization header (one you send is overridden), and do not read GH_TOKEN, which is a placeholder rather than a credential. Use curl for GitHub REST, or mcp__github__* for issue and PR operations."
     else
         echo "CONTAINERIZED_ENVIRONMENT=true"
         echo "CI_MONITORING=fallback"

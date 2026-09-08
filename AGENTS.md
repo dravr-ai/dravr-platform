@@ -213,9 +213,10 @@ gh run list --branch main --limit 15 --json headSha,conclusion,status
 **Push is the start of validation, not the end.** After every push, watch CI for the pushed commit until all relevant workflows reach a terminal status. If any fails, fix the underlying issue and re-push in the same session — work is not "done" until CI is green on the head commit (cancelled runs for older commits don't count).
 
 CI monitoring — use the first that works, NEVER ask the user for a GitHub token:
-1. WebFetch `https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A<branch>` (no PAT quota).
-2. `gh run list --branch <branch>` / single `gh run view <id>` (costs shared 5000/hr quota — use sparingly).
-3. `mcp__github__*` for non-list ops (e.g. commenting on a failure).
+1. WebFetch `https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A<branch>` (no PAT quota). Its prose summary is not a verdict — "most workflows succeeded" has hidden a red; confirm a conclusion below before calling anything green.
+2. In a container where `gh` is absent, plain `curl https://api.github.com/repos/dravr-ai/dravr-platform/actions/runs?branch=<branch>` — the agent proxy authenticates it on the wire at 15000/hr. Send no `Authorization` header, and do not read `GH_TOKEN`: it is a placeholder, not a credential.
+3. `gh run list --branch <branch>` / single `gh run view <id>` (costs shared 5000/hr quota — use sparingly).
+4. `mcp__github__*` for non-list ops (e.g. commenting on a failure).
 
 Forbidden: `gh run watch`, background poll loops, any cadence < 60s. For long waits, use `ScheduleWakeup` to re-check after a fixed delay.
 </important>
@@ -336,12 +337,14 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 | Directory-scoped specs | repo `<dir>/README.md` |
 
 - **Local Claude Code (this CLI):** prefer the vault via `obsidian-writer`. Avoid `gh gist create` for the doc types above — gists aren't vault-searchable or wikilinkable.
-- **Claude Code for Web (containerized):** the environment's setup script clones the vault to
-  `../dravr-vault`, so `obsidian-writer` routes there exactly as it does locally. Two things differ.
-  The checkout is a filesystem snapshot that can be ~7 days stale, so `git -C ../dravr-vault pull`
-  before reading it as current. And the VM is reclaimed when the session ends, so a note you write is
-  **lost unless you commit and push it** in the same session — `gh` is absent in that container, but
-  the vault is a plain git checkout, so use `git`.
+- **Claude Code for Web (containerized):** `obsidian-writer` routes to `../dravr-vault` there as it
+  does locally — but **check it is actually present** (`ls ../dravr-vault`) before relying on it.
+  Whether the environment's setup script clones it is per-environment config this repo does not
+  control, and it has been absent; if it is, clone it or say so, never fall back silently. Three
+  things then differ from local. The checkout is a filesystem snapshot that can be ~7 days stale, so
+  `git -C ../dravr-vault pull` before reading it as current. The VM is reclaimed when the session
+  ends, so a note is **lost unless you commit and push it** in the same session. And `gh` is absent
+  in that container — the vault is a plain git checkout, so use `git`.
 - Gists are also fine for pasteable snippets, cross-project material, and ephemeral share-with-stranger artifacts.
 - Writing markdown via the Write tool is limited to the `claude_docs/` folder under the repo — a per-dev, gitignored symlink into the vault's `Work Log/` (create it if missing; without the symlink, output stays local and never reaches the vault). Notes there need `type: worklog` plus `kind:`/`area:`/`status:`/`date:` or they stay invisible to `Work Log.base` — `obsidian-writer` applies that contract for you.
 </important>
