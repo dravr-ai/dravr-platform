@@ -1,4 +1,4 @@
-# ABOUTME: Main backend CI pipeline — fmt + per-crate clippy + full clippy + deadlock + audit + doc-tests fire in parallel from the start on every push.
+# ABOUTME: Main backend CI pipeline — fmt + per-crate clippy + full clippy + audit + doc-tests fire in parallel from the start on every push.
 # ABOUTME: SQLite shards (backend-tests) are cron-only; per-push DB coverage is ci-postgres.yml and per-push leaf-crate tests run here (leaf-crate-tests).
 name: "CI: Backend (Rust)"
 
@@ -81,7 +81,6 @@ jobs:
   #   fast-gate            — fmt + architectural + secret patterns (~30s, no compile)
   #   preflight-clippy     — per-crate clippy on changed leaf crates (~3-5 min)
   #   clippy               — full-workspace clippy (~10-12 min, gates release-binary)
-  #   deadlock-analysis    — lockbud static deadlock detection (~10 min)
   #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
   #   doc-tests            — cargo test --doc + telemetry-feature tests (~5 min)
   #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
@@ -219,7 +218,7 @@ jobs:
     name: Preflight Clippy (per-crate, fast feedback)
     timeout-minutes: 25  # per-crate clippy on changed leaf crates, ~3-5 min
     runs-on: ubuntu-latest
-    # No `needs` — fires immediately in parallel with fast-gate / clippy / deadlock.
+    # No `needs` — fires immediately in parallel with fast-gate / clippy.
     # Mirrors scripts/ci/pre-push-validate.sh Tier 2: per-crate clippy on the leaf
     # crates that actually changed in this push, skipping pierre-server (whose
     # per-crate clippy is as slow as the full-workspace run and is handled by the
@@ -333,7 +332,7 @@ jobs:
     timeout-minutes: 45  # full-workspace clippy, ~10-12 min
     runs-on: ubuntu-latest
     # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy /
-    # deadlock. The release-binary job downstream still gates on this job so the
+    # The release-binary job downstream still gates on this job so the
     # release artifact is only produced after full-workspace clippy passes.
 
     steps:
@@ -374,112 +373,6 @@ jobs:
 
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
         run: python3 scripts/ci/clippy-workspace.py
-
-  deadlock-analysis:
-    name: Static Deadlock Analysis (lockbud)
-    timeout-minutes: 45  # lockbud over the workspace, ~10 min
-    runs-on: ubuntu-latest
-    # No `needs` — fires immediately in parallel with the other linting gates.
-    # Migrated from the standalone deadlock-detection.yml workflow so all
-    # static-analysis gates report under a single Backend CI status.
-    container:
-      image: burtonqin/lockbud
-
-    steps:
-      - name: Install git
-        # The job needs git for checkout and for cargo's git dependencies,
-        # and the lockbud image ships without it. Its Debian mirrors fail in
-        # more ways than one, apt exits before checkout, the job reds main
-        # with no analysis run — and because `publish-images.yml` gates on
-        # this workflow's conclusion, a red here also skips the dev deploy.
-        #
-        # What the image is: Debian 11.6 built from snapshot.debian.org at
-        # 20230411T000000Z — its own /etc/apt/sources.list still names that
-        # timestamp, commented out beside the live mirrors — with no apt
-        # lists baked in and perl-base 5.32.1-4+deb11u2 installed.
-        #
-        # What went wrong, in order. A slow or refused mirror (2026-09-04/05):
-        # a retry. A cached 404 on deb.debian.org's Fastly edges (2026-09-05,
-        # c2964a0fd): security.debian.org is the same archive under another
-        # cache key. An index naming a perl revision the pool no longer serves
-        # (2026-09-06, 7e5df744e): bullseye left LTS on 2026-08-31 and its
-        # security pool is rotating off the live CDN edge by edge, so the
-        # 404 moved from one hostname to both on 2026-09-07 and no live host
-        # can be trusted to carry the file the index names. `--fix-missing`
-        # (2026-09-07) made it worse: it installs the subset it could fetch,
-        # which leaves dpkg half-configured, and the snapshot stage after it
-        # then died on "Unmet dependencies" without ever fetching a pool
-        # file. And snapshot.debian.org itself answers 429 and 503 under
-        # load (run 34142457669) — GitHub-hosted runners share egress IPs.
-        #
-        # So: one attempt per live host (the fast path when they are
-        # healthy), then the image's OWN snapshot. At that timestamp the
-        # index names exactly the perl already installed, so git pulls no
-        # perl upgrade — fewer files to fetch, no index/pool skew possible,
-        # and a pin that never rotates. Rate limiting is the one failure the
-        # snapshot has left, and it is answered with backoff, not another
-        # mirror. The snapshot date is read from the image's sources.list so
-        # an image rebuild moves it; the literal is the fallback.
-        run: |
-          install_git() {
-            rm -rf /var/lib/apt/lists/*
-            apt-get update -o APT::Update::Error-Mode=any \
-              && apt-get install -y -qq --no-install-recommends git
-          }
-          install_git && exit 0
-          echo "deb.debian.org failed; moving the security source to security.debian.org"
-          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
-            [ -f "$f" ] && sed -i 's|http://deb.debian.org/debian-security|http://security.debian.org/debian-security|g' "$f"
-          done
-          install_git && exit 0
-          SNAP=$(sed -n 's|^# deb http://snapshot.debian.org/archive/debian/\([0-9TZ]*\) bullseye main.*|\1|p' /etc/apt/sources.list | head -1)
-          SNAP=${SNAP:-20230411T000000Z}
-          echo "both live mirrors failed; falling back to the image's own snapshot ${SNAP}"
-          printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s bullseye main\ndeb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s bullseye-security main\n' "$SNAP" "$SNAP" > /etc/apt/sources.list
-          rm -rf /etc/apt/sources.list.d/*
-          for delay in 0 30 60 120; do
-            [ "$delay" -gt 0 ] && { echo "snapshot.debian.org attempt failed (it rate-limits shared runner egress); retrying in ${delay}s"; sleep "$delay"; }
-            rm -rf /var/lib/apt/lists/*
-            apt-get update -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 \
-              && apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 git && exit 0
-          done
-          echo "::error::git could not be installed in the lockbud container: deb.debian.org, security.debian.org, and snapshot.debian.org ${SNAP} (4 attempts) all failed — read the E: lines above to tell a 404 from a 429"
-          exit 1
-
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Run lockbud deadlock detection
-        run: |
-          echo "Running static deadlock analysis with lockbud..."
-          echo "Analyzing: std::sync::{Mutex, RwLock}, parking_lot, spin locks"
-          cargo lockbud -k deadlock 2>&1 | tee deadlock-report.txt
-          if grep -q "Double Lock\|Conflicting Lock Order" deadlock-report.txt; then
-            echo "Potential deadlock issues detected! Review the report above."
-            # Warnings only — do not fail the build on deadlock findings.
-            exit 0
-          else
-            echo "No deadlock issues detected"
-          fi
-
-      - name: Run atomicity violation detection
-        run: |
-          echo "Running atomicity violation analysis..."
-          cargo lockbud -k atomicity_violation 2>&1 | tee atomicity-report.txt || true
-          echo "Atomicity analysis complete"
-
-      - name: Upload analysis reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: lockbud-reports
-          path: |
-            deadlock-report.txt
-            atomicity-report.txt
-          retention-days: 1
 
   security-audit:
     name: Security Audit
