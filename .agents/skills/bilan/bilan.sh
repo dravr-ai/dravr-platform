@@ -768,7 +768,16 @@ publish_score() { # <score>
     local f top
     f=$(score_file) || return 0
     mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
-    top=$(sort -n "$CAPS" 2>/dev/null | head -1 | cut -f3 | cut -c1-60)
+    # The status line has room for one short phrase, and it has to name the thing to act on.
+    # Two things spoiled that. The --cheap notice is a standing cap at 9 that says only "this is
+    # not a verdict", so whenever it was the lowest it filled the line with nothing actionable;
+    # it is skipped here and the score alone carries that meaning. And a cap that lists full
+    # paths was cut mid-path — ".agents/skills/b" identifies nothing — so paths shrink to
+    # basenames before the width limit applies, and the cut lands on a word boundary.
+    top=$(grep -v 'local facts only' "$CAPS" 2>/dev/null | sort -n | head -1 | cut -f3 \
+          | sed -E 's#[^ ]*/([^ /]+)#\1#g' \
+          | awk '{ if (length($0) <= 56) print; else { s = substr($0, 1, 56);
+                   sub(/[^ ]*$/, "", s); sub(/ $/, "", s); print s "…" } }')
     printf '%s\t%s\t%s\n' "$1" "$(date +%s)" "${top:-nothing outstanding}" > "$f" 2>/dev/null || true
 }
 

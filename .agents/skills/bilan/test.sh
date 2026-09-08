@@ -333,6 +333,25 @@ check "and one untouched for hours does not" 1 \
     "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash -c "source <(sed -n '/^worktree_is_live/,/^}/p' \"$BILAN\"); worktree_is_live \"$live_dir\"" ); echo $?)"
 rm -rf "$live_dir"
 
+# ---- the status line has room for one phrase and it must name the thing to act on.
+# ".agents/skills/b" identified nothing, and the --cheap notice filled the line with a sentence
+# that says only "this is not a verdict".
+score_line() { cut -f3 "$CFG/bilan/$(printf '%s' "$SID" | tr -c 'a-zA-Z0-9._-' '_').score"; }
+echo edited >> "$R/a.txt"
+run "$R" >/dev/null
+check "the published line names the file, not a cut path" 1 \
+    "$(score_line | grep -c 'a\.txt')"
+check "and never the --cheap notice, which is not actionable" 0 \
+    "$(score_line | grep -c 'not consulted')"
+for n in alpha bravo charlie delta echo foxtrot golf hotel; do echo x > "$R/$n.txt"; git -C "$R" add "$n.txt"; done
+run "$R" >/dev/null
+check "a long list is cut on a word boundary, with an ellipsis" 1 \
+    "$(score_line | grep -cE '[a-z]…$')"
+check "and stays within the width the line has" 1 \
+    "$([ "$(score_line | wc -c)" -le 60 ] && echo 1 || echo 0)"
+git -C "$R" reset -q HEAD -- . ; rm -f "$R"/{alpha,bravo,charlie,delta,echo,foxtrot,golf,hotel}.txt
+git -C "$R" checkout -q -- a.txt
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }
