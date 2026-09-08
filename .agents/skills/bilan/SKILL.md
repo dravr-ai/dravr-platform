@@ -44,32 +44,42 @@ Exit code: `0` = 10/10 · `1` = incomplete · `2` = the script itself failed.
 | tracked files modified and uncommitted | **7** |
 | commits not pushed | **8** |
 | CI red on the pushed head | **5** |
-| CI still running, cancelled, or with no row for this sha | **9** |
+| CI still running, cancelled, or not yet registered | **9** |
 | issues *filed* this session | **9** — name each as deliberate residue |
 | untracked files, stash created this session, branch whose upstream is gone | **9** |
 | `.git/validation-passed` missing, stale, or for another sha | **9** |
 | dev stack from this checkout still up | **9** |
 
-## Uncommitted files you must not touch
+## Uncommitted files that are not this session's
 
-Several sessions share the main checkout, so some of the dirty files are a peer's — three
-sessions hit this in the first hour and each wrote a paragraph explaining it. **Ownership is not
-machine-decidable, and that was tested rather than assumed.** Claude Code records the paths a
-session touched in its transcript, under `file-history-snapshot.trackedFileBackups` — but only
-for the Edit/Write tools. Sessions here work Bash-first, and that map came back **empty** for a
-session that had just written nine files. Attributing on it would have called a session's own
-work a peer's and stopped blocking, which is the worst direction to be wrong in.
+Several sessions share the main checkout. In bilan's first hour, a peer's mid-edit files held
+**three** other sessions at 7 — and those sessions were right to refuse to touch them, so they
+could not reach 10 no matter what they did. That was a category error: the score measures *this
+session's* completion, and a peer's in-flight file is not this session's incompleteness.
 
-So the gate names the files and the session judges — once:
+Two mechanisms fix it, and the first needs nothing from you.
+
+**The baseline.** The SessionStart hook records which tracked files were already dirty when the
+session opened. A path dirty before the session existed is definitionally not its work — that
+much *is* machine-decidable. Those files are stated as a note and never scored.
+
+**`ack`, for what goes dirty afterwards.** A peer editing during your session is not covered by
+the baseline, so you say so once:
 
 ```bash
 bilan.sh ack --why "a peer's embacle pin bump, written into this shared checkout at 10:16"
 ```
 
-That drops the cap from 7 to 9 and carries the reason into every later report. It is keyed to
-the exact set of paths, so dirtying one more file brings the cap straight back. Ownership is a
-property of the files rather than of their contents, so a peer changing those same files again
-stays covered.
+That **clears** the cap rather than softening it, and carries the reason into every later
+report. It is keyed to the exact set of paths, so dirtying one more file brings the cap
+straight back, and ownership is a property of the files rather than their contents, so a peer
+changing those same files again stays covered.
+
+**Why not attribute automatically?** It was tried and it does not work. Claude Code records the
+paths a session touched under `file-history-snapshot.trackedFileBackups`, but only for the
+Edit/Write tools. Sessions here work Bash-first, and that map came back **empty** for a session
+that had just written nine files. Attributing on it would have called a session's own work a
+peer's and stopped blocking — the worst direction to be wrong in.
 
 Two other caps deserve a note. **CI absence is its own outcome** — `gh run list --commit` returns
 zero rows on this org even when runs exist, so rows are matched by `headSha` out of a wide branch

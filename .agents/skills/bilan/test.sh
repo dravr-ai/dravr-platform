@@ -129,9 +129,12 @@ check "before ack, a dirty tracked file caps at 7" 7 "$(run "$R" | jq -r .score)
 ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" \
     bash "$BILAN" ack --why "a peer's pin bump in the shared checkout" >/dev/null 2>&1 )
 out=$(run "$R")
-check "after ack it caps at 9, not 7" 9 "$(printf '%s' "$out" | jq -r .score)"
-check "the ack reason is carried into the evidence" 1 \
-    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("pin bump"))] | length')"
+# An ack is a recorded statement of ownership, so it CLEARS: a peer's file is not this
+# session's incompleteness, and leaving it at 9 meant a session that had done everything right
+# still could not reach 10.
+check "after ack the cap is gone entirely" 10 "$(printf '%s' "$out" | jq -r .score)"
+check "the ack reason stays visible as a note" 1 \
+    "$(printf '%s' "$out" | jq '[.notes[] | select(test("pin bump"))] | length')"
 echo second > "$R/b.txt" && git -C "$R" add b.txt
 check "dirtying one more file brings the cap back" 7 "$(run "$R" | jq -r .score)"
 git -C "$R" rm -q -f --cached b.txt >/dev/null 2>&1; rm -f "$R/b.txt"
@@ -140,6 +143,24 @@ git -C "$R" checkout -q -- a.txt
 # The ack is keyed by path set, not by content: ownership is a property of the files, not of
 # what is in them. So clear it before exercising the gate on the same file.
 rm -f "$CFG/bilan/"*.ack.json
+
+# ---- files already dirty when the session opened are not this session's, automatically.
+# Three sessions were held at 7 by a peer's mid-edit file with nothing they could do about it.
+rm -f "$CFG/bilan/"*.ack.json
+echo peer-was-mid-edit >> "$R/a.txt"
+check "a file dirty before the baseline caps at 7 without one" 7 "$(run "$R" | jq -r .score)"
+( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" baseline >/dev/null 2>&1 )
+out=$(run "$R")
+check "after the baseline it does not cap at all" 10 "$(printf '%s' "$out" | jq -r .score)"
+check "the inherited file is still stated as a note" 1 \
+    "$(printf '%s' "$out" | jq '[.notes[] | select(test("already uncommitted"))] | length')"
+echo mine > "$R/c.txt" && git -C "$R" add c.txt
+check "a file this session dirties still caps at 7" 7 "$(run "$R" | jq -r .score)"
+check "and the cap names only the session's own file" 1 \
+    "$(run "$R" | jq '[.caps[] | select(.cap==7) | select(.evidence | test("c\\.txt") and (test("a\\.txt") | not))] | length')"
+git -C "$R" rm -q -f --cached c.txt >/dev/null 2>&1; rm -f "$R/c.txt"
+git -C "$R" checkout -q -- a.txt
+rm -f "$CFG/bilan/"*.baseline
 
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \

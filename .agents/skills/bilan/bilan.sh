@@ -26,7 +26,8 @@ bilan — what this session left undone
 
   bilan.sh [--cheap] [--json] [--session <uuid>]   score this session in this checkout
   bilan.sh sweep                                    what dead sessions left across every worktree
-  bilan.sh ack --why "<whose and why>"              account for uncommitted files you must not touch
+  bilan.sh ack --why "<whose and why>"              declare uncommitted files not this session's
+  bilan.sh baseline                                 record what was already dirty (SessionStart)
 
   --cheap     local facts only: no gh, no network (what the Stop hook runs)
   --json      machine form: {"score":N,"caps":[…],"friction":{…}}
@@ -58,11 +59,18 @@ HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 # One line per cap: <cap>\t<icon>\t<evidence>\t<remedy>. A temp file rather than an array so
 # the checks can run in subshells and bash 3.2 stays happy.
 CAPS=$(mktemp -t bilan) || die "mktemp failed"
-trap 'rm -f "$CAPS"' EXIT
+trap 'rm -f "$CAPS" "$NOTES"' EXIT
 
 cap() { # <cap> <icon> <evidence> <remedy>
     printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "$CAPS"
 }
+
+# A note is a fact worth printing that is NOT this session's incompleteness, so it never
+# reaches the score. Without this channel the only way to mention something was to cap on it,
+# which is how a peer's mid-edit file came to hold three sessions at 7 with nothing they could
+# do about it.
+NOTES=$(mktemp -t bilan-notes) || die "mktemp failed"
+say_note() { printf '%s\n' "$1" >> "$NOTES"; }
 
 # ------------------------------------------------------------------ session facts
 ledger_file() { [ -n "$SESSION_ID" ] && printf '%s' "$LEDGER_DIR/$SESSION_ID.jsonl"; }
@@ -108,6 +116,30 @@ ack_reason_for() { # <signature>
     jq -r --arg s "$1" 'select(.signature == $s) | .why // empty' "$f" 2>/dev/null | grep . || return 1
 }
 
+# Written by the SessionStart hook. A path already dirty when the session opened belongs to
+# whoever dirtied it, which was not this session — the one piece of ownership that IS decidable.
+# Paths, not content: a peer who keeps editing the same file is still that peer, and treating a
+# changed hash as "now mine" would hand their work back to the cap it was meant to escape.
+baseline_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').baseline"; }
+
+cmd_baseline() {
+    local f
+    f=$(baseline_file) || return 0
+    mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
+    git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//' > "$f"
+    say "baseline: $(grep -c . "$f" 2>/dev/null || echo 0) file(s) already dirty at session start"
+    return 0
+}
+
+# Split a newline-separated path list into what this session must answer for and what it
+# inherited. A session that opened into someone else's mid-edit answers for neither.
+not_mine() { # <paths>  -> prints the inherited subset
+    local f
+    f=$(baseline_file) || return 0
+    [ -s "$f" ] || return 0
+    printf '%s\n' "$1" | grep -Fxf "$f" 2>/dev/null || true
+}
+
 cmd_ack() { # <why>
     local why=$1 f tracked sig
     [ -n "$why" ] || die "ack needs --why: say whose files these are and why you are leaving them"
@@ -144,20 +176,35 @@ name_files() { # <max> <newline-separated paths>
 }
 
 check_worktree() {
-    local porcelain tracked untracked t_n u_n
+    local porcelain tracked untracked inherited owned t_n u_n i_n why
     porcelain=$(git status --porcelain 2>/dev/null)
     [ -n "$porcelain" ] || return 0
     tracked=$(printf '%s\n' "$porcelain" | grep -v '^??' | sed 's/^...//')
     untracked=$(printf '%s\n' "$porcelain" | grep '^??' | sed 's/^...//')
-    t_n=$(printf '%s\n' "$tracked" | grep -cv '^$')
+
+    inherited=$(not_mine "$tracked")
+    if [ -n "$inherited" ]; then
+        owned=$(printf '%s\n' "$tracked" | grep -Fxv -f <(printf '%s\n' "$inherited") 2>/dev/null || true)
+    else
+        owned=$tracked
+    fi
+    i_n=$(printf '%s\n' "$inherited" | grep -cv '^$')
+    t_n=$(printf '%s\n' "$owned" | grep -cv '^$')
     u_n=$(printf '%s\n' "$untracked" | grep -cv '^$')
+
+    # Inherited dirt is stated, never scored. It is not this session's completion.
+    [ "${i_n:-0}" -gt 0 ] && say_note "$i_n file(s) were already uncommitted when this session opened — not its work: $(name_files 5 "$inherited")"
+
     if [ "${t_n:-0}" -gt 0 ]; then
-        local why
-        if why=$(ack_reason_for "$(signature_of "$tracked")"); then
-            cap 9 "⚠️" "$t_n tracked file(s) uncommitted, accounted for: $why" \
-                  "left deliberately — bilan.sh ack recorded this for exactly these files"
+        # An ack is a recorded statement of ownership, so it CLEARS rather than softens: a
+        # peer's file is not this session's incompleteness, and leaving it at 9 meant a session
+        # that had done everything right still could not reach 10. It stays visible in every
+        # later report, is keyed to the exact path set, and returns the moment one more file
+        # goes dirty.
+        if why=$(ack_reason_for "$(signature_of "$owned")"); then
+            say_note "$t_n uncommitted file(s) declared not this session's: $why"
         else
-            cap 7 "❌" "$t_n tracked file(s) modified and uncommitted: $(name_files 8 "$tracked")" \
+            cap 7 "❌" "$t_n tracked file(s) modified and uncommitted: $(name_files 8 "$owned")" \
                   "commit them — or, if they are a peer's in this shared checkout, bilan.sh ack --why '…'"
         fi
     fi
@@ -331,33 +378,47 @@ check_dev_stack() {
 # by headSha out of a wide branch window. Absence is its own outcome: a sha with no row is NOT
 # green, because "nothing pending" and "not present" are indistinguishable in this query.
 check_ci() {
-    local upstream ahead rows mine running bad cancelled
+    local upstream ahead slug runs total running bad cancelled age
     command -v gh >/dev/null 2>&1 || return 0
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     [ -n "$upstream" ] || return 0
     ahead=$(git rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)
     [ "$ahead" -gt 0 ] && return 0   # unpushed already caps at 8; CI cannot have run
+    slug=$(git remote get-url origin 2>/dev/null \
+           | sed -E 's#^(git@github\.com:|https://github\.com/|ssh://git@github\.com/)##; s#\.git$##; s#/$##')
+    [ -n "$slug" ] || return 0
 
-    rows=$(gh run list --branch "$BRANCH" --limit 100 \
-             --json headSha,status,conclusion,workflowName 2>/dev/null) || return 0
-    mine=$(printf '%s' "$rows" | jq --arg s "$HEAD_SHA" '[.[] | select(.headSha == $s)]' 2>/dev/null)
-    [ -n "$mine" ] || return 0
+    # Addressed by sha, not by a branch window. `gh run list --branch main --limit N` loses a
+    # row the moment peers push past it, and "zero pending" is indistinguishable from "fell out
+    # of the window" — which reads as green. That mistake has been made twice here. This
+    # endpoint answers for exactly one commit and cannot be crowded out.
+    runs=$(gh api "repos/$slug/commits/$HEAD_SHA/check-runs" 2>/dev/null) || return 0
+    total=$(printf '%s' "$runs" | jq -r '.total_count // 0' 2>/dev/null)
 
-    if [ "$(printf '%s' "$mine" | jq 'length')" = 0 ]; then
-        cap 9 "⚠️" "no CI row for ${HEAD_SHA:0:8} on $BRANCH — absent, not necessarily done" \
-              "check the Actions page; a sha that was never a push tip gets no run of its own"
+    if [ "${total:-0}" = 0 ]; then
+        # GitHub itself says no check exists for this commit. Right after a push that means the
+        # checks have not registered yet; once the commit has had time, it means no workflow's
+        # path filter matched it and none ever will — a tooling- or docs-only commit. Capping
+        # forever on a row that cannot arrive is how a finished session never reaches 10.
+        age=$(( $(date +%s) - $(git log -1 --format=%ct HEAD 2>/dev/null || date +%s) ))
+        if [ "$age" -lt 300 ]; then
+            cap 9 "⚠️" "no checks registered yet for ${HEAD_SHA:0:8} ($((age))s after commit)" \
+                  "give it a minute, then re-run — absent is not green"
+        else
+            say_note "GitHub reports no check for ${HEAD_SHA:0:8}: no workflow path filter matches what it touched, so none will run"
+        fi
         return 0
     fi
-    running=$(printf '%s' "$mine" | jq -r '[.[] | select(.status != "completed") | .workflowName] | join(", ")')
-    # An in-progress run reports conclusion "" (not null), so a naive filter reads running as red.
-    bad=$(printf '%s' "$mine" | jq -r '[.[] | select(.conclusion != "" and .conclusion != null
-            and (.conclusion | IN("success","skipped","cancelled") | not)) | .workflowName] | join(", ")')
-    cancelled=$(printf '%s' "$mine" | jq -r '[.[] | select(.conclusion == "cancelled") | .workflowName] | join(", ")')
+
+    running=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.status != "completed") | .name] | unique | join(", ")')
+    bad=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.conclusion | IN("failure","timed_out","action_required","startup_failure")) | .name] | unique | join(", ")')
+    cancelled=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.conclusion == "cancelled") | .name] | unique | join(", ")')
 
     [ -z "$bad" ]       || cap 5 "❌" "CI red on ${HEAD_SHA:0:8}: $bad" "fix and re-push — red is not done"
-    [ -z "$running" ]   || cap 9 "⚠️" "CI still running on ${HEAD_SHA:0:8}: $running" "wait for terminal status"
+    [ -z "$running" ]   || cap 9 "⚠️" "CI still running on ${HEAD_SHA:0:8} ($total checks): $running" "wait for terminal status"
     [ -z "$cancelled" ] || cap 9 "⚠️" "CI cancelled on ${HEAD_SHA:0:8}: $cancelled" \
                                 "cancelled is unvalidated, not green — re-run or dispatch"
+    [ -n "$bad$running$cancelled" ] || say_note "CI green on ${HEAD_SHA:0:8}: $total checks, all successful or skipped"
 }
 
 # ------------------------------------------------------------------ friction (informational)
@@ -421,12 +482,14 @@ report() {
 
     if [ "$JSON" = 1 ]; then
         jq -n --argjson score "$s" \
+              --rawfile notes "$NOTES" \
               --arg session "${SESSION_ID:-manual}" --arg branch "$BRANCH" --arg sha "$HEAD_SHA" \
               --argjson errors "${f_errors:-0}" --argjson interrupts "${f_interrupts:-0}" \
               --argjson denials "${f_denials:-0}" \
               --rawfile caps "$CAPS" \
           '{score:$score, session:$session, branch:$branch, sha:$sha,
             friction:{tool_errors:$errors, interrupts:$interrupts, denials:$denials},
+            notes: ($notes | split("\n") | map(select(length>0))),
             caps: ($caps | split("\n") | map(select(length>0) | split("\t")
                    | {cap:(.[0]|tonumber), icon:.[1], evidence:.[2], remedy:.[3]}))}'
         [ "$s" = 10 ] && return 0 || return 1
@@ -443,6 +506,10 @@ report() {
             say "  $icon $ev"
             say "     → $rem  (caps at $c)"
         done
+    fi
+    if [ -s "$NOTES" ]; then
+        say ""
+        while IFS= read -r line; do [ -n "$line" ] && say "  ℹ️  $line"; done < "$NOTES"
     fi
     say ""
     [ "${f_errors:-0}" = 0 ] && [ "${f_interrupts:-0}" = 0 ] && [ "${f_denials:-0}" = 0 ] || \
@@ -513,6 +580,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         sweep)      CMD=sweep ;;
         ack)        CMD=ack ;;
+        baseline)   CMD=baseline ;;
         --why)      shift; WHY=${1:-} ;;
         --cheap)    CHEAP=1 ;;
         --json)     JSON=1 ;;
@@ -527,5 +595,6 @@ done
 case "$CMD" in
     sweep)  cmd_sweep ;;
     ack)    cmd_ack "$WHY" ;;
+    baseline) cmd_baseline ;;
     report) run_checks; report ;;
 esac

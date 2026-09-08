@@ -141,10 +141,11 @@ issue or an unregistered `LIMITATION` marker caps at **6**, uncommitted tracked 
 unpushed commits at **8**, red CI at **5**, and CI that is running, cancelled or has no row for
 this sha at **9**. One open issue holds the whole session at 6 no matter how much else landed.
 
-- **A peer's uncommitted files in the shared checkout are not yours.** Ownership is not
-  machine-decidable — Claude Code's per-session file map only covers Edit/Write, and this repo
-  works Bash-first, so it is empty. Name them and run `bilan.sh ack --why "…"` once; the cap
-  drops from 7 to 9 and returns the moment one more file is dirtied. Never commit or revert them.
+- **A peer's uncommitted files in the shared checkout are not yours, and do not cap you.** Files
+  already dirty when the session opened are excluded automatically (the SessionStart hook records
+  them). For a peer editing *during* your session, `bilan.sh ack --why "…"` clears the cap and
+  keeps the reason in the report; it returns the moment one more file is dirtied. Never commit or
+  revert them.
 - **Report what it prints.** If you think a cap is wrong, say so in words *and still report the
   script's number* — arguing with the measurement is a conversation, overriding it silently is
   the failure this exists to stop.

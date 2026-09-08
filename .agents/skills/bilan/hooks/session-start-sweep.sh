@@ -16,6 +16,13 @@ here=$(cd "$(dirname "$0")" && pwd)
 bilan="$here/../bilan.sh"
 [ -f "$bilan" ] || exit 0
 
+# Record which files were ALREADY dirty when this session opened. Several sessions share the
+# main checkout, so a file a peer is mid-edit on caps every other session at 7 — and those
+# sessions are right to refuse to touch it, which used to mean they could never reach 10 no
+# matter what they did. A path dirty before this session existed is definitionally not this
+# session's work, and that IS machine-decidable. Anything that goes dirty later still caps.
+bash "$bilan" baseline >/dev/null 2>&1 || true
+
 out=$(bash "$bilan" sweep 2>/dev/null) || exit 0
 printf '%s\n' "$out" | grep -q '✅ nothing left behind' && exit 0
 printf '%s\n' "$out"
