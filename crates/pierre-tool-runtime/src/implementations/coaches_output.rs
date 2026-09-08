@@ -143,14 +143,14 @@ pub struct DeleteCoachResult {
     /// Always true: the tool errors rather than reporting a failed delete.
     pub deleted: bool,
     /// The coach that was removed, echoed back.
-    pub coach_id: String,
+    pub agent_id: String,
 }
 
 /// What `toggle_coach_favorite` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ToggleCoachFavoriteResult {
     /// The coach whose star was flipped.
-    pub coach_id: String,
+    pub agent_id: String,
     /// Its state AFTER the flip, so a caller need not track the previous one.
     pub is_favorite: bool,
 }
@@ -257,7 +257,7 @@ pub struct GetActiveCoachResult {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct HideCoachResult {
     /// The coach that was hidden.
-    pub coach_id: String,
+    pub agent_id: String,
     /// Always true here; `show_coach` sends the same field as false.
     pub is_hidden: bool,
 }
@@ -266,7 +266,7 @@ pub struct HideCoachResult {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ShowCoachResult {
     /// The coach that was un-hidden.
-    pub coach_id: String,
+    pub agent_id: String,
     /// Always false here; `hide_coach` sends the same field as true.
     pub is_hidden: bool,
     /// Whether a stored hide preference was actually removed. False when the

@@ -137,7 +137,7 @@ pub struct AdminDeleteSystemCoachResult {
     /// Always true: the tool errors rather than reporting a failed delete.
     pub deleted: bool,
     /// The coach that was removed, echoed back.
-    pub coach_id: String,
+    pub agent_id: String,
 }
 
 /// What `admin_assign_coach` answers with.
@@ -149,9 +149,9 @@ pub struct AdminAssignCoachResult {
     /// Always true: the tool errors rather than reporting a failed assign.
     pub assigned: bool,
     /// The coach that was assigned.
-    pub coach_id: String,
+    pub agent_id: String,
     /// Its display name, so the reply is readable without a second call.
-    pub coach_title: String,
+    pub agent_title: String,
     /// The athlete it was assigned to.
     pub user_id: String,
     /// The operator who assigned it.
@@ -165,7 +165,7 @@ pub struct AdminUnassignCoachResult {
     /// quiet success, because the operator asked to remove something.
     pub unassigned: bool,
     /// The coach that was unassigned.
-    pub coach_id: String,
+    pub agent_id: String,
     /// The athlete it was removed from.
     pub user_id: String,
 }
@@ -194,7 +194,7 @@ pub struct CoachAssignmentEntry {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct AdminListCoachAssignmentsResult {
     /// The coach whose assignments these are.
-    pub coach_id: String,
+    pub agent_id: String,
     /// The assignments, up to the cap.
     pub assignments: Vec<CoachAssignmentEntry>,
     /// How many are in this reply.
