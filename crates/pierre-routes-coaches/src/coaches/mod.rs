@@ -111,7 +111,7 @@ where
 /// Build the admin coach router. Mount under `/api/admin`.
 pub fn build_coaches_admin_router<C>() -> Router<Arc<C>>
 where
-    C: CoachesCtx + MiddlewareCtx,
+    C: CoachesCtx + MiddlewareCtx + ToolRuntime,
 {
     Router::new()
         .route("/agents", get(admin::handle_admin_list::<C>))

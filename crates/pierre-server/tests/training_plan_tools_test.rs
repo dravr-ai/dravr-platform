@@ -494,7 +494,7 @@ async fn a_structured_day_shows_its_steps_in_the_prompt() -> Result<()> {
     let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
         PlanPromptSources {
-            plans: executor.resources.repos().training_plans.as_ref(),
+            repos: executor.resources.repos(),
             catalogue: &TrainingCatalogueRegistry::new(),
         },
         &tenant_id,
@@ -761,7 +761,7 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
         PlanPromptSources {
-            plans: executor.resources.repos().training_plans.as_ref(),
+            repos: executor.resources.repos(),
             catalogue: &TrainingCatalogueRegistry::new(),
         },
         &tenant_id,
@@ -785,7 +785,7 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     let other_user = Uuid::new_v4();
     let untouched = inject_training_plan(
         PlanPromptSources {
-            plans: executor.resources.repos().training_plans.as_ref(),
+            repos: executor.resources.repos(),
             catalogue: &TrainingCatalogueRegistry::new(),
         },
         &tenant_id,
@@ -804,7 +804,7 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     // QA walk lost its remaining pillars.
     let during_walk = inject_training_plan(
         PlanPromptSources {
-            plans: executor.resources.repos().training_plans.as_ref(),
+            repos: executor.resources.repos(),
             catalogue: &TrainingCatalogueRegistry::new(),
         },
         &tenant_id,

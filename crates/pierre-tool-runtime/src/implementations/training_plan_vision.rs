@@ -8,14 +8,18 @@
 //!
 //! The flavour and who chose it, each phase's targets, the season window, a
 //! week's phase index and a day's template. Every catalogue reference is
-//! resolved against the live registry before anything is written.
+//! resolved through the plan's coach package over the live registry before
+//! anything is written, and the tier that answered is what the saved day
+//! records.
 
-use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{FlavourInputs, FlavourVerdict, Share};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{FlavourSelection, PlanPhase, PlannedDay, SelectedBy};
+use pierre_memory::training_plans::{
+    FlavourSelection, PlanPhase, PlannedDay, SelectedBy, TemplateSource,
+};
+use pierre_services::coach_package::PackagedCatalogue;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
@@ -224,13 +228,14 @@ pub(super) fn check_phase_indexes(weeks: &[WeekPayload], phase_count: usize) -> 
 }
 
 /// Turn the payload's flavour into the stored selection: the id must name a
-/// catalogue flavour, whose family, sequencing and modifiers are copied so the
-/// stored plan still says what it was built on after the catalogue moves.
+/// flavour the coach's package or the catalogue carries, whose family,
+/// sequencing and modifiers are copied so the stored plan still says what it
+/// was built on after the catalogue moves.
 pub(super) fn resolve_flavour(
-    catalogue: &TrainingCatalogueRegistry,
+    catalogue: &PackagedCatalogue<'_>,
     payload: &FlavourPayload,
 ) -> AppResult<FlavourSelection> {
-    let flavour = catalogue.flavour(&payload.id).ok_or_else(|| {
+    let (flavour, _tier) = catalogue.flavour(&payload.id).ok_or_else(|| {
         let known: Vec<String> = catalogue.flavours().into_iter().map(|f| f.id).collect();
         AppError::invalid_input(format!(
             "flavour '{}' is not in the training catalogue; one of: {}",
@@ -255,21 +260,26 @@ pub(super) fn resolve_flavour(
     })
 }
 
-/// Every `template_slug` a day names must be a catalogue template or one of
-/// this athlete's own saved sessions — the same set `list_workout_templates`
-/// shows — so a saved day never points at a template nobody can read.
+/// Every `template_slug` a day names must be a template of the coach's
+/// package, of the catalogue, or one of this athlete's own saved sessions —
+/// the same set `list_workout_templates` shows — so a saved day never points
+/// at a template nobody can read. The tier that answered is stamped on the
+/// day as its `template_source`; whatever the payload carried there is
+/// overwritten, and a day with no template records none.
 pub(super) async fn check_template_slugs(
-    catalogue: &TrainingCatalogueRegistry,
+    catalogue: &PackagedCatalogue<'_>,
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    weeks: &[WeekPayload],
+    weeks: &mut [WeekPayload],
 ) -> AppResult<()> {
-    for day in weeks.iter().flat_map(|w| &w.days) {
+    for day in weeks.iter_mut().flat_map(|w| &mut w.days) {
         let Some(slug) = day.template_slug.as_deref() else {
+            day.template_source = None;
             continue;
         };
-        if catalogue.workout(slug).is_some() {
+        if let Some((_, tier)) = catalogue.workout(slug) {
+            day.template_source = Some(tier.template_source());
             continue;
         }
         let own = repos
@@ -283,6 +293,7 @@ pub(super) async fn check_template_slugs(
                 day.date
             )));
         }
+        day.template_source = Some(TemplateSource::Athlete);
     }
     Ok(())
 }

@@ -12,6 +12,7 @@
 //! `run` function the CLI dispatches to.
 
 pub mod bootstrap;
+pub mod coach_packages;
 pub mod coaches;
 pub mod demo_data;
 pub mod llm_usage;

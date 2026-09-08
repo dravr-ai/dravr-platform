@@ -17,7 +17,6 @@
 //! summarized as a count with a pointer to `get_training_plan`.
 
 use chrono::NaiveDate;
-use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{WorkoutFilter, WorkoutPurpose};
 use pierre_core::models::{TenantId, WorkoutStep};
@@ -29,6 +28,8 @@ use pierre_memory::training_plans::{
 use pierre_memory::FactKind;
 use std::fmt::Write as _;
 use uuid::Uuid;
+
+use crate::coach_package::PackagedCatalogue;
 
 /// Maximum weeks rendered day-by-day (current + next).
 const MAX_WEEKS_RENDERED: usize = 2;
@@ -221,7 +222,7 @@ pub fn render_training_plan_block(
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
     today: NaiveDate,
-    catalogue: &TrainingCatalogueRegistry,
+    catalogue: &PackagedCatalogue<'_>,
 ) -> Option<String> {
     let mut out = String::with_capacity(1_024);
     out.push_str("\n\n## Current training plan (persisted)\n\n");
@@ -439,7 +440,7 @@ fn render_phase_header(
     index: usize,
     phase: &PlanPhase,
     today: NaiveDate,
-    catalogue: &TrainingCatalogueRegistry,
+    catalogue: &PackagedCatalogue<'_>,
 ) -> String {
     let mut out = String::with_capacity(512);
     let weeks_left = phase
@@ -612,12 +613,17 @@ pub async fn resolve_plan_coach_slug(
 #[cfg(test)]
 mod tests {
     use super::{parse_plan_date, render_training_plan_block};
+    use crate::coach_package::PackagedCatalogue;
     use chrono::NaiveDate;
     use pierre_contremaitre::TrainingCatalogueRegistry;
     use std::collections::BTreeMap;
+    use std::sync::LazyLock;
 
-    fn catalogue() -> TrainingCatalogueRegistry {
-        TrainingCatalogueRegistry::new()
+    /// The compiled-in catalogue with no package over it.
+    fn catalogue() -> PackagedCatalogue<'static> {
+        static REGISTRY: LazyLock<TrainingCatalogueRegistry> =
+            LazyLock::new(TrainingCatalogueRegistry::new);
+        PackagedCatalogue::catalogue_only(&REGISTRY)
     }
     use pierre_core::models::periodization::PhaseKind;
     use pierre_memory::training_plans::{
@@ -703,6 +709,7 @@ mod tests {
                     fueling: None,
                     template_slug: None,
                     template_params: None,
+                    template_source: None,
                 },
                 PlannedDay {
                     date: start.to_owned(), // same-day is fine for render tests
@@ -714,6 +721,7 @@ mod tests {
                     fueling: None,
                     template_slug: None,
                     template_params: None,
+                    template_source: None,
                 },
             ],
             status: WeekStatus::Active,
@@ -939,6 +947,7 @@ mod tests {
                 fueling: None,
                 template_slug: None,
                 template_params: None,
+                template_source: None,
             },
             PlannedDay {
                 date: "2026-08-28".to_owned(),
@@ -950,6 +959,7 @@ mod tests {
                 fueling: None,
                 template_slug: None,
                 template_params: None,
+                template_source: None,
             },
         ];
 

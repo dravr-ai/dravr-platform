@@ -11,6 +11,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::periodization::WorkoutFilter;
 use pierre_core::models::{Activity, DailyTrainingState, Dossier, TenantId, WorkoutTemplate};
 use pierre_fitness_compute::intervals::{build_intervals, IntervalsExport};
 use pierre_fitness_compute::latest_snapshot::{
@@ -20,6 +21,7 @@ use pierre_fitness_compute::routes::{
     build_route_summary_from_streams, route_summary_from_cache, stream_route_identity, RouteSummary,
 };
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
+use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -86,11 +88,15 @@ async fn get_workout_templates(
 ) -> AppResult<Json<Vec<WorkoutTemplate>>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    // The catalogue's workout bank first (read-only, sorted by slug), then any
-    // user-authored rows for (tenant_id, user_id) ordered newest-first.
-    let mut templates = resources.training_catalogue().workouts();
-    let user_authored = resources
-        .repos()
+    // The athlete's selected coach lends its package, laid over the
+    // catalogue's bank (a package template shadows a catalogue one of the
+    // same slug); then any user-authored rows for (tenant_id, user_id).
+    let repos = resources.repos();
+    let coach = repos.tenants.get_selected_coach(tenant_id, user_id).await?;
+    let package = load_coach_package(repos, tenant_id, user_id, coach.as_deref()).await?;
+    let catalogue = PackagedCatalogue::new(resources.training_catalogue(), package);
+    let mut templates = catalogue.workouts_matching(&WorkoutFilter::default());
+    let user_authored = repos
         .workout_templates
         .list_user_workout_templates(tenant_id, user_id)
         .await?;

@@ -25,6 +25,7 @@ use pierre_memory::training_plans::{
     FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, SelectedBy,
     TemplateParams, TrainingPlan,
 };
+use pierre_services::coach_package::PackagedCatalogue;
 use pierre_services::training_plan_render::render_training_plan_block;
 
 fn d(s: &str) -> NaiveDate {
@@ -133,6 +134,7 @@ fn day(
         fueling: None,
         template_slug,
         template_params,
+        template_source: None,
     }
 }
 
@@ -258,7 +260,8 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
 
 #[tokio::test]
 async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
-    let catalogue = TrainingCatalogueRegistry::new();
+    let registry = TrainingCatalogueRegistry::new();
+    let catalogue = PackagedCatalogue::catalogue_only(&registry);
     let plan = TrainingPlan {
         id: "plan-v".to_owned(),
         tenant_id: "t".to_owned(),
@@ -328,7 +331,8 @@ async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
 
 #[tokio::test]
 async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()> {
-    let catalogue = TrainingCatalogueRegistry::new();
+    let registry = TrainingCatalogueRegistry::new();
+    let catalogue = PackagedCatalogue::catalogue_only(&registry);
     let mut plan = TrainingPlan {
         id: "plan-t".to_owned(),
         tenant_id: "t".to_owned(),

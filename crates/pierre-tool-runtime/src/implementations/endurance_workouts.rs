@@ -23,6 +23,7 @@ use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
+use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::plan_calendar_push::CALENDAR_PROVIDER;
 
 use super::calendar::{
@@ -30,6 +31,7 @@ use super::calendar::{
     TargetRule, MAX_SESSION_STEPS,
 };
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
+use super::training_plans::{load_conversation, resolve_coach_slug};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -232,12 +234,46 @@ async fn store_session(
     Ok(template)
 }
 
+/// The coach this call runs under: the conversation's, else the `coach_id`
+/// argument on a direct MCP call. What decides which package lays over the
+/// catalogue for the athlete.
+async fn turn_coach(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    arg_coach: Option<String>,
+) -> AppResult<Option<String>> {
+    let conversation = load_conversation(
+        context.resources.repos(),
+        context.conversation_id.as_deref(),
+        tenant_id,
+        &context.user_id.to_string(),
+    )
+    .await?;
+    Ok(resolve_coach_slug(conversation.as_ref(), arg_coach))
+}
+
+/// The catalogue as this athlete's coach lays it out: the coach's package
+/// over the registry.
+async fn packaged_catalogue<'a>(
+    context: &'a ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    coach: Option<&str>,
+) -> AppResult<PackagedCatalogue<'a>> {
+    let package = load_coach_package(context.resources.repos(), tenant_id, user_id, coach).await?;
+    Ok(PackagedCatalogue::new(
+        context.resources.training_catalogue(),
+        package,
+    ))
+}
+
 /// Resolve the workout this call prescribes: a named template or an inline
 /// session, never both and never neither.
 async fn resolve_template(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
+    coach: Option<&str>,
     args: &Value,
 ) -> AppResult<WorkoutTemplate> {
     let slug = args.get("template_slug").and_then(Value::as_str);
@@ -261,7 +297,8 @@ async fn resolve_template(
             store_session(context, tenant_id, user_id, session).await
         }
         (Some(slug), None) => {
-            if let Some(template) = context.resources.training_catalogue().workout(slug) {
+            let catalogue = packaged_catalogue(context, tenant_id, user_id, coach).await?;
+            if let Some((template, _)) = catalogue.workout(slug) {
                 return Ok(template);
             }
             context
@@ -543,8 +580,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let catalogue = context.resources.training_catalogue();
-            let bank = catalogue.workouts();
+            let bank = context.resources.training_catalogue().workouts();
             let filter = WorkoutFilter {
                 purpose: vocab_arg(
                     &args,
@@ -558,18 +594,30 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             let detail = vocab_arg(&args, "detail", ListDetail::ALL, ListDetail::as_str)?
                 .unwrap_or(ListDetail::Summary);
 
-            let mut templates = catalogue.workouts_matching(&filter);
-            // The athlete's own sessions are scoped by tenant; a call with no
-            // tenant context has no athlete rows to read.
-            if let Some(tenant_id) = context.tenant_id.map(TenantId::from_uuid) {
-                let own = context
+            // The coach's package and the athlete's own sessions are both
+            // scoped by tenant; a call with no tenant context lists the
+            // catalogue alone.
+            let templates = match context.tenant_id.map(TenantId::from_uuid) {
+                Some(tenant_id) => {
+                    let coach = turn_coach(&context, tenant_id, None).await?;
+                    let catalogue =
+                        packaged_catalogue(&context, tenant_id, context.user_id, coach.as_deref())
+                            .await?;
+                    let mut templates = catalogue.workouts_matching(&filter);
+                    let own = context
+                        .resources
+                        .repos()
+                        .workout_templates
+                        .list_user_workout_templates(tenant_id, context.user_id)
+                        .await?;
+                    templates.extend(own.into_iter().filter(|t| filter.matches(t)));
+                    templates
+                }
+                None => context
                     .resources
-                    .repos()
-                    .workout_templates
-                    .list_user_workout_templates(tenant_id, context.user_id)
-                    .await?;
-                templates.extend(own.into_iter().filter(|t| filter.matches(t)));
-            }
+                    .training_catalogue()
+                    .workouts_matching(&filter),
+            };
 
             let rows: Vec<WorkoutTemplateRow> = match detail {
                 ListDetail::Summary => templates
@@ -772,7 +820,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
 
             let replaces = optional_prescription_id(&args, "replaces")?;
 
-            let template = resolve_template(&context, tenant_id, user_id, &args).await?;
+            let coach = turn_coach(&context, tenant_id, coach_id.clone()).await?;
+            let template =
+                resolve_template(&context, tenant_id, user_id, coach.as_deref(), &args).await?;
             // The previous entry is resolved before the provider is built, so a
             // bad id is refused without a credential lookup.
             let previous = match replaces {

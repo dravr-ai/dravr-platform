@@ -16,6 +16,8 @@ pub mod api_keys;
 pub mod chat;
 /// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
+/// Repository trait for coach package artefacts (flavour, skeleton, workouts beside a coach's prompt).
+pub mod coach_artefacts;
 /// Repository traits for coaches catalogue, coaching groups, store listings.
 pub mod coaches;
 /// Repository trait for athlete commitments swept against real activity data.
@@ -79,6 +81,7 @@ pub use admin::*;
 pub use api_keys::*;
 pub use chat::*;
 pub use claim_verdicts::*;
+pub use coach_artefacts::*;
 pub use coaches::*;
 pub use commitments::*;
 pub use data_source::*;

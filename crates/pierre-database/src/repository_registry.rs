@@ -9,6 +9,7 @@ use std::sync::Arc;
 #[cfg(feature = "postgresql")]
 use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
+use crate::repositories::CoachArtefactRepository;
 use crate::repositories::{
     A2ARepository, ActivityCacheRepository, AdminRepository, ApiKeyRepository, ChatRepository,
     ClaimVerdictRepository, CoachesRepository, CoachingGroupRepository, CommitmentRepository,
@@ -145,6 +146,8 @@ pub struct RepositoryRegistry {
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
     /// Endurance user-authored workout templates (the catalogue bank lives in TOML)
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
+    /// Coach package artefacts — the flavour, skeleton and workouts a coach ships beside its prompt
+    pub coach_artefacts: Arc<dyn CoachArtefactRepository>,
     /// Continuous time-series points (`data_point_series` table). Implements
     /// riviere's `TimeSeriesStore`; backs the dravr-enforme write adapter.
     pub time_series_points: Arc<dyn TimeSeriesStore>,
@@ -236,6 +239,7 @@ impl RepositoryRegistry {
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
+            coach_artefacts: db.clone(),
             time_series_points: db.clone(),
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
@@ -305,6 +309,7 @@ impl RepositoryRegistry {
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
+            coach_artefacts: db.clone(),
             time_series_points: db.clone(),
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),

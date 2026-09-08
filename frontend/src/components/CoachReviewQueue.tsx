@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
+import type { StorePackageReview } from '../services/api/admin';
 import { clsx } from 'clsx';
 import CoachReviewDrawer from './CoachReviewDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -43,6 +44,7 @@ interface PendingCoach {
   created_at: string;
   submitted_at: string;
   publish_status: string;
+  package: StorePackageReview;
 }
 
 export default function CoachReviewQueue() {

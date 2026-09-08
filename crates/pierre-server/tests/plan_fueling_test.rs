@@ -21,6 +21,7 @@ use pierre_core::models::FuelingProtocol;
 use pierre_memory::training_plans::{
     GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
+use pierre_services::coach_package::PackagedCatalogue;
 use pierre_services::plan_calendar_push::plan_day_session;
 use pierre_services::training_plan_render::render_training_plan_block;
 use uuid::Uuid;
@@ -46,6 +47,7 @@ fn fuelled_day() -> PlannedDay {
         }),
         template_slug: None,
         template_params: None,
+        template_source: None,
     }
 }
 
@@ -193,6 +195,7 @@ fn a_rest_day_produces_no_session_to_fuel() {
         fueling: None,
         template_slug: None,
         template_params: None,
+        template_source: None,
     };
     assert!(plan_day_session(Uuid::new_v4(), &rest, 0).is_none());
 }
@@ -208,7 +211,7 @@ fn the_prompt_renders_the_fuelling_clause() {
         &plan(),
         &[week],
         date("2026-09-03"),
-        &TrainingCatalogueRegistry::new(),
+        &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
     )
     .expect("an active plan renders a block");
 
@@ -232,7 +235,7 @@ fn a_day_without_fuelling_renders_no_clause() {
         &plan(),
         &[week_with(vec![day])],
         date("2026-09-03"),
-        &TrainingCatalogueRegistry::new(),
+        &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
     )
     .expect("an active plan renders a block");
 

@@ -18,6 +18,8 @@ pub mod api_keys;
 pub mod chat;
 /// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
+/// Coach package artefacts — flavour, skeleton, workouts stored per coach (`SQLite`)
+pub mod coach_artefacts;
 /// Catalogue handle assignment at Store approval time.
 pub(crate) mod coach_handle;
 /// Coaches (custom AI personas) storage and management

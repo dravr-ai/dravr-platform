@@ -68,7 +68,7 @@ Tools for setting fitness goals, tracking progress, and receiving AI-powered goa
 | `suggest_goals` | Get AI-suggested fitness goals based on activity history | `provider` (string) | `goal_category` (string) |
 | `analyze_goal_feasibility` | Analyze whether a goal is achievable given current fitness level | `goal_id` (string) | - |
 | `track_progress` | Track progress towards fitness goals | `goal_id` (string) | - |
-| `recommend_plan_flavour` | Choose the training flavour an athlete should run this season and lay the season out; ranks every flavour they can run with reasons and evidence, names every one they cannot with the reason, and lays the phases backward from the goal race | `hours_per_week` (number), `sessions_per_week` (integer) | `training_age` (string), `event_class` (string), `weeks_to_goal` (integer), `measurements` (array), `recovery_speed` (string), `injury_load` (string), `interval_experience` (string), `sport_mix` (string), `season_phase` (string), `coach_preference` (string), `athlete` (string) |
+| `recommend_plan_flavour` | Choose the training flavour an athlete should run this season and lay the season out; ranks every flavour they can run with reasons and evidence, names every one they cannot with the reason, and lays the phases backward from the goal race | `hours_per_week` (number), `sessions_per_week` (integer) | `training_age` (string), `event_class` (string), `weeks_to_goal` (integer), `measurements` (array), `recovery_speed` (string), `injury_load` (string), `interval_experience` (string), `sport_mix` (string), `season_phase` (string), `athlete` (string) |
 
 ### Parameter Details
 

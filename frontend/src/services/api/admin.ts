@@ -82,6 +82,26 @@ export interface UserToolOverrideRow {
   updated_at: string;
 }
 
+/** One training artefact a coach package ships, as the store review shows it. */
+export interface StoreArtefactReview {
+  kind: 'flavour' | 'skeleton' | 'workout';
+  slug: string;
+  sha256: string;
+  /** The artefact cites no evidence at all — told to the reviewer, never refused. */
+  cites_no_evidence: boolean;
+  /** References nothing answers: an evidence path with no proposition, a purpose no template carries. */
+  unresolved: Array<{ key: string; reference: string }>;
+  /** The stored text no longer parses. */
+  parse_error?: string;
+}
+
+/** The package a store coach ships, with what the review could not resolve. */
+export interface StorePackageReview {
+  artefacts: StoreArtefactReview[];
+  /** False when the evidence corpus was not loaded, so no evidence path could be checked. */
+  evidence_checked: boolean;
+}
+
 export const adminApi = {
   // ==================== SETUP STATUS ====================
   async getSetupStatus() {
@@ -917,6 +937,7 @@ export const adminApi = {
       created_at: string;
       submitted_at: string;
       publish_status: string;
+      package: StorePackageReview;
     }>;
     total: number;
     metadata: { timestamp: string; api_version: string };
@@ -946,6 +967,7 @@ export const adminApi = {
       system_prompt: string;
       created_at: string;
       publish_status: string;
+      package: StorePackageReview;
     }>;
     total: number;
     metadata: { timestamp: string; api_version: string };
@@ -982,6 +1004,7 @@ export const adminApi = {
       rejection_reason: string;
       rejection_notes?: string;
       publish_status: string;
+      package: StorePackageReview;
     }>;
     total: number;
     metadata: { timestamp: string; api_version: string };

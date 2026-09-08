@@ -188,11 +188,12 @@ pub struct FlavourInputsEcho {
     pub sport_mix: SportMix,
     /// Where in the season they are, when it is known.
     pub season_phase: Option<SeasonPhase>,
-    /// A flavour the coach asked for, when one was named.
+    /// The house flavour the coach's package pins, when the package ships
+    /// one; the rule ranks it first whenever the athlete can run it.
     pub coach_preference: Option<String>,
     /// Where each input came from — what the athlete answered, what the
-    /// profile held, what was assumed. An assumed input is the one to
-    /// correct first.
+    /// profile held, what the coach's package pinned, what was assumed. An
+    /// assumed input is the one to correct first.
     pub sources: Vec<InputSource>,
 }
 

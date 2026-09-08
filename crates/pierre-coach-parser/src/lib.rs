@@ -15,7 +15,12 @@
 //!   from a markdown payload posted to the admin API.
 //!
 //! Returns structured [`CoachDefinition`] values backed by the wire types
-//! from `pierre_core::models::coaches::*`.
+//! from `pierre_core::models::coaches::*`. The [`package`] module reads the
+//! training artefacts a coach may ship beside its prompt.
+
+/// A coach package's training artefacts — flavour, skeleton, workouts.
+pub mod package;
+pub use package::{has_package_files, read_package_artefacts};
 
 use std::fs;
 use std::path::Path;

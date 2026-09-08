@@ -1358,9 +1358,6 @@ export interface RecommendPlanFlavourParams {
   /** A human coach reading a consenting athlete's profile from their own direct chat. */
   athlete?: string;
 
-  /** A flavour id the coach's package pins. Outranks the table when the athlete can run it. */
-  coach_preference?: string;
-
   /** The goal event. Omit to derive from the active plan's goal race. One of: run_5k, run_10k, half_marathon, marathon, ultra, crit, road_race, time_trial, gran_fondo, sprint_tri, olympic_tri, half_iron, ironman, open_water_swim, no_race. */
   event_class?: string;
 

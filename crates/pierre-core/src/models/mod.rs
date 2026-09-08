@@ -242,8 +242,13 @@ pub use usage::{
     UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
 };
 
+/// A coach package's training artefacts — flavour, skeleton, workouts — beside its prompt
+pub mod coach_artefacts;
 /// Coach (AI persona) data types for custom AI coaching personas
 pub mod coaches;
+pub use coach_artefacts::{
+    sha256_hex, ArtefactKind, CoachArtefact, PackageArtefact, ParsedArtefact,
+};
 /// Mobility domain types for stretching and yoga
 pub mod mobility;
 pub use coaches::{

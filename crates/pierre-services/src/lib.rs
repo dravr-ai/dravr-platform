@@ -77,6 +77,9 @@ pub mod coach_grading;
 /// Coach markdown import: URL fetching, security validation, warnings, definition conversion
 pub mod coach_import;
 
+/// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's coach
+pub mod coach_package;
+
 /// Coach-selection recording — the one emit site for `coach.selected`
 pub mod coach_selection;
 

@@ -27,6 +27,7 @@ const mockCoaches = [
     created_at: '2024-01-10T00:00:00Z',
     submitted_at: '2024-01-15T10:30:00Z',
     publish_status: 'pending_review',
+    package: { artefacts: [], evidence_checked: true },
   },
   {
     id: 'coach-2',
@@ -45,6 +46,7 @@ const mockCoaches = [
     created_at: '2024-01-12T00:00:00Z',
     submitted_at: '2024-01-16T14:00:00Z',
     publish_status: 'pending_review',
+    package: { artefacts: [], evidence_checked: true },
   },
 ];
 

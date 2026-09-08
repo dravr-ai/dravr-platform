@@ -14,11 +14,12 @@ use axum::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::coaches::{Coach, UpdateCoachRequest};
-use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::store_listings::CoachWithListing;
 use pierre_middleware::{require_admin, AuthenticatedUser};
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
+use pierre_services::coach_package::review_package;
 use pierre_services::coaches as coaches_service;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
@@ -306,13 +307,13 @@ pub(super) async fn handle_admin_store_stats<C: CoachesCtx + MiddlewareCtx>(
 }
 
 /// Handle GET /admin/store/review-queue - Get pending review coaches
-pub(super) async fn handle_admin_review_queue<C: CoachesCtx + MiddlewareCtx>(
+pub(super) async fn handle_admin_review_queue<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    require_admin(auth.user_id, &ctx.repos().users).await?;
+    require_admin(auth.user_id, &MiddlewareCtx::repos(ctx.as_ref()).users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let store_manager = super::get_store_manager(&ctx);
@@ -320,7 +321,7 @@ pub(super) async fn handle_admin_review_queue<C: CoachesCtx + MiddlewareCtx>(
         .get_pending_review_coaches(tenant_id, params.limit, params.offset)
         .await?;
 
-    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
+    let coaches_with_email = enrich_store_coaches(&ctx, coaches).await?;
     // Paginated results with limits - count never exceeds u32
     #[allow(clippy::cast_possible_truncation)]
     let total = coaches_with_email.len() as u32;
@@ -335,13 +336,13 @@ pub(super) async fn handle_admin_review_queue<C: CoachesCtx + MiddlewareCtx>(
 }
 
 /// Handle GET /admin/store/published - Get published coaches
-pub(super) async fn handle_admin_published<C: CoachesCtx + MiddlewareCtx>(
+pub(super) async fn handle_admin_published<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    require_admin(auth.user_id, &ctx.repos().users).await?;
+    require_admin(auth.user_id, &MiddlewareCtx::repos(ctx.as_ref()).users).await?;
 
     let store_manager = super::get_store_manager(&ctx);
     let sort_by = params.sort_by.as_deref();
@@ -349,7 +350,7 @@ pub(super) async fn handle_admin_published<C: CoachesCtx + MiddlewareCtx>(
         .get_published_coaches(None, sort_by, params.limit, params.offset)
         .await?;
 
-    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
+    let coaches_with_email = enrich_store_coaches(&ctx, coaches).await?;
     // Paginated results with limits - count never exceeds u32
     #[allow(clippy::cast_possible_truncation)]
     let total = coaches_with_email.len() as u32;
@@ -364,13 +365,13 @@ pub(super) async fn handle_admin_published<C: CoachesCtx + MiddlewareCtx>(
 }
 
 /// Handle GET /admin/store/rejected - Get rejected coaches
-pub(super) async fn handle_admin_rejected<C: CoachesCtx + MiddlewareCtx>(
+pub(super) async fn handle_admin_rejected<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    require_admin(auth.user_id, &ctx.repos().users).await?;
+    require_admin(auth.user_id, &MiddlewareCtx::repos(ctx.as_ref()).users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let store_manager = super::get_store_manager(&ctx);
@@ -378,7 +379,7 @@ pub(super) async fn handle_admin_rejected<C: CoachesCtx + MiddlewareCtx>(
         .get_rejected_coaches(tenant_id, params.limit, params.offset)
         .await?;
 
-    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
+    let coaches_with_email = enrich_store_coaches(&ctx, coaches).await?;
     // Paginated results with limits - count never exceeds u32
     #[allow(clippy::cast_possible_truncation)]
     let total = coaches_with_email.len() as u32;
@@ -466,18 +467,27 @@ pub(super) async fn handle_admin_unpublish<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Enrich coaches with author email information
-pub(super) async fn enrich_coaches_with_email(
-    store_manager: &dyn StoreListingsRepository,
+/// Enrich store coaches with the author's email and the package review —
+/// every artefact the coach ships, with its unresolved references checked
+/// against the live catalogue and evidence corpus.
+pub(super) async fn enrich_store_coaches<C: CoachesCtx + ToolRuntime>(
+    ctx: &Arc<C>,
     coaches: Vec<CoachWithListing>,
 ) -> Result<Vec<StoreCoachResponse>, AppError> {
+    let store_manager = super::get_store_manager(ctx);
     let mut result = Vec::with_capacity(coaches.len());
 
     for cwl in coaches {
         let author_email = store_manager.get_author_email(cwl.coach.user_id).await?;
+        let rows = MiddlewareCtx::repos(ctx.as_ref())
+            .coach_artefacts
+            .list_coach_artefacts(&cwl.coach.tenant_id, &cwl.coach.id.to_string())
+            .await?;
+        let package = review_package(&rows, ctx.training_catalogue(), ctx.evidence_registry());
         result.push(StoreCoachResponse::from_coach_with_listing(
             cwl,
             author_email,
+            package,
         ));
     }
 

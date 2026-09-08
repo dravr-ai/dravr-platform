@@ -7,7 +7,8 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Button, Card } from './ui';
+import type { StorePackageReview } from '../services/api/admin';
+import { Button, Card, Section } from './ui';
 import { clsx } from 'clsx';
 import CoachRejectionModal from './CoachRejectionModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -44,6 +45,7 @@ interface PendingCoach {
   created_at: string;
   submitted_at: string;
   publish_status: string;
+  package: StorePackageReview;
 }
 
 interface CoachReviewDrawerProps {
@@ -202,6 +204,61 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               )}
             </div>
           </Card>
+
+          {/* Training package: the flavour, skeleton and workouts the coach ships */}
+          {coach.package.artefacts.length > 0 && (
+            <Section
+              headingLevel={3}
+              title="Training package"
+              description="The flavour, skeleton and workouts this agent ships, with what the review could not resolve."
+              actions={
+                <span className="text-xs text-outline">
+                  {coach.package.artefacts.length} {coach.package.artefacts.length === 1 ? 'artefact' : 'artefacts'}
+                </span>
+              }
+              data-testid="package-review"
+            >
+              {!coach.package.evidence_checked && (
+                <p className="mb-3 text-xs text-tertiary" data-testid="package-evidence-unchecked">
+                  Evidence corpus not loaded: evidence paths were not checked.
+                </p>
+              )}
+              <ul className="space-y-3">
+                {coach.package.artefacts.map((artefact) => (
+                  <li key={`${artefact.kind}:${artefact.slug}`} className="text-sm" data-testid="package-artefact">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-surface-container-high text-on-surface">
+                        {artefact.kind}
+                      </span>
+                      <span className="font-mono text-on-surface">{artefact.slug}</span>
+                      {artefact.cites_no_evidence && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-tertiary-container text-on-tertiary-container">
+                          no evidence cited
+                        </span>
+                      )}
+                      {artefact.parse_error && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-error-container text-on-error-container">
+                          does not parse
+                        </span>
+                      )}
+                    </div>
+                    {artefact.parse_error && (
+                      <p className="mt-1 text-xs text-error">{artefact.parse_error}</p>
+                    )}
+                    {artefact.unresolved.length > 0 && (
+                      <ul className="mt-1 ml-2 space-y-0.5" data-testid="package-unresolved">
+                        {artefact.unresolved.map((u) => (
+                          <li key={`${u.key}:${u.reference}`} className="text-xs text-on-surface-variant font-mono">
+                            <span className="text-error">unresolved</span> {u.key}: {u.reference}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
 
           {/* Tags */}
           {coach.tags.length > 0 && (

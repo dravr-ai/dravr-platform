@@ -25,6 +25,7 @@ use pierre_core::models::periodization::{
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
+use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -61,11 +62,23 @@ pub(super) async fn emit_week_compliance(
     weeks.retain(|w| parse_plan_date(&w.week_start).is_some());
     weeks.sort_by(|a, b| a.week_start.cmp(&b.week_start));
 
-    let catalogue = state.training_catalogue();
+    // The plan's coach package first, then the catalogue — the same view
+    // the save resolved through, so a house flavour or a package template
+    // is measured against what it was saved as.
+    let package = match load_coach_package(repos, tenant, user_id, plan.coach_slug.as_deref()).await
+    {
+        Ok(package) => package,
+        Err(e) => {
+            warn!(error = %e, "week compliance: coach package unreadable; catalogue alone");
+            None
+        }
+    };
+    let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
     let flavour = plan
         .flavour
         .as_ref()
-        .and_then(|selection| catalogue.flavour(&selection.id));
+        .and_then(|selection| catalogue.flavour(&selection.id))
+        .map(|(flavour, _)| flavour);
     // Masters-style loading triggers on the athlete's own recovery-speed
     // answer, never on age; the rule's inputs snapshot is where a saved plan
     // keeps it. A plan saved without running the rule reads as typical.
@@ -75,7 +88,7 @@ pub(super) async fn emit_week_compliance(
         .and_then(|selection| selection.inputs_snapshot.as_ref())
         .is_some_and(|inputs| inputs.recovery_speed == RecoverySpeed::Limited);
 
-    let templates = resolve_templates(state, repos, tenant, user_id, &weeks).await;
+    let templates = resolve_templates(&catalogue, repos, tenant, user_id, &weeks).await;
     let reported: Vec<&str> = saved.iter().map(|w| w.id.as_str()).collect();
 
     let mut previous_hard = None;
@@ -130,19 +143,18 @@ pub(super) async fn emit_week_compliance(
     }
 }
 
-/// Every template the plan's days name, resolved once: the catalogue first,
-/// then the athlete's own bank. A slug that resolves nowhere leaves the day
-/// template-less, which the kernel reads as unclassified — the honest
-/// outcome for a reference the save-time check let through and the
-/// catalogue has since dropped.
+/// Every template the plan's days name, resolved once: the package, then
+/// the catalogue, then the athlete's own bank. A slug that resolves nowhere
+/// leaves the day template-less, which the kernel reads as unclassified —
+/// the honest outcome for a reference the save-time check let through and
+/// the catalogue has since dropped.
 async fn resolve_templates(
-    state: &Arc<dyn ToolRuntime>,
+    catalogue: &PackagedCatalogue<'_>,
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
     weeks: &[PlanWeek],
 ) -> HashMap<String, WorkoutTemplate> {
-    let catalogue = state.training_catalogue();
     let mut templates = HashMap::new();
     for slug in weeks
         .iter()
@@ -153,7 +165,7 @@ async fn resolve_templates(
             continue;
         }
         let resolved = match catalogue.workout(slug) {
-            Some(template) => Some(template),
+            Some((template, _)) => Some(template),
             None => repos
                 .workout_templates
                 .get_user_workout_template(tenant, user_id, slug)

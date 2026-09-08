@@ -33,6 +33,7 @@ use pierre_memory::training_plans::{
     MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::ramp_check::assess_ramp;
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
@@ -866,14 +867,19 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
 
             let coach = scope.coach_slug.clone();
 
-            // The vision's catalogue references are checked against the live
-            // registry before anything is written: a flavour id names a
-            // catalogue flavour (its family, sequencing and modifiers are
+            // The vision's catalogue references are checked through the
+            // coach's package over the live registry before anything is
+            // written: a flavour id names a flavour the package or the
+            // catalogue carries (its family, sequencing and modifiers are
             // copied from it — provenance, never trusted from the payload), a
             // week's phase_index names a phase the plan will have, and a day's
-            // template_slug names a template the coach can actually see.
+            // template_slug names a template the coach can actually see; the
+            // tier that answered is stamped on the day.
+            let package =
+                load_coach_package(repos, tenant, scope.user_id, coach.as_deref()).await?;
+            let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
             let flavour_selection = match outline.as_ref().and_then(|o| o.flavour.as_ref()) {
-                Some(payload) => Some(resolve_flavour(state.training_catalogue(), payload)?),
+                Some(payload) => Some(resolve_flavour(&catalogue, payload)?),
                 None => None,
             };
             let phase_count = match outline.as_ref() {
@@ -885,14 +891,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     .map_or(0, |plan| plan.phases.len()),
             };
             check_phase_indexes(&weeks, phase_count)?;
-            check_template_slugs(
-                state.training_catalogue(),
-                repos,
-                tenant,
-                scope.user_id,
-                &weeks,
-            )
-            .await?;
+            check_template_slugs(&catalogue, repos, tenant, scope.user_id, &mut weeks).await?;
 
             // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
             // this athlete — drop it and let the outline path mint/reuse one.

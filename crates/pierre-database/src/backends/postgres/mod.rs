@@ -22,6 +22,8 @@ mod chat_listing;
 mod chat_read_markers;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
+/// Coach package artefacts — flavour, skeleton, workouts stored per coach (Postgres)
+pub mod coach_artefacts;
 mod coach_translations;
 /// Coaches repository implementation
 pub mod coaches;

@@ -71,6 +71,7 @@ fn day(
         fueling: None,
         template_slug: None,
         template_params: None,
+        template_source: None,
     }
 }
 

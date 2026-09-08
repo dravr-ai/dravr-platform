@@ -13,6 +13,11 @@
 //! the canonical source and per-locale siblings (e.g. `fr.md`) layered on
 //! top via [`pierre_database::CoachesRepository::apply_translations`].
 //!
+//! A coach directory may also carry a training package beside its prompt —
+//! `flavour.yaml`, `skeleton.yaml`, `workouts/<slug>.toml` — which
+//! [`crate::coach_packages`] reads through the periodization kernel and
+//! stores as `coach_artefacts` rows, replaced as a set on every run.
+//!
 //! ## Usage
 //!
 //! ```bash
@@ -46,6 +51,8 @@ use pierre_coach_parser::{
     is_locale_code, parse_coach_file, CoachDefinition, RelatedCoach, RelationType, CANONICAL_LOCALE,
 };
 
+use crate::coach_packages::sync_packages;
+
 /// CLI arguments for the coaches seeder.
 #[derive(clap::Args)]
 pub struct SeedArgs {
@@ -73,6 +80,8 @@ struct SeedStats {
     relations_created: u32,
     store_published: u32,
     pruned: u32,
+    packages_synced: u32,
+    artefacts_synced: u32,
     errors: Vec<String>,
 }
 
@@ -108,22 +117,35 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         admin.tenant_id
     );
 
-    let stats = run_coach_passes(repos, &discovery, &admin, args.dry_run).await;
+    let stats = run_coach_passes(repos, &discovery, &args.coaches_dir, &admin, args.dry_run).await;
     print_summary(&stats, args.dry_run);
     finalize_stats(&stats)
 }
 
-/// Execute the five coach sync passes (canonical upsert, translation upsert, relations,
-/// store publishing, retired-coach pruning) and return the accumulated stats.
+/// Execute the coach sync passes (canonical upsert, package artefacts, translation
+/// upsert, relations, store publishing, retired-coach pruning) and return the
+/// accumulated stats.
 async fn run_coach_passes(
     repos: &RepositoryRegistry,
     discovery: &Discovery,
+    coaches_dir: &Path,
     admin: &AdminUser,
     dry_run: bool,
 ) -> SeedStats {
     let coaches = &discovery.coaches;
     let canon: Vec<&CoachDefinition> = coaches.iter().map(|c| &c.canonical).collect();
     let (mut stats, slug_to_id) = sync_coaches(repos, &canon, admin, dry_run).await;
+    let packages = sync_packages(
+        repos,
+        coaches_dir,
+        &slug_to_id,
+        &admin.tenant_id.to_string(),
+        dry_run,
+    )
+    .await;
+    stats.packages_synced = packages.packages_synced;
+    stats.artefacts_synced = packages.artefacts_synced;
+    stats.errors.extend(packages.errors);
     take_catalogue_ownership(repos, admin, &mut stats, dry_run).await;
     sync_translations(repos, coaches, &slug_to_id, &mut stats, dry_run).await;
     sync_relations(repos, &canon, &slug_to_id, &mut stats, dry_run).await;
@@ -424,8 +446,20 @@ fn log_coach_counts(stats: &SeedStats) {
         stats.updated,
         stats.unchanged
     );
+    log_pass_counts(stats);
+}
+
+/// Log the counts of the passes that ran after the upsert, each only when
+/// it did something.
+fn log_pass_counts(stats: &SeedStats) {
     if stats.store_published > 0 {
         info!("Published: {} coaches to store", stats.store_published);
+    }
+    if stats.packages_synced > 0 {
+        info!(
+            "Packages: {} coaches carry {} artefact(s)",
+            stats.packages_synced, stats.artefacts_synced
+        );
     }
     if stats.pruned > 0 {
         info!("Pruned: {} retired coaches", stats.pruned);

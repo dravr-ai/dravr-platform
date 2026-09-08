@@ -24,9 +24,11 @@ use uuid::Uuid;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::{SportType, TenantId};
 use pierre_database::repositories::{
-    ActivityCacheRepository, DossierRepository, PlaybookRepository, TrainingPlanRepository,
+    ActivityCacheRepository, DossierRepository, PlaybookRepository,
 };
+use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{ArchetypePrior, Playbook};
+use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
@@ -34,21 +36,22 @@ use pierre_services::training_plan_render::render_training_plan_block;
 
 use crate::ChatPipelineContext;
 
-/// What the plan block is rendered from: the stored plan and the catalogue
-/// whose templates the phase header names.
+/// What the plan block is rendered from: the stored plan, the coach's
+/// package, and the catalogue whose templates the phase header names.
 #[derive(Clone, Copy)]
 pub struct PlanPromptSources<'a> {
-    /// The athlete's stored plans.
-    pub plans: &'a dyn TrainingPlanRepository,
+    /// The athlete's stored plans, and the coach rows and artefacts the
+    /// package is read from.
+    pub repos: &'a RepositoryRegistry,
     /// The live training catalogue.
     pub catalogue: &'a TrainingCatalogueRegistry,
 }
 
 impl ChatPipelineContext {
-    /// The plan block's sources: the plan repository and the live catalogue.
+    /// The plan block's sources: the repositories and the live catalogue.
     pub(crate) fn plan_prompt_sources(&self) -> PlanPromptSources<'_> {
         PlanPromptSources {
-            plans: self.repos.training_plans.as_ref(),
+            repos: self.repos.as_ref(),
             catalogue: self.training_catalogue_registry.as_ref(),
         }
     }
@@ -106,7 +109,8 @@ pub async fn inject_training_plan(
     if onboarding_active {
         return base_prompt;
     }
-    let PlanPromptSources { plans, catalogue } = sources;
+    let PlanPromptSources { repos, catalogue } = sources;
+    let plans = repos.training_plans.as_ref();
     let plan = match plans.get_active_plan(tenant_id, user_id, coach_slug).await {
         Ok(Some(plan)) => plan,
         Ok(None) => return base_prompt,
@@ -125,7 +129,20 @@ pub async fn inject_training_plan(
             return base_prompt;
         }
     };
-    match render_training_plan_block(&plan, &weeks, today, catalogue) {
+    // The coach's package over the catalogue, so the phase header names the
+    // package's templates beside the catalogue's. An unreadable package
+    // renders the catalogue alone rather than dropping the plan.
+    let package = match (TenantId::parse_str(tenant_id), Uuid::parse_str(user_id)) {
+        (Ok(tenant), Ok(user)) => load_coach_package(repos, tenant, user, coach_slug)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "coach package read failed; rendering the catalogue alone");
+                None
+            }),
+        _ => None,
+    };
+    let catalogue = PackagedCatalogue::new(catalogue, package);
+    match render_training_plan_block(&plan, &weeks, today, &catalogue) {
         Some(block) => format!("{base_prompt}{block}"),
         None => base_prompt,
     }

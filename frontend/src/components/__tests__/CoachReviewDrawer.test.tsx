@@ -26,6 +26,33 @@ const mockCoach = {
   created_at: '2024-01-10T00:00:00Z',
   submitted_at: '2024-01-15T10:30:00Z',
   publish_status: 'pending_review',
+  package: { artefacts: [], evidence_checked: true },
+};
+
+/** A package with one flavour citing a proposition the corpus lacks and one uncited workout. */
+const mockPackage = {
+  artefacts: [
+    {
+      kind: 'flavour' as const,
+      slug: 'house-threshold',
+      sha256: 'a'.repeat(64),
+      cites_no_evidence: false,
+      unresolved: [
+        {
+          key: 'evidence_refs[0]',
+          reference: 'evidence/sports_science/training_prescription/nobody-2030-missing.md',
+        },
+      ],
+    },
+    {
+      kind: 'workout' as const,
+      slug: 'house_4x8',
+      sha256: 'b'.repeat(64),
+      cites_no_evidence: true,
+      unresolved: [],
+    },
+  ],
+  evidence_checked: true,
 };
 
 // Mock the admin API
@@ -103,6 +130,34 @@ describe('CoachReviewDrawer', () => {
   it('shows token count', () => {
     renderCoachReviewDrawer();
     expect(screen.getByText('1,200 tokens')).toBeInTheDocument();
+  });
+
+  it('shows the package artefacts with every unresolved reference', () => {
+    renderCoachReviewDrawer({ ...mockCoach, package: mockPackage });
+
+    expect(screen.getByText('Training package')).toBeInTheDocument();
+    expect(screen.getByText('2 artefacts')).toBeInTheDocument();
+    expect(screen.getAllByTestId('package-artefact')).toHaveLength(2);
+    expect(screen.getByText('house-threshold')).toBeInTheDocument();
+    expect(screen.getByText('house_4x8')).toBeInTheDocument();
+    expect(screen.getByText('no evidence cited')).toBeInTheDocument();
+    expect(
+      screen.getByText(/evidence\/sports_science\/training_prescription\/nobody-2030-missing\.md/)
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('package-evidence-unchecked')).not.toBeInTheDocument();
+  });
+
+  it('says when the evidence corpus was not loaded', () => {
+    renderCoachReviewDrawer({
+      ...mockCoach,
+      package: { ...mockPackage, evidence_checked: false },
+    });
+    expect(screen.getByTestId('package-evidence-unchecked')).toBeInTheDocument();
+  });
+
+  it('renders no package card for an agent that ships none', () => {
+    renderCoachReviewDrawer();
+    expect(screen.queryByText('Training package')).not.toBeInTheDocument();
   });
 
   it('displays tags', () => {

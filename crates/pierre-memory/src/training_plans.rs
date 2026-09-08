@@ -406,6 +406,41 @@ pub struct PlannedDay {
     /// The values this day fills the template's ranges with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_params: Option<TemplateParams>,
+    /// Which tier `template_slug` resolved in when the day was saved —
+    /// stamped by the save, never taken from the payload. Absent when the
+    /// day names no template.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_source: Option<TemplateSource>,
+}
+
+/// The authorship tier a day's template was found in at save time.
+///
+/// The resolution order is package, then catalogue, then the athlete's own
+/// rows, and the saved day records which one answered so a plan still says
+/// where its sessions came from after a package is unpublished or a
+/// catalogue file moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateSource {
+    /// The coach package's own `workouts/<slug>.toml`.
+    Package,
+    /// The Dravr catalogue — contremaitre's `training/workouts/`, or the
+    /// compiled-in mirror of it.
+    Catalogue,
+    /// The athlete's own saved session (`workout_templates` row).
+    Athlete,
+}
+
+impl TemplateSource {
+    /// Stable string identifier — byte-for-byte what serde emits.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Package => "package",
+            Self::Catalogue => "catalogue",
+            Self::Athlete => "athlete",
+        }
+    }
 }
 
 impl PlannedDay {
@@ -606,6 +641,7 @@ mod tests {
             fueling: None,
             template_slug: None,
             template_params: None,
+            template_source: None,
         };
         assert!(rest.is_rest());
         // duration_min: None must not serialize a null (schema hygiene for

@@ -12,12 +12,13 @@
 //! cannot and why, and how sure the rule is — plus the season laid backward
 //! from their goal on the skeleton that fits.
 //!
-//! Two things are read from storage rather than asked again: the profile,
+//! Three things are read from storage rather than asked again: the profile,
 //! for the devices the athlete already has thresholds for and the training
-//! age they stated; and the active plan, for the goal race the season is
-//! aimed at. Everything the tool resolved and where it came from is echoed
-//! back as `inputs`, so the coach can confirm before saving the outcome
-//! through `save_training_plan`.
+//! age they stated; the active plan, for the goal race the season is aimed
+//! at; and the coach's package, for the house flavour it pins and the
+//! flavours and skeleton it lays over the catalogue. Everything the tool
+//! resolved and where it came from is echoed back as `inputs`, so the coach
+//! can confirm before saving the outcome through `save_training_plan`.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -56,6 +57,7 @@ use pierre_core::models::periodization::{
 use pierre_core::models::{SportFamily, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::parse_plan_date;
+use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
@@ -92,8 +94,6 @@ struct Payload {
     #[serde(default)]
     season_phase: Option<SeasonPhase>,
     #[serde(default)]
-    coach_preference: Option<String>,
-    #[serde(default)]
     athlete: Option<String>,
 }
 
@@ -103,6 +103,7 @@ enum Source {
     Argument,
     Profile,
     Plan,
+    Package,
     Default,
 }
 
@@ -112,6 +113,7 @@ impl Source {
             Self::Argument => "argument",
             Self::Profile => "profile",
             Self::Plan => "plan",
+            Self::Package => "package",
             Self::Default => "default",
         }
     }
@@ -298,10 +300,6 @@ impl RecommendPlanFlavourTool {
             ),
         );
         p.insert(
-            "coach_preference".to_owned(),
-            string_prop("A flavour id the coach's package pins. Outranks the table when the athlete can run it."),
-        );
-        p.insert(
             "athlete".to_owned(),
             string_prop(
                 "A human coach reading a consenting athlete's profile from their own direct chat.",
@@ -476,10 +474,21 @@ impl RecommendPlanFlavourTool {
                 interval_experience,
                 sport_mix,
                 season_phase: payload.season_phase,
-                coach_preference: payload.coach_preference.clone(),
+                coach_preference: None,
             },
             sources,
             goal_date,
+        }
+    }
+
+    /// Pin the house flavour of the coach's package, when the package ships
+    /// one: the kernel ranks it first whenever the athlete can run it. Never
+    /// an argument — a pin the model could write would be an override
+    /// wearing the package's name.
+    fn pin_house_flavour(resolved: &mut Resolved, house: Option<&str>) {
+        if let Some(id) = house {
+            resolved.inputs.coach_preference = Some(id.to_owned());
+            resolved.sources.push(("coach_preference", Source::Package));
         }
     }
 
@@ -748,9 +757,13 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             });
 
             let today = athlete_today(repos, &user_id.to_string()).await;
-            let resolved = Self::resolve(&payload, profile.as_ref(), goal, today);
+            let mut resolved = Self::resolve(&payload, profile.as_ref(), goal, today);
 
-            let catalogue = state.training_catalogue();
+            // The coach's package over the catalogue: its house flavour is
+            // pinned, its flavours and skeleton offered beside the catalogue's.
+            let package = load_coach_package(repos, tenant_id, user_id, coach).await?;
+            let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
+            Self::pin_house_flavour(&mut resolved, catalogue.house_flavour());
             let table = catalogue.selection().ok_or_else(|| {
                 AppError::internal("the training catalogue carries no selection table")
             })?;

@@ -16,6 +16,7 @@ use pierre_database::database::{
     },
     store_listings::CoachWithListing,
 };
+use pierre_services::coach_package::PackageReview;
 use serde::{Deserialize, Serialize};
 
 // ============================================
@@ -774,13 +775,18 @@ pub struct StoreCoachResponse {
     /// Addressable catalogue handle (`@handle`), assigned at approval.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// The training artefacts the coach's package ships — flavour, skeleton,
+    /// workouts — each with what in it nothing answers, so the reviewer sees
+    /// an unresolved evidence path or an uncited artefact before approving.
+    pub package: PackageReview,
 }
 
 impl StoreCoachResponse {
-    /// Create from `CoachWithListing` with author email
+    /// Create from `CoachWithListing` with author email and the package review
     pub(super) fn from_coach_with_listing(
         cwl: CoachWithListing,
         author_email: Option<String>,
+        package: PackageReview,
     ) -> Self {
         let coach = cwl.coach;
         let listing = cwl.listing;
@@ -822,6 +828,7 @@ impl StoreCoachResponse {
             created_at: coach.created_at.to_rfc3339(),
             publish_status: listing.publish_status.as_str().to_owned(),
             handle: coach.handle,
+            package,
         }
     }
 }
