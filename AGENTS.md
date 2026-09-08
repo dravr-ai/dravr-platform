@@ -57,53 +57,46 @@ git config core.hooksPath .build/hooks      # without this, no commit or push is
 ls -d ../dravr-vault 2>/dev/null || echo "vault ABSENT"
 ```
 
-Three things stay broken there. Say each out loud when it applies; none of them is to be worked
-around, and two of them have a wrong-looking fix that must not be attempted.
+What works there depends on the environment's configuration, which this repo does not control and
+which differs between environments — three of the same account's differed on one afternoon. So
+measure first, then act:
 
-**The vault reaches a container by being attached to the environment, never by being cloned.** A
-`git clone` of `dravr-vault` from inside fails with `could not read Username for
-'https://github.com'` — the proxy's git credential covers only the repositories attached to the
-session, and `curl` is no way around it either, since an unattached repo answers `403`. Attaching it
-is configuration outside this repo, and it has been done: the vault arrives as `../dravr-vault` with
-its `Claude Memory/platform/` facts readable, so `obsidian-writer` routes there exactly as it does
-locally. If it is ever missing again, report that plainly and name what it costs: prior decisions, the shared-memory facts,
-`Methodology/`, `Features/`, and anywhere durable doc output would have gone. **Never create the
-`claude_docs` symlink against a missing target** — a dangling link reads as configured while silently
-dropping every vault write.
+```bash
+ls ..                                              # the repositories attached to this session
+command -v gh          || echo "gh ABSENT"
+ls -d ../dravr-vault   || echo "vault ABSENT"
+```
 
-**`gh` is not installed by default**, so the `gh` line in the checklist above fails and `carnet.sh`
-refuses with `gh is required` — a missing binary, not a missing permission. Two pieces of environment
-configuration fix that together, neither of them a credential: install it from the setup script
-(`apt-get install -y gh`, from Ubuntu universe) and attach the tracker repository. With both,
-claiming works, because `carnet.sh` speaks REST. Until both are in place the claim hooks no-op
-silently, so coordinate in chat: name the issue you are taking before you start it. **Scope still
-binds either way.** The proxy authenticates `api.github.com` as the real user,
-but only for repositories **attached to the session**, and only on an allowlisted set of paths. A repo
-that is not attached answers `403` rather than GitHub's `404` — the tell that something in front of
-GitHub refused, since GitHub hides a private repo behind `404` — and a path outside the allowlist is
-refused outright with
-*Access to this GitHub API path is not permitted through this proxy*.
+A configured environment has every repository the work touches selected in the launcher and a setup
+script running `apt-get install -y gh`. There, `carnet.sh` claims normally and `../dravr-vault` is
+mounted with its memory facts — verified end to end on 2026-09-08, including a cloud session
+correctly refusing an issue a live peer held. Nothing below applies to that case.
 
-**Installing `gh` does not help, and this was measured, not reasoned.** `apt-get install -y gh` works
-from Ubuntu universe, `gh api user` then succeeds — and two independent walls still stand. First,
-repo scope: an unattached repo answers `403` for every client alike, because the proxy is the gate
-and it overrides whatever `Authorization` header it is handed. The `403` body names an `add_repo`
-mechanism for attaching a repository; that is an access-scope change to put to the user, never one to
-invoke on your own. Second, GraphQL gating: `gh issue` and `gh pr` are GraphQL-based, and the proxy
-serves only a pinned set of PR-review GraphQL operations, so they fail against *every* repo including
-the attached one. Reach issues through REST — `gh api repos/{owner}/{repo}/issues/...` — or not at
-all. This is why `carnet.sh` stays broken here even with `gh` present: it is written against
-`gh issue`.
+When something is missing, say so rather than working around it, and know which fixes are real:
 
-**A GitHub token does not open either wall, so do not go looking for one.** The vendor documentation
-is explicit that the GraphQL restriction "applies to every request through the proxy regardless of
-the credentials you supply, so a `GH_TOKEN` you set gets the same 403", and that the environment's
-API-credential facility never attaches to GitHub at all, because the GitHub proxy authenticates
-those requests itself. The two things that do change the outcome are attaching the repository and
-using REST.
-
-Do not trust `gh auth status` as a reachability check either. It reports the `GH_TOKEN` placeholder
-invalid while REST calls through the same binary succeed.
+- **The vault is attached, never cloned.** `git clone` of `dravr-vault` from inside fails with
+  `could not read Username for 'https://github.com'` — the proxy's git credential covers only
+  attached repositories. Absent, it costs prior decisions, the shared facts, `Methodology/`,
+  `Features/`, and anywhere durable output would have gone. **Never point `claude_docs` at a missing
+  target**: a dangling symlink reads as configured while dropping every vault write.
+- **`gh` absent is a missing binary, not a missing permission.** `apt-get install -y gh` from Ubuntu
+  universe, in the setup script, fixes it. Until then `carnet.sh` refuses with `gh is required` and
+  the claim hooks no-op silently, so coordinate in chat: name the issue you are taking before you
+  start it.
+- **Scope is per attached repository, for every client alike.** An unattached repo answers `403`
+  where GitHub answers `404` for a private one — the tell that something in front of GitHub refused.
+  The `403` body names an `add_repo` mechanism; that is an access change to put to the user, never
+  one to invoke on your own.
+- **GraphQL serves only a pinned set of PR-review operations.** `gh issue` and `gh pr` are GraphQL
+  and fail against every repo including the attached one. That is why `carnet.sh` speaks REST, and
+  why anything else reaching the tracker must use `gh api repos/{owner}/{repo}/issues/...`.
+- **No token opens any of this.** The vendor documentation is explicit that the GraphQL restriction
+  "applies to every request through the proxy regardless of the credentials you supply, so a
+  `GH_TOKEN` you set gets the same 403", and that the API-credential facility never attaches to
+  GitHub at all, because the proxy authenticates those requests itself. Attaching the repository and
+  using REST are the only two things that change the outcome.
+- **`gh auth status` is not a reachability check.** It reports the `GH_TOKEN` placeholder invalid
+  while REST calls through the same binary succeed.
 
 **No bilan baseline exists**, since the sweep never ran, so uncommitted files cannot be attributed to
 this session automatically. Attribute them by hand rather than assuming they are yours.
