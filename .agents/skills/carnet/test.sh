@@ -594,5 +594,18 @@ eq "394" "$(arms 'fix carnet#394 please')" \
 eq "343" "$(arms 'start on carnet#343 ⏺ context: carnet#394 was residue')" \
     "prose before the marker arms, quoted text after it does not"
 
+# ---- the shared status cache must never carry a session-relative line -----------
+# ~/.claude/carnet-claims/cache/<n> is shared by every session on the machine, but `status`
+# renders "held by THIS session" relative to its caller. A peer reading that is told it holds an
+# issue it does not, and acting on it would close someone else's work (carnet#394, 2026-09-08).
+section "Shared status cache carries no session-relative line"
+cacheable() { case "$1" in *"THIS session"*) printf 'no' ;; *) printf 'yes' ;; esac; }
+eq "no"  "$(cacheable 'carnet#394 · held by THIS session (Peer) · main · since …')" \
+    "a held-by-me line is never written to the shared cache"
+eq "yes" "$(cacheable 'carnet#394 · held by @jfarcand · session Peer (6037407d) on 1Q84 [running]')" \
+    "a session-neutral line still caches"
+eq "yes" "$(cacheable 'carnet#394 · open · unclaimed · [platform] Six tool families')" \
+    "an unclaimed line still caches"
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -110,7 +110,17 @@ for n in $nums; do
     if [ -f "$cache" ] && [ -n "$(find "$cache" -mmin -1 2>/dev/null)" ]; then
         line=$(cat "$cache" 2>/dev/null || true)
     elif line=$(bash "$carnet" status "$n" --short 2>/dev/null) && [ -n "$line" ]; then
-        printf '%s\n' "$line" > "$cache"
+        # The cache is shared by every session on this machine; the line is not. `status` says
+        # "held by THIS session" when the holder is the caller, which is true only for the
+        # session that wrote it — a peer then reads it and is told it holds an issue it does
+        # not. That happened with carnet#394 on 2026-09-08: this session printed
+        # "held by THIS session (DravrArchitectureDocument)" about a peer's issue, and a session
+        # acting on that would close someone else's work. Only session-neutral lines are shared;
+        # the holder pays one gh call per prompt for its own issues, which is the cheap side.
+        case "$line" in
+            *"THIS session"*) : ;;
+            *) printf '%s\n' "$line" > "$cache" ;;
+        esac
     else
         line=""
     fi
