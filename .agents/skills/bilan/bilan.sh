@@ -58,6 +58,14 @@ HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 
 # One line per cap: <cap>\t<icon>\t<evidence>\t<remedy>. A temp file rather than an array so
 # the checks can run in subshells and bash 3.2 stays happy.
+# The register this repo files into, resolved the way carnet.sh resolves it: registre.toml at
+# the checkout root, overridable by the environment. Empty is fine — every use is guarded, and a
+# repo that names no register simply skips the tracker checks.
+TRACKER=${REGISTRE_TRACKER:-}
+if [ -z "$TRACKER" ] && [ -f "$REPO_ROOT/registre.toml" ]; then
+    TRACKER=$(sed -n 's/^tracker[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/registre.toml" | head -1)
+fi
+
 CAPS=$(mktemp -t bilan) || die "mktemp failed"
 trap 'rm -f "$CAPS" "$NOTES"' EXIT
 
@@ -828,11 +836,16 @@ is_session_alive() { # <session-id> <pid>
 }
 
 cmd_sweep() {
-    local dir f id pid name at issues found=0 path="" branch="" dirty ahead line
+    local dir f id pid name at issues found=0 path="" branch="" dirty ahead line n tmp healed="" seen=""
     say "BILAN SWEEP · $(basename "$REPO_ROOT")"
     say ""
-    for dir in "$HOME"/.claude*/carnet-claims; do
+    # Both accounts' config dirs, plus this session's own if CLAUDE_CONFIG_DIR points somewhere
+    # the glob does not reach — a session configured outside $HOME was invisible to its own
+    # sweep. Deduped, since the common case is that $CFG is already one of the globbed dirs.
+    for dir in "$HOME"/.claude*/carnet-claims "$LEDGER_DIR"; do
         [ -d "$dir" ] || continue
+        case " $seen " in *" $dir "*) continue ;; esac
+        seen="$seen $dir"
         for f in "$dir"/*.jsonl; do
             [ -s "$f" ] || continue
             id=$(basename "$f" .jsonl)
@@ -841,10 +854,29 @@ cmd_sweep() {
             is_session_alive "$id" "$pid" && continue
             name=$(head -1 "$f" | jq -r '.name // "?"')
             at=$(head -1 "$f"   | jq -r '.at // "?"')
-            issues=$(jq -r 'select(.kind == "claim") | "carnet#\(.issue)"' "$f" 2>/dev/null | tr '\n' ' ')
+            # A dead session's ledger outlives the issue. carnet#236 was closed by somebody on
+            # 2026-09-03 and MCPNext's ledger still named it, so every session start since has
+            # reported an abandoned issue that no longer exists — a recurring false alarm that
+            # trains the reader to skip the line the sweep exists to print. Ask the tracker, and
+            # drop what has been resolved: SessionEnd would have cleaned this ledger up, and it
+            # is only here because the session was killed before it could.
+            issues=""
+            for n in $(jq -r 'select(.kind == "claim") | .issue' "$f" 2>/dev/null); do
+                if [ -n "$TRACKER" ] && command -v gh >/dev/null 2>&1 \
+                   && [ "$(gh issue view "$n" -R "$TRACKER" --json state -q .state 2>/dev/null)" = CLOSED ]; then
+                    tmp=$(mktemp)
+                    jq -c --argjson n "$n" 'select((.kind == "claim" and .issue == $n) | not)' "$f" > "$tmp" \
+                        && mv "$tmp" "$f"
+                    healed="$healed carnet#$n"
+                    continue
+                fi
+                issues="$issues carnet#$n"
+            done
+            # A ledger with nothing left to hold is finished, exactly as ledger_drop treats it.
+            [ "$(jq -c 'select(.kind == "claim" or .kind == "filed")' "$f" 2>/dev/null | grep -c .)" = 0 ] && rm -f "$f"
             [ -n "${issues// /}" ] || continue
             found=1
-            say "  ☠️  session $name (${id:0:8}, last claim $at) ended holding: ${issues% }"
+            say "  ☠️  session $name (${id:0:8}, last claim $at) ended holding:${issues}"
             say "     → carnet.sh status <n> to see it; a plain claim takes over a stale one"
         done
     done
@@ -863,7 +895,8 @@ cmd_sweep() {
         esac
     done <<< "$(git worktree list --porcelain 2>/dev/null)"
 
-    [ "$found" = 1 ] || say "  ✅ nothing left behind by a dead session"
+    [ -z "${healed// /}" ] || say "  🧹 cleared from a dead session's ledger, already closed on the tracker:${healed}"
+    [ "$found" = 1 ] || [ -n "${healed// /}" ] || say "  ✅ nothing left behind by a dead session"
     return 0
 }
 

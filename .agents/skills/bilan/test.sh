@@ -302,6 +302,25 @@ rm -rf "$R/logs" "$R/bin"; rm -f "$CFG/bilan/"*.baseline*
 baseline_now "$R"        # leave a clean starting point: with none, the next case's own edit
                          # is created before the baseline and correctly reads as inherited
 
+# ---- the sweep must not report a dead session's claim on an issue that is already closed.
+# carnet#236 was closed on 2026-09-03 and MCPNext's ledger still named it, so every session
+# start since reported an abandoned issue that no longer existed — a recurring false alarm
+# trains the reader to skip the one line the sweep exists to print.
+sweep_ledger="$CFG/carnet-claims/11111111-1111-1111-1111-111111111111.jsonl"
+mkdir -p "$(dirname "$sweep_ledger")"
+cat > "$sweep_ledger" <<LEDGER
+{"v":1,"session":"11111111-1111-1111-1111-111111111111","name":"Dead","user":"t","host":"h","pid":999999,"repo":"r","branch":"main","at":"2026-09-03T11:07:02Z","kind":"identity"}
+{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":236,"at":"2026-09-03T11:07:02Z"}
+LEDGER
+# No gh in the fixture, so the tracker cannot be consulted: the claim must still be REPORTED
+# rather than silently dropped — absence of a verdict is not a closed issue.
+sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" PATH=/usr/bin:/bin bash "$BILAN" sweep 2>/dev/null ) )
+check "an unverifiable claim is still reported, not dropped" 1 \
+    "$(printf '%s' "$sweep_out" | grep -c 'carnet#236')"
+check "and the ledger is left intact when it cannot be checked" 1 \
+    "$(grep -c '"issue":236' "$sweep_ledger")"
+rm -f "$sweep_ledger"
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }
