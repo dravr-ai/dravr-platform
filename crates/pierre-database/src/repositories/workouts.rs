@@ -172,4 +172,24 @@ pub trait TrainingHistoryRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
     ) -> AppResult<Option<DailyTrainingState>>;
+
+    /// Delete this user's rows in `[from, to]` inclusive, returning the count.
+    ///
+    /// The rollup is upsert-only everywhere else, because a recompute overwrites
+    /// the days it covers. That leaves a gap the writer must close itself: when
+    /// a compute determines it cannot stand behind a span — too little stored
+    /// history to warm the CTL EMA — declining to write leaves whatever was
+    /// there before, and `ctl`/`atl`/`tsb` carry no marker distinguishing a row
+    /// vouched for from one an earlier, less careful path fabricated. The reader
+    /// then serves the stale value as current.
+    ///
+    /// So the writer clears the span it just proved it cannot vouch for. Scoped
+    /// to one user, one tenant and an explicit date range — never a bulk purge.
+    async fn delete_training_history_range(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        from: chrono::NaiveDate,
+        to: chrono::NaiveDate,
+    ) -> AppResult<u64>;
 }

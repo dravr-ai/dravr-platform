@@ -98,6 +98,12 @@ pub struct TrainingHistoryComputed {
     /// when coverage was complete, or when a capture for this
     /// `(user, provider)` was already in flight.
     pub capture_requested: bool,
+    /// Rows removed because this run could not stand behind them.
+    ///
+    /// Non-zero only when an earlier, less careful path had written the span —
+    /// the rollup is upsert-only otherwise, so declining to write would have
+    /// left those rows readable as current.
+    pub rows_cleared: u64,
 }
 
 impl TrainingHistoryComputed {
@@ -198,7 +204,8 @@ pub async fn compute_and_persist_history(
         .map(|a: &Activity| local_date(a.start_date(), zone))
         .min();
     let Some(oldest_stored) = oldest_stored else {
-        return empty_cache_outcome(resources, tenant_id, user_id, &backend, from, to, warmup);
+        return empty_cache_outcome(resources, tenant_id, user_id, &backend, from, to, warmup)
+            .await;
     };
 
     // The first day the stored history can stand behind: anything earlier would
@@ -213,6 +220,15 @@ pub async fn compute_and_persist_history(
             &backend.slug,
             from - Duration::days(warmup),
         );
+
+    // Declining to write is not enough: the rollup is upsert-only, so any row an
+    // earlier path left in the un-warmable span stays readable and reads as
+    // current. Clear exactly what this run just proved it cannot vouch for.
+    let rows_cleared = if complete {
+        0
+    } else {
+        clear_unvouched_span(resources, tenant_id, user_id, from, trustworthy_from).await?
+    };
 
     if trustworthy_from > to {
         // Stored history is too shallow to warm even the last day of the ask.
@@ -232,6 +248,7 @@ pub async fn compute_and_persist_history(
             rows_upserted: 0,
             coverage: HistoryCoverage::Partial { trustworthy_from },
             capture_requested,
+            rows_cleared,
         });
     }
 
@@ -262,6 +279,7 @@ pub async fn compute_and_persist_history(
         oldest_stored = %oldest_stored,
         activities = activities.len(),
         rows_upserted,
+        rows_cleared,
         complete,
         capture_requested,
         "training history: computed from durable cache"
@@ -278,6 +296,7 @@ pub async fn compute_and_persist_history(
             HistoryCoverage::Partial { trustworthy_from }
         },
         capture_requested,
+        rows_cleared,
     })
 }
 
@@ -285,7 +304,7 @@ pub async fn compute_and_persist_history(
 ///
 /// Computes no rows on purpose: `ctl`/`atl`/`tsb` seeded at zero would read as
 /// a real, low chronic load rather than as absent data.
-fn empty_cache_outcome(
+async fn empty_cache_outcome(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -309,12 +328,18 @@ fn empty_cache_outcome(
         &backend.slug,
         from - Duration::days(warmup),
     );
+    // Nothing stored means nothing vouched for anywhere in the ask, so the whole
+    // window goes — including rows an earlier path wrote from a provider fetch
+    // this one no longer makes.
+    let rows_cleared =
+        clear_unvouched_span(resources, tenant_id, user_id, from, to + Duration::days(1)).await?;
     info!(
         user_id = %user_id,
         provider = %backend.slug,
         requested_from = %from,
         to = %to,
         capture_requested,
+        rows_cleared,
         "training history: no stored activities in the window; computed nothing"
     );
     Ok(TrainingHistoryComputed {
@@ -324,7 +349,32 @@ fn empty_cache_outcome(
         rows_upserted: 0,
         coverage: HistoryCoverage::NoStoredActivities,
         capture_requested,
+        rows_cleared,
     })
+}
+
+/// Delete persisted rows in `[from, exclusive_end)` — the span this run could
+/// not stand behind.
+///
+/// `exclusive_end` is the first day that IS vouched for, so the delete stops one
+/// day short of it. Returns the number of rows removed, which is zero on the
+/// normal path: only an earlier write leaves anything here.
+async fn clear_unvouched_span(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    from: NaiveDate,
+    exclusive_end: NaiveDate,
+) -> AppResult<u64> {
+    let last = exclusive_end - Duration::days(1);
+    if last < from {
+        return Ok(0);
+    }
+    resources
+        .repos()
+        .training_history
+        .delete_training_history_range(tenant_id, user_id, from, last)
+        .await
 }
 
 /// The backend this compute reads, and whether its connection is still live.

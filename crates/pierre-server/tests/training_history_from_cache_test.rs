@@ -35,10 +35,11 @@ mod common;
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, SportType, TenantId, UserPhysiologicalProfile,
+    ActivityBuilder, ConnectionType, DailyTrainingState, SportType, TenantId,
+    UserPhysiologicalProfile,
 };
 use pierre_fitness_compute::training_history_compute::{warmup_days, CTL_WINDOW_DAYS};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -287,6 +288,133 @@ async fn an_empty_cache_computes_nothing_rather_than_a_zero_curve() {
     assert!(
         rows.is_empty(),
         "an empty cache persisted {} rows it could not justify",
+        rows.len()
+    );
+}
+
+/// Seed the rows the OLD provider-fetching path would have written: a confident,
+/// low chronic load across the whole window, computed from a feed too short to
+/// warrant it. `ctl`/`atl`/`tsb` carry no marker saying so.
+async fn seed_fabricated_rows(fx: &Fixture, from: NaiveDate, to: NaiveDate) {
+    let mut day = from;
+    let mut rows = Vec::new();
+    while day <= to {
+        rows.push(DailyTrainingState {
+            date: day,
+            ctl: 11.5,
+            atl: 9.0,
+            tsb: 2.5,
+            acwr: None,
+            monotony: None,
+            strain: None,
+            ramp_rate: None,
+            daily_load: 0.0,
+        });
+        day += Duration::days(1);
+    }
+    fx.runtime
+        .repos()
+        .training_history
+        .upsert_training_history_batch(fx.tenant, fx.user_id, &rows)
+        .await
+        .unwrap();
+}
+
+/// A recompute that cannot stand behind the early window must REMOVE what an
+/// earlier path left there, not merely decline to overwrite it.
+///
+/// The rollup is upsert-only everywhere else, so declining to write leaves the
+/// stale row readable — and `get_training_history` serves it as current. This is
+/// the difference between "the coach sees no fitness number" and "the coach sees
+/// a fabricated one", which is the entire point of the change.
+#[tokio::test]
+async fn a_partial_recompute_clears_rows_the_old_path_fabricated() {
+    let fx = fixture().await;
+    let (from, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
+
+    seed_fabricated_rows(&fx, from, to).await;
+    let before = fetch_history_rows(&fx.runtime.data(), fx.tenant, fx.user_id, from, to)
+        .await
+        .unwrap();
+    assert_eq!(
+        before.len(),
+        (to - from).num_days() as usize + 1,
+        "the old path's rows are in place before the recompute"
+    );
+
+    // Only 120 days of stored activity — short of the 162 the window needs.
+    seed_cache(&fx, 120).await;
+    let computed = ask_default_window(&fx).await;
+
+    let warmup = warmup_days(CTL_WINDOW_DAYS);
+    let expected_first = to - Duration::days(120) + Duration::days(warmup);
+    assert_eq!(
+        computed.coverage,
+        HistoryCoverage::Partial {
+            trustworthy_from: expected_first
+        }
+    );
+    assert!(
+        computed.rows_cleared > 0,
+        "the un-warmable span held fabricated rows and must have been cleared"
+    );
+
+    let early = fetch_history_rows(
+        &fx.runtime.data(),
+        fx.tenant,
+        fx.user_id,
+        from,
+        expected_first - Duration::days(1),
+    )
+    .await
+    .unwrap();
+    assert!(
+        early.is_empty(),
+        "fabricated rows survived the recompute: {} rows, first ctl={:?}",
+        early.len(),
+        early.first().map(|r| r.ctl)
+    );
+
+    // What it could stand behind is present, and is real rather than the seeded
+    // 11.5 — proof the window was recomputed, not merely truncated.
+    let warmed = fetch_history_rows(
+        &fx.runtime.data(),
+        fx.tenant,
+        fx.user_id,
+        expected_first,
+        to,
+    )
+    .await
+    .unwrap();
+    assert_eq!(warmed.len(), (to - expected_first).num_days() as usize + 1);
+    let last = warmed.last().expect("warmed rows exist");
+    assert!(
+        (last.ctl - 11.5).abs() > f64::EPSILON,
+        "the surviving rows must be recomputed, not the seeded placeholder"
+    );
+}
+
+/// An empty cache clears the whole window: nothing is vouched for anywhere.
+#[tokio::test]
+async fn an_empty_cache_clears_the_whole_window() {
+    let fx = fixture().await;
+    let (from, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
+
+    seed_fabricated_rows(&fx, from, to).await;
+    let computed = ask_default_window(&fx).await;
+
+    assert_eq!(computed.coverage, HistoryCoverage::NoStoredActivities);
+    assert_eq!(
+        computed.rows_cleared,
+        (to - from).num_days() as u64 + 1,
+        "every fabricated day is removed"
+    );
+    let rows = fetch_history_rows(&fx.runtime.data(), fx.tenant, fx.user_id, from, to)
+        .await
+        .unwrap();
+    assert!(
+        rows.is_empty(),
+        "an athlete with no stored activities must have no rollup, found {}",
         rows.len()
     );
 }

@@ -140,6 +140,31 @@ impl TrainingHistoryRepository for Database {
         rows.iter().map(row_to_state).collect()
     }
 
+    async fn delete_training_history_range(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM training_history
+            WHERE tenant_id = ? AND user_id = ?
+              AND date BETWEEN ? AND ?
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .bind(from.format(ISO_DATE_FMT).to_string())
+        .bind(to.format(ISO_DATE_FMT).to_string())
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("delete_training_history_range: {e}")))?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn latest_training_history(
         &self,
         tenant_id: TenantId,

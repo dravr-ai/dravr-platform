@@ -138,6 +138,31 @@ impl TrainingHistoryRepository for PostgresDatabase {
         rows.iter().map(row_to_state).collect()
     }
 
+    async fn delete_training_history_range(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM training_history
+            WHERE tenant_id = $1 AND user_id = $2
+              AND date BETWEEN $3 AND $4
+            ",
+        )
+        .bind(tenant_id.as_uuid())
+        .bind(user_id)
+        .bind(from)
+        .bind(to)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("delete_training_history_range: {e}")))?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn latest_training_history(
         &self,
         tenant_id: TenantId,
