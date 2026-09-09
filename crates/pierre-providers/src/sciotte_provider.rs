@@ -115,6 +115,31 @@ impl SciotteProvider {
         AppError::provider_auth_required(self.provider_name)
     }
 
+    /// Clone the authenticated session and release the lock before returning.
+    ///
+    /// Every caller follows this with a remote round trip — `import_session`
+    /// plus a scrape on the dedicated service — bounded only by the 330s client
+    /// timeout. `tokio::sync::RwLock` is write-preferring with a FIFO queue, so
+    /// a read guard held across that call would park the `authenticate` writer
+    /// at the head of the queue and every later reader behind the writer: this
+    /// provider's session lock would be dead for the life of the process,
+    /// surfacing as hung requests and 504s rather than a crash.
+    ///
+    /// Nothing contends today, but only because [`SciotteProviderFactory`]
+    /// builds a fresh `SciotteProvider` per call, so the `Arc<RwLock<_>>` has a
+    /// single owner. That safety is a property of the provider's *lifetime*
+    /// rather than of the locking — caching or sharing a provider to skip
+    /// re-authentication would reintroduce the stall from a different file,
+    /// with the lock code untouched and no static analysis able to see it.
+    /// Snapshotting here makes the hold time independent of that decision.
+    async fn session_snapshot(&self) -> AppResult<AuthSession> {
+        let guard = self.session.read().await;
+        Ok(guard
+            .as_ref()
+            .ok_or_else(|| self.auth_required_no_session())?
+            .clone())
+    }
+
     /// Re-tag an auth-shaped remote-service error with this backend's
     /// provider name.
     ///
@@ -363,10 +388,7 @@ impl FitnessProvider for SciotteProvider {
     }
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
-        let session = self.session.read().await;
-        let session = session
-            .as_ref()
-            .ok_or_else(|| self.auth_required_no_session())?;
+        let session = &self.session_snapshot().await?;
 
         // ADR-021: scrape on the dedicated service (there is no in-process
         // fallback since the Phase 4 cutover). Import the platform-held session
@@ -400,10 +422,7 @@ impl FitnessProvider for SciotteProvider {
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let session = self.session.read().await;
-        let session = session
-            .as_ref()
-            .ok_or_else(|| self.auth_required_no_session())?;
+        let session = &self.session_snapshot().await?;
 
         let limit = params.limit.unwrap_or(20);
         // Detail-page enrichment (HR streams, laps, segments — and the real UTC
@@ -466,10 +485,7 @@ impl FitnessProvider for SciotteProvider {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        let session = self.session.read().await;
-        let session = session
-            .as_ref()
-            .ok_or_else(|| self.auth_required_no_session())?;
+        let session = &self.session_snapshot().await?;
 
         // ADR-021: fetch the single activity's detail on the dedicated service.
         let remote = RemoteSciotteClient::require_from_env()?;
