@@ -230,10 +230,13 @@ this sha at **9**. One open issue holds the whole session at 6 no matter how muc
 - **Failures never deduct.** A red that is now green, a mistake found and fixed, a rough path:
   none of it lowers the number. It measures completion, and only completion. Friction counts
   (tool errors, interrupts, denials) are printed for context and cap nothing.
-- **The Stop hook runs the same measurement** and refuses the first stop while the score is 8 or
-  below, once per distinct state signature. A 9 — an untracked file, CI still running — is
-  reported and never blocks. After it has told you, the outstanding work is yours, not the
-  hook's.
+- **Nothing blocks you. bilan is an instrument, not a gate.** The Stop hook is disarmed
+  (2026-09-09, ChefFamille's call). It graded the checkout's HEAD without asking whether the
+  session had contributed to it, so one peer's red CI capped every session in the shared main
+  worktree at 5 and the gate blocked all of them over a commit none had made — each block
+  spending a session's last turn arguing with someone else's number, after which it idled. An
+  evening went that way. Run bilan yourself; the score reaches you through the status line and
+  through `/bilan`, and never by interrupting you.
 - It answers *finished*, never *good*. A green bilan on a wrong implementation is still wrong —
   that is what `/code-review` is for.
 </important>

@@ -107,14 +107,19 @@ your score.
 
 **`/bilan`** — on demand, the full measurement including CI.
 
-**The Stop gate** (`hooks/stop-gate.sh`) — refuses the first stop while the state is dirty and
-sends the session back to work with the list. Two things bound it. It blocks **only at 8 or
-below**, so a stray untracked file or a CI run still in flight is reported without interrupting
-anyone — what blocks is a held carnet issue, an unregistered marker, uncommitted tracked files,
-unpushed commits, red CI. And it blocks **once per distinct state signature**: fix one thing and
-it speaks again about what is left; fix nothing and it stays quiet, because after it has told
-you the outstanding work is your accountability, not the hook's. The reason it prints lists
-every cap, including the 9s, so the threshold decides when to interrupt and never what to hide.
+**The Stop gate** (`hooks/stop-gate.sh`) — **disarmed since 2026-09-09**, and the script is kept
+only so the history is legible. It refused a stop while the score was 8 or below, which sounds
+reasonable until you notice what it was scoring: `check_ci` graded the checkout's HEAD without
+asking whether the session had contributed to it, and in a shared main worktree every session
+sits on the same tip. One peer's red CI capped all ten at 5, and the gate blocked every one of
+them over a commit none of them made. Nine blocks landed on a single session. Each one spent
+that session's last turn arguing with a number about somebody else's work, and then it idled —
+an evening of unattended work, lost to a measurement that was confidently wrong.
+
+The attribution is fixed now (a HEAD unchanged since the session opened is stated, never
+scored). The gate stays off anyway: a wrong number costs a paragraph, a wrong number that can
+*stop the session* costs a night, and that asymmetry does not go away by fixing one instance of
+the class.
 
 **The startup sweep** (`hooks/session-start-sweep.sh`) — the only cover for a session that was
 killed. A `kill -9`, a closed terminal or an exhausted context fires no exit hook, so the dead
