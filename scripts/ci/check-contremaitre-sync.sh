@@ -34,6 +34,9 @@
 #      registry actually registers, so no overlay is keyed to nothing.
 #   8. String bundles — every key in the pinned rev's strings/<locale>.json names
 #      a key the i18n catalogue holds, so no override is keyed to nothing.
+#   9. Overlay parameters — every tools/<name>.yaml parameter names a property
+#      the Rust schema declares, so no parameter description is written and
+#      never served.
 #
 # Checks 7 and 8 are both one-directional, and the asymmetry is the contract:
 # contremaitre overlays are SPARSE. A tool with no yaml keeps its compiled-in
@@ -731,6 +734,108 @@ PYSTR
         echo -e "${YELLOW}   never reaches the product and only warns in the sync log. Rename them in${NC}"
         echo -e "${YELLOW}   dravr-contremaitre strings/<locale>.json to the keys under ${CATALOGUE_DIR},${NC}"
         echo -e "${YELLOW}   then bump the contremaitre rev.${NC}"
+        FAILED=true
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 9: every tools/<name>.yaml parameter names a property the schema declares
+# ---------------------------------------------------------------------------
+# The parameter-level sibling of Check 7, and it fails the same way: silently.
+# ToolRegistry::build_schema overlays a parameter description with
+# `props.get_mut(param_name)` and no else arm, so an entry naming a property the
+# Rust schema does not declare is dropped without a warning. The operator writes
+# the text, the yaml parses, the sync succeeds, and nothing ever serves it.
+#
+# Not hypothetical: at rev 37e2ab2 three of the four analytics overlays declared
+# a `days` parameter — `calculate_fitness_score` had never had one in Rust at
+# all — and all three had been dead since they were written (registre#420).
+#
+# One direction only, like Check 7. An overlay need not describe every property;
+# a property with no override keeps its compiled-in description. The failure is
+# an override with no property.
+if [[ "$TOOL_SCAN_COMPLETE" != "true" ]]; then
+    echo -e "${YELLOW}⚠️  Overlay parameter check skipped: the tool scan above did not resolve every name.${NC}"
+elif [[ -z "$CM_ROOT" ]]; then
+    echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the overlay parameter check.${NC}"
+else
+    if PARAM_REPORT="$(python3 - "$CM_ROOT" <<'PYPARAM'
+import glob
+import os
+import re
+import sys
+
+cm_root = sys.argv[1]
+tools_dir = os.path.join(cm_root, "tools")
+
+# Rust side: associate each properties.insert("x") with the tool_definition that
+# follows it, which is how these files are written throughout.
+declared = {}
+for path in glob.glob("crates/**/*.rs", recursive=True):
+    try:
+        src = open(path, encoding="utf-8").read()
+    except OSError:
+        continue
+    if "tool_definition(" not in src:
+        continue
+    prev = 0
+    for m in re.finditer(r'tool_definition\(\s*\n?\s*"([a-z0-9_]+)"', src):
+        seg = src[prev:m.start()]
+        props = set(re.findall(r'properties\.insert\(\s*\n?\s*"([a-z0-9_]+)"', seg))
+        declared.setdefault(m.group(1), set()).update(props)
+        prev = m.start()
+
+# Universal parameters every tool accepts, added outside the per-tool schema.
+UNIVERSAL = {"format"}
+
+yamls = sorted(glob.glob(os.path.join(tools_dir, "*.yaml")))
+if not yamls:
+    print("SCAN_EMPTY")
+    raise SystemExit(0)
+
+dead = []
+for y in yamls:
+    tool = os.path.basename(y)[:-5]
+    if tool not in declared:
+        continue  # Check 7 owns the dead-stem case
+    try:
+        lines = open(y, encoding="utf-8").read().splitlines()
+    except OSError:
+        continue
+    keys, inside = [], False
+    for line in lines:
+        if re.match(r"^parameters:\s*$", line):
+            inside = True
+            continue
+        if inside:
+            if line and not line[0].isspace():
+                break
+            k = re.match(r"^  ([a-z0-9_]+):", line)
+            if k:
+                keys.append(k.group(1))
+    for k in keys:
+        if k not in declared[tool] and k not in UNIVERSAL:
+            dead.append(f"{tool}.yaml: {k}")
+
+print("\n".join(dead))
+PYPARAM
+)"; then
+        if [[ "$PARAM_REPORT" == "SCAN_EMPTY" ]]; then
+            echo -e "${RED}❌ Overlay parameter scan incomplete: ${CM_ROOT}tools holds no *.yaml.${NC}"
+            echo -e "${YELLOW}   The overlays moved or changed extension — point this at the new layout.${NC}"
+            FAILED=true
+        elif [[ -n "$PARAM_REPORT" ]]; then
+            echo -e "${RED}❌ Overlay parameter(s) naming a property the Rust schema does not declare:${NC}"
+            printf '%s\n' "$PARAM_REPORT" | sed 's/^/   /'
+            echo -e "${YELLOW}   build_schema overlays with props.get_mut() and no else arm, so these are${NC}"
+            echo -e "${YELLOW}   dropped in silence — the text is written and never served. Rename them to a${NC}"
+            echo -e "${YELLOW}   declared property in dravr-contremaitre, or delete them.${NC}"
+            FAILED=true
+        else
+            echo -e "${GREEN}✅ Overlay parameters: every tools/*.yaml parameter names a declared property.${NC}"
+        fi
+    else
+        echo -e "${RED}❌ Overlay parameter check could not run.${NC}"
         FAILED=true
     fi
 fi

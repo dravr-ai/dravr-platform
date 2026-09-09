@@ -173,6 +173,21 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             },
         );
 
+        properties.insert(
+            "analysis_type".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "What the activities are for, so the data-sufficiency guidance \
+                     matches the question: 'weekly_summary', 'trend_analysis', \
+                     'race_preparation', 'recovery_assessment', or \
+                     'general_overview' (default)."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+
         properties.insert("format".to_owned(), format_property());
 
         properties.insert(
