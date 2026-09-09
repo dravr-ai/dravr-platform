@@ -375,6 +375,13 @@ pub enum FitnessScoreResult {
 /// The answer when there is nothing in the window to score.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct NoFitnessScore {
+    /// Days the score's consistency and pace components cover, or `null` when
+    /// every fetched activity was scored.
+    pub window_days: Option<u32>,
+    /// Days of history the chronic training load was computed from — always the
+    /// full fetched span, never the window. Stated so a reply names the period
+    /// it analysed instead of inferring one (registre#415).
+    pub history_span_days: u32,
     /// The window requested, echoed back.
     pub timeframe: String,
     /// Always zero: reported rather than omitted so a client charting the
@@ -401,6 +408,13 @@ pub struct NoFitnessScore {
 /// A fitness score and what produced it.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct FitnessScoreDetail {
+    /// Days the score's consistency and pace components cover, or `null` when
+    /// every fetched activity was scored.
+    pub window_days: Option<u32>,
+    /// Days of history the chronic training load was computed from — always the
+    /// full fetched span, never the window. Stated so a reply names the period
+    /// it analysed instead of inferring one (registre#415).
+    pub history_span_days: u32,
     /// The window requested, echoed back.
     pub timeframe: String,
     /// The score, 0 to 100, rounded to a whole number.
@@ -501,8 +515,6 @@ pub enum TrainingLoadResult {
 /// The answer when there is no load to report.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct NoTrainingLoad {
-    /// The window requested, echoed back.
-    pub timeframe: String,
     /// Which of the two cases this is — no activities at all, or too little
     /// history for the calculator to produce a load.
     pub message: String,
@@ -515,8 +527,6 @@ pub struct NoTrainingLoad {
 /// An athlete's training load and the reading of it.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TrainingLoadDetail {
-    /// The window requested, echoed back.
-    pub timeframe: String,
     /// The load numbers themselves.
     pub load_metrics: LoadMetrics,
     /// Which form band the athlete is in, as a share of their own chronic

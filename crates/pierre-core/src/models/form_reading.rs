@@ -107,6 +107,20 @@ impl FormReading {
         )
     }
 
+    /// What CTL is, in one sentence, from the configured window.
+    ///
+    /// Extracted so every surface that names chronic training load names it the
+    /// same way and from the same number. `calculate_fitness_score` shipped a
+    /// hardcoded "42-day average" — a third wording, and false outright for a
+    /// tenant configured to 28 — which an athlete then read back as the period
+    /// their score had been computed over (registre#415).
+    #[must_use]
+    pub fn ctl_definition(ctl_days: i64) -> String {
+        format!(
+            "Chronic Training Load - fitness ({ctl_days}-day exponentially-weighted average of daily TSS)"
+        )
+    }
+
     /// The interpretation key shipped alongside the numbers.
     ///
     /// `ctl_days` / `atl_days` are the configured EMA windows, so the coach can
@@ -115,7 +129,7 @@ impl FormReading {
     #[must_use]
     pub fn interpretation(ctl_days: i64, atl_days: i64) -> FormInterpretation {
         FormInterpretation {
-            ctl: format!("Chronic Training Load - fitness ({ctl_days}-day exponentially-weighted average of daily TSS)"),
+            ctl: Self::ctl_definition(ctl_days),
             atl: format!("Acute Training Load - fatigue ({atl_days}-day exponentially-weighted average of daily TSS)"),
             tsb: "Training Stress Balance - form (CTL - ATL); interpret via tsb_pct_of_ctl, not the raw number".to_owned(),
             tsb_pct_of_ctl: "Form relative to this athlete's own fitness. null when there is no chronic base to normalize against, in which case form cannot be judged at all".to_owned(),

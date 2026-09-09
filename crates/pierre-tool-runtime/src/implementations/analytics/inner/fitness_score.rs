@@ -12,7 +12,8 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use pierre_core::models::Activity;
+use chrono::{DateTime, Utc};
+use pierre_core::models::{Activity, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator};
@@ -111,7 +112,7 @@ async fn fetch_and_calculate_recovery_adjustment(
 
 /// Calculate fitness metrics using CTL/ATL/TSS methodology
 /// Calculate fitness metrics using proper 3-component formula with `TrainingLoadCalculator`
-fn calculate_fitness_metrics(
+pub fn calculate_fitness_metrics(
     activities: &[Activity],
     timeframe: &str,
     algorithm_config: &AlgorithmConfig,
@@ -123,6 +124,8 @@ fn calculate_fitness_metrics(
     if activities.is_empty() {
         return FitnessScoreResult::NoData(NoFitnessScore {
             timeframe: timeframe.to_owned(),
+            window_days: window_days_for(timeframe),
+            history_span_days: 0,
             fitness_score: 0,
             level: BEGINNER.to_owned(),
             message: "No activities found for fitness calculation".to_owned(),
@@ -132,40 +135,62 @@ fn calculate_fitness_metrics(
         });
     }
 
-    // Filter activities by timeframe
+    // One chronological ordering, used by every component below.
+    //
+    // The provider returns newest-first — dravr-cageux's calculate_training_load
+    // documents that and rejects the ordering outright — and the two components
+    // that split by index read index order as time order. Sorting a clone for
+    // the EMA while handing the unsorted list to those two inverted them:
+    // an athlete getting faster produced a NEGATIVE improvement, which clamped
+    // to 0 and reached them as "the tool detects no progression" (registre#415).
+    let mut chronological = activities.to_vec();
+    chronological.sort_by_key(Activity::start_date);
+
     let now = Utc::now();
-    let timeframe_days = match timeframe {
-        "last_90_days" => 90,
-        "all_time" => 365 * 10, // 10 years
-        _ => 30,                // default to 30 days (includes "last_30_days")
-    };
+    let window_days = window_days_for(timeframe);
 
-    let cutoff_date = now - Duration::days(timeframe_days);
-    let filtered_activities: Vec<_> = activities
-        .iter()
-        .filter(|a| a.start_date() >= cutoff_date)
-        .cloned()
-        .collect();
+    // The window scopes the two genuine aggregates — consistency and pace
+    // trend — and nothing else.
+    let scored: Vec<_> = window_days.map_or_else(
+        || chronological.clone(),
+        |days| {
+            let cutoff = now - Duration::days(i64::from(days));
+            chronological
+                .iter()
+                .filter(|a| a.start_date() >= cutoff)
+                .cloned()
+                .collect()
+        },
+    );
 
-    if filtered_activities.is_empty() {
+    if scored.is_empty() {
         return FitnessScoreResult::NoData(NoFitnessScore {
             timeframe: timeframe.to_owned(),
+            window_days,
+            history_span_days: history_span_days(&chronological, now),
             fitness_score: 0,
             level: BEGINNER.to_owned(),
-            message: format!("No activities found in the last {timeframe_days} days"),
+            message: window_days.map_or_else(
+                || "No activities found in the fetched history".to_owned(),
+                |days| format!("No activities found in the last {days} days"),
+            ),
             fitness_score_unadjusted: None,
             recovery_adjustment: None,
             providers_used,
         });
     }
 
-    // Component 1: CTL (Chronic Training Load) - 40% weight
-    // Sort oldest-first — EMA calculation requires chronological order
-    let mut sorted_activities = filtered_activities.clone();
-    sorted_activities.sort_by_key(Activity::start_date);
+    // Component 1: CTL (Chronic Training Load) - 40% weight.
+    //
+    // Computed over the FULL fetched history, never the scoring window. The EMA
+    // is seeded at zero and walked forward over whatever span it is given, so a
+    // 30-day input leaves a 42-day average at ~76% of steady state and a 7-day
+    // input at ~28%. Chronic load is a point-in-time state, not a windowed
+    // aggregate; truncating its input does not narrow the answer, it
+    // understates it (registre#415).
     let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     let training_load = calculator
-        .calculate_training_load(&sorted_activities, None, None, None, None, None)
+        .calculate_training_load(&chronological, None, None, None, None, None)
         .ok();
 
     let ctl = training_load.as_ref().map_or(0.0, |l| l.ctl);
@@ -176,10 +201,10 @@ fn calculate_fitness_metrics(
     let ctl_score = (ctl / 150.0 * 100.0).min(100.0);
 
     // Component 2: Consistency (% weeks with 3+ activities) - 30% weight
-    let consistency_score = calculate_consistency_score(&filtered_activities);
+    let consistency_score = calculate_consistency_score(&scored);
 
     // Component 3: Performance trend (pace improvement) - 30% weight
-    let performance_score = calculate_performance_trend(&filtered_activities);
+    let performance_score = calculate_performance_trend(&scored);
 
     // Combine components with weights: 40% CTL, 30% consistency, 30% performance
     let fitness_score =
@@ -189,13 +214,15 @@ fn calculate_fitness_metrics(
     let fitness_level = classify_fitness_level(fitness_score);
 
     // Determine trend (comparing first half vs second half)
-    let trend = calculate_trend(&filtered_activities);
+    let trend = calculate_trend(&scored);
 
     #[allow(clippy::cast_possible_truncation)]
     let fitness_score_int = fitness_score.round() as i32;
 
     FitnessScoreResult::Scored(Box::new(FitnessScoreDetail {
         timeframe: timeframe.to_owned(),
+        window_days,
+        history_span_days: history_span_days(&chronological, now),
         fitness_score: fitness_score_int,
         level: fitness_level.to_owned(),
         trend: trend.to_owned(),
@@ -209,9 +236,9 @@ fn calculate_fitness_metrics(
             atl: atl.round(),
             tsb: tsb.round(),
         },
-        activities_analyzed: filtered_activities.len(),
+        activities_analyzed: scored.len(),
         interpretation: FitnessInterpretation {
-            ctl: "Chronic Training Load - long-term fitness (42-day average)".to_owned(),
+            ctl: FormReading::ctl_definition(algorithm_config.params.training_load_ctl_days),
             consistency: "Training frequency and regularity".to_owned(),
             performance: "Pace/speed improvement over time".to_owned(),
         },
@@ -317,6 +344,31 @@ fn calculate_performance_trend(activities: &[Activity]) -> f64 {
     // -10% to +10% improvement maps to 0-100
     let score = (pace_improvement_pct + 10.0) * 5.0;
     score.clamp(0.0, 100.0)
+}
+
+/// Days the scoring window covers, or `None` for "every activity fetched".
+///
+/// The vocabulary matches `analyze_performance_trends`, which already ships it
+/// and is the one windowed analytics tool whose schema and handler agree.
+const fn window_days_for(timeframe: &str) -> Option<u32> {
+    match timeframe.as_bytes() {
+        b"quarter" => Some(90),
+        b"year" => Some(365),
+        b"all_time" => None,
+        // Every other value, including an absent one, is the documented default.
+        _ => Some(30),
+    }
+}
+
+/// How many days of history the CTL was actually computed from.
+///
+/// Reported alongside the window so a reply states the period it analysed
+/// instead of inferring one from a smoothing constant that happened to sit
+/// nearby in the payload (registre#415).
+fn history_span_days(chronological: &[Activity], now: DateTime<Utc>) -> u32 {
+    chronological.first().map_or(0, |oldest| {
+        u32::try_from((now - oldest.start_date()).num_days().max(0)).unwrap_or(u32::MAX)
+    })
 }
 
 /// The level a zero score classifies to, named because the two empty answers

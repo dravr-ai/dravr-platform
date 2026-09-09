@@ -27,6 +27,7 @@ mod trends;
 
 pub use activity::{handle_get_activity_intelligence, intelligence_from_model_reply};
 pub use compare::handle_compare_activities;
+pub use fitness_score::calculate_fitness_metrics;
 pub use fitness_score::handle_calculate_fitness_score;
 pub use metrics::handle_calculate_metrics;
 pub use patterns::handle_detect_patterns;

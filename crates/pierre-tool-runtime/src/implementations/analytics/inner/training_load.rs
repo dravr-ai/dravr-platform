@@ -163,7 +163,6 @@ async fn fetch_recovery_context_for_training_load(
 /// error arm and asserts nothing about these fields.
 pub fn analyze_detailed_training_load(
     activities: &[Activity],
-    timeframe: &str,
     params: &UserPhysiologicalParams,
     algorithm_config: &AlgorithmConfig,
     providers_used: ProvidersUsed,
@@ -172,7 +171,6 @@ pub fn analyze_detailed_training_load(
 
     if activities.is_empty() {
         return TrainingLoadResult::NoData(NoTrainingLoad {
-            timeframe: timeframe.to_owned(),
             message: "No activities found for training load analysis".to_owned(),
             providers_used,
         });
@@ -198,7 +196,6 @@ pub fn analyze_detailed_training_load(
         params.weight_kg,
     ) else {
         return TrainingLoadResult::NoData(NoTrainingLoad {
-            timeframe: timeframe.to_owned(),
             message: "Unable to calculate training load - insufficient activity data".to_owned(),
             providers_used,
         });
@@ -241,7 +238,6 @@ pub fn analyze_detailed_training_load(
     }
 
     TrainingLoadResult::Analyzed(Box::new(TrainingLoadDetail {
-        timeframe: timeframe.to_owned(),
         load_metrics: LoadMetrics {
             ctl: ctl.round(),
             atl: atl.round(),
@@ -424,11 +420,6 @@ pub fn handle_analyze_training_load(
             Ok(p) => p,
             Err(response) => return Ok(response),
         };
-        let timeframe = request
-            .parameters
-            .get("timeframe")
-            .and_then(|v| v.as_str())
-            .unwrap_or("week");
 
         // Extract optional sleep_provider for cross-provider recovery analysis
         let sleep_provider = request
@@ -518,7 +509,6 @@ pub fn handle_analyze_training_load(
 
                         let mut analysis = analyze_detailed_training_load(
                             &activities,
-                            timeframe,
                             &physio_params,
                             &executor.cageux_config().algorithms,
                             ProvidersUsed {

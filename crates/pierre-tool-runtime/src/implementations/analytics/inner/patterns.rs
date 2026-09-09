@@ -364,13 +364,16 @@ pub fn handle_detect_patterns(
             Ok(p) => p,
             Err(response) => return Ok(response),
         };
+        // Defaults rather than refusing. This parameter went undeclared while the
+        // handler hard-required it, so every schema-following caller — which is
+        // every model — got InvalidRequest on every call (registre#415). It is
+        // declared now, and an omitted value takes the detector's own default
+        // instead of failing.
         let pattern_type = request
             .parameters
             .get("pattern_type")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProtocolError::InvalidRequest("Missing required parameter: pattern_type".to_owned())
-            })?;
+            .unwrap_or("weekly_schedule");
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);

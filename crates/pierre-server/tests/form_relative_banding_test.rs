@@ -334,9 +334,12 @@ fn training_load_payload_reports_form_pct_and_band() {
     // Serialized, because the subject of this test is the payload the model
     // reads rather than the struct behind it — the untagged enum puts the
     // analysed arm on the wire bare, so these are the keys a coach sees.
+    // No period argument: the tool takes none. Its `days` was advertised and
+    // never read, and its `timeframe` was read and never advertised — it
+    // windowed nothing either way, and windowing a zero-seeded EMA's input
+    // would understate the chronic load it exists to report (registre#415).
     let payload = serde_json::to_value(analyze_detailed_training_load(
         &elite_block_activities(),
-        "month",
         &UserPhysiologicalParams {
             ftp: None,
             lthr: None,

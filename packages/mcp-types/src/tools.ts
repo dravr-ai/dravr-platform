@@ -281,9 +281,6 @@ export interface AnalyzeSleepQualityParams {
  */
 export interface AnalyzeTrainingLoadParams {
 
-  /** Number of days of history to analyze. Default: 42 (6 weeks). */
-  days?: number;
-
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
@@ -359,7 +356,7 @@ export interface CalculateDailyNutritionParams {
 
 
 /**
- * Calculate an overall fitness score (0-100) based on training consistency, CTL, training volume, and recovery balance
+ * Calculate an overall fitness score (0-100) from training consistency, chronic training load, training volume and recovery balance, over a period chosen with `timeframe`. Omitted, it scores the last 30 days.
  */
 export interface CalculateFitnessScoreParams {
 
@@ -371,6 +368,9 @@ export interface CalculateFitnessScoreParams {
 
   /** Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery quality into fitness score. */
   sleep_provider?: string;
+
+  /** How far back to score consistency and pace progression: 'month' (the last 30 days), 'quarter' (90), 'year' (365), or 'all_time' (every activity fetched). Set it to the period the athlete named — omitted, this scores 30 days and cannot answer a question about three months or a season. Chronic training load is a current-state number and is computed from the full fetched history regardless of this setting. */
+  timeframe?: string;
 }
 
 
@@ -601,11 +601,11 @@ export interface DetectPatternsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
+  /** Which pattern to detect: 'weekly_schedule' (which days they train), 'training_blocks' (build and recovery phases), 'volume_progression' (how load is trending), or 'overtraining_signals'. Defaults to 'weekly_schedule'. */
+  pattern_type?: string;
+
   /** Fitness provider to query. Defaults to configured provider. */
   provider?: string;
-
-  /** Number of weeks to analyze for patterns. Default: 4. */
-  weeks?: number;
 }
 
 

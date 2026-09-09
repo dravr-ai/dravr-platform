@@ -34,6 +34,9 @@ pub use inner::{analyze_detailed_training_load, UserPhysiologicalParams};
 // Its own line: the pre-push moved-symbol check reads `pub use` line by line,
 // so folding this into the list above wraps it past 100 columns and the
 // symbols there stop being visible to the scan.
+// Its own line: the pre-push moved-symbol check and rustfmt's 100-column wrap
+// both read `pub use` line by line.
+pub use inner::calculate_fitness_metrics;
 pub use inner::intelligence_from_model_reply;
 // Its own line: rustfmt wraps a longer `pub use` past 100 columns, and the
 // moved-symbol guard scans lines.
@@ -133,16 +136,6 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
             },
         );
         properties.insert(
-            "days".to_owned(),
-            PropertySchema {
-                property_type: "integer".to_owned(),
-                description: Some(
-                    "Number of days of history to analyze. Default: 42 (6 weeks).".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
             "sleep_provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
@@ -208,11 +201,15 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             },
         );
         properties.insert(
-            "weeks".to_owned(),
+            "pattern_type".to_owned(),
             PropertySchema {
-                property_type: "integer".to_owned(),
+                property_type: "string".to_owned(),
                 description: Some(
-                    "Number of weeks to analyze for patterns. Default: 4.".to_owned(),
+                    "Which pattern to detect: 'weekly_schedule' (which days they train), \
+                     'training_blocks' (build and recovery phases), 'volume_progression' \
+                     (how load is trending), or 'overtraining_signals'. Defaults to \
+                     'weekly_schedule'."
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -282,10 +279,26 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
                 ..Default::default()
             },
         );
+        properties.insert(
+            "timeframe".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "How far back to score consistency and pace progression: 'month' (the \
+                     last 30 days), 'quarter' (90), 'year' (365), or 'all_time' (every \
+                     activity fetched). Set it to the period the athlete named — omitted, \
+                     this scores 30 days and cannot answer a question about three months \
+                     or a season. Chronic training load is a current-state number and is \
+                     computed from the full fetched history regardless of this setting."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<FitnessScoreResult>>(task_capable(tool_definition(
             "calculate_fitness_score",
-            "Calculate an overall fitness score (0-100) based on training consistency, CTL, training volume, and recovery balance",
+            "Calculate an overall fitness score (0-100) from training consistency, chronic training load, training volume and recovery balance, over a period chosen with `timeframe`. Omitted, it scores the last 30 days.",
             schema,
             Some(analytics_annotations()),
         )))
