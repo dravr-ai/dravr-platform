@@ -990,6 +990,30 @@ module "sciotte" {
     DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
     DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
 
+    # Detail-page location fallback (carnet#409). After the feed pass, Strava
+    # activities still missing city/region get one detail-page navigation each,
+    # sequentially, at ~3.4s measured. The crate's default cap is 30, and unlike
+    # PIERRE_SCIOTTE_ENRICH_DETAILS this runs UNCONDITIONALLY for strava.com —
+    # it sits outside the enrich_details guard, so turning enrichment off does
+    # not turn this off.
+    #
+    # It cost 101.4s of a 171s scrape on 2026-09-08: the list pass had all 378
+    # activities at T+67.5s, the platform's 90s loopback bound fired ~20s into
+    # this fallback, and the completed scrape was discarded. Only that scrape
+    # ever reached the cap.
+    #
+    # 10 rather than 30 because the cap only binds past the dashboard feed's own
+    # location coverage. Across 23 firings in 30 days, `missing` tracked returned
+    # depth: 7->0, 10->0, 32->0, 38->3, 50->6, 60->6, and 378->30 (capped). So 10
+    # never binds on any interactive scrape observed, and bounds the pathological
+    # case at ~34s instead of ~101s. Lower only with evidence; 0 disables the
+    # fallback and drops city/region for anything the feed does not cover.
+    #
+    # This is latency relief, not the fix. The fix is gating the fallback on
+    # caller intent the way detail enrichment already is, which is carnet#409
+    # against dravr-sciotte.
+    SCIOTTE_DETAIL_FALLBACK_MAX = "10"
+
     # Hybrid login: selectors first, vision (Copilot screenshot reasoning) on
     # failure — required for the Strava/Google OAuth path (validated live).
     DRAVR_SCIOTTE_LOGIN_MODE  = "hybrid"
