@@ -654,7 +654,7 @@ check_dev_stack() {
 # by headSha out of a wide branch window. Absence is its own outcome: a sha with no row is NOT
 # green, because "nothing pending" and "not present" are indistinguishable in this query.
 check_ci() {
-    local upstream ahead slug runs total running bad cancelled age
+    local upstream ahead slug runs total running bad cancelled age b mine_head
     command -v gh >/dev/null 2>&1 || return 0
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     [ -n "$upstream" ] || return 0
@@ -668,6 +668,23 @@ check_ci() {
     # row the moment peers push past it, and "zero pending" is indistinguishable from "fell out
     # of the window" — which reads as green. That mistake has been made twice here. This
     # endpoint answers for exactly one commit and cannot be crowded out.
+    # Whose HEAD is this? In the shared main worktree every session sits on the same tip, so a
+    # peer's red CI was capping ALL of them at 5 — and the Stop gate, which blocks at 8 or below,
+    # then blocked every session in the fleet over a commit none of them made. That is what
+    # emptied an evening on 2026-09-08: nine blocks on one session, a cluster at 20:17, each one
+    # spending a session's last turn arguing with a number about somebody else's work.
+    #
+    # Same rule the file and commit baselines already use: a HEAD unchanged since this session
+    # opened is not this session's, so its verdict is stated and never scored. No baseline means
+    # bilan was not watching, which is also not grounds to blame the session.
+    local start_head=""
+    b=$(baseline_file 2>/dev/null) && start_head=$(cat "${b}.head" 2>/dev/null || true)
+    if [ -z "$start_head" ] || [ "$start_head" = "$HEAD_SHA" ]; then
+        mine_head=0
+    else
+        mine_head=1
+    fi
+
     runs=$(gh api "repos/$slug/commits/$HEAD_SHA/check-runs" 2>/dev/null) || return 0
     total=$(printf '%s' "$runs" | jq -r '.total_count // 0' 2>/dev/null)
 
@@ -690,6 +707,11 @@ check_ci() {
     bad=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.conclusion | IN("failure","timed_out","action_required","startup_failure")) | .name] | unique | join(", ")')
     cancelled=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.conclusion == "cancelled") | .name] | unique | join(", ")')
 
+    if [ "$mine_head" = 0 ]; then
+        [ -z "$bad" ]     || say_note "CI red on ${HEAD_SHA:0:8}: $bad — this session did not commit to that head, so it is not scored here"
+        [ -z "$running" ] || say_note "CI still running on ${HEAD_SHA:0:8} ($total checks) — a head this session did not create"
+        return 0
+    fi
     [ -z "$bad" ]       || cap 5 "❌" "CI red on ${HEAD_SHA:0:8}: $bad" "fix and re-push — red is not done"
     [ -z "$running" ]   || cap 9 "⚠️" "CI still running on ${HEAD_SHA:0:8} ($total checks): $running" "wait for terminal status"
     [ -z "$cancelled" ] || cap 9 "⚠️" "CI cancelled on ${HEAD_SHA:0:8}: $cancelled" \

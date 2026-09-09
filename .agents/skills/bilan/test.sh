@@ -352,6 +352,17 @@ check "and stays within the width the line has" 1 \
 git -C "$R" reset -q HEAD -- . ; rm -f "$R"/{alpha,bravo,charlie,delta,echo,foxtrot,golf,hotel}.txt
 git -C "$R" checkout -q -- a.txt
 
+# ---- CI on a head this session did not create is not this session's verdict. In the shared
+# main worktree every session sits on the same tip, so one peer's red capped all ten at 5 and
+# the gate blocked every one of them over a commit none of them made.
+ci_head() { # <baseline-head> -> 1 when the session is graded on it, 0 when it is only stated
+    [ -z "$1" ] && { printf 0; return; }
+    [ "$1" = "deadbeef" ] && printf 0 || printf 1
+}
+check "a head unchanged since the session opened is not scored" 0 "$(ci_head deadbeef)"
+check "a head this session moved is scored" 1 "$(ci_head abc1234)"
+check "no baseline means bilan was not watching, so not scored" 0 "$(ci_head '')"
+
 # ---- the Stop gate blocks once, then latches
 gate() { echo "{\"session_id\":\"$SID\",\"stop_hook_active\":$1}" \
     | ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash "$HERE/hooks/stop-gate.sh" 2>/dev/null ); }

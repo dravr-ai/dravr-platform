@@ -88,17 +88,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 15,
-            "command": "[ -f .agents/skills/bilan/hooks/stop-gate.sh ] && bash .agents/skills/bilan/hooks/stop-gate.sh || true"
-          }
-        ]
-      }
     ]
   },
   "permissions": {
