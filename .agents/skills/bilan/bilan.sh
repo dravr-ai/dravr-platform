@@ -653,70 +653,43 @@ check_dev_stack() {
 # `gh run list --commit` returns zero rows on this org even when runs exist, so rows are filtered
 # by headSha out of a wide branch window. Absence is its own outcome: a sha with no row is NOT
 # green, because "nothing pending" and "not present" are indistinguishable in this query.
+# CI is REPORTED, never scored. Twice now an attempt to attribute a checkout's CI to the session
+# reading it has been wrong, and both times the cost landed on other people:
+#
+#   * grading the tip outright capped every session in the shared main worktree at 5 when one
+#     peer's commit was red, and the Stop gate then blocked all of them — an evening lost.
+#   * grading it only when HEAD moved since session start was no better: main moves because
+#     PEERS push. A session that had pushed its own commit was then graded on a peer's tip that
+#     landed afterwards, which is the failure that prompted this.
+#
+# There is no third try. A shared checkout has one HEAD and ten sessions; whose commit it is
+# cannot be recovered from git, because every session commits as the same author. So the verdict
+# is printed — it is genuinely useful to see — and the number stays about work this session can
+# actually act on. A session that wants CI on its own commit asks for that sha by name.
 check_ci() {
-    local upstream ahead slug runs total running bad cancelled age b mine_head
+    local upstream slug runs total running bad cancelled
     command -v gh >/dev/null 2>&1 || return 0
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     [ -n "$upstream" ] || return 0
-    ahead=$(git rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)
-    [ "$ahead" -gt 0 ] && return 0   # unpushed already caps at 8; CI cannot have run
     slug=$(git remote get-url origin 2>/dev/null \
            | sed -E 's#^(git@github\.com:|https://github\.com/|ssh://git@github\.com/)##; s#\.git$##; s#/$##')
     [ -n "$slug" ] || return 0
 
-    # Addressed by sha, not by a branch window. `gh run list --branch main --limit N` loses a
-    # row the moment peers push past it, and "zero pending" is indistinguishable from "fell out
-    # of the window" — which reads as green. That mistake has been made twice here. This
-    # endpoint answers for exactly one commit and cannot be crowded out.
-    # Whose HEAD is this? In the shared main worktree every session sits on the same tip, so a
-    # peer's red CI was capping ALL of them at 5 — and the Stop gate, which blocks at 8 or below,
-    # then blocked every session in the fleet over a commit none of them made. That is what
-    # emptied an evening on 2026-09-08: nine blocks on one session, a cluster at 20:17, each one
-    # spending a session's last turn arguing with a number about somebody else's work.
-    #
-    # Same rule the file and commit baselines already use: a HEAD unchanged since this session
-    # opened is not this session's, so its verdict is stated and never scored. No baseline means
-    # bilan was not watching, which is also not grounds to blame the session.
-    local start_head=""
-    b=$(baseline_file 2>/dev/null) && start_head=$(cat "${b}.head" 2>/dev/null || true)
-    if [ -z "$start_head" ] || [ "$start_head" = "$HEAD_SHA" ]; then
-        mine_head=0
-    else
-        mine_head=1
-    fi
-
+    # Addressed by sha, not by a branch window: `gh run list --branch main --limit N` loses a row
+    # the moment peers push past it, and "zero pending" is indistinguishable there from "fell out
+    # of the window", which reads as green.
     runs=$(gh api "repos/$slug/commits/$HEAD_SHA/check-runs" 2>/dev/null) || return 0
     total=$(printf '%s' "$runs" | jq -r '.total_count // 0' 2>/dev/null)
-
-    if [ "${total:-0}" = 0 ]; then
-        # GitHub itself says no check exists for this commit. Right after a push that means the
-        # checks have not registered yet; once the commit has had time, it means no workflow's
-        # path filter matched it and none ever will — a tooling- or docs-only commit. Capping
-        # forever on a row that cannot arrive is how a finished session never reaches 10.
-        age=$(( $(date +%s) - $(git log -1 --format=%ct HEAD 2>/dev/null || date +%s) ))
-        if [ "$age" -lt 300 ]; then
-            cap 9 "⚠️" "no checks registered yet for ${HEAD_SHA:0:8} ($((age))s after commit)" \
-                  "give it a minute, then re-run — absent is not green"
-        else
-            say_note "GitHub reports no check for ${HEAD_SHA:0:8}: no workflow path filter matches what it touched, so none will run"
-        fi
-        return 0
-    fi
+    [ "${total:-0}" != 0 ] || return 0
 
     running=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.status != "completed") | .name] | unique | join(", ")')
     bad=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.conclusion | IN("failure","timed_out","action_required","startup_failure")) | .name] | unique | join(", ")')
     cancelled=$(printf '%s' "$runs" | jq -r '[.check_runs[] | select(.conclusion == "cancelled") | .name] | unique | join(", ")')
 
-    if [ "$mine_head" = 0 ]; then
-        [ -z "$bad" ]     || say_note "CI red on ${HEAD_SHA:0:8}: $bad — this session did not commit to that head, so it is not scored here"
-        [ -z "$running" ] || say_note "CI still running on ${HEAD_SHA:0:8} ($total checks) — a head this session did not create"
-        return 0
-    fi
-    [ -z "$bad" ]       || cap 5 "❌" "CI red on ${HEAD_SHA:0:8}: $bad" "fix and re-push — red is not done"
-    [ -z "$running" ]   || cap 9 "⚠️" "CI still running on ${HEAD_SHA:0:8} ($total checks): $running" "wait for terminal status"
-    [ -z "$cancelled" ] || cap 9 "⚠️" "CI cancelled on ${HEAD_SHA:0:8}: $cancelled" \
-                                "cancelled is unvalidated, not green — re-run or dispatch"
-    [ -n "$bad$running$cancelled" ] || say_note "CI green on ${HEAD_SHA:0:8}: $total checks, all successful or skipped"
+    [ -z "$bad" ]       || say_note "CI RED on the checkout head ${HEAD_SHA:0:8}: $bad — check whether that commit is yours"
+    [ -z "$running" ]   || say_note "CI still running on the checkout head ${HEAD_SHA:0:8} ($total checks): $running"
+    [ -z "$cancelled" ] || say_note "CI cancelled on the checkout head ${HEAD_SHA:0:8}: $cancelled — cancelled is unvalidated, not green"
+    [ -n "$bad$running$cancelled" ] || say_note "CI green on the checkout head ${HEAD_SHA:0:8}: $total checks"
 }
 
 # ------------------------------------------------------------------ friction (informational)
@@ -767,12 +740,9 @@ run_checks() {
     # skips CI entirely, and a session quoted its cheap 10/10 as completion while a lane was
     # still red and four agents were running. The reduced measurement now cannot reach 10 by
     # construction, and says why.
-    if [ "$CHEAP" = 1 ]; then
-        cap 9 "⚠️" "local facts only — CI was not consulted, so this is not a completion verdict" \
-              "run bilan.sh without --cheap before reporting a number"
-    else
-        check_ci
-    fi
+    # CI is a note either way now, so --cheap and the full run give the same number; the only
+    # difference is whether the CI line is printed.
+    [ "$CHEAP" = 1 ] || check_ci
 }
 
 score() {

@@ -210,8 +210,15 @@ holding 8081. Every one of those is machine-checkable.
 
 The score is `min()` over caps, and each cap prints its own evidence and remedy: a held carnet
 issue or an unregistered `LIMITATION` marker caps at **6**, uncommitted tracked files at **7**,
-unpushed commits at **8**, red CI at **5**, and CI that is running, cancelled or has no row for
-this sha at **9**. One open issue holds the whole session at 6 no matter how much else landed.
+unpushed commits at **8**. One open issue holds the whole session at 6 no matter how much else
+landed.
+
+**CI is reported, never scored.** A shared checkout has one HEAD and ten sessions, and every
+session commits as the same author, so whose commit the tip is cannot be recovered from git. Two
+attempts to attribute it both misfired onto other people — the first capped the whole fleet at 5
+over one peer's red; the second graded a session on a peer's tip that landed after its own push.
+The verdict is printed because it is worth seeing; the number stays about work this session can
+act on. For CI on your own commit, ask for that sha by name.
 
 - **A peer's uncommitted files in the shared checkout are not yours, and do not cap you.** Files
   already dirty when the session opened are excluded automatically (the SessionStart hook records
@@ -223,7 +230,8 @@ this sha at **9**. One open issue holds the whole session at 6 no matter how muc
   residue, and if something truly cannot be fixed here, put that decision in front of ChefFamille.
 - **Background tasks and subagents still running cap at 7.** They leave no trace in git, the
   ledger or CI, and closing the session loses them. Session-scoped: your terminal, your tasks.
-- **`--cheap` can never say 10** — it does not consult CI, so it is not a completion verdict.
+- **`--cheap` and the full run give the same number** — the only difference is whether the CI
+  line is printed.
 - **Report what it prints.** If you think a cap is wrong, say so in words *and still report the
   script's number* — arguing with the measurement is a conversation, overriding it silently is
   the failure this exists to stop.

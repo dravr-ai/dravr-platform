@@ -15,7 +15,7 @@ bad()  { printf '  ❌ %s\n' "$1"; FAIL=$((FAIL + 1)); }
 # Every case here runs --cheap for speed, and --cheap now carries a standing cap at 9 saying it
 # is not a completion verdict. So "clean" is asserted as "no cap other than that one" rather
 # than as a score of 10, which cheap can no longer reach by construction.
-real_caps() { printf '%s' "$1" | jq '[.caps[] | select(.evidence | test("local facts only") | not)] | length'; }
+real_caps() { printf '%s' "$1" | jq '[.caps[]] | length'; }
 
 check() { # <description> <expected> <actual>
     if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 — expected '$2', got '$3'"; fi
@@ -72,9 +72,11 @@ R=$(new_repo)
 baseline_now "$R"
 out=$(run "$R")
 check "clean repo has no real cap" 0 "$(real_caps "$out")"
-check "--cheap can never report 10" 9 "$(printf '%s' "$out" | jq -r .score)"
-check "--cheap says why it is not a verdict" 1 \
-    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("CI was not consulted"))] | length')"
+# --cheap used to carry a standing cap at 9 because it skipped CI. CI no longer scores at all,
+# so both paths give the same number and that cap only penalised the cheap one.
+check "--cheap and the full run agree on the number" 10 "$(printf '%s' "$out" | jq -r .score)"
+check "no standing cap for skipping CI" 0 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("CI"))] | length')"
 
 # ---- uncommitted tracked change caps at 7
 echo two >> "$R/a.txt"
@@ -341,8 +343,6 @@ echo edited >> "$R/a.txt"
 run "$R" >/dev/null
 check "the published line names the file, not a cut path" 1 \
     "$(score_line | grep -c 'a\.txt')"
-check "and never the --cheap notice, which is not actionable" 0 \
-    "$(score_line | grep -c 'not consulted')"
 for n in alpha bravo charlie delta echo foxtrot golf hotel; do echo x > "$R/$n.txt"; git -C "$R" add "$n.txt"; done
 run "$R" >/dev/null
 check "a long list is cut on a word boundary, with an ellipsis" 1 \

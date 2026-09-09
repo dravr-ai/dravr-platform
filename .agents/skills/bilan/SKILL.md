@@ -49,8 +49,6 @@ checks switched off is not a completion verdict, and now says so as a standing c
 | `LIMITATION(registre#…)` marker added in source naming no live issue | **6** |
 | tracked files modified and uncommitted | **7** |
 | commits not pushed | **8** |
-| CI red on the pushed head | **5** |
-| CI still running, cancelled, or not yet registered | **9** |
 | todo still `pending` or `in_progress` | **7** |
 | nothing measurable — no commit, no todo | **9** |
 | untracked files, stash created this session, branch whose upstream is gone | **9** |
@@ -163,6 +161,20 @@ or committing something, makes it measurable again.
 Every report also carries the session's **opening ask**, verbatim. bilan cannot judge whether
 the work satisfies it — that would be narration again, the thing it exists to treat — but it can
 refuse to let a session claim completion without the request in view.
+
+## CI, and one thing it cannot see
+
+**CI is printed, never scored.** A shared checkout has one HEAD and ten sessions, all committing
+as the same author, so whose commit the tip is cannot be recovered from git. Attributing it was
+tried twice and misfired onto other people both times — capping the whole fleet at 5 over one
+peer's red, then grading a session on a peer's tip that landed after its own push. There is no
+third attempt: the verdict is shown, the number stays about work the session can act on.
+
+**Background work is scanned in `<scratchpad>/<session-id>/tasks/` only.** A session reported a
+live CI monitor that bilan did not count, and whether a Monitor writes there has not been
+confirmed. Treat the running-work cap as covering background Bash tasks; it may not see every
+kind of in-flight work, and a session that knows it has one should say so rather than trust the
+absence of a cap.
 
 ## What it does not do
 
