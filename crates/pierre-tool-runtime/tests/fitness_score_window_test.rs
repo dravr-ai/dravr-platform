@@ -104,9 +104,9 @@ fn an_improving_athlete_does_not_score_zero_for_performance() {
          neutral 50, got {} — a score of 0 is the reversed-halves bug",
         detail.components.performance_score
     );
-    assert_ne!(
-        detail.components.performance_score, 0.0,
-        "performance scored exactly 0, which is what the inverted split produced"
+    assert!(
+        detail.components.performance_score > 0.0,
+        "performance scored 0, which is what the inverted split produced"
     );
 }
 
