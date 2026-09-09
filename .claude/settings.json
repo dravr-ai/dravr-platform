@@ -1,4 +1,5 @@
 {
+  "includeCoAuthoredBy": false,
   "enabledPlugins": {
     "obsidian@obsidian-skills": true
   },
