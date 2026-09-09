@@ -348,6 +348,25 @@ pub(crate) async fn handle_rotate_admin_token(
         })?
         .ok_or_else(|| AppError::not_found("Admin token not found"))?;
 
+    // Rotation mints the replacement at the old token's privilege level, so a
+    // super-admin token rotated by a caller who is not super-admin would hand
+    // that caller a fresh super-admin JWT. `handle_create_admin_token` refuses
+    // the same escalation on the create path, and the cookie surface refuses it
+    // for every rotation via `require_super_admin`; `ManageAdminTokens` alone is
+    // mintable on a non-super-admin token, so the permission check above does
+    // not imply it. Checked before `deactivate_token` — a refused rotation must
+    // leave the existing credential intact.
+    if existing_token.is_super_admin && !admin_token.is_super_admin {
+        return Ok(json_response(
+            AdminResponse {
+                success: false,
+                message: "Only super-admin tokens can rotate super-admin tokens".to_owned(),
+                data: None,
+            },
+            StatusCode::FORBIDDEN,
+        ));
+    }
+
     ctx.repos
         .admin
         .deactivate_token(&token_id)

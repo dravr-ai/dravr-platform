@@ -101,6 +101,43 @@ mod dispatch_tests {
         }
     }
 
+    /// A quiet-hours window guaranteed to contain the moment the test runs.
+    ///
+    /// The evaluator is `dravr-commere`'s `is_quiet_hours` (src/dispatch.rs),
+    /// not anything in this workspace, which is why grepping `crates/` for it
+    /// finds only the `SuppressionReason::QuietHours` variant. It branches on
+    /// `start <= end`:
+    ///
+    ///   same-day  `now >= start && now < end`
+    ///   overnight `now >= start || now < end`
+    ///
+    /// The overnight branch always leaves `[end, start)` uncovered, so NO fixed
+    /// window is "always quiet". `23:00 → 22:59` leaves exactly the minute
+    /// 22:59:00–22:59:59, and a real `PostgreSQL` run landed in it at 22:59:24 and
+    /// failed — 0.07% of runs, which is why main never caught it. `start == end`
+    /// is worse: it takes the same-day branch, where `now >= X && now < X` is
+    /// never true, so quiet hours would never apply at all.
+    ///
+    /// Anchoring on the current time puts `now` a full hour inside the window on
+    /// whichever branch it lands, so there is no gap to fall into.
+    ///
+    /// The timezone is returned WITH the window rather than written separately at
+    /// the call site, because the evaluator resolves "now" in the preference's own
+    /// timezone (`dispatch.rs:260`, `Utc::now().with_timezone(&tz)`). A window
+    /// computed in one zone and stored beside another is wrong by that offset —
+    /// whole hours, which the one-hour margin cannot absorb. Returning the three
+    /// together makes that desync unrepresentable instead of merely discouraged.
+    fn quiet_window_around_now() -> (String, String, String) {
+        let now = chrono::Utc::now();
+        let start = (now - chrono::Duration::hours(1))
+            .format("%H:%M")
+            .to_string();
+        let end = (now + chrono::Duration::hours(1))
+            .format("%H:%M")
+            .to_string();
+        (start, end, "UTC".to_owned())
+    }
+
     // ════════════════════════════════════════════════════════════════
     // Dispatch basic tests
     // ════════════════════════════════════════════════════════════════
@@ -350,8 +387,9 @@ mod dispatch_tests {
 
         let service = notification_service(&resources);
 
-        // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
-        // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
+        // A window anchored on the current time, so the run cannot land in the
+        // gap every fixed window leaves — see quiet_window_around_now.
+        let (quiet_start, quiet_end, quiet_tz) = quiet_window_around_now();
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
@@ -359,9 +397,9 @@ mod dispatch_tests {
                 category: "training".to_owned(),
                 enabled: true,
                 sub_preferences: None,
-                quiet_hours_start: Some("23:00".to_owned()),
-                quiet_hours_end: Some("22:59".to_owned()),
-                timezone: Some("UTC".to_owned()),
+                quiet_hours_start: Some(quiet_start),
+                quiet_hours_end: Some(quiet_end),
+                timezone: Some(quiet_tz),
                 max_per_day: None,
             })
             .await
@@ -1073,8 +1111,9 @@ mod dispatch_tests {
 
         let service = notification_service(&resources);
 
-        // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
-        // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
+        // A window anchored on the current time, so the run cannot land in the
+        // gap every fixed window leaves — see quiet_window_around_now.
+        let (quiet_start, quiet_end, quiet_tz) = quiet_window_around_now();
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
@@ -1082,9 +1121,9 @@ mod dispatch_tests {
                 category: "coach".to_owned(),
                 enabled: true,
                 sub_preferences: None,
-                quiet_hours_start: Some("23:00".to_owned()),
-                quiet_hours_end: Some("22:59".to_owned()),
-                timezone: Some("UTC".to_owned()),
+                quiet_hours_start: Some(quiet_start),
+                quiet_hours_end: Some(quiet_end),
+                timezone: Some(quiet_tz),
                 max_per_day: None,
             })
             .await

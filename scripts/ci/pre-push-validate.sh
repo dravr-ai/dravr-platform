@@ -268,6 +268,30 @@ if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_API_CLIENT_CHANGES" == 
 fi
 
 # ============================================================================
+# TIER 1c-twin: Twinned Surface Divergence (compile-free)
+# ============================================================================
+# Tier 1c asks "is this declared thing unreachable?" of ONE declaration. This
+# asks whether TWO live peer surfaces still accept the same request, which is a
+# binary predicate no other gate has: the token/bearer admin routes and the
+# cookie/session ones each own a request DTO, both deserialize live traffic,
+# both are served, both have clients. A field added to one is a half-finished
+# capability, and serde drops the unknown key so the deficient twin answers 200
+# — no test fails and no phantom scan fires. registre#405 (send_invite reached
+# the bearer surface and not the console) is the recurrence; the whole local
+# gate, Tier 0 through 1g, was verified green on that change before this existed.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] \
+    && [[ -x "$PROJECT_ROOT/scripts/ci/check-twin-surfaces.sh" ]]; then
+    echo "Tier 1c-twin: Twinned Surface Divergence"
+    echo "------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-twin-surfaces.sh" "$BASE_REF"; then
+        echo ""
+        echo "FAIL: Twinned surface divergence check failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1d: Turn Envelope Convergence (compile-free)
 # ============================================================================
 # The surfaces converged onto one profile, one envelope and one transport. What

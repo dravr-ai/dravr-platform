@@ -1137,6 +1137,137 @@ async fn test_rotate_admin_token() -> Result<()> {
     Ok(())
 }
 
+/// Rotation mints the replacement at the OLD token's privilege level, so a
+/// caller who is not super-admin must not be able to rotate a super-admin token
+/// and receive a super-admin JWT. `ManageAdminTokens` does not imply super-admin:
+/// the convenience constructor only grants it to super-admins, but the create
+/// endpoint accepts an arbitrary permission array, so a least-privilege
+/// "token management, not super-admin" service token is mintable and is exactly
+/// the caller this refuses. The create path refuses the same escalation; the
+/// cookie surface refuses every rotation via `require_super_admin`.
+#[tokio::test]
+async fn rotate_refuses_super_admin_escalation_and_keeps_the_target_active() -> Result<()> {
+    let setup = AdminTestSetup::new().await?;
+    let routes = setup.routes();
+
+    // The caller: token management, deliberately NOT super-admin.
+    let caller = setup
+        .context
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "token_manager_not_super".to_owned(),
+                service_description: Some("Least-privilege token manager".to_owned()),
+                permissions: Some(vec![AdminPermission::ManageAdminTokens]),
+                expires_in_days: Some(30),
+                is_super_admin: false,
+                tenant_id: None,
+            },
+            TEST_JWT_SECRET,
+            &setup.context.jwks_manager,
+        )
+        .await?;
+
+    // The target: a super-admin token whose privilege level rotation would copy.
+    let target = setup
+        .context
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest::super_admin("victim_super_admin".to_owned()),
+            TEST_JWT_SECRET,
+            &setup.context.jwks_manager,
+        )
+        .await?;
+
+    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", target.token_id))
+        .header("authorization", &setup.auth_header(&caller.jwt_token))
+        .header("content-type", "application/json")
+        .json(&json!({ "expires_in_days": 60 }))
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(
+        response.status(),
+        403,
+        "a non-super-admin holding ManageAdminTokens must not rotate a super-admin token"
+    );
+
+    let body: Value = serde_json::from_slice(&response.bytes())?;
+    assert_eq!(body["success"], false);
+    assert_eq!(
+        body["message"], "Only super-admin tokens can rotate super-admin tokens",
+        "the refusal must say why, and match the create path's wording"
+    );
+    assert!(
+        body["data"].get("new_token").is_none(),
+        "a refused rotation must not hand back a token"
+    );
+
+    // The load-bearing assertion: rotation deactivates before it mints, so a
+    // refusal placed after `deactivate_token` would leave the operator with no
+    // working super-admin credential at all.
+    let still_there = setup
+        .context
+        .repos
+        .admin
+        .get_token_by_id(&target.token_id)
+        .await?
+        .expect("the target token must still exist after a refused rotation");
+    assert!(
+        still_there.is_active,
+        "a refused rotation must leave the existing credential usable"
+    );
+    assert!(
+        still_there.is_super_admin,
+        "the target's privilege level must be untouched"
+    );
+
+    Ok(())
+}
+
+/// The positive half of the pair above: a super-admin caller rotates a
+/// super-admin token, and the replacement keeps the privilege level.
+#[tokio::test]
+async fn rotate_allows_super_admin_to_rotate_a_super_admin_token() -> Result<()> {
+    let setup = AdminTestSetup::new().await?;
+    let routes = setup.routes();
+
+    let target = setup
+        .context
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest::super_admin("rotatable_super_admin".to_owned()),
+            TEST_JWT_SECRET,
+            &setup.context.jwks_manager,
+        )
+        .await?;
+
+    let caller = setup.super_admin_token().await?;
+
+    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", target.token_id))
+        .header("authorization", &setup.auth_header(&caller.jwt_token))
+        .header("content-type", "application/json")
+        .json(&json!({ "expires_in_days": 60 }))
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "a super-admin must still be able to rotate a super-admin token"
+    );
+
+    let body: Value = serde_json::from_slice(&response.bytes())?;
+    assert_eq!(body["success"], true);
+    assert_eq!(body["data"]["old_token_id"], target.token_id);
+    assert!(body["data"]["new_token"]["jwt_token"].is_string());
+
+    Ok(())
+}
+
 // ============================================================================
 // Error Handling and Edge Cases
 // ============================================================================
