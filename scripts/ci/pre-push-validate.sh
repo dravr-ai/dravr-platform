@@ -402,6 +402,42 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
         [[ -n "$(git diff --name-only "$BASE_REF" HEAD -- "crates/$c/src" 2>/dev/null)" ]] || continue
         TIER1F_CRATES="$TIER1F_CRATES $c"
     done
+
+    # pierre-server joins the probe ONLY when this push moves a feature gate.
+    #
+    # It is excluded above because its unit is the whole graph — the cost this
+    # script exists to avoid. But the exclusion leaves a real gap, and it red
+    # main on 2026-09-09 (85000b1eb): a leaf crate put `pub mod
+    # training_history_compute` behind `#[cfg(feature = "tools-data")]` while
+    # pierre-server imported it unconditionally. pierre-tool-runtime's own probe
+    # was green both sides of the change — the item is simply absent there — so
+    # the break existed only from the excluded consumer's side, and CI's Feature
+    # Profile Check found it ten minutes later, on main.
+    #
+    # Same blind spot as carnet#197 on a different axis: 1e-move catches a moved
+    # path, this catches a newly-gated one.
+    #
+    # A compile-free version was measured and abandoned. Grepping for
+    # unconditional importers of a cfg-gated item reports 102 hits, of which
+    # essentially all are correct: the consumer either enables the feature in its
+    # own Cargo.toml (`features = ["http-client"]`) or sits inside a module its
+    # parent already gated (`#[cfg(feature = "client-messaging")] pub mod
+    # messaging_ingress;`). Filtering on Cargo.toml alone leaves 40, still
+    # overwhelmingly correct. Separating the real one needs feature unification
+    # across the graph — which is cargo's resolver, i.e. this check.
+    #
+    # So pay the compile, but only when the trigger fires: a diff that adds or
+    # removes a `#[cfg(feature` line in a crate root — 2 of the last 40 commits.
+    #
+    # Measured against the shared t1f-probe target dir: 2.3s when a leaf crate
+    # changed (the realistic trigger case), 5.7s with nothing changed, and 1m57s
+    # the first time that dir has to build pierre_mcp_server from cold. The cold
+    # cost is one-time per machine and is shared with the leaf-crate probes
+    # above, so a checkout that has run Tier 1f at all pays seconds here.
+    if git diff "$BASE_REF" HEAD -- 'crates/*/src/lib.rs' 2>/dev/null \
+        | grep -qE '^[+-][[:space:]]*#\[cfg\(feature'; then
+        TIER1F_CRATES="$TIER1F_CRATES pierre_mcp_server"
+    fi
     if [[ -n "$TIER1F_CRATES" ]]; then
         echo "Tier 1f: --no-default-features probe"
         echo "------------------------------------"
