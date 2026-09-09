@@ -60,9 +60,19 @@ use pierre_tool_runtime::registry::ToolRegistry;
 /// guillotines it — the leading hypothesis for the 2026-08-22 group-turn
 /// stall (4m15s of silence after a tool result returned). Every legitimate
 /// tool answers well inside this bound: a live provider fetch degrades to the
-/// stale cache long before it, and long-running backfills detach. Must stay
-/// below the ACP idle timeout so a bounded call can never read as a dead
-/// session.
+/// stale cache long before it, and a deep history ask is served from the
+/// durable cache while the capture runs on the rail in `activity_backfill`.
+/// Must stay below the ACP idle timeout so a bounded call can never read as a
+/// dead session.
+///
+/// Nothing detaches *here*, and this comment used to claim otherwise. A tool
+/// marked `task_capable` gets a task handle only on the `/mcp` JSON-RPC
+/// transport; `call` below always awaits `execute_tool` inline, and
+/// `build_tool_context` never sets client task capabilities, so
+/// `ctx.supports_tasks()` is false for every call that arrives through the
+/// executor. carnet#245 closed threading the tasks extension into chat as a
+/// deliberate non-goal. Long work therefore has to be *started* and answered
+/// from what is already stored — not awaited behind this bound.
 const LOOPBACK_TOOL_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// One turn's view of Dravr's tools, and the executor that runs them.

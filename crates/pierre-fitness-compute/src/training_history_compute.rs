@@ -51,6 +51,22 @@ pub const RAMP_RATE_LOOKBACK_DAYS: i64 = 7;
 /// Maximum backfill window in days — bounded to keep compute cost predictable.
 pub const MAX_BACKFILL_DAYS: i64 = 365;
 
+/// Extra days of activity history the CTL EMA needs on top of its own window
+/// before the series it produces can be stood behind.
+///
+/// `ctl_prev` seeds at `0.0`, so a day computed with less than this behind it
+/// carries a chronic load that is wrong low — and `ctl`/`atl`/`tsb` are plain
+/// `f64` with no `None` arm to say so. Callers that source activities from a
+/// bounded store must check they actually hold this depth before `from`.
+pub const CTL_WARMUP_MARGIN_DAYS: i64 = 30;
+
+/// Days of history that must precede `from` for that day's CTL/ATL/TSB to be
+/// honest, given the configured chronic window.
+#[must_use]
+pub const fn warmup_days(ctl_window_days: i64) -> i64 {
+    ctl_window_days + CTL_WARMUP_MARGIN_DAYS
+}
+
 /// Per-user physiology inputs for TSS computation.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AthleteInputs {
@@ -68,9 +84,13 @@ pub struct AthleteInputs {
 
 /// Build a dense series of [`DailyTrainingState`] rows for `[from, to]`.
 ///
-/// `activities` may extend before `from` — this is desirable because the
-/// 42-day CTL window needs warm-up data to converge. Activities outside
-/// `[from - 60d, to]` are dropped to bound compute.
+/// `activities` may extend before `from` — this is required, not merely
+/// desirable, because the CTL window needs warm-up data to converge. Activities
+/// outside `[from - warmup_days(ctl_window_days), to]` are dropped to bound
+/// compute; at the default 42-day chronic window that lower bound is 72 days
+/// before `from`. A caller supplying less than that gets a series warmed from a
+/// zero seed, which reads as a real chronic load and is wrong low — see
+/// [`warmup_days`].
 ///
 /// The output has one row per calendar day in `[from, to]` even when
 /// `daily_load == 0` (rest day). Days with insufficient history for a
@@ -98,7 +118,7 @@ pub fn compute_training_history(
     let atl_window_days = algorithm_config.params.training_load_atl_days;
 
     // Anchor the warm-up window so CTL/ATL EMAs converge before `from`.
-    let warmup = from - Duration::days(ctl_window_days + 30);
+    let warmup = from - Duration::days(warmup_days(ctl_window_days));
     // Bucket on the athlete's civil day, not the server's. A 21:00
     // America/Toronto session lands on the next UTC date, which shifted the
     // whole per-day series one day against the athlete's own calendar and made

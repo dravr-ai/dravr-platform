@@ -25,6 +25,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, TimeZone, Utc};
+use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_providers::core::ActivityQueryParams;
@@ -39,6 +40,9 @@ use crate::activity_fetch::{
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
+use crate::training_history_compute::{
+    compute_and_persist_history, default_window, TrainingHistoryComputed,
+};
 
 /// Default age (days) past which an activity request is served via background
 /// backfill instead of an inline provider scrape.
@@ -486,7 +490,51 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
     );
 
     notify_backfill_complete(job, activity_count).await;
+    warm_training_history(job).await;
     BackfillRunOutcome::Completed
+}
+
+/// Recompute the athlete's daily training-state rollup now that deeper rows
+/// have landed.
+///
+/// `compute_and_persist_history` was the rollup's only writer, and the coach
+/// only ever called it on demand — so `training_history` was as fresh as the
+/// last time someone happened to ask, which in production was twice in sixty
+/// days. It sits here because this is the moment the durable cache changes, and
+/// because reading that cache plus the pure EMA costs milliseconds now that the
+/// compute does no provider I/O of its own.
+///
+/// Warms the default window on every capture that persisted rows, rather than
+/// only deep ones: the rollup a coach reads is that window, and a shallow
+/// capture still moves its most recent days.
+///
+/// Best-effort — the capture already succeeded, and a rollup that fails to warm
+/// costs one on-demand recompute, never the rows just written. The compute's own
+/// request for missing depth is a no-op from here: this job still holds the
+/// in-flight `(user, provider)` claim, so [`spawn_activity_backfill`] declines
+/// the duplicate.
+async fn warm_training_history(job: &ActivityBackfillJob) {
+    match warm_default_window(job).await {
+        Ok(computed) => info!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            rows_upserted = computed.rows_upserted,
+            complete = computed.is_complete(),
+            "Activity backfill: warmed the training-history rollup"
+        ),
+        Err(e) => info!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            error = %e,
+            "Activity backfill: rollup warm failed"
+        ),
+    }
+}
+
+/// Resolve the athlete's default window and recompute it from the cache.
+async fn warm_default_window(job: &ActivityBackfillJob) -> AppResult<TrainingHistoryComputed> {
+    let (from, to) = default_window(&job.resources, job.user_id).await?;
+    compute_and_persist_history(&job.resources, job.tenant_id, job.user_id, from, to).await
 }
 
 /// Write the scraped historical activities through to the durable cache and

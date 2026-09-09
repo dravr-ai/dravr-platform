@@ -54,9 +54,23 @@ const STALE_FALLBACK_WINDOW_DAYS: i64 = 90;
 const STALE_FALLBACK_LIMIT: i64 = 500;
 
 /// Default retention + read window (days) for the provider-agnostic activity
-/// cache when `PIERRE_ACTIVITY_CACHE_RETENTION_DAYS` is unset. Exceeds the
-/// training-load lookback so cached reads always cover CTL/ATL/TSB.
-const DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS: i64 = 90;
+/// cache when `PIERRE_ACTIVITY_CACHE_RETENTION_DAYS` is unset.
+///
+/// Sized so a cached read covers the training-load default window *and its
+/// CTL warm-up*: `DEFAULT_BACKFILL_DAYS` (90) plus `warmup_days(42)` (72) is
+/// 162 days, and `AthleteMetrics` asks for a 180-day lookback. At the previous
+/// 90 both were silently truncated — the compute got a series warmed from a
+/// zero seed and `recent_tsb` was read off a half-warmed curve.
+///
+/// LIMITATION(registre#408): `DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS` covers the
+/// default 90-day training-history window plus its 72-day CTL warm-up, not every
+/// window `compute_and_persist_history` accepts — `MAX_BACKFILL_DAYS` is 365,
+/// which would need 437 days retained. A deeper ask is answered as partial
+/// coverage and re-requests a capture, because the prune in
+/// `write_through_activity_cache` is keyed per `(user, tenant)` across all
+/// providers, so a later narrow writer prunes a deep backfill's rows back to
+/// this floor while `backfill_coverage.oldest_reached_ts` still claims them.
+const DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS: i64 = 180;
 
 /// Resolve the activity-cache retention window (days) from the environment,
 /// falling back to [`DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS`]. This is both the

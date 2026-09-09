@@ -110,6 +110,10 @@ fn compute_training_history_reports_the_window_it_actually_used() {
         from: "2026-08-01".to_owned(),
         to: "2026-08-31".to_owned(),
         rows_upserted: 0,
+        requested_from: "2026-08-01".to_owned(),
+        complete: true,
+        coverage_note: None,
+        capture_requested: false,
     })
     .expect("serializes");
     assert!(
@@ -117,7 +121,33 @@ fn compute_training_history_reports_the_window_it_actually_used() {
         "a window with nothing in it must still validate:\n{empty_window:#}"
     );
 
-    for required in ["from", "to", "rows_upserted"] {
+    // A partial answer carries the days it could NOT stand behind, and the
+    // instruction not to invent them. `from` later than `requested_from` is the
+    // whole signal — a coach reading only `rows_upserted` cannot tell a short
+    // window from a rest week.
+    let partial_window = serde_json::to_value(ComputeTrainingHistoryResult {
+        from: "2026-07-23".to_owned(),
+        to: "2026-08-31".to_owned(),
+        rows_upserted: 40,
+        requested_from: "2026-06-02".to_owned(),
+        complete: false,
+        coverage_note: Some("Cite CTL/ATL/TSB only for 2026-07-23 onward.".to_owned()),
+        capture_requested: true,
+    })
+    .expect("serializes");
+    assert!(
+        validator.is_valid(&partial_window),
+        "a partially-covered window must validate:\n{partial_window:#}"
+    );
+
+    for required in [
+        "from",
+        "to",
+        "rows_upserted",
+        "requested_from",
+        "complete",
+        "capture_requested",
+    ] {
         let mut partial = empty_window.clone();
         partial.as_object_mut().expect("object").remove(required);
         assert!(

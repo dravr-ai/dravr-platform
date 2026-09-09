@@ -9,7 +9,7 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
+use chrono::{Duration as ChronoDuration, NaiveDate};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::WorkoutFilter;
 use pierre_core::models::{Activity, DailyTrainingState, Dossier, TenantId, WorkoutTemplate};
@@ -26,9 +26,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::training_history_compute::{
-    compute_and_persist_history, fetch_history_rows, DEFAULT_BACKFILL_DAYS,
-};
 use crate::tools::runtime_adapter::into_runtime;
 use pierre_config::environment::default_provider;
 use pierre_middleware::extractors::AuthenticatedUser;
@@ -36,6 +33,9 @@ use pierre_tool_runtime::protocol::provider_helpers::{
     fetch_activities_from_provider, fetch_activity_from_provider,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::training_history_compute::{
+    compute_and_persist_history, default_window, fetch_history_rows, DEFAULT_BACKFILL_DAYS,
+};
 
 /// Lower bound on the analysis window — defended in addition to the
 /// `clamp` inside [`build_latest_snapshot`] so the API surface and the
@@ -260,7 +260,12 @@ async fn get_history(
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
 
-    let to = query.to.unwrap_or_else(|| Utc::now().date_naive());
+    // The athlete's civil day, not the server's — the rollup buckets on theirs,
+    // and a UTC-dated bound drops the session they just finished for every zone
+    // ahead of UTC (registre#260).
+    let runtime = into_runtime(&resources);
+    let (_, athlete_today) = default_window(&runtime, user_id).await?;
+    let to = query.to.unwrap_or(athlete_today);
     let from = query
         .from
         .unwrap_or_else(|| to - ChronoDuration::days(DEFAULT_BACKFILL_DAYS));
@@ -275,12 +280,12 @@ async fn get_history(
 
     let mut rows = fetch_history_rows(&resources.data(), tenant_id, user_id, from, to).await?;
     if rows.is_empty() {
-        // Cold start: no rows persisted yet for this user. Trigger an
-        // on-demand compute for the same window so the next call hits
-        // the persisted rollup.
-        let _ =
-            compute_and_persist_history(&into_runtime(&resources), tenant_id, user_id, from, to)
-                .await?;
+        // Cold start: no rows persisted yet for this user. Compute from the
+        // durable activity cache — a read plus pure arithmetic, no provider —
+        // so the next call hits the persisted rollup. This used to run the same
+        // live 500-activity scrape the MCP tool did, synchronously, inside this
+        // handler and with no timeout around it at all.
+        compute_and_persist_history(&runtime, tenant_id, user_id, from, to).await?;
         rows = fetch_history_rows(&resources.data(), tenant_id, user_id, from, to).await?;
     }
     Ok(Json(HistoryResponse {

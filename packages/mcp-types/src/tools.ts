@@ -511,7 +511,7 @@ export interface ComputeTrainingHistoryParams {
   /** Inclusive start of the window (ISO date YYYY-MM-DD). Defaults to 90 days before `to` when omitted. */
   from?: string;
 
-  /** Inclusive end of the window (ISO date YYYY-MM-DD). Defaults to today (UTC). */
+  /** Inclusive end of the window (ISO date YYYY-MM-DD). Defaults to today in the athlete's own timezone. */
   to?: string;
 }
 
@@ -1068,7 +1068,7 @@ export interface GetTrainingHistoryParams {
   /** Inclusive start of the window (ISO date YYYY-MM-DD). Defaults to 90 days before `to` when omitted. */
   from?: string;
 
-  /** Inclusive end of the window (ISO date YYYY-MM-DD). Defaults to today (UTC). */
+  /** Inclusive end of the window (ISO date YYYY-MM-DD). Defaults to today in the athlete's own timezone. */
   to?: string;
 }
 

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
     DailyTrainingState, FormBand, FormInterpretation, FormReading, TenantId,
@@ -16,10 +16,8 @@ use pierre_core::models::{
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use serde::Serialize;
 use serde_json::Value;
+use uuid::Uuid;
 
-use crate::services::training_history_compute::{
-    compute_and_persist_history, fetch_history_rows, DEFAULT_BACKFILL_DAYS,
-};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
@@ -31,6 +29,10 @@ use pierre_tool_runtime::conversions::{
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
+use pierre_tool_runtime::training_history_compute::{
+    compute_and_persist_history, default_window, fetch_history_rows, HistoryCoverage,
+    TrainingHistoryComputed, DEFAULT_BACKFILL_DAYS,
+};
 use pierre_tools_core::ToolResult;
 
 /// One day of training state, with its form reading attached.
@@ -75,14 +77,75 @@ pub struct TrainingHistoryResult {
 /// caller may have passed none and taken the default, and `rows_upserted` is
 /// how a coach knows whether the recompute actually had days to work with —
 /// zero is a valid answer for a window the athlete did not train in.
+///
+/// `from` is the window actually computed, which is later than `requested_from`
+/// when stored history could not warm the whole ask. Both are reported because
+/// `ctl`/`atl`/`tsb` are plain floats seeded at zero: a day computed without its
+/// CTL warm-up behind it carries a chronic load that is wrong low and looks
+/// exactly like a real one, so the coach has to be told which days exist rather
+/// than inferring it from a row count.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ComputeTrainingHistoryResult {
-    /// First day of the window recomputed, as `YYYY-MM-DD`.
+    /// First day actually recomputed, as `YYYY-MM-DD`.
     pub from: String,
     /// Last day of the window, inclusive.
     pub to: String,
     /// How many daily rows were written or overwritten.
     pub rows_upserted: usize,
+    /// First day the caller asked for, as `YYYY-MM-DD`. Differs from `from`
+    /// when stored history was too shallow to warm the whole window.
+    pub requested_from: String,
+    /// Whether every requested day was backed by enough stored history.
+    pub complete: bool,
+    /// What the coach may and may not claim when coverage fell short. `None`
+    /// when the whole window was computed.
+    pub coverage_note: Option<String>,
+    /// Whether a background capture of the missing history was started.
+    pub capture_requested: bool,
+}
+
+impl From<TrainingHistoryComputed> for ComputeTrainingHistoryResult {
+    fn from(c: TrainingHistoryComputed) -> Self {
+        Self {
+            from: c.from.format("%Y-%m-%d").to_string(),
+            to: c.to.format("%Y-%m-%d").to_string(),
+            rows_upserted: c.rows_upserted,
+            requested_from: c.requested_from.format("%Y-%m-%d").to_string(),
+            complete: c.is_complete(),
+            coverage_note: coverage_note(&c),
+            capture_requested: c.capture_requested,
+        }
+    }
+}
+
+/// The instruction a coach needs when the stored history could not cover the ask.
+///
+/// Says what is missing and forbids estimating it. A fitness number the athlete
+/// cannot trace to their own training is worse than an admission that it is
+/// still being fetched.
+fn coverage_note(c: &TrainingHistoryComputed) -> Option<String> {
+    let fetching = if c.capture_requested {
+        " Their history is being fetched in the background; say so."
+    } else {
+        ""
+    };
+    match c.coverage {
+        HistoryCoverage::Complete => None,
+        HistoryCoverage::NoStoredActivities => Some(format!(
+            "No stored activities cover {} to {}, so no CTL/ATL/TSB rows were \
+             computed and no fitness figure exists for this athlete yet. Do not \
+             estimate one and do not describe their chronic load. Answer from \
+             the activities you can actually see.{fetching}",
+            c.requested_from, c.to
+        )),
+        HistoryCoverage::Partial { trustworthy_from } => Some(format!(
+            "Stored history only reaches back far enough to compute from {} \
+             onward, so days between {} and {} have no rows and no fitness \
+             figure. Cite CTL/ATL/TSB only for {} onward, and do not infer \
+             values for the earlier part of the window.{fetching}",
+            trustworthy_from, c.requested_from, trustworthy_from, trustworthy_from
+        )),
+    }
 }
 
 fn read_only_annotations() -> ToolAnnotations {
@@ -123,8 +186,20 @@ fn parse_date(args: &Value, key: &str) -> AppResult<Option<NaiveDate>> {
         .map_err(|e| AppError::invalid_input(format!("{key} must be YYYY-MM-DD: {e}")))
 }
 
-fn resolve_window(args: &Value) -> AppResult<(NaiveDate, NaiveDate)> {
-    let to = parse_date(args, "to")?.unwrap_or_else(|| Utc::now().date_naive());
+/// Resolve `[from, to]` from the tool arguments, defaulting to the athlete's
+/// own civil day.
+///
+/// `to` defaults to today *where the athlete is*, not where the server is: the
+/// rollup buckets each activity on their civil date, so a UTC-dated bound put
+/// their current local day past `to` for every zone ahead of UTC and dropped
+/// the session they had just finished (registre#260).
+async fn resolve_window(
+    resources: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    args: &Value,
+) -> AppResult<(NaiveDate, NaiveDate)> {
+    let (_, athlete_today) = default_window(resources, user_id).await?;
+    let to = parse_date(args, "to")?.unwrap_or(athlete_today);
     let from =
         parse_date(args, "from")?.unwrap_or_else(|| to - Duration::days(DEFAULT_BACKFILL_DAYS));
     if to < from {
@@ -157,7 +232,8 @@ fn date_range_schema() -> JsonSchema {
         PropertySchema {
             property_type: "string".to_owned(),
             description: Some(
-                "Inclusive end of the window (ISO date YYYY-MM-DD). Defaults to today (UTC)."
+                "Inclusive end of the window (ISO date YYYY-MM-DD). Defaults to today in the \
+                 athlete's own timezone."
                     .to_owned(),
             ),
             ..Default::default()
@@ -213,17 +289,13 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
         let result: AppResult<ToolResult> = async move {
             let tenant_id = require_tenant(&context)?;
             let user_id = context.user_id;
-            let (from, to) = resolve_window(&args)?;
-            let count =
+            let (from, to) = resolve_window(&context.resources, user_id, &args).await?;
+            let computed =
                 compute_and_persist_history(&context.resources, tenant_id, user_id, from, to)
                     .await?;
             ok_typed(
                 "compute_training_history",
-                ComputeTrainingHistoryResult {
-                    from: from.format("%Y-%m-%d").to_string(),
-                    to: to.format("%Y-%m-%d").to_string(),
-                    rows_upserted: count,
-                },
+                ComputeTrainingHistoryResult::from(computed),
             )
         }
         .await;
@@ -274,7 +346,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
         let result: AppResult<ToolResult> = async move {
             let tenant_id = require_tenant(&context)?;
             let user_id = context.user_id;
-            let (from, to) = resolve_window(&args)?;
+            let (from, to) = resolve_window(&context.resources, user_id, &args).await?;
             let rows =
                 fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
 
