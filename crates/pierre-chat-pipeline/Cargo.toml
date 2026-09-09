@@ -52,7 +52,7 @@ pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context"
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-sse = { version = "0.3.0", path = "../pierre-sse" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime", features = ["client-chat", "tools-connection"] }
-dravr-tronc = "1.1.0"
+dravr-tronc = { workspace = true }
 
 # Optional crates (feature-gated)
 pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true }
@@ -76,7 +76,7 @@ jsonschema = { version = "0.46.5", default-features = false }
 # Assets crate (git): provides the structured-workout schema for the
 # extraction/validation stage test. Redirected to the local checkout by the
 # workspace [patch] during co-development.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "fa1a8105bda8298e23cf13e274169eb8bc981d76" }
+dravr-contremaitre = { workspace = true }
 
 [lints]
 workspace = true

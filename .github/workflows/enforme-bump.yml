@@ -113,9 +113,9 @@ jobs:
           fi
 
           CUR_ENFORME=$(grep -oE 'dravr-enforme = \{ version = "[^"]+", git = "[^"]+", tag = "v[0-9]+\.[0-9]+\.[0-9]+"' \
-                          crates/pierre-enforme/Cargo.toml | grep -oE 'tag = "v[0-9.]+"' | grep -oE 'v[0-9.]+' | head -1)
+                          Cargo.toml | grep -oE 'tag = "v[0-9.]+"' | grep -oE 'v[0-9.]+' | head -1)
           CUR_SCIOTTE=$(grep -oE 'dravr-sciotte = \{ git = "[^"]+", tag = "v[0-9]+\.[0-9]+\.[0-9]+"' \
-                          crates/pierre-providers/Cargo.toml | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+                          Cargo.toml | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           if [ -z "${CUR_ENFORME}" ] || [ -z "${CUR_SCIOTTE}" ]; then
             echo "::error::could not read the current pins (enforme='${CUR_ENFORME}' sciotte='${CUR_SCIOTTE}') — a line shape changed"
             exit 1
@@ -162,8 +162,8 @@ jobs:
           # Auto-discover consumers rather than hardcoding them, for the reason
           # contremaitre-bump learned: a hardcoded list left one crate behind, which put
           # two revs of one dependency in the lock and hard-failed the Security Audit.
-          SCIOTTE_MANIFESTS=$(grep -rl 'dravr-sciotte = { git' crates/ --include=Cargo.toml)
-          ENFORME_MANIFESTS=$(grep -rl 'dravr-enforme = { version' crates/ --include=Cargo.toml)
+          SCIOTTE_MANIFESTS=$(grep -rl 'dravr-sciotte = { git' crates/ Cargo.toml --include=Cargo.toml)
+          ENFORME_MANIFESTS=$(grep -rl 'dravr-enforme = { version' crates/ Cargo.toml --include=Cargo.toml)
           if [ -z "${SCIOTTE_MANIFESTS}" ] || [ -z "${ENFORME_MANIFESTS}" ]; then
             echo "::error::no manifest pins dravr-sciotte or dravr-enforme — workflow assumption broke"
             exit 1
@@ -233,7 +233,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "${BRANCH}"
-          git add $(grep -rl 'dravr-sciotte = { git\|dravr-enforme = { version' crates/ --include=Cargo.toml) Cargo.lock
+          git add $(grep -rl 'dravr-sciotte = { git\|dravr-enforme = { version' crates/ Cargo.toml --include=Cargo.toml) Cargo.lock
           git commit -m "chore(deps): bump dravr-enforme to ${ENFORME} and dravr-sciotte to ${{ needs.resolve.outputs.sciotte }}"
           git push --force-with-lease origin "${BRANCH}"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"

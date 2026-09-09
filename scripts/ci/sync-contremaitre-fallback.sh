@@ -57,7 +57,7 @@ CHECK_ONLY=0
 # Resolve the canonical trees out of the PINNED rev, never "whatever is newest".
 # The pin is the contract the rest of the checks read, so syncing against a
 # different rev would swap one drift for another.
-PINNED="$(grep -h 'dravr-contremaitre = { git' crates/*/Cargo.toml \
+PINNED="$(grep -h 'dravr-contremaitre = { git' crates/*/Cargo.toml Cargo.toml \
           | grep -oE 'rev = "[a-f0-9]{7,40}"' | grep -oE '[a-f0-9]{7,40}' | sort -u)"
 if [ "$(printf '%s\n' "$PINNED" | wc -l | tr -d ' ')" != "1" ] || [ -z "$PINNED" ]; then
     echo "❌ consumers disagree on the dravr-contremaitre rev, or none pins it:" >&2

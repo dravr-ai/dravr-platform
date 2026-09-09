@@ -1,0 +1,62 @@
+# ABOUTME: Fails when a dravr-* satellite pin trails a release nobody moves it onto
+# ABOUTME: Scheduled + dispatch while cageux is behind; promotes to a push gate once it is current
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# dravr-cageux shipped v0.12.0 through v0.18.0 on 8-9 September 2026 while this repo
+# stayed on v0.13.0, and nothing was red for a week. Security: Dependency Audit could
+# not have caught it — `cargo upgrade --dry-run` reads crates.io and says nothing
+# about a `git`+`tag` pin — and cageux, canot, commere and meteo have no bump lane at
+# all, so no automation was watching them either.
+#
+# Why this is not on `push` yet. The scan is honest about the fleet as it stands, and
+# the fleet has one real drift: cageux is five releases behind and the bump is not
+# pin-only — v0.18.0 added fields to PhaseTargets, WeekInput and the peaks pattern
+# that pierre-tool-runtime must fill in with real values, which is training-science
+# work rather than a rewrite of a version string. Arming this as a push gate today
+# would red main for every session over a known task nobody can fix in passing. It
+# runs daily and on demand until that lands, then moves to push — the criterion is
+# in feature-phases.yaml so it cannot quietly stay here, and the work itself is
+# carnet#422.
+#
+# An exemption list was the other option and is the wrong one: this repo deletes
+# KNOWN_OFFENDERS arrays on sight, because a gate that carries its own exceptions
+# stops measuring the thing it was built for.
+
+name: "Monitor: Satellite Pin Drift"
+
+on:
+  schedule:
+    # 07:13 UTC. Off the top of the hour — GitHub drops cron at :00 under load.
+    - cron: "13 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: satellite-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Check satellite pins against their releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # The script exits 1 on drift and 2 when it verified nothing, and prints its
+      # own evidence either way. The step gates on that status directly rather than
+      # grepping the output: a scan that crashed prints no finding, which reads
+      # identical to a scan that found none.
+      - name: check-satellite-drift.sh
+        env:
+          # NOT secrets.GITHUB_TOKEN. The default Actions token is scoped to this
+          # repository, and every satellite it reads is private, so each releases
+          # call would 404 — the scan would fail closed on all ten pins and read as
+          # total drift on its first run. DRAVR_PRIVATE_DEPS_TOKEN is the same
+          # secret contremaitre-bump, enforme-bump and photograveur-bump already
+          # pass as GH_TOKEN for exactly this kind of cross-repo read.
+          GITHUB_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+        run: scripts/ci/check-satellite-drift.sh

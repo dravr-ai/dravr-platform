@@ -63,7 +63,7 @@ jobs:
           # rev -> two dravr-contremaitre revs -> Security Audit duplicate
           # hard-fail on main. Discovery means a new consumer crate is bumped
           # automatically the moment it pins the dep.
-          MANIFESTS=$(grep -rl 'dravr-contremaitre = { git' crates/ --include=Cargo.toml)
+          MANIFESTS=$(grep -rl 'dravr-contremaitre = { git' crates/ Cargo.toml --include=Cargo.toml)
           if [ -z "${MANIFESTS}" ]; then
             echo "::error::no Cargo.toml pins dravr-contremaitre — workflow assumption broke"
             exit 1
@@ -141,7 +141,7 @@ jobs:
           # Stage the manifests, the lockfile, AND whatever the fallback sync
           # rewrote — the pin and the fallbacks it implies travel together or the
           # commit reintroduces the drift it was meant to close.
-          git add $(grep -rl 'dravr-contremaitre = { git' crates/ --include=Cargo.toml) Cargo.lock \
+          git add $(grep -rl 'dravr-contremaitre = { git' crates/ Cargo.toml --include=Cargo.toml) Cargo.lock \
                   crates/pierre-evals/fixtures/sports_science \
                   crates/pierre-services/src/claim_verification.rs \
                   training_catalogue \

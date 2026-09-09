@@ -850,7 +850,7 @@ if [ -n "$CANOT_MANIFEST" ] && [ -f "$CANOT_MANIFEST" ]; then
     CANOT_SRC="$(dirname "$CANOT_MANIFEST")/src"
 else
     CANOT_TAG="$(rg -o 'dravr-canot = \{ git = "[^"]+", tag = "([^"]+)"' -r '$1' \
-        crates/pierre-core/Cargo.toml 2>/dev/null | head -1)"
+        Cargo.toml 2>/dev/null | head -1)"
     if [ -n "$CANOT_TAG" ]; then
         CANOT_CACHE="${TMPDIR:-/tmp}/dravr-canot-$CANOT_TAG"
         if [ ! -d "$CANOT_CACHE/src" ]; then

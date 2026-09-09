@@ -118,20 +118,20 @@ embacle = { version = "0.25.3", optional = true }
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core only re-exports types/errors — channel adapters enabled via pierre-messaging
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.28" }
+dravr-canot = { workspace = true }
 
 # Standalone sports science intelligence engine (dravr-cageux)
 # pierre-core re-exports Activity, SportType, and intelligence types
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.13.0" }
+dravr-cageux = { workspace = true }
 
 # Health and wellness domain models with composition-based provider traits
-dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.8" }
+dravr-equilibre = { workspace = true }
 
 # Standalone Stripe billing capability — gated behind the `billing-stripe`
 # feature so the trait-only `billing` feature stays vendor-free. The
 # StripeProvider adapter in src/billing/stripe.rs maps these types onto the
 # BillingProvider trait DTOs.
-dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.14", optional = true }
+dravr-stripe = { workspace = true, optional = true }
 
 # SHA-256 for system-prompt fingerprinting (safety::prompt_fingerprint) and
 # admin JWT hashing. Non-optional because prompt fingerprinting is part of

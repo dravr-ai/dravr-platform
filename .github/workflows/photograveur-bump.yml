@@ -145,7 +145,7 @@ jobs:
           # behind, which put two revs of the same dependency in Cargo.lock and
           # hard-failed the Security Audit on main. Only pierre-server pins
           # photograveur today; discovery bumps the second consumer the day it exists.
-          MANIFESTS=$(grep -rl 'photograveur = { git' crates/ --include=Cargo.toml)
+          MANIFESTS=$(grep -rl 'photograveur = { git' crates/ Cargo.toml --include=Cargo.toml)
           if [ -z "${MANIFESTS}" ]; then
             echo "::error::no Cargo.toml pins photograveur — workflow assumption broke"
             exit 1
@@ -233,7 +233,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "${BRANCH}"
-          git add $(grep -rl 'photograveur = { git' crates/ --include=Cargo.toml) Cargo.lock
+          git add $(grep -rl 'photograveur = { git' crates/ Cargo.toml --include=Cargo.toml) Cargo.lock
           git add -A packages/scene-types
           git commit -m "chore(photograveur): bump photograveur to ${VERSION}"
           git push --force-with-lease origin "${BRANCH}"

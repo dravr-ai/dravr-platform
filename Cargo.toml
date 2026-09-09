@@ -3,6 +3,66 @@ resolver = "2"
 members = ["crates/*"]
 
 # ============================================================================
+# Workspace Dependencies
+# ============================================================================
+#
+# Every dravr-* dependency is declared once, here, and inherited by members
+# with `{ workspace = true }`. Before this table each pin was repeated at every
+# crate that used it -- dravr-tronc at nine sites, cageux, sciotte and
+# contremaitre at three each -- so "bump the X pin" was never one edit, and a
+# half-moved pin either trips the duplicate-version gate or silently keeps the
+# old revision alive in crates nobody remembered to change.
+#
+# Members may still add `features` (they are unioned with whatever is set here)
+# and `optional`, so per-crate feature sets are unchanged by the move.
+#
+# dravr-equilibre appears twice on purpose: pierre-server and pierre-services
+# take it under the alias `dravr-equilibre-sync`, and a rename has to be spelled
+# in this table because `package` is not allowed beside `workspace = true`.
+
+[workspace.dependencies]
+# Shared server/MCP foundation. From crates.io; every consumer moves in lockstep
+# because two tronc versions in the lockfile hard-fail the duplicate gate.
+dravr-tronc = "1.1.0"
+
+# Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.13.0" }
+
+# Messaging types and channel adapters.
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.28" }
+
+# Notification transport.
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.3.3" }
+
+# Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
+# rather than tag; contremaitre-bump.yml advances it.
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "fa1a8105bda8298e23cf13e274169eb8bc981d76" }
+
+# Health provider sync. default-features off so pierre-enforme's own
+# provider-* features select the backends.
+dravr-enforme = { version = "0.1.56", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.1.56", default-features = false }
+
+# Health and wellness domain models.
+dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.8" }
+dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.8" }
+
+# Weather vendor logic.
+dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.1.1" }
+
+# Chart geometry: resolves a persisted dravr-viz spec into a Scene.
+photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.3.1" }
+
+# Time-series storage backend.
+dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.4" }
+
+# Provider capture. Moves with dravr-enforme, which pins it too -- see
+# enforme-bump.yml for why the two pins can never move apart.
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.12.0" }
+
+# Billing capability, gated behind the billing-stripe feature.
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.14" }
+
+# ============================================================================
 # Build Profiles
 # ============================================================================
 

@@ -67,3 +67,8 @@ features:
   # from a real get_activities call). The surface is armed, so it is no longer a
   # dark launch; which agents carry the grant is per-agent product
   # configuration in contremaitre, not a disarmed platform feature.
+  - name: satellite-drift-gate-scheduled
+    surface: .github/workflows/satellite-drift.yml
+    current: runs on schedule and dispatch only — scripts/ci/check-satellite-drift.sh is complete and fails on real drift, but is not on any push lane while dravr-cageux is five releases behind
+    advance_when: the dravr-cageux pin reaches its latest release and the scan is clean, then move the workflow onto push and drop the schedule
+    review_by: 2026-10-15

@@ -53,7 +53,7 @@ fi
 # A CARGO_HOME shaped the way cargo shapes one, holding canonical trees we
 # control. Seeded from the committed fallbacks, so both mirrors start in sync
 # and every case below is the ONLY difference.
-PINNED="$(grep -h 'dravr-contremaitre = { git' "$REPO_ROOT"/crates/*/Cargo.toml \
+PINNED="$(grep -h 'dravr-contremaitre = { git' "$REPO_ROOT"/crates/*/Cargo.toml "$REPO_ROOT"/Cargo.toml \
           | grep -oE 'rev = "[a-f0-9]{7,40}"' | grep -oE '[a-f0-9]{7,40}' | sort -u | head -1)"
 FAKE_HOME="$(mktemp -d)"
 CHECKOUT="$FAKE_HOME/git/checkouts/dravr-contremaitre-0000000000000000/${PINNED:0:7}"
@@ -343,7 +343,7 @@ fi
 # Syncing against "whichever rev I read first" would swap one drift for another,
 # silently. The recurring pierre-chat-pipeline skew this lane's own comments
 # describe is exactly that state, so the branch is reachable.
-skew_manifest="$(grep -rl 'dravr-contremaitre = { git' "$REPO_ROOT"/crates --include=Cargo.toml | head -1)"
+skew_manifest="$(grep -rl 'dravr-contremaitre = { git' "$REPO_ROOT"/crates "$REPO_ROOT"/Cargo.toml --include=Cargo.toml | head -1)"
 sed -i.bak -E 's|(dravr-contremaitre = \{ git = "[^"]+", rev = ")[a-f0-9]{7,40}"|\1deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"|' "$skew_manifest"
 rm -f "${skew_manifest}.bak"
 "$UNDER_TEST" --check >/dev/null 2>&1
