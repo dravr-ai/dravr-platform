@@ -437,7 +437,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AppError::invalid_input("Missing required parameter: coach_id".to_owned())
+                    AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
             let manager = ctx.resources.coaches_manager();
@@ -569,7 +569,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AppError::invalid_input("Missing required parameter: coach_id".to_owned())
+                    AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
             let update_request = UpdateCoachRequest {
@@ -698,7 +698,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AppError::invalid_input("Missing required parameter: coach_id".to_owned())
+                    AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
             let manager = ctx.resources.coaches_manager();
@@ -789,7 +789,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AppError::invalid_input("Missing required parameter: coach_id".to_owned())
+                    AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
             let target_user_id_str =
@@ -898,7 +898,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AppError::invalid_input("Missing required parameter: coach_id".to_owned())
+                    AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
             let target_user_id_str =

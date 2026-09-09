@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use super::sport_type_alias::sport_family_head;
 use super::SportType;
 
 /// The family a session belongs to, for questions that care whether an
@@ -28,15 +29,23 @@ pub enum SportFamily {
 
 impl SportFamily {
     /// The family of a provider sport type.
+    ///
+    /// Which disciplines belong to a family is not decided here. It is decided
+    /// once, by [`sport_family_head`], and this resolves through it: a sport
+    /// with a head takes the head's family, and a sport that is its own head
+    /// answers for itself. So a terrain or virtual variant added to a family
+    /// folds in here without this function being touched.
+    ///
+    /// It used to carry its own membership list, which drifted the moment the
+    /// two were edited apart — `TrailRunning` was folded into `Run` by the
+    /// pairing and left in `Other` by this copy, so a trail runner reached the
+    /// flavour rule as `SportMix::Mixed` (carnet#418).
     #[must_use]
-    pub const fn of(sport: &SportType) -> Self {
-        match sport {
-            SportType::Run | SportType::VirtualRun => Self::Running,
-            SportType::Ride
-            | SportType::VirtualRide
-            | SportType::EbikeRide
-            | SportType::MountainBike
-            | SportType::GravelRide => Self::Cycling,
+    pub fn of(sport: &SportType) -> Self {
+        let head = sport_family_head(sport);
+        match head.as_ref().unwrap_or(sport) {
+            SportType::Run => Self::Running,
+            SportType::Ride => Self::Cycling,
             SportType::Swim => Self::Swimming,
             _ => Self::Other,
         }
@@ -60,7 +69,7 @@ impl SportFamily {
 
 #[cfg(test)]
 mod tests {
-    use super::SportFamily;
+    use super::{sport_family_head, SportFamily};
     use crate::models::SportType;
 
     #[test]
@@ -78,6 +87,48 @@ mod tests {
             SportFamily::Running
         );
         assert_eq!(SportFamily::of(&SportType::Hike), SportFamily::Other);
+    }
+
+    #[test]
+    fn a_trail_run_is_running() {
+        // carnet#418: this arm was missing while the cycling terrain variants
+        // beside it were present, so a trail runner's primary sport reached
+        // the flavour rule as Mixed and their sessions read as multi-sport.
+        assert_eq!(
+            SportFamily::of(&SportType::TrailRunning),
+            SportFamily::Running
+        );
+        assert_eq!(
+            SportFamily::distinct(&[SportType::Run, SportType::TrailRunning]),
+            1,
+            "road and trail sessions are one athlete training one sport"
+        );
+    }
+
+    #[test]
+    fn every_sport_with_a_head_shares_that_head_s_family() {
+        // The invariant that makes the membership list single-source: this
+        // holds by construction now, and would fail loudly if `of` ever grew
+        // its own list again.
+        for (sport, head) in [
+            (SportType::TrailRunning, SportType::Run),
+            (SportType::VirtualRun, SportType::Run),
+            (SportType::MountainBike, SportType::Ride),
+            (SportType::GravelRide, SportType::Ride),
+            (SportType::EbikeRide, SportType::Ride),
+            (SportType::VirtualRide, SportType::Ride),
+        ] {
+            assert_eq!(
+                sport_family_head(&sport),
+                Some(head.clone()),
+                "{sport:?} folds into {head:?}"
+            );
+            assert_eq!(
+                SportFamily::of(&sport),
+                SportFamily::of(&head),
+                "{sport:?} must land in the same family as its head {head:?}"
+            );
+        }
     }
 
     #[test]

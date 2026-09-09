@@ -421,7 +421,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
             let coach_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
             let manager = ctx.resources.coaches_manager();
             let coach = manager
@@ -539,7 +539,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
             let coach_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
             let update_request = UpdateCoachRequest {
                 title: args
@@ -655,7 +655,7 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
             let coach_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
             let manager = ctx.resources.coaches_manager();
             let deleted = manager
@@ -733,7 +733,7 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
             let coach_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
             let manager = ctx.resources.coaches_manager();
             let is_favorite = manager
@@ -918,7 +918,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
             let coach_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
             let manager = ctx.resources.coaches_manager();
             let coach = manager
@@ -1106,7 +1106,7 @@ impl McpTool<dyn ToolRuntime> for HideCoachTool {
         let coach_id = args
             .get("agent_id")
             .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+            .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
         let manager = ctx.resources.coaches_manager();
         let success = manager
@@ -1185,7 +1185,7 @@ impl McpTool<dyn ToolRuntime> for ShowCoachTool {
             let coach_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
             let manager = ctx.resources.coaches_manager();
             let success = manager

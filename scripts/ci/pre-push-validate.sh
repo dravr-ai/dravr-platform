@@ -469,6 +469,30 @@ fi
 # ~30 codes whose messages are replaced. This tier diffs the construction sites
 # in src against the reviewed inventory, so a new refusal fails the push until
 # someone reads it, and a stale inventory line cannot outlive its site.
+# ============================================================================
+# A tool's rejection message reaches the model verbatim, so one naming a
+# parameter the schema does not carry tells the caller to retry with a key that
+# will never be accepted. Two shapes produce it, and neither reds anything:
+# a handler that hard-requires an undeclared parameter fails every
+# schema-following caller on every call (detect_patterns required pattern_type
+# while declaring nothing), and a rename that moves the schema key and the
+# handler's .get() together leaves the message behind (the coach -> agent
+# rename left twelve sites reading agent_id and asking for coach_id). The
+# handler compiles either way, and a test passing the right key never reads the
+# message. Compile-free, module-scoped so a schema in mod.rs covers a handler
+# in inner.rs.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] \
+    && [[ -x "$PROJECT_ROOT/scripts/ci/check-declared-parameters.sh" ]]; then
+    echo "Tier 1i: tool parameter declaration check"
+    echo "----------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-declared-parameters.sh"; then
+        echo ""
+        echo "FAIL: a tool rejection names a parameter its module never declares!"
+        exit 1
+    fi
+    echo ""
+fi
+
 if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] \
     && [[ -x "$PROJECT_ROOT/scripts/ci/check-permission-denied-messages.sh" ]]; then
     echo "Tier 1g: PermissionDenied message review"
