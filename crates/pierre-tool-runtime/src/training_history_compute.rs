@@ -44,9 +44,11 @@ use pierre_fitness_compute::training_history_compute::{
     compute_training_history, warmup_days, AthleteInputs, MAX_BACKFILL_DAYS,
 };
 use pierre_providers::backend_resolver;
+#[cfg(feature = "tools-data")]
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
 
+#[cfg(feature = "tools-data")]
 use crate::activity_backfill::{spawn_activity_backfill, ActivityBackfillJob};
 use crate::activity_fetch::HISTORICAL_WINDOW_READ_LIMIT;
 use crate::runtime::ToolRuntime;
@@ -418,6 +420,14 @@ async fn athlete_inputs(
 /// `(user, provider)` is deduplicated against one already in flight and its
 /// completion notice reaches the conversation that asked. Returns whether a new
 /// job was started.
+///
+/// The rail lives behind `tools-data`, alongside the `get_activities` tool that
+/// is the other half of the capture story. Reading the cache, computing the
+/// series and reporting its coverage need none of that, so the module is not
+/// gated with it — only this call is. Without the rail compiled in there is no
+/// capture to start and [`TrainingHistoryComputed::capture_requested`] is
+/// `false`, which is what happened: nothing was asked for.
+#[cfg(feature = "tools-data")]
 fn request_capture(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
@@ -443,6 +453,20 @@ fn request_capture(
         // The rail's completion notice is driven by the fetch that has one.
         pierre_conversation_id: None,
     })
+}
+
+/// No capture rail in this build, so no capture is started.
+///
+/// See the `tools-data` sibling above for why the module is not gated wholesale.
+#[cfg(not(feature = "tools-data"))]
+const fn request_capture(
+    _resources: &Arc<dyn ToolRuntime>,
+    _tenant_id: TenantId,
+    _user_id: Uuid,
+    _backend: &str,
+    _floor: NaiveDate,
+) -> bool {
+    false
 }
 
 /// Read-only fetch of persisted rows in `[from, to]`.

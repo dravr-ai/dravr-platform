@@ -103,8 +103,7 @@ pub mod scopes;
 pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
-/// Gated with `activity_backfill`, whose capture rail it asks for missing depth.
-#[cfg(feature = "tools-data")]
+/// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;
 
 /// Request construction for the text-simulation CLI tool loop
