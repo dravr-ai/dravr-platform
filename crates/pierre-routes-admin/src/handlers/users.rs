@@ -26,12 +26,11 @@ use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
 use pierre_services::analytics::cache_user_email;
 use pierre_services::pre_approval::{self, AllowOutcome};
-use pierre_services::tenant_admin as tenant_admin_service;
 
 use super::api_keys::json_response;
 use super::types::{
     AdminResponse, AllowEmailRequest, ApproveUserRequest, DeleteUserRequest, ListUsersQuery,
-    SuspendUserRequest, TenantCreatedInfo, UserActivityQuery,
+    SuspendUserRequest, UserActivityQuery,
 };
 use crate::context::AdminApiContext;
 
@@ -309,38 +308,6 @@ pub(crate) async fn handle_pending_users(
     ))
 }
 
-/// Handle tenant creation and linking for user approval
-///
-/// Delegates to `TenantAdminService` for slug validation and tenant provisioning.
-async fn create_and_link_tenant(
-    repos: &RepositoryRegistry,
-    user_uuid: Uuid,
-    user_email: &str,
-    request: &ApproveUserRequest,
-    display_name: Option<&str>,
-) -> AppResult<Option<TenantCreatedInfo>> {
-    if !request.create_default_tenant.unwrap_or(false) {
-        return Ok(None);
-    }
-
-    let tenant = tenant_admin_service::provision_tenant_for_approval(
-        repos,
-        user_uuid,
-        user_email,
-        display_name,
-        request.tenant_name.as_deref(),
-        request.tenant_slug.as_deref(),
-    )
-    .await?;
-
-    Ok(Some(TenantCreatedInfo {
-        tenant_id: tenant.id.to_string(),
-        name: tenant.name,
-        slug: tenant.slug,
-        plan: tenant.plan,
-    }))
-}
-
 /// Announce an approval: raise the operator notify event, then tell the user.
 ///
 /// The identity cache is warmed first because the notify enricher only attaches
@@ -404,19 +371,15 @@ pub(crate) async fn handle_approve_user(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    // Shared get/guard/update-status core; the admin-token surface layers its
-    // own tenant provisioning (named tenant from request body) below.
+    // Shared get/guard/update-status core, identical to the cookie surface's.
+    // Tenant provisioning is deliberately NOT here: whether an approved user
+    // needs a default tenant is a property of the user, not an operator's
+    // choice, and the Slack approval path already decides it that way — it
+    // provisions only `if !has_tenants`. This surface used to take
+    // create_default_tenant/tenant_name/tenant_slug in the request body, which
+    // no client ever sent (registre#407).
     let updated_user =
         admin_ops::transition_user_status(&ctx.repos, user_uuid, UserStatus::Active, None).await?;
-
-    let tenant_created = create_and_link_tenant(
-        &ctx.repos,
-        user_uuid,
-        &updated_user.email,
-        &request,
-        updated_user.display_name.as_deref(),
-    )
-    .await?;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
@@ -443,7 +406,6 @@ pub(crate) async fn handle_approve_user(
                     "approved_by": updated_user.approved_by,
                     "approved_at": updated_user.approved_at.map(|t| t.to_rfc3339()),
                 },
-                "tenant_created": tenant_created,
                 "reason": reason
             }))
             .ok(),

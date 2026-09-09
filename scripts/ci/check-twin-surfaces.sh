@@ -83,6 +83,31 @@ cd "$PROJECT_ROOT" || exit 1
 BASE_REF="${1:-}"
 FAILED=false
 
+# Resolve the base through the shared resolver rather than trusting the argument.
+#
+# CI passes `github.event.pull_request.base.sha || github.event.before`, and on a
+# branch's FIRST push `github.event.before` is all-zeros — there is no previous
+# tip. Handed to `git diff` that is a fatal error, so this gate failed the first
+# push of every new branch (reported by a peer whose branch it blocked).
+#
+# The quieter half matters more: actions/checkout force-creates refs/heads/main
+# from refs/remotes/origin/main, so on a push to main `origin/main == HEAD` and
+# `origin/main...HEAD` diffs HEAD's merge-base with itself. That is empty, this
+# gate prints its green line, and it has inspected nothing — a silently disarmed
+# gate, which is the exact failure this whole check exists to prevent, one level
+# up. `resolve_gate_base_ref` rejects both shapes and falls back to HEAD~1.
+#
+# A caller may still pass a complete range ("a...b"), which is not a single
+# commit and is used verbatim.
+if [[ -n "$BASE_REF" && "$BASE_REF" != *..* ]]; then
+    # shellcheck source=scripts/ci/gate-base-ref.sh
+    . "$SCRIPT_DIR/gate-base-ref.sh"
+    if ! BASE_REF="$(resolve_gate_base_ref "$BASE_REF")"; then
+        echo -e "${YELLOW}⚠️  HEAD is a root commit — no base to diff against; reporting the standing stock only.${NC}"
+        BASE_REF=""
+    fi
+fi
+
 echo -e "${BLUE}==== Twinned Surface Divergence (static) ====${NC}"
 
 TMP="$(mktemp -d)"

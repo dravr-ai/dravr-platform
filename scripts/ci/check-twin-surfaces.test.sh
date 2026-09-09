@@ -48,6 +48,9 @@ tree() {
              "$root/crates/routes-bear/src" \
              "$root/crates/routes-cook/src"
     cp "$UNDER_TEST" "$root/scripts/ci/check-twin-surfaces.sh"
+    # The gate sources this for base resolution; without it the fixture would
+    # exercise a different script from the one CI runs.
+    cp "$SCRIPT_DIR/gate-base-ref.sh" "$root/scripts/ci/gate-base-ref.sh"
     printf 'pub mod pre_approval;\n' > "$root/crates/pierre-services/src/lib.rs"
     printf 'pub async fn allow() {}\n' > "$root/crates/pierre-services/src/pre_approval.rs"
     ( cd "$root" && git init -q . )
@@ -155,6 +158,30 @@ surface "$root" routes-cook /api/b \
     '/// LIMITATION(registre#999): some_other_field is absent here on purpose.' "$BEAR_ONE"
 commit "$root" "diverge, and register the wrong field"
 expect "a marker naming a DIFFERENT field does not silence the divergence" "$root" 1 HEAD~
+
+# ---------------------------------------------------------------------------
+# BASE RESOLUTION — the two shapes CI actually hands this gate
+# ---------------------------------------------------------------------------
+# Both were live bugs. The first blocked the first push of every new branch and
+# had to be reported by a peer whose merge it was holding; the second is the
+# quieter one, and is the failure this gate exists to prevent happening to the
+# gate itself.
+root="$(tree base_shapes)"
+surface "$root" routes-bear /api/a "" "$BEAR_TWO"
+surface "$root" routes-cook /api/b "" "$BEAR_TWO"
+commit "$root" symmetric
+surface "$root" routes-cook /api/b "" "$BEAR_ONE"
+commit "$root" "drop the field from one twin"
+
+# `github.event.before` is all-zeros on a branch's first push. Handed to git diff
+# it is fatal; resolved, it falls back to HEAD~1 and the divergence is still seen.
+expect "an all-zero base sha resolves instead of crashing" \
+    "$root" 1 0000000000000000000000000000000000000000
+
+# actions/checkout leaves origin/main == HEAD on a push to main. Diffing that is
+# empty, so an unresolved gate would print its green line having read nothing.
+# Falling back to HEAD~1 means the divergence in the tip still fails the run.
+expect "a base equal to HEAD is not silently disarmed" "$root" 1 HEAD
 
 # ---------------------------------------------------------------------------
 # NO FALSE POSITIVE — bare mode never fails, it reports

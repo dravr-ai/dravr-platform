@@ -58,6 +58,6 @@ pub use handlers::types::{
     AdminResponse, AdminSetupRequest, AdminSetupResponse, ApproveUserRequest, AutoApprovalResponse,
     DeleteUserRequest, ListApiKeysQuery, ListUsersQuery, ProvisionApiKeyRequest,
     ProvisionApiKeyResponse, RateLimitInfo, RevokeKeyRequest, SuspendUserRequest,
-    TenantCreatedInfo, UpdateAutoApprovalRequest, UserActivityQuery,
+    UpdateAutoApprovalRequest, UserActivityQuery,
 };
 pub use routes::AdminRoutes;

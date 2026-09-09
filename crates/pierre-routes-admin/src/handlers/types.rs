@@ -54,12 +54,6 @@ pub struct AdminSetupRequest {
 pub struct ApproveUserRequest {
     /// Optional reason for approval
     pub reason: Option<String>,
-    /// Auto-create default tenant for single-user workflows
-    pub create_default_tenant: Option<bool>,
-    /// Custom tenant name (if `create_default_tenant` is true)
-    pub tenant_name: Option<String>,
-    /// Custom tenant slug (if `create_default_tenant` is true)
-    pub tenant_slug: Option<String>,
 }
 
 /// Pre-approval request — record a standing allow for one address.
@@ -207,17 +201,4 @@ pub struct AdminSetupResponse {
     pub admin_token: String,
     /// Success message
     pub message: String,
-}
-
-/// Information about created tenant
-#[derive(Debug, Clone, Serialize)]
-pub struct TenantCreatedInfo {
-    /// Unique tenant identifier
-    pub tenant_id: String,
-    /// Tenant name
-    pub name: String,
-    /// Tenant URL slug
-    pub slug: String,
-    /// Subscription plan
-    pub plan: String,
 }
