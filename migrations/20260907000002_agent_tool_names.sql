@@ -34,7 +34,9 @@
 -- row copies every other column from the old one, so display text, plan gate
 -- and timestamps carry across unchanged. `id` is the primary key and cannot be
 -- reused while the old row is still present, so each new row takes the next
--- free `tc-` id after tc-108.
+-- free `tc-` id after tc-113 -- 20260907000003 seeds tc-109..tc-113, and
+-- although its version sorts after this file it was applied to the deployed
+-- database first, so those five ids are taken on every existing database.
 --
 -- `list_coaching_playbooks` is not here. A playbook is a learned pattern about
 -- the activity of coaching, not the persona, and it reads the same in every
@@ -64,7 +66,7 @@
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-109', 'list_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-114', 'list_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'list_coaches';
 UPDATE tenant_tool_overrides SET tool_name = 'list_agents' WHERE tool_name = 'list_coaches';
 UPDATE user_tool_overrides SET tool_name = 'list_agents' WHERE tool_name = 'list_coaches';
@@ -72,7 +74,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'list_coaches';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-110', 'create_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-115', 'create_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'create_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'create_agent' WHERE tool_name = 'create_coach';
 UPDATE user_tool_overrides SET tool_name = 'create_agent' WHERE tool_name = 'create_coach';
@@ -80,7 +82,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'create_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-111', 'get_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-116', 'get_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'get_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'get_agent' WHERE tool_name = 'get_coach';
 UPDATE user_tool_overrides SET tool_name = 'get_agent' WHERE tool_name = 'get_coach';
@@ -88,7 +90,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'get_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-112', 'update_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-117', 'update_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'update_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'update_agent' WHERE tool_name = 'update_coach';
 UPDATE user_tool_overrides SET tool_name = 'update_agent' WHERE tool_name = 'update_coach';
@@ -96,7 +98,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'update_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-113', 'delete_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-118', 'delete_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'delete_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'delete_agent' WHERE tool_name = 'delete_coach';
 UPDATE user_tool_overrides SET tool_name = 'delete_agent' WHERE tool_name = 'delete_coach';
@@ -104,7 +106,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'delete_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-114', 'toggle_agent_favorite', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-119', 'toggle_agent_favorite', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'toggle_coach_favorite';
 UPDATE tenant_tool_overrides SET tool_name = 'toggle_agent_favorite' WHERE tool_name = 'toggle_coach_favorite';
 UPDATE user_tool_overrides SET tool_name = 'toggle_agent_favorite' WHERE tool_name = 'toggle_coach_favorite';
@@ -112,7 +114,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'toggle_coach_favorite';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-115', 'search_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-120', 'search_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'search_coaches';
 UPDATE tenant_tool_overrides SET tool_name = 'search_agents' WHERE tool_name = 'search_coaches';
 UPDATE user_tool_overrides SET tool_name = 'search_agents' WHERE tool_name = 'search_coaches';
@@ -120,7 +122,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'search_coaches';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-116', 'activate_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-121', 'activate_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'activate_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'activate_agent' WHERE tool_name = 'activate_coach';
 UPDATE user_tool_overrides SET tool_name = 'activate_agent' WHERE tool_name = 'activate_coach';
@@ -128,7 +130,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'activate_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-117', 'deactivate_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-122', 'deactivate_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'deactivate_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'deactivate_agent' WHERE tool_name = 'deactivate_coach';
 UPDATE user_tool_overrides SET tool_name = 'deactivate_agent' WHERE tool_name = 'deactivate_coach';
@@ -136,7 +138,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'deactivate_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-118', 'get_active_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-123', 'get_active_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'get_active_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'get_active_agent' WHERE tool_name = 'get_active_coach';
 UPDATE user_tool_overrides SET tool_name = 'get_active_agent' WHERE tool_name = 'get_active_coach';
@@ -144,7 +146,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'get_active_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-119', 'hide_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-124', 'hide_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'hide_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'hide_agent' WHERE tool_name = 'hide_coach';
 UPDATE user_tool_overrides SET tool_name = 'hide_agent' WHERE tool_name = 'hide_coach';
@@ -152,7 +154,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'hide_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-120', 'show_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-125', 'show_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'show_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'show_agent' WHERE tool_name = 'show_coach';
 UPDATE user_tool_overrides SET tool_name = 'show_agent' WHERE tool_name = 'show_coach';
@@ -160,7 +162,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'show_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-121', 'list_hidden_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-126', 'list_hidden_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'list_hidden_coaches';
 UPDATE tenant_tool_overrides SET tool_name = 'list_hidden_agents' WHERE tool_name = 'list_hidden_coaches';
 UPDATE user_tool_overrides SET tool_name = 'list_hidden_agents' WHERE tool_name = 'list_hidden_coaches';
@@ -170,7 +172,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'list_hidden_coaches';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-122', 'admin_list_system_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-127', 'admin_list_system_agents', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_list_system_coaches';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_list_system_agents' WHERE tool_name = 'admin_list_system_coaches';
 UPDATE user_tool_overrides SET tool_name = 'admin_list_system_agents' WHERE tool_name = 'admin_list_system_coaches';
@@ -178,7 +180,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_list_system_coaches';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-123', 'admin_create_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-128', 'admin_create_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_create_system_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_create_system_agent' WHERE tool_name = 'admin_create_system_coach';
 UPDATE user_tool_overrides SET tool_name = 'admin_create_system_agent' WHERE tool_name = 'admin_create_system_coach';
@@ -186,7 +188,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_create_system_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-124', 'admin_get_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-129', 'admin_get_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_get_system_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_get_system_agent' WHERE tool_name = 'admin_get_system_coach';
 UPDATE user_tool_overrides SET tool_name = 'admin_get_system_agent' WHERE tool_name = 'admin_get_system_coach';
@@ -194,7 +196,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_get_system_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-125', 'admin_update_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-130', 'admin_update_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_update_system_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_update_system_agent' WHERE tool_name = 'admin_update_system_coach';
 UPDATE user_tool_overrides SET tool_name = 'admin_update_system_agent' WHERE tool_name = 'admin_update_system_coach';
@@ -202,7 +204,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_update_system_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-126', 'admin_delete_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-131', 'admin_delete_system_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_delete_system_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_delete_system_agent' WHERE tool_name = 'admin_delete_system_coach';
 UPDATE user_tool_overrides SET tool_name = 'admin_delete_system_agent' WHERE tool_name = 'admin_delete_system_coach';
@@ -210,7 +212,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_delete_system_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-127', 'admin_assign_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-132', 'admin_assign_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_assign_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_assign_agent' WHERE tool_name = 'admin_assign_coach';
 UPDATE user_tool_overrides SET tool_name = 'admin_assign_agent' WHERE tool_name = 'admin_assign_coach';
@@ -218,7 +220,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_assign_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-128', 'admin_unassign_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-133', 'admin_unassign_agent', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_unassign_coach';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_unassign_agent' WHERE tool_name = 'admin_unassign_coach';
 UPDATE user_tool_overrides SET tool_name = 'admin_unassign_agent' WHERE tool_name = 'admin_unassign_coach';
@@ -226,7 +228,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_unassign_coach';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-129', 'admin_list_agent_assignments', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-134', 'admin_list_agent_assignments', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'admin_list_coach_assignments';
 UPDATE tenant_tool_overrides SET tool_name = 'admin_list_agent_assignments' WHERE tool_name = 'admin_list_coach_assignments';
 UPDATE user_tool_overrides SET tool_name = 'admin_list_agent_assignments' WHERE tool_name = 'admin_list_coach_assignments';
@@ -236,7 +238,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'admin_list_coach_assignments';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-130', 'browse_agent_store', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-135', 'browse_agent_store', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'browse_coach_store';
 UPDATE tenant_tool_overrides SET tool_name = 'browse_agent_store' WHERE tool_name = 'browse_coach_store';
 UPDATE user_tool_overrides SET tool_name = 'browse_agent_store' WHERE tool_name = 'browse_coach_store';
@@ -244,7 +246,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'browse_coach_store';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-131', 'search_agent_store', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-136', 'search_agent_store', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'search_coach_store';
 UPDATE tenant_tool_overrides SET tool_name = 'search_agent_store' WHERE tool_name = 'search_coach_store';
 UPDATE user_tool_overrides SET tool_name = 'search_agent_store' WHERE tool_name = 'search_coach_store';
@@ -252,7 +254,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'search_coach_store';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-132', 'install_agent_from_store', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-137', 'install_agent_from_store', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'install_coach_from_store';
 UPDATE tenant_tool_overrides SET tool_name = 'install_agent_from_store' WHERE tool_name = 'install_coach_from_store';
 UPDATE user_tool_overrides SET tool_name = 'install_agent_from_store' WHERE tool_name = 'install_coach_from_store';
@@ -262,7 +264,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'install_coach_from_store';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-133', 'agent_note_add', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-138', 'agent_note_add', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'coach_note_add';
 UPDATE tenant_tool_overrides SET tool_name = 'agent_note_add' WHERE tool_name = 'coach_note_add';
 UPDATE user_tool_overrides SET tool_name = 'agent_note_add' WHERE tool_name = 'coach_note_add';
@@ -270,7 +272,7 @@ DELETE FROM tool_catalog WHERE tool_name = 'coach_note_add';
 
 INSERT OR IGNORE INTO tool_catalog (
     id, tool_name, display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at)
-SELECT 'tc-134', 'agent_followup_schedule', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
+SELECT 'tc-139', 'agent_followup_schedule', display_name, description, category, is_enabled_by_default, requires_provider, min_plan, created_at, updated_at
 FROM tool_catalog WHERE tool_name = 'coach_followup_schedule';
 UPDATE tenant_tool_overrides SET tool_name = 'agent_followup_schedule' WHERE tool_name = 'coach_followup_schedule';
 UPDATE user_tool_overrides SET tool_name = 'agent_followup_schedule' WHERE tool_name = 'coach_followup_schedule';
