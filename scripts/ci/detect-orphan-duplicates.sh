@@ -18,6 +18,38 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 echo -e "${BLUE}==== Pierre — Orphan Duplication Detection ====${NC}"
 cd "$PROJECT_ROOT"
 
+# Fail closed on a scan that selected nothing.
+#
+# Every check below is `grep -rn <pattern> <path> 2>/dev/null | wc -l`, judged by
+# `-gt 0`. Absence of a match is the pass, so a path that stops existing reads
+# exactly like clean code — and `2>/dev/null` swallows grep's "No such file or
+# directory", making the drift completely silent. This repo moves module trees
+# (pierre-database/src/plugins → backends, 360cc7086) and has been bitten by a
+# scan whose selection quietly narrowed twice already: the secret scanner
+# (see validate-no-secrets.sh, which fails closed for this reason) and the i18n
+# ratchet, which counted .tsx only and missed 83 strings in .ts (carnet#207).
+#
+# So assert the roots before trusting any "no findings" below.
+SCAN_ROOTS=(
+    crates/pierre-server/src/routes
+    crates/pierre-server/src/mcp
+    crates/pierre-server/src
+    crates/pierre-database/src
+    frontend/src
+)
+MISSING_ROOTS=()
+for root in "${SCAN_ROOTS[@]}"; do
+    [ -d "$root" ] || MISSING_ROOTS+=("$root")
+done
+if [ "${#MISSING_ROOTS[@]}" -gt 0 ]; then
+    echo -e "${RED}❌ Scan root(s) missing — this check would pass having scanned nothing:${NC}"
+    for root in "${MISSING_ROOTS[@]}"; do
+        echo -e "${RED}   $root${NC}"
+    done
+    echo -e "${RED}Repoint SCAN_ROOTS and the greps below to where the code moved.${NC}"
+    exit 1
+fi
+
 FAILED=false
 
 # ---------------------------------------------------------------------------
