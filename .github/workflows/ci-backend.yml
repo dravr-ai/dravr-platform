@@ -9,6 +9,11 @@ on:
     paths:
       - 'crates/**'
       - 'migrations/**'
+      # The PostgreSQL mirror triggers ci-postgres.yml, which does not run the
+      # architectural gates — so without this a push editing only migrations_pg/
+      # never reaches check-migration-immutability.sh, on the very backend the
+      # long-lived dev DB uses.
+      - 'migrations_pg/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
@@ -30,6 +35,11 @@ on:
     paths:
       - 'crates/**'
       - 'migrations/**'
+      # The PostgreSQL mirror triggers ci-postgres.yml, which does not run the
+      # architectural gates — so without this a push editing only migrations_pg/
+      # never reaches check-migration-immutability.sh, on the very backend the
+      # long-lived dev DB uses.
+      - 'migrations_pg/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
@@ -199,11 +209,12 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, moved symbols, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
           ./scripts/ci/check-migration-versions.test.sh
+          ./scripts/ci/check-migration-immutability.test.sh
           ./scripts/ci/check-moved-symbols.test.sh
           ./scripts/ci/worktree-lib.test.sh
           ./scripts/ci/dev-process-scope.test.sh

@@ -1543,6 +1543,20 @@ else
     echo -e "${YELLOW}⚠️  scripts/ci/check-migration-idempotency.sh not found${NC}"
 fi
 
+# Migration immutability — a migration already published at the fork point is
+# frozen. sqlx records its SHA-384 in _sqlx_migrations and re-checks it on every
+# boot, so editing one ("previously applied but has been modified") or deleting
+# one (VersionMissing) breaks every deploy and every long-lived DB, while a fresh
+# CI database still passes. 2026-09-08: 119040a11 edited two applied migrations
+# and nothing caught it until the nightly drift-check job died at 06:00 UTC.
+# Diff-scoped against $GATE_BASE_REF; restoring the applied bytes stays allowed,
+# because that is the only correct repair once a break is on main.
+if [ -f "$SCRIPT_DIR/check-migration-immutability.sh" ]; then
+    bash "$SCRIPT_DIR/check-migration-immutability.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-migration-immutability.sh not found${NC}"
+fi
+
 # Observability / dead-code prevention gates (added after the vestigial /ws +
 # unwired-a2a-SSE + cpu_idle cleanup). The first two are hard fails; the rest
 # are advisory (always exit 0) because their detection is heuristic.
