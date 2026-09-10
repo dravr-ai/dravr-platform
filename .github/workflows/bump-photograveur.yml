@@ -85,8 +85,17 @@ jobs:
     # another lane owns) and a dry run. Building either would advance :latest to a
     # photograveur main never accepted, and terraform's photograveur_image is that
     # moving tag — the next unrelated apply would deploy it.
+    #
+    # `!inputs.dry_run` is load-bearing, not belt-and-braces. dry_run suppresses the
+    # PIN PUSH inside the spine, and when every pin is already current the spine skips
+    # its bump job entirely — so `state` is 'current', this job's condition holds, and
+    # a rehearsal builds an image and deploys photograveur to dev. That happened on
+    # the first dispatch of this lane (run 34503834779): same source tag, so identical
+    # bytes and no functional change, but a Cloud Run revision is not what "dry run"
+    # means to whoever typed it.
     if: >-
       ${{ !cancelled()
+          && !inputs.dry_run
           && needs.bump.result == 'success'
           && (needs.bump.outputs.state == 'pushed' || needs.bump.outputs.state == 'current') }}
     uses: ./.github/workflows/publish-photograveur-image.yml
