@@ -6,7 +6,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
-#![cfg(feature = "tools-data")]
 
 use chrono::{Duration, Utc};
 use pierre_tool_runtime::implementations::stored_data::parse_date_range;

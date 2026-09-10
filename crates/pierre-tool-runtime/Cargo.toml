@@ -93,5 +93,97 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 jsonschema = { version = "0.46.5", default-features = false }
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread"] }
 
+# Integration tests that import a feature-gated module state that gate here.
+# Every tool module in this crate sits behind a `tools-*` feature and the crate
+# declares no `default`, so a standalone `-p pierre-tool-runtime` build turns
+# them all off — the features arrive by unification from pierre-server, which
+# forwards them one-for-one. `required-features` makes cargo skip a target whose
+# gates are absent instead of compiling it into unresolved imports, so
+# `cargo clippy -p pierre-tool-runtime --all-targets` reports on the code rather
+# than on a build configuration that never ships. Skipping omits the binary
+# entirely, where an `#![cfg(...)]` inner attribute would still produce one that
+# reports `running 0 tests`.
+#
+# A test importing only ungated modules needs no block here — cargo keeps
+# discovering it from tests/ as usual.
+
+[[test]]
+name = "activity_dedup_test"
+required-features = ["tools-groups"]
+
+[[test]]
+name = "activity_list_local_clock_test"
+required-features = ["tools-data"]
+
+[[test]]
+name = "activity_revalidation_dedup_test"
+required-features = ["tools-groups"]
+
+[[test]]
+name = "backfill_coverage_logic_test"
+required-features = ["tools-data"]
+
+[[test]]
+name = "cli_loop_request_mcp_servers_test"
+required-features = ["client-chat"]
+
+[[test]]
+name = "failed_leg_token_accounting_test"
+required-features = ["client-chat"]
+
+[[test]]
+name = "fitness_score_window_test"
+required-features = ["tools-analytics"]
+
+[[test]]
+name = "format_parameter_declared_test"
+required-features = [
+    "tools-admin",
+    "tools-analytics",
+    "tools-coaches",
+    "tools-data",
+    "tools-recipes",
+    "tools-sleep",
+]
+
+[[test]]
+name = "group_fitness_weekly_metrics_test"
+required-features = ["tools-groups"]
+
+[[test]]
+name = "headless_lost_turn_test"
+required-features = ["client-chat"]
+
+[[test]]
+name = "sport_type_filter_test"
+required-features = ["tools-data"]
+
+[[test]]
+name = "stored_data_range_test"
+required-features = ["tools-data"]
+
+[[test]]
+name = "tool_output_schema_test"
+required-features = [
+    "tools-admin",
+    "tools-analytics",
+    "tools-coaches",
+    "tools-config",
+    "tools-connection",
+    "tools-data",
+    "tools-goals",
+    "tools-groups",
+    "tools-memory",
+    "tools-mobility",
+    "tools-nutrition",
+    "tools-recipes",
+    "tools-sleep",
+    "tools-verification",
+]
+
+[[test]]
+name = "usda_ingredient_guard_test"
+required-features = ["tools-nutrition"]
+
 [lints]
 workspace = true

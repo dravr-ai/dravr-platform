@@ -798,11 +798,27 @@ jobs:
           echo "=== $COUNT leaf crates with tests/ directories ==="
           printf '%s\n' "${PKG_FLAGS[@]}" | paste -d' ' - - | sed 's/^-p /  /'
           # --all-features, not defaults: a leaf crate built standalone loses
-          # the features pierre-server forwards to it (workspace unification),
-          # and a test importing a gated module then fails to compile — the
-          # first run of this lane caught exactly that on
-          # pierre-tool-runtime/tests/sport_type_filter_test.rs, whose
-          # fitness_support import is behind tools-data/tools-analytics.
+          # the features pierre-server forwards to it (workspace unification).
+          # pierre-tool-runtime/tests/sport_type_filter_test.rs is the standing
+          # example — its fitness_support import sits behind
+          # tools-data/tools-analytics, so a defaults build cannot compile it.
+          #
+          # Such a test names its gate as `required-features` on its [[test]]
+          # target, which means cargo SKIPS it when the gate is off rather than
+          # failing: no compile error, no `running 0 tests`, no row in the
+          # output. That is right for a build that legitimately has the feature
+          # off and a silent loss of coverage otherwise, so the coverage check
+          # runs first. It compares the test targets the manifests declare
+          # against the binaries this same --all-features build produces and
+          # fails when any declared target went unbuilt — a renamed or
+          # misspelled feature would otherwise retire a test with nothing going
+          # red. Its --no-run build populates the cache the run below reuses.
+          # The guard's own cases, next to the guard: it must catch an
+          # unsatisfiable gate and must refuse an empty package list. It
+          # compiles a throwaway two-target crate with no dependencies, which
+          # is why it sits here rather than in the no-compilation fast-gate.
+          ./scripts/ci/check-leaf-test-targets.test.sh
+          ./scripts/ci/check-leaf-test-targets.sh "${PKG_FLAGS[@]}"
           cargo test "${PKG_FLAGS[@]}" --all-features --tests -- --test-threads=4
         timeout-minutes: 45
         env:
