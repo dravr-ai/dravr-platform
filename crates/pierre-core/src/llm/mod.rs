@@ -79,6 +79,19 @@ impl From<RunnerError> for AppError {
                 ErrorCode::ResourceUnavailable,
                 format!("Model unavailable: {}", err.message),
             ),
+            // Deliberately not `rate_limit_exceeded`: that constructor wants a
+            // current count, a limit and a retry-after, and a runner's quota
+            // refusal carries none of the three. Inventing them would put three
+            // fabricated numbers in front of an operator reading a 429.
+            //
+            // The code matters more than the shape here — `RateLimitExceeded`
+            // maps to HTTP 429, so a quota refusal now reaches the client as
+            // one instead of the 500 it produced while these errors fell into
+            // `ExternalService`.
+            ErrorKind::RateLimit => Self::new(
+                ErrorCode::RateLimitExceeded,
+                format!("LLM provider quota exhausted: {}", err.message),
+            ),
         }
     }
 }
