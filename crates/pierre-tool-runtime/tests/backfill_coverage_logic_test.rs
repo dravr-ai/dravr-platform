@@ -22,10 +22,14 @@ const JUL_2022: i64 = 1_657_000_000; // mid-2022, newer than JAN_2022
 const DEC_2021: i64 = 1_640_000_000; // older than JAN_2022
 const JAN_2024: i64 = 1_704_067_200; // Jan 1 2024 00:00:00
 
+/// A retention floor old enough that every ask below is inside the cache's
+/// keep window, so these cases exercise the coverage record and nothing else.
+const RETAINED: i64 = DEC_2021;
+
 #[test]
 fn no_coverage_record_is_not_covered() {
     // Never backfilled — the cached rows (if any) are an unverified slice.
-    assert!(!historical_depth_covered(None, JAN_2022));
+    assert!(!historical_depth_covered(None, JAN_2022, RETAINED));
 }
 
 #[test]
@@ -69,7 +73,7 @@ fn backfill_reached_the_requested_floor_is_covered() {
         oldest_reached_ts: JAN_2022,
         hit_feed_end: false,
     };
-    assert!(historical_depth_covered(Some(c), JAN_2022));
+    assert!(historical_depth_covered(Some(c), JAN_2022, RETAINED));
 }
 
 #[test]
@@ -78,7 +82,7 @@ fn backfill_reached_deeper_than_requested_is_covered() {
         oldest_reached_ts: DEC_2021,
         hit_feed_end: false,
     };
-    assert!(historical_depth_covered(Some(c), JAN_2022));
+    assert!(historical_depth_covered(Some(c), JAN_2022, RETAINED));
 }
 
 #[test]
@@ -89,7 +93,7 @@ fn shallow_backfill_short_of_floor_is_not_covered() {
         oldest_reached_ts: JUL_2022,
         hit_feed_end: false,
     };
-    assert!(!historical_depth_covered(Some(c), JAN_2022));
+    assert!(!historical_depth_covered(Some(c), JAN_2022, RETAINED));
 }
 
 #[test]
@@ -101,7 +105,7 @@ fn feed_end_short_of_floor_is_covered() {
         oldest_reached_ts: JUL_2022,
         hit_feed_end: true,
     };
-    assert!(historical_depth_covered(Some(c), JAN_2022));
+    assert!(historical_depth_covered(Some(c), JAN_2022, RETAINED));
 }
 
 #[test]
@@ -147,7 +151,7 @@ fn shallow_year_coverage_does_not_cover_a_deeper_year() {
         oldest_reached_ts: JAN_2024,
         hit_feed_end: false,
     };
-    assert!(!historical_depth_covered(Some(c), JAN_2022));
+    assert!(!historical_depth_covered(Some(c), JAN_2022, RETAINED));
 }
 
 #[test]
@@ -234,4 +238,43 @@ fn sort_activities_honors_distance_date_and_duration() {
     assert_eq!(sorted("duration_asc"), ["c", "a", "b"]);
     // Unknown key falls back to newest-first (date_desc).
     assert_eq!(sorted("bogus"), ["a", "c", "b"]);
+}
+
+/// A coverage record outlives the rows it describes, so it cannot vouch for a
+/// depth the prune has since reclaimed.
+///
+/// `prune_activities_before` is keyed per `(user, tenant)` across every
+/// provider: one narrow write-through deletes a deep backfill's rows while
+/// `oldest_reached_ts` still names them. Honouring that claim served a pruned
+/// cache as a complete one and made no provider call, which is how an athlete
+/// whose season had been reclaimed kept being answered from the recent slice
+/// (registre#408).
+#[test]
+fn coverage_below_the_retention_floor_is_not_covered() {
+    let c = BackfillCoverage {
+        oldest_reached_ts: JAN_2022,
+        hit_feed_end: false,
+    };
+    // The ask reaches Jan 2022; the cache now keeps nothing older than Jul 2022.
+    assert!(
+        !historical_depth_covered(Some(c), JAN_2022, JUL_2022),
+        "a claim of depth the prune has reclaimed must not satisfy the gate"
+    );
+    // Same record, floor below the ask: the claim stands.
+    assert!(historical_depth_covered(Some(c), JAN_2022, RETAINED));
+}
+
+/// `hit_feed_end` promises no older data exists UPSTREAM, not that what was
+/// fetched is still cached — so it does not survive the retention floor either.
+#[test]
+fn feed_end_does_not_outrank_the_retention_floor() {
+    let c = BackfillCoverage {
+        oldest_reached_ts: JAN_2024,
+        hit_feed_end: true,
+    };
+    assert!(
+        !historical_depth_covered(Some(c), JAN_2022, JUL_2022),
+        "feed-end says the provider has nothing older, not that the cache kept it"
+    );
+    assert!(historical_depth_covered(Some(c), JAN_2022, RETAINED));
 }

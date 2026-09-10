@@ -36,9 +36,9 @@ use crate::activity_backfill::{
     ActivityBackfillJob, InlineHistoricalServe,
 };
 use crate::activity_fetch::{
-    activity_date_span, historical_depth_covered, maybe_merge_other_connections,
-    read_cached_window, serve_historical_window, serve_without_primary, sort_activities,
-    touch_connection_used, write_through_served_window,
+    activity_cache_retention_floor_ts, activity_date_span, historical_depth_covered,
+    maybe_merge_other_connections, read_cached_window, serve_historical_window,
+    serve_without_primary, sort_activities, touch_connection_used, write_through_served_window,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -607,7 +607,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     .get_backfill_coverage(context.user_id, &tenant_id, &provider_name)
                     .await
                     .unwrap_or(None);
-                let depth_covered = historical_depth_covered(coverage, after_ts);
+                let depth_covered = historical_depth_covered(
+                    coverage,
+                    after_ts,
+                    activity_cache_retention_floor_ts(),
+                );
                 let covered = window.is_some() && depth_covered;
 
                 info!(
