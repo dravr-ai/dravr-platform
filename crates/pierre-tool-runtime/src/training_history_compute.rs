@@ -224,10 +224,15 @@ pub async fn compute_and_persist_history(
     // Declining to write is not enough: the rollup is upsert-only, so any row an
     // earlier path left in the un-warmable span stays readable and reads as
     // current. Clear exactly what this run just proved it cannot vouch for.
+    // The clear is bounded by the ask, not by the warm-up shortfall.
+    // `trustworthy_from` can sit far past `to` on a shallow cache, and a delete
+    // reaching that far would take days no caller named — days an earlier run
+    // with a wider read window legitimately vouched for.
+    let clear_end = trustworthy_from.min(to + Duration::days(1));
     let rows_cleared = if complete {
         0
     } else {
-        clear_unvouched_span(resources, tenant_id, user_id, from, trustworthy_from).await?
+        clear_unvouched_span(resources, tenant_id, user_id, from, clear_end).await?
     };
 
     if trustworthy_from > to {

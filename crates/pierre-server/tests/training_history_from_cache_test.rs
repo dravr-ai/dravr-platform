@@ -418,3 +418,59 @@ async fn an_empty_cache_clears_the_whole_window() {
         rows.len()
     );
 }
+
+/// A narrow ask must never delete a day outside itself.
+///
+/// `trustworthy_from` is derived from the warm-up shortfall, not from the ask,
+/// so on a shallow cache it can sit far past `to`. The clear is bounded by the
+/// ask for that reason: the days between `to` and `trustworthy_from` were never
+/// requested, and a wider earlier run legitimately vouched for them.
+#[tokio::test]
+async fn a_narrow_ask_clears_nothing_past_its_own_end() {
+    let fx = fixture().await;
+    let (from, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
+
+    // Rows across the whole default window, as a wider earlier run would leave.
+    seed_fabricated_rows(&fx, from, to).await;
+
+    // 120 days of activity: warm-up reaches only `to - 48`, so any ask ending
+    // before that is entirely un-warmable.
+    seed_cache(&fx, 120).await;
+    let warmup = warmup_days(CTL_WINDOW_DAYS);
+    let trustworthy_from = to - Duration::days(120) + Duration::days(warmup);
+
+    let ask_to = to - Duration::days(80);
+    assert!(
+        trustworthy_from > ask_to,
+        "fixture must exercise the shallow branch: trustworthy_from={trustworthy_from} ask_to={ask_to}"
+    );
+
+    let computed = compute_and_persist_history(&fx.runtime, fx.tenant, fx.user_id, from, ask_to)
+        .await
+        .expect("compute reads the cache and must not need a provider");
+
+    assert_eq!(
+        computed.rows_cleared,
+        (ask_to - from).num_days() as u64 + 1,
+        "exactly the requested days are cleared, no more"
+    );
+
+    // The day after the ask, and every day up to `trustworthy_from`, is outside
+    // the request and must be untouched — this is what the unclamped bound took.
+    let beyond = fetch_history_rows(
+        &fx.runtime.data(),
+        fx.tenant,
+        fx.user_id,
+        ask_to + Duration::days(1),
+        to,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        beyond.len(),
+        (to - ask_to).num_days() as usize,
+        "a narrow ask deleted days it never named: expected {} rows after {ask_to}, got {}",
+        (to - ask_to).num_days(),
+        beyond.len()
+    );
+}
