@@ -96,7 +96,16 @@ jobs:
             exit 1
           fi
 
-          MANIFEST=crates/pierre-server/Cargo.toml
+          # Discover the manifest carrying the pin rather than naming one. This step
+          # used to hardcode crates/pierre-server/Cargo.toml; the move to
+          # [workspace.dependencies] left `photograveur = { workspace = true }` there
+          # and put the real pin in the root manifest, which emptied PINNED and made
+          # every run exit here. Discovery is what the rewrite step below already does.
+          MANIFEST=$(grep -rl 'photograveur = { git' crates/ Cargo.toml --include=Cargo.toml | head -1)
+          if [ -z "${MANIFEST}" ]; then
+            echo "::error::no Cargo.toml pins photograveur — workflow assumption broke"
+            exit 1
+          fi
           PINNED=$(grep -oE 'photograveur = \{ git = "[^"]+", tag = "[^"]+"' "${MANIFEST}" \
                    | grep -oE 'tag = "[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           if [ -z "${PINNED}" ]; then
@@ -143,8 +152,8 @@ jobs:
           # Auto-discover consumers rather than hardcoding the list, for the reason
           # contremaitre-bump learned the hard way: a hardcoded list left one crate
           # behind, which put two revs of the same dependency in Cargo.lock and
-          # hard-failed the Security Audit on main. Only pierre-server pins
-          # photograveur today; discovery bumps the second consumer the day it exists.
+          # hard-failed the Security Audit on main. The root workspace manifest
+          # carries the pin today; discovery bumps the second consumer the day it exists.
           MANIFESTS=$(grep -rl 'photograveur = { git' crates/ Cargo.toml --include=Cargo.toml)
           if [ -z "${MANIFESTS}" ]; then
             echo "::error::no Cargo.toml pins photograveur — workflow assumption broke"
