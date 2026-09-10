@@ -81,8 +81,11 @@ fn the_guardrails_helper_is_gated_on_the_guided_flow() {
         "the guardrails must be suppressed while a guided flow owns the turn"
     );
     assert!(
-        body.contains("onboarding.is_some()") || source.contains("onboarding.is_some()"),
-        "the call site must pass the guided-flow flag"
+        body.contains("interview_owns_turn") || source.contains("interview_owns_turn"),
+        "the call site must pass the live flag. It is `interview_owns_turn` now, not \
+         `onboarding.is_some()`: a flow that exists to WRITE a plan needs the \
+         guardrails, so the test is which flows are suppressed, not whether any \
+         flow is active"
     );
 }
 
@@ -91,8 +94,9 @@ fn the_guardrails_helper_is_gated_on_the_guided_flow() {
 fn the_call_site_wires_the_real_guided_flow_flag() {
     let source = prompt_assembly_source();
     assert!(
-        source.contains("progression_guardrails(ctx, coach_ctx, onboarding.is_some())"),
-        "the guardrails call site must pass coach context and the live guided-flow flag"
+        source.contains("progression_guardrails(ctx, coach_ctx, interview_owns_turn)"),
+        "the guardrails call site must pass coach context and the live flag — a \
+         constant here would suppress the guardrails for every turn or for none"
     );
 }
 
