@@ -67,13 +67,11 @@ const STALE_FALLBACK_LIMIT: i64 = 500;
 /// `MAX_BACKFILL_DAYS` is 365, which would need 437 days retained. A deeper ask
 /// is answered as partial coverage and re-requests a capture.
 ///
-/// That re-request is what makes the shortfall safe rather than silent. The
-/// prune in `write_through_activity_cache` is keyed per `(user, tenant)` across
-/// all providers, so a later narrow writer reclaims a deep backfill's rows back
-/// to this floor while `backfill_coverage.oldest_reached_ts` goes on claiming
-/// them — and [`historical_depth_covered`] therefore refuses any coverage claim
-/// that reaches below [`activity_cache_retention_floor_ts`], so the ask re-fetches
-/// instead of being served from a cache the prune has emptied.
+/// The prune in `write_through_activity_cache` is keyed per `(user, tenant)`
+/// across all providers, so a later narrow writer reclaims a deep backfill's
+/// rows back to this floor. `prune_and_realign_coverage` raises the coverage
+/// floors in the same breath, so the historical gate re-fetches instead of
+/// serving a cache the prune has emptied.
 const DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS: i64 = 180;
 
 /// Resolve the activity-cache retention window (days) from the environment,
@@ -324,35 +322,16 @@ pub async fn touch_connection_used(
 /// (`hit_feed_end`, so no older data exists). No coverage record ⇒ not covered.
 /// `pub` so the gate decision is exercisable by the integration test suite.
 ///
-/// `retention_floor_ts` is the oldest instant the cache can still hold. A
-/// coverage record outlives the rows it describes: `prune_activities_before` is
-/// keyed per `(user, tenant)` across every provider and deletes below the
-/// retention floor without touching coverage, so one narrow writer can erase a
-/// deep backfill's rows while `oldest_reached_ts` goes on claiming them. Below
-/// the floor the claim describes rows that are gone, and honouring it serves a
-/// shallow cache as a deep one with no provider call. So an ask that reaches
-/// past the floor is never covered, whatever coverage says — including on
-/// `hit_feed_end`, which promises no older data exists upstream, not that what
-/// was fetched is still stored.
+/// The record is kept honest at the source rather than second-guessed here: a
+/// prune raises every coverage floor it just falsified
+/// (`prune_and_realign_coverage`), so a claim can no longer outlive the rows it
+/// vouches for. Comparing against the retention default instead would misjudge
+/// exactly the caches worth trusting — a deep backfill widens its own retention
+/// via `backfill_retention_days`, so its rows legitimately sit below the
+/// default floor.
 #[must_use]
-pub fn historical_depth_covered(
-    coverage: Option<BackfillCoverage>,
-    after_ts: i64,
-    retention_floor_ts: i64,
-) -> bool {
-    if after_ts < retention_floor_ts {
-        return false;
-    }
+pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i64) -> bool {
     coverage.is_some_and(|c| c.hit_feed_end || c.oldest_reached_ts <= after_ts)
-}
-
-/// The oldest instant the activity cache can still hold, as unix seconds.
-///
-/// Mirrors the cutoff `write_through_activity_cache` prunes below, so the gate
-/// and the prune cannot disagree about what is retrievable from cache.
-#[must_use]
-pub fn activity_cache_retention_floor_ts() -> i64 {
-    (Utc::now() - Duration::days(activity_cache_retention_days())).timestamp()
 }
 
 /// Lower bound of the disjoint head slice `(coverage_bound, now]` an
