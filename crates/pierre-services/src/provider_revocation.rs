@@ -16,6 +16,7 @@
 use chrono::{Duration, Utc};
 use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_providers::utils::refresh_oauth_token;
@@ -427,4 +428,93 @@ fn log_revocation_outcome(
             "Provider unreachable for revocation; local deletion proceeds"
         ),
     }
+}
+
+/// Rows that survived a disconnect, as `"backend:token"` / `"backend:connection"`.
+///
+/// The disconnect chokepoint calls this after deleting so it can prove the
+/// state actually changed before reporting success. A disconnect that returns
+/// Ok while a grant survives is invisible to every signal we keep — the client
+/// gets its 204, `provider.disconnected` fires, nothing is logged — so a
+/// one-directional resolve that cleared only half a coalesced pair looked
+/// exactly like a working disconnect from the outside.
+///
+/// An empty result is the normal case, including for a repeat click: the
+/// second disconnect finds nothing left to survive.
+pub async fn surviving_rows(
+    data: &DataContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backends: &[String],
+) -> Vec<String> {
+    let mut survivors = Vec::new();
+
+    for backend in backends {
+        if matches!(
+            data.repos()
+                .oauth_tokens
+                .get_token(user_id, tenant_id, backend)
+                .await,
+            Ok(Some(_))
+        ) {
+            survivors.push(format!("{backend}:token"));
+        }
+    }
+
+    if let Ok(connections) = data
+        .repos()
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+    {
+        for backend in backends {
+            if connections.iter().any(|c| &c.provider == backend) {
+                survivors.push(format!("{backend}:connection"));
+            }
+        }
+    }
+
+    survivors
+}
+
+/// Withdraw one backend completely: revoke upstream, then delete the token and
+/// connection rows in lockstep and purge the provider-derived cache.
+///
+/// The two row types are separate sources of truth (`oauth_tokens` drives
+/// `resolve_backend` + the scrape session; `provider_connections` drives the
+/// "connected" badge and coaching fetch enumeration), so an orphaned connection
+/// row shows "Connected" for a dead session and routes the next fetch to a
+/// backend with no token.
+///
+/// Clearing a backend the user never held is a no-op, which is what makes
+/// clearing a whole coalesced pair safe.
+///
+/// # Errors
+/// Returns a database error if either delete fails. Upstream revocation is
+/// best-effort by contract and never blocks local deletion.
+pub async fn clear_backend(
+    service: &OAuthService,
+    data: &DataContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> AppResult<()> {
+    // Revoke BEFORE deleting — the stored token is the credential the
+    // revocation call spends.
+    revoke_for_disconnect(service, user_id, tenant_id, backend).await;
+
+    data.repos()
+        .oauth_tokens
+        .delete_token(user_id, tenant_id, backend)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete OAuth token: {e}")))?;
+
+    data.repos()
+        .provider_connections
+        .remove_connection(user_id, tenant_id, backend)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to remove provider connection: {e}")))?;
+
+    purge_provider_cache(data, user_id, tenant_id, backend).await;
+    Ok(())
 }

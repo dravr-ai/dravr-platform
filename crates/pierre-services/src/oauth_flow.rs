@@ -751,54 +751,37 @@ impl OAuthService {
             AppError::auth_invalid("No active tenant in session — cannot disconnect provider")
         })?;
 
-        // A user-facing provider is served by either its OAuth backend or its
-        // mirror ("strava" ↔ "sciotte", "garmin" ↔ "sciotte_garmin"), and
-        // `get_connection_status` coalesces that pair into ONE card. Disconnect
-        // clears the same pair, because resolution is one-directional: it maps
-        // "strava" → "sciotte" but never "sciotte" → "strava". Clearing only the
-        // resolved backend left the other half of the pair alive, so a client
-        // that named the card's own id ("sciotte") deleted a row that did not
-        // exist, returned 204, and the still-live `strava` grant folded straight
-        // back onto the card — the shape users reported as "disconnect does
-        // nothing". Both clients name the card differently, so the pairing lives
-        // here rather than in each of them.
+        // Clear the whole coalesced pair, not just the resolved backend: the
+        // card the user acted on may be served by either half, and the clients
+        // name it differently, so the pairing belongs here rather than in each
+        // of them. See `backend_pair_for` for why resolution alone is not
+        // enough.
         let user_facing = backend_resolver::user_facing_name(provider).to_owned();
-        let mut backends = vec![user_facing.clone()];
-        if let Some(mirror) = backend_resolver::mirror_backend_for(&user_facing) {
-            backends.push(mirror.to_owned());
-        }
+        let backends = backend_resolver::backend_pair_for(provider);
 
         for backend in &backends {
-            // Revoke the grant at the provider BEFORE deleting the local rows —
-            // the stored token is the credential the revocation call spends
-            // (best-effort by contract; see `provider_revocation`).
-            provider_revocation::revoke_for_disconnect(self, user_id, tenant_id, backend).await;
+            provider_revocation::clear_backend(self, &self.data, user_id, tenant_id, backend)
+                .await?;
+        }
 
-            // Delete the token and the connection row in lockstep. They are
-            // separate sources of truth (oauth_tokens → resolve_backend + scrape
-            // session; provider_connections → the "connected" badge + coaching
-            // fetch enumeration); an orphaned connection row shows "Connected"
-            // for a dead session and routes later fetches to a backend with no
-            // token. Deleting a backend the user never held is a no-op, which is
-            // what makes clearing the whole pair safe.
-            self.data
-                .repos()
-                .oauth_tokens
-                .delete_token(user_id, tenant_id, backend)
-                .await
-                .map_err(|e| AppError::database(format!("Failed to delete OAuth token: {e}")))?;
-
-            self.data
-                .repos()
-                .provider_connections
-                .remove_connection(user_id, tenant_id, backend)
-                .await
-                .map_err(|e| {
-                    AppError::database(format!("Failed to remove provider connection: {e}"))
-                })?;
-
-            provider_revocation::purge_provider_cache(&self.data, user_id, tenant_id, backend)
-                .await;
+        // Post-condition: prove the state changed before reporting success (see
+        // `surviving_rows` for why a false success is invisible here). ERROR,
+        // not WARN, because the alert policy filters `severity>=ERROR` — a WARN
+        // would reach nobody, which is the same gap in a quieter form.
+        let survivors =
+            provider_revocation::surviving_rows(&self.data, user_id, tenant_id, &backends).await;
+        if !survivors.is_empty() {
+            error!(
+                requested = %provider,
+                user_facing = %user_facing,
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                survivors = ?survivors,
+                "disconnect deleted its backends but rows survived — refusing to report success the client would render as disconnected"
+            );
+            return Err(AppError::internal(format!(
+                "Disconnect of {user_facing} did not clear every stored credential"
+            )));
         }
 
         // notify: provider revoked. Emitted here rather than on any transport

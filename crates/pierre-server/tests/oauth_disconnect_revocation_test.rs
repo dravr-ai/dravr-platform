@@ -972,3 +972,52 @@ async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
     // connection row and cached activities alike.
     assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
 }
+
+/// The success post-condition must not fire on the benign no-ops. It re-reads
+/// the pair after deleting and refuses to report success when a row survives —
+/// a guard that mistook "nothing was there" for "nothing was deleted" would
+/// turn every second click, and every disconnect of an unconnected provider,
+/// into a 500.
+#[tokio::test]
+async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
+    let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let mut config = (*resources.common.config).clone();
+    config.external_services.strava_api.revoke_url =
+        format!("{}/oauth/revoke", strava_upstream.base_url);
+    let service = oauth_service(&resources, config);
+
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "strava",
+        "strava-access-do-not-log",
+        Some("strava-refresh-do-not-log"),
+        Utc::now() + Duration::days(30),
+    )
+    .await;
+
+    // First click clears the grant.
+    service
+        .disconnect_provider(user_id, "strava", Some(tenant_id.as_uuid()))
+        .await
+        .expect("first disconnect succeeds");
+    assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
+
+    // Second click has nothing left to delete — still a success, not a 500.
+    service
+        .disconnect_provider(user_id, "strava", Some(tenant_id.as_uuid()))
+        .await
+        .expect("a repeat disconnect is a no-op, not a failure");
+
+    // Naming the card id on an already-clear pair is likewise a no-op.
+    service
+        .disconnect_provider(user_id, "sciotte", Some(tenant_id.as_uuid()))
+        .await
+        .expect("disconnecting an already-clear pair by card id is a no-op");
+
+    // A provider this user never connected must not trip the guard either.
+    service
+        .disconnect_provider(user_id, "whoop", Some(tenant_id.as_uuid()))
+        .await
+        .expect("disconnecting a never-connected provider is a no-op");
+}

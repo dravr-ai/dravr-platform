@@ -63,6 +63,23 @@ pub fn user_facing_name(backend: &str) -> &str {
     }
 }
 
+/// Every backend that can serve a user-facing provider, mirror included.
+///
+/// `get_connection_status` coalesces a provider and its mirror into ONE card,
+/// so a caller acting on that card must act on the whole pair. Resolution is
+/// one-directional — `mirror_backend_for` maps `strava` → `sciotte` and never
+/// the reverse — so a caller naming the card's own id would otherwise touch
+/// only half of it. Accepts either name and returns the same pair for both.
+#[must_use]
+pub fn backend_pair_for(provider: &str) -> Vec<String> {
+    let user_facing = user_facing_name(provider).to_owned();
+    let mut pair = vec![user_facing.clone()];
+    if let Some(mirror) = mirror_backend_for(&user_facing) {
+        pair.push(mirror.to_owned());
+    }
+    pair
+}
+
 /// Is this provider name an internal mirror-backend that must never
 /// surface to end users?
 #[must_use]
