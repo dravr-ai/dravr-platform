@@ -531,6 +531,35 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] \
     echo ""
 fi
 
+# ----------------------------------------------------------------------------
+# Tier 1j: satellite declaration reconciliation (compile-free, no network, ~1s)
+# ----------------------------------------------------------------------------
+#
+# satellites.toml is the single declaration the whole bump chain reads. When it
+# disagrees with the manifests the chain does not fail — it does the wrong thing
+# quietly. A pin with no stanza gets no lane and no diamond rule, which is how
+# dravr-cageux sat five releases behind; a stanza with no pin is a lane pointed at a
+# dependency this repo dropped, which resolves a version forever and reports success;
+# and a satellite pin in a file outside Cargo.toml / crates/*/Cargo.toml is left
+# behind by every bump while the run reports success, with no lockfile to catch it.
+#
+# Only the OFFLINE half runs here. The release comparison needs ~9 GitHub API calls
+# per pin, and it stopped being a useful push gate the day every satellite got a
+# lane: a laned pin is reported and never failed on, so gating a push on the network
+# half would mostly gate on GitHub's availability. That half stays a daily job.
+if [[ -x "$PROJECT_ROOT/scripts/ci/check-satellite-drift.sh" ]] \
+    && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+       | grep -qE '(^|/)Cargo\.toml$|^satellites\.toml$|^scripts/ci/satellite-pin\.sh$|^scripts/ci/check-satellite-drift\.sh$'; then
+    echo "Tier 1j: Satellite declaration reconciliation"
+    echo "---------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-satellite-drift.sh" --offline; then
+        echo ""
+        echo "FAIL: satellites.toml does not reconcile with the manifests!"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of

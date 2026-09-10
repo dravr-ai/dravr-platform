@@ -46,6 +46,20 @@
 
 set -uo pipefail
 
+# --offline runs only the half that needs no network: reconciling satellites.toml
+# against the manifests, and refusing a satellite pin in a file the bump chain does
+# not scan. That half is deterministic and costs nothing, so it gates every push;
+# the release comparison below needs ~9 GitHub API calls per pin and is a daily job.
+#
+# The split exists because the drift half stopped being a useful push gate the day
+# every satellite got a lane. A laned pin is reported and never failed on — a lane's
+# lag is transient by construction — so with eleven lanes the only things that can
+# fail here are a diamond disagreeing with its upstream, a declaration out of sync
+# with the tree, and a GitHub API hiccup. Gating pushes on the last of those reds
+# main for the network.
+OFFLINE=false
+[ "${1:-}" = "--offline" ] && OFFLINE=true
+
 REPO_OWNER="dravr-ai"
 FAILURES=0
 CHECKED=0
@@ -183,9 +197,14 @@ done < <("$PIN_SH" names)
 # manifest outside `members = ["crates/*"]` resolves against its own lockfile and
 # never reaches the workspace one. So convert a silent miss into a loud one: any
 # satellite-shaped pin outside the scanned scope fails the scan.
-OUT_OF_SCOPE=$(find . -name Cargo.toml \
-                 -not -path "./target/*" -not -path "*/target/*" -not -path "./.git/*" \
-                 -not -path "./Cargo.toml" -not -path "./crates/*/Cargo.toml" 2>/dev/null \
+# -prune, not -not -path: a filter still DESCENDS into the directory it excludes, so
+# `find . -not -path "./target/*"` walks every build artefact in the repo before
+# discarding it — 14 seconds against a warm target/, which is not a push gate.
+# Pruning never enters them at all.
+OUT_OF_SCOPE=$(find . \
+                 \( -name target -o -name node_modules -o -name .git \) -prune -o \
+                 -name Cargo.toml -print 2>/dev/null \
+               | grep -vE '^\./Cargo\.toml$|^\./crates/[^/]+/Cargo\.toml$' \
                | while read -r m; do
                    if grep -qE '^(dravr-[a-z-]+|photograveur|embacle(-[a-z-]+)?) = ' "$m" 2>/dev/null; then
                      echo "$m"
@@ -203,6 +222,11 @@ if [ "$RECONCILE" -gt 0 ]; then
   echo
   echo "❌ satellites.toml and the manifests disagree on ${RECONCILE} satellite(s) — scan unverified"
   exit 2
+fi
+
+if [ "$OFFLINE" = "true" ]; then
+  echo "✅ satellites.toml reconciles with the manifests ($(printf '%s' "$PINS" | grep -c . ) tag pin(s), every stanza accounted for)"
+  exit 0
 fi
 
 while IFS=$'\t' read -r name tag; do

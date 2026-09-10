@@ -10,15 +10,25 @@
 # about a `git`+`tag` pin — and cageux, canot, commere and meteo have no bump lane at
 # all, so no automation was watching them either.
 #
-# Why this is not on `push` yet. The scan is honest about the fleet as it stands, and
-# the fleet has one real drift: cageux is five releases behind and the bump is not
-# pin-only — v0.18.0 added fields to PhaseTargets, WeekInput and the peaks pattern
-# that pierre-tool-runtime must fill in with real values, which is training-science
-# work rather than a rewrite of a version string. Arming this as a push gate today
-# would red main for every session over a known task nobody can fix in passing. It
-# runs daily and on demand until that lands, then moves to push — the criterion is
-# in feature-phases.yaml so it cannot quietly stay here, and the work itself is
-# carnet#422.
+# Why only HALF of this gates a push. The ledger entry said: once cageux is current
+# and the scan is clean, move the whole workflow onto push and drop the schedule.
+# Both conditions were met on 2026-09-10 (carnet#422 closed, cageux at v0.18.0), and
+# the advance was taken — but not as written, because the fleet changed underneath it.
+#
+# When that criterion was set, four satellites had no bump lane and a drifted pin
+# could sit unnoticed for a week. Now every satellite has one (carnet#419), and this
+# scan reports a laned pin without ever failing on it — a lane's lag is transient by
+# construction, and failing would red main for a bot's schedule. So with eleven lanes
+# the only things that can fail here are a diamond disagreeing with its upstream, a
+# declaration out of sync with the tree, and a GitHub API hiccup. Putting the whole
+# scan on push would mostly gate main on GitHub's availability, at ~9 API calls per
+# pin per push.
+#
+# So it split. The offline half — satellites.toml against the manifests, and the
+# refusal of a satellite pin in a file the bump chain does not scan — is
+# deterministic, needs no network, runs in under a second, and gates every push as
+# pre-push Tier 1j and in ci-backend's fast-gate. The release comparison below stays
+# daily, which is what it is good at.
 #
 # An exemption list was the other option and is the wrong one: this repo deletes
 # KNOWN_OFFENDERS arrays on sight, because a gate that carries its own exceptions

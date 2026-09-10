@@ -74,6 +74,6 @@ features:
   # configuration in contremaitre, not a disarmed platform feature.
   - name: satellite-drift-gate-scheduled
     surface: .github/workflows/satellite-drift.yml
-    current: runs on schedule and dispatch only — scripts/ci/check-satellite-drift.sh is complete and fails on real drift, but is not on any push lane while dravr-cageux is five releases behind
-    advance_when: the dravr-cageux pin reaches its latest release and the scan is clean, then move the workflow onto push and drop the schedule
-    review_by: 2026-10-15
+    current: split. The offline half (satellites.toml vs the manifests, plus the out-of-scope pin guard) gates every push as pre-push Tier 1j and in ci-backend fast-gate. The release comparison stays daily
+    advance_when: nothing further. The original criterion (cageux current, scan clean) was met on 2026-09-10 and the advance was taken, but not as written — see the note below. Close this entry at the next review unless the daily lane starts missing real drift
+    review_by: 2026-11-15

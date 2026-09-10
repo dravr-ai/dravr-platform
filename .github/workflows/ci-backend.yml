@@ -225,6 +225,7 @@ jobs:
           ./scripts/ci/check-lockfile-duplicates.test.sh
           ./scripts/ci/check-twin-surfaces.test.sh
           ./scripts/ci/satellite-pin.test.sh
+          ./scripts/ci/check-satellite-drift.sh --offline
 
       # The dev scripts decide which processes a stop may kill and which files a
       # tunnel may rewrite, so a quoting or word-splitting slip there reaches a
