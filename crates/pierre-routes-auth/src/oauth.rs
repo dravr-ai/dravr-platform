@@ -691,6 +691,76 @@ pub async fn handle_mobile_oauth_init(
         .into_response())
 }
 
+/// Launch the OAuth flow by redirecting the browser to the provider.
+///
+/// GET `/api/oauth/authorize/{provider}`
+///
+/// A popup opened straight onto this URL is a same-origin navigation the
+/// browser renders normally and then follows to the provider, so no window is
+/// ever left blank and a failure lands on a real response instead of a
+/// silently closed popup.
+///
+/// This is the launch surface clients should use. It replaces opening
+/// `about:blank`, awaiting the authorize URL over the network, and assigning
+/// `location.href` afterwards: that pattern existed to keep the popup inside
+/// Safari's user-gesture window, but it necessarily showed an empty window for
+/// the length of the round trip — which iPhone users reported as a broken
+/// connect — and left the launch unobservable when the assignment did not
+/// take. Opening a real URL synchronously satisfies the same gesture rule with
+/// none of that.
+///
+/// The session-authenticated mirror of `connect_hosted::handle_connect_oauth_init`,
+/// which does the same for channel-initiated links; the two differ only in how
+/// the caller proves identity (session cookie here, connect link-token there).
+///
+/// # Errors
+/// Returns an error if the session is invalid, the caller has no active tenant,
+/// or the provider's authorize URL cannot be built.
+#[tracing::instrument(
+    skip(resources, headers),
+    fields(
+        route = "oauth_authorize_redirect",
+        provider = %provider,
+        user_id = Empty,
+        tenant_id = Empty,
+    )
+)]
+pub async fn handle_oauth_authorize_redirect(
+    State(resources): State<AuthRoutesContext>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let auth_result = resources
+        .auth_middleware
+        .authenticate_request_with_headers(&headers)
+        .await?;
+    let user_id = auth_result.user_id;
+    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+
+    let span = Span::current();
+    span.record("user_id", field::display(&user_id));
+    span.record("tenant_id", field::display(&tenant_id));
+
+    get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
+
+    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
+    let authorization = oauth_service
+        .get_auth_url(user_id, tenant_id, &provider)
+        .await?;
+
+    info!(
+        provider = %provider,
+        user_id = %user_id,
+        "OAuth authorize redirect issued"
+    );
+
+    Ok((
+        StatusCode::FOUND,
+        [(header::LOCATION, authorization.authorization_url)],
+    )
+        .into_response())
+}
+
 /// REST endpoint to disconnect a provider
 ///
 /// DELETE /api/oauth/providers/:provider/disconnect

@@ -435,83 +435,62 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     return false;
   };
 
-  const handleConnectProvider = async (providerId: string, preopenedPopup?: Window | null) => {
-    // Mobile Safari requires window.open to fire inside the synchronous
-    // user-gesture call stack. Awaiting before window.open silently drops the
-    // popup, leaving the spinner running until its 5-minute safety timeout.
-    // Callers in flows that already burned the gesture (e.g. the Switch-Provider
-    // dialog) pre-open a blank window and pass it in via preopenedPopup.
-    const popup = preopenedPopup ?? window.open('about:blank', '_blank');
+  const handleConnectProvider = (providerId: string) => {
+    // Open the server's launch route, which 302s to the provider. A real
+    // same-origin URL opens synchronously inside Safari's user-gesture stack,
+    // so no window is ever left blank and no popup handle has to be threaded
+    // through callers that already burned the gesture.
+    const url = oauthApi.authorizeUrl(providerId);
+    const popup = window.open(url, '_blank');
 
-    try {
-      setConnectingProvider(providerId);
-      setProviderMessage(null);
-      const authUrl = await oauthApi.getAuthorizeUrlForProvider(providerId);
+    setConnectingProvider(providerId);
+    setProviderMessage(null);
 
-      if (popup && !popup.closed) {
-        popup.location.href = authUrl;
-      } else {
-        // Popup was blocked even when opened synchronously (strict mobile
-        // Safari). Fall back to same-tab navigation. OAuthCallback writes
-        // pierre_oauth_result to localStorage regardless of tab, so the
-        // storage-event listener picks the result up when the user returns.
-        window.location.href = authUrl;
-        return;
-      }
+    if (!popup) {
+      // Popup blocked even when opened synchronously (strict mobile Safari).
+      // Same-tab navigation is the fallback; OAuthCallback writes
+      // pierre_oauth_result to localStorage regardless of tab, so the
+      // storage-event listener picks the result up when the user returns.
+      window.location.href = url;
+      return;
+    }
 
-      // Listen for the OAuth callback result stored in localStorage by OAuthCallback
-      const checkInterval = setInterval(() => {
-        try {
-          const resultStr = localStorage.getItem('pierre_oauth_result');
-          if (resultStr) {
-            const result = JSON.parse(resultStr);
-            // Only process results less than 30 seconds old
-            if (result.timestamp && Date.now() - result.timestamp < 30000 && result.provider === providerId) {
-              localStorage.removeItem('pierre_oauth_result');
-              clearInterval(checkInterval);
-              setConnectingProvider(null);
+    // Listen for the OAuth callback result stored in localStorage by OAuthCallback
+    const checkInterval = setInterval(() => {
+      try {
+        const resultStr = localStorage.getItem('pierre_oauth_result');
+        if (resultStr) {
+          const result = JSON.parse(resultStr);
+          // Only process results less than 30 seconds old
+          if (result.timestamp && Date.now() - result.timestamp < 30000 && result.provider === providerId) {
+            localStorage.removeItem('pierre_oauth_result');
+            clearInterval(checkInterval);
+            setConnectingProvider(null);
 
-              if (result.success) {
-                setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: providerId }) });
-                refetchProviders();
-              } else if (providerId === 'strava') {
-                // Strava OAuth failed (shared-app athlete cap actually exceeded
-                // in a seat-count race, or the provider rejected the grant).
-                // Fall back to the Sciotte credential login — same Strava data —
-                // instead of leaving the user on an error message.
-                setSciotteModalTarget('strava');
-              } else {
-                setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: providerId }) });
-              }
+            if (result.success) {
+              setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: providerId }) });
+              refetchProviders();
+            } else if (providerId === 'strava') {
+              // Strava OAuth failed (shared-app athlete cap actually exceeded
+              // in a seat-count race, or the provider rejected the grant).
+              // Fall back to the Sciotte credential login — same Strava data —
+              // instead of leaving the user on an error message.
+              setSciotteModalTarget('strava');
+            } else {
+              setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: providerId }) });
             }
           }
-        } catch {
-          // Ignore localStorage parse errors
         }
-      }, 500);
+      } catch {
+        // Ignore localStorage parse errors
+      }
+    }, 500);
 
-      // Safety timeout: stop checking after 5 minutes
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        setConnectingProvider(null);
-      }, 300000);
-    } catch (error) {
-      if (popup && !popup.closed) {
-        popup.close();
-      }
+    // Safety timeout: stop checking after 5 minutes
+    setTimeout(() => {
+      clearInterval(checkInterval);
       setConnectingProvider(null);
-      // Couldn't start the Strava OAuth flow (init/network error, or the
-      // platform Strava app is unconfigured). Fall back to the Sciotte
-      // credential login rather than surfacing a dead-end error.
-      if (providerId === 'strava') {
-        setSciotteModalTarget('strava');
-        return;
-      }
-      setProviderMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : t('settingsErr.startConnectionFailed'),
-      });
-    }
+    }, 300000);
   };
 
   // Disconnect a fitness provider
@@ -1698,18 +1677,19 @@ Authorization: Bearer <your-token-here>`}
           if (!providerConflict) return;
           const disconnecting = providerConflict.disconnecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
           const connecting = providerConflict.connecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
-          // Pre-open the OAuth popup synchronously here, before the disconnect
-          // await consumes the click's user gesture. Mobile Safari otherwise
-          // silently blocks the popup and the connect spinner runs to timeout.
-          // Sciotte uses a credential modal, not an OAuth popup — skip the
-          // preopen in that branch.
-          const preopenedPopup = connecting === 'sciotte' ? null : window.open('about:blank', '_blank');
+          // The disconnect await consumes the click's user gesture, so open the
+          // launch window BEFORE it. It goes straight to the server's redirect
+          // route, so there is no blank window to hold open across the await
+          // and no popup handle to thread onward. Sciotte uses a credential
+          // modal rather than an OAuth window, so it opens nothing here.
+          const launch =
+            connecting === 'sciotte' ? null : window.open(oauthApi.authorizeUrl(connecting), '_blank');
           await handleDisconnectProvider(disconnecting);
           setProviderConflict(null);
           if (connecting === 'sciotte') {
             setSciotteModalTarget('strava');
-          } else {
-            handleConnectProvider(connecting, preopenedPopup);
+          } else if (!launch) {
+            window.location.href = oauthApi.authorizeUrl(connecting);
           }
         }}
         title={t('providers.switchProvider')}

@@ -60,54 +60,31 @@ export default function OnboardingConnectProvider({
   // gate), we open the setup modal in-place and continue with OAuth as soon as
   // they save.
   const [showWhoopSetup, setShowWhoopSetup] = useState(false);
-  // Bumped when a delegated Strava OAuth *launch* fails (authorize-URL fetch
-  // throws). ProviderConnectionCards owns the Sciotte modal, so we signal it to
-  // open the credential-login fallback rather than showing a dead-end error.
-  const [oauthLaunchFailedNonce, setOauthLaunchFailedNonce] = useState(0);
 
-  const launchOAuth = async (provider: string) => {
-    // Mobile Safari requires window.open to fire inside the synchronous
-    // user-gesture call stack. Pre-open a blank window so the popup permission
-    // is captured before the async authorize-URL fetch. (For Whoop's
-    // post-save path we accept the same-tab fallback — the modal close already
-    // ate the user-gesture.)
-    const popup = window.open('about:blank', '_blank');
-    setConnectingProvider(provider);
+  const launchOAuth = (provider: string) => {
+    // Open the server's launch route directly. It is a same-origin page that
+    // 302s to the provider, so the browser shows its normal loading state and
+    // the window is never blank, and the open stays inside Safari's
+    // user-gesture stack because nothing is awaited first.
+    //
+    // The previous shape — open `about:blank`, await the authorize URL, then
+    // assign `location.href` — left the popup empty for the whole round trip.
+    // On desktop that flashed past; on an iPhone it read as a broken connect,
+    // and when the assignment did not take there was no signal at all.
+    const popup = window.open(oauthApi.authorizeUrl(provider), '_blank');
     setConnectError(null);
-    try {
-      const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider);
-      if (popup && !popup.closed) {
-        popup.location.href = authUrl;
-      } else {
-        window.location.href = authUrl;
-        return;
-      }
-      // Clear the per-card spinner now that the OAuth tab is loading. Success
-      // is observed at the App level (onboarding-status invalidation flips to
-      // the dashboard); keeping the spinner held here strands the card if the
-      // user closes the OAuth tab without finishing.
-      setConnectingProvider(null);
-    } catch (error) {
-      if (popup && !popup.closed) {
-        popup.close();
-      }
-      console.error(`Failed to get OAuth URL for ${provider}:`, error);
-      setConnectingProvider(null);
-      if (provider === 'whoop') {
-        // No BYO app registered yet — open the in-place setup modal so the
-        // first-run user never needs to navigate to Settings.
-        setShowWhoopSetup(true);
-        return;
-      }
-      if (provider === 'strava') {
-        // OAuth couldn’t even start — signal ProviderConnectionCards (which owns
-        // the Sciotte modal) to open the credential-login fallback instead of a
-        // dead-end error.
-        setOauthLaunchFailedNonce((n) => n + 1);
-        return;
-      }
-      setConnectError(`Couldn’t start the ${provider} connect flow. Please try again.`);
+    if (!popup) {
+      // Popup blocked outright (strict mobile Safari). Same-tab navigation is
+      // the documented fallback; OAuthCallback writes `pierre_oauth_result` to
+      // localStorage regardless of which tab finishes the flow.
+      window.location.href = oauthApi.authorizeUrl(provider);
+      return;
     }
+    // No per-card spinner: the launch is complete the moment the window opens.
+    // Success is observed at the App level (onboarding-status invalidation
+    // flips to the dashboard), and holding a spinner here stranded the card
+    // when the user closed the OAuth tab without finishing.
+    setConnectingProvider(null);
   };
 
   const handleConnectProvider = (provider: string) => {
@@ -211,7 +188,6 @@ export default function OnboardingConnectProvider({
                 connectingProvider={connectingProvider}
                 onProviderConnected={() => setJustConnected(true)}
                 onOAuthLaunched={(provider) => setAwaitingOAuthFor(provider)}
-                oauthLaunchFailedNonce={oauthLaunchFailedNonce}
               />
             </div>
 

@@ -27,7 +27,6 @@ vi.mock('@pierre/api-client', () => {
         getStatus: vi.fn(),
         getProvidersStatus: vi.fn(),
         disconnectProvider: vi.fn(),
-        getAuthorizeUrlForProvider: vi.fn(),
         linkIntervalsIcu: vi.fn(),
         disconnectIntervalsIcu: vi.fn(),
       },

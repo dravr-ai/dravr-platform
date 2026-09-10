@@ -91,7 +91,7 @@ vi.mock('../../hooks/useAuth', () => ({
 }));
 
 // OAuth spies shared with the Data Providers tests below.
-const getAuthorizeUrlForProvider = vi.fn().mockResolvedValue('https://www.strava.com/oauth/authorize?x=1');
+const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn().mockResolvedValue({ providers: [] });
 const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 
@@ -119,7 +119,7 @@ vi.mock('../../services/api', () => ({
   },
   oauthApi: {
     getProvidersStatus: (...args: unknown[]) => getProvidersStatus(...args),
-    getAuthorizeUrlForProvider: (...args: unknown[]) => getAuthorizeUrlForProvider(...args),
+    authorizeUrl: (...args: unknown[]) => authorizeUrl(...args),
     disconnectProvider: (...args: unknown[]) => disconnectProvider(...args),
     disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
   },
@@ -676,7 +676,11 @@ describe('UserSettings Component', () => {
       const connect = await screen.findByRole('button', { name: 'Connect' });
       await user.click(connect);
 
-      await waitFor(() => expect(getAuthorizeUrlForProvider).toHaveBeenCalledWith('strava'));
+      // Asserting the URL, not merely that a window opened: opening
+      // `about:blank` and filling it in later is the regression this replaced.
+      await waitFor(() =>
+        expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank'),
+      );
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
@@ -691,7 +695,7 @@ describe('UserSettings Component', () => {
       await user.click(connect);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
-      expect(getAuthorizeUrlForProvider).not.toHaveBeenCalled();
+      expect(window.open).not.toHaveBeenCalled();
     });
 
     it('renders a connected-but-dead session as "Reconnect needed", not "Connected"', async () => {
@@ -816,6 +820,7 @@ describe('UserSettings Component', () => {
         ],
       });
       const user = userEvent.setup();
+      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
 
       await act(async () => {
         renderUserSettings({ initialTab: 'connections', hideTabNav: true });
@@ -824,8 +829,8 @@ describe('UserSettings Component', () => {
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
       expect(await screen.findByText('Switch Provider')).toBeInTheDocument();
-      // The guard short-circuits the connect, so no OAuth URL is requested.
-      expect(getAuthorizeUrlForProvider).not.toHaveBeenCalled();
+      // The guard short-circuits the connect, so no launch window is opened.
+      expect(window.open).not.toHaveBeenCalled();
     });
   });
 

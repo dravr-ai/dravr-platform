@@ -239,7 +239,16 @@ impl AuthRoutes {
                 "/api/oauth/auth/{provider}/{user_id}",
                 get(oauth::handle_oauth_auth_initiate),
             )
-            // Mobile OAuth initiation — returns OAuth URL in JSON (requires auth)
+            // OAuth launch — 302s the browser to the provider (requires auth).
+            // A popup opened onto this never sits blank, unlike fetching the URL
+            // and assigning it client-side.
+            .route(
+                "/api/oauth/authorize/{provider}",
+                get(oauth::handle_oauth_authorize_redirect),
+            )
+            // Mobile OAuth initiation — returns OAuth URL in JSON (requires auth).
+            // Kept for the native app, which hands the URL to an in-app browser
+            // rather than navigating a popup.
             .route(
                 "/api/oauth/mobile/init/{provider}",
                 get(oauth::handle_mobile_oauth_init),

@@ -11,12 +11,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 
-const getAuthorizeUrlForProvider = vi.fn().mockResolvedValue('https://www.strava.com/oauth/authorize?x=1');
+const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn();
 
 vi.mock('../../services/api', () => ({
   providersApi: { getProvidersStatus: (...args: unknown[]) => getProvidersStatus(...args) },
-  oauthApi: { getAuthorizeUrlForProvider: (...args: unknown[]) => getAuthorizeUrlForProvider(...args) },
+  oauthApi: { authorizeUrl: (...args: unknown[]) => authorizeUrl(...args) },
 }));
 
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
@@ -59,8 +59,9 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    // window.open is used to pre-open the OAuth popup; return a live fake.
-    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+    // The card opens the server's launch route directly; return a live fake so
+    // the "popup blocked" same-tab fallback is not taken.
+    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
   });
 
   it('launches Strava OAuth (not the Sciotte modal) while seats remain', async () => {
@@ -71,7 +72,11 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     const button = await screen.findByLabelText('Connect to Strava');
     await user.click(button);
 
-    await waitFor(() => expect(getAuthorizeUrlForProvider).toHaveBeenCalledWith('strava'));
+    // Asserting the URL, not just that something was opened: a window opened on
+    // `about:blank` is exactly the regression this replaced.
+    await waitFor(() =>
+      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank'),
+    );
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
   });
 
@@ -84,7 +89,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     await user.click(button);
 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
-    expect(getAuthorizeUrlForProvider).not.toHaveBeenCalled();
+    expect(window.open).not.toHaveBeenCalled();
   });
 
   it('falls back to the Sciotte modal when a Strava OAuth attempt fails', async () => {

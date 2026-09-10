@@ -101,13 +101,6 @@ interface ProviderConnectionCardsProps {
   isSkipPending?: boolean;
   /** Forwarded from `SciotteLoginModal` when the BYO Strava OAuth popup opens. */
   onOAuthLaunched?: (provider: string) => void;
-  /**
-   * Bumped by the onboarding parent when its delegated Strava OAuth *launch*
-   * fails (authorize-URL fetch throws) so this component — which owns the
-   * Sciotte modal — opens the credential-login fallback. Post-consent OAuth
-   * failures are caught separately via the `pierre_oauth_result` listener.
-   */
-  oauthLaunchFailedNonce?: number;
 }
 
 export default function ProviderConnectionCards({
@@ -117,7 +110,6 @@ export default function ProviderConnectionCards({
   onSkip,
   isSkipPending,
   onOAuthLaunched,
-  oauthLaunchFailedNonce,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
   const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
@@ -184,45 +176,23 @@ export default function ProviderConnectionCards({
     };
   }, []);
 
-  // Onboarding delegates the Strava OAuth *launch* to the parent
-  // (OnboardingConnectProvider). If the parent's authorize-URL fetch throws, it
-  // bumps `oauthLaunchFailedNonce` so we open the Sciotte fallback here, where
-  // the modal lives.
-  useEffect(() => {
-    if (oauthLaunchFailedNonce && oauthLaunchFailedNonce > 0) {
-      setSciotteModalTarget('strava');
-    }
-  }, [oauthLaunchFailedNonce]);
-
   // Launch the OAuth authorization flow for a provider. Prefers the parent's
   // callback (onboarding shows an "awaiting consent" overlay); otherwise opens
-  // the authorize URL directly. Pre-opens a blank window synchronously so
-  // mobile Safari preserves the user gesture across the authorize-URL await;
-  // otherwise the popup is silently blocked and the card sits in a stuck state.
-  const connectViaOAuth = async (providerName: string) => {
+  // the server's launch route, which 302s to the provider. Opening a real
+  // same-origin URL keeps the window inside Safari's user-gesture stack without
+  // the old `about:blank`-then-assign dance, which left the popup empty for the
+  // whole authorize-URL round trip.
+  const connectViaOAuth = (providerName: string) => {
     track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
     if (onConnectProvider) {
       onConnectProvider(providerName);
       return;
     }
-    const popup = window.open('about:blank', '_blank');
-    try {
-      const authUrl = await oauthApi.getAuthorizeUrlForProvider(providerName);
-      if (popup && !popup.closed) {
-        popup.location.href = authUrl;
-      } else {
-        window.location.href = authUrl;
-      }
-    } catch (error) {
-      if (popup && !popup.closed) {
-        popup.close();
-      }
-      console.error('Failed to get OAuth authorization URL:', error);
-      // Couldn't start OAuth (network/config error). For the Strava card, fall
-      // back to the Sciotte credential login instead of leaving the card stuck.
-      if (providerName === 'strava') {
-        setSciotteModalTarget('strava');
-      }
+    const url = oauthApi.authorizeUrl(providerName);
+    if (!window.open(url, '_blank')) {
+      // Popup blocked outright — same-tab navigation is the documented
+      // fallback; the callback records the result either way.
+      window.location.href = url;
     }
   };
 

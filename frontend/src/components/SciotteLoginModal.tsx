@@ -590,26 +590,18 @@ export default function SciotteLoginModal({
           // Calling `onConnected()` prematurely flashed "Provider connected
           // — preparing your dashboard…" before the user had even seen the
           // consent screen.
-          const popup = window.open('about:blank', '_blank');
-          try {
-            const authUrl = await oauthApi.getAuthorizeUrlForProvider('strava');
-            if (popup && !popup.closed) {
-              popup.location.href = authUrl;
-            } else {
-              window.location.href = authUrl;
-            }
-            // Close the Sciotte modal so the user lands back on the
-            // onboarding cards while the popup handles Strava consent. The
-            // popup's redirect (or its absence) is the source of truth.
-            onClose();
-            // Tell the parent an OAuth popup is in flight so it can render an
-            // "awaiting consent" state with a cancel + timeout escape hatch.
-            onOAuthLaunched?.('strava');
-          } catch (err) {
-            if (popup && !popup.closed) popup.close();
-            setError(describeApiError(err, { online, t, fallbackKey: 'shell.sciotteStravaOauthFailed' }));
-            setPhase('error');
+          const url = oauthApi.authorizeUrl('strava');
+          if (!window.open(url, '_blank')) {
+            window.location.href = url;
+            return;
           }
+          // Close the Sciotte modal so the user lands back on the onboarding
+          // cards while the window handles Strava consent. The redirect (or its
+          // absence) is the source of truth.
+          onClose();
+          // Tell the parent an OAuth window is in flight so it can render an
+          // "awaiting consent" state with a cancel + timeout escape hatch.
+          onOAuthLaunched?.('strava');
         }}
         provider="strava"
         displayName="Strava"

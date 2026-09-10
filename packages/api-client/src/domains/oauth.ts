@@ -112,6 +112,21 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
+     * URL a browser can be navigated to in order to start the OAuth flow.
+     *
+     * Synchronous by design: `window.open(authorizeUrl(p), '_blank')` inside the
+     * click handler opens a real same-origin page that redirects onward, so the
+     * popup is never blank and stays inside Safari's user-gesture window.
+     * Fetching an authorization URL first and assigning `location.href` after
+     * the await leaves the popup empty for the whole round trip — which iPhone
+     * users reported as a broken connect.
+     */
+    authorizeUrl(provider: string): string {
+      const base = (axios.defaults.baseURL ?? '').replace(/\/$/, '');
+      return `${base}${ENDPOINTS.OAUTH.AUTHORIZE(provider)}`;
+    },
+
+    /**
      * Initialize mobile OAuth flow for a provider.
      * Returns the authorization URL and PKCE parameters.
      */
@@ -189,16 +204,6 @@ export function createOAuthApi(axios: AxiosInstance) {
      */
     async disconnectIntervalsIcu(): Promise<void> {
       await axios.delete(ENDPOINTS.PROVIDERS.INTERVALS_ICU_DISCONNECT);
-    },
-
-    /**
-     * Get the OAuth authorization URL for a provider from the server.
-     * Calls the mobile/init endpoint and returns just the URL string.
-     * Used by web frontend for popup OAuth flow.
-     */
-    async getAuthorizeUrlForProvider(provider: string): Promise<string> {
-      const response = await this.initMobileOAuth(provider);
-      return response.authorization_url;
     },
 
     /**

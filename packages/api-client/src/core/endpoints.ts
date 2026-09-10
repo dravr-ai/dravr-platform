@@ -81,7 +81,10 @@ export const ENDPOINTS = {
   OAUTH: {
     /** Get OAuth connection status */
     STATUS: '/api/oauth/status',
-    /** Initialize mobile OAuth flow */
+    /** Launch OAuth: 302s the browser to the provider. Open a popup directly on
+     *  this — fetching the URL first leaves the popup blank for the round trip. */
+    AUTHORIZE: (provider: string) => `/api/oauth/authorize/${provider}`,
+    /** Initialize mobile OAuth flow (native app: hands the URL to an in-app browser) */
     MOBILE_INIT: (provider: string) => `/api/oauth/mobile/init/${provider}`,
     /** Disconnect provider (revoke tokens) */
     DISCONNECT: (provider: string) => `/api/oauth/providers/${provider}/disconnect`,
