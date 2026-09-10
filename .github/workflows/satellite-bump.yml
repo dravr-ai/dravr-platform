@@ -1,0 +1,681 @@
+# ABOUTME: The shared satellite bump chain — resolve, bump on a branch, gate, squash onto main
+# ABOUTME: Called locally by .github/workflows/bump-<satellite>.yml; per-satellite knowledge lives in satellites.toml
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# Why this is one file. Three satellites had a bump lane and eight had none —
+# dravr-cageux sat five real releases behind in a week with nothing red (carnet#419).
+# The three that existed were ~600 lines each implementing the SAME seven-stage
+# chain: `merge` was byte-identical across all three and `gate` differed by four
+# lines. The differences that matter are six small axes, and those now live in
+# satellites.toml.
+#
+# Why it lives in dravr-platform and is called LOCALLY (`uses: ./.github/...`),
+# rather than in a producer repo the way tronc-bump.yml does it:
+#
+#   1. A local `uses:` runs with this repo's GITHUB_TOKEN. A producer half only ever
+#      `repository_dispatch`es — a cross-repo POST, never a push — so hosting the
+#      spine here costs nothing and needs no cross-repo credential.
+#   2. It can call this repo's scripts. That is not theoretical: the three local
+#      lanes each run check-lockfile-duplicates.sh twice, and the producer-hosted
+#      tronc lane runs it ZERO times and pushes to main without it, because ten of
+#      tronc's eleven consumers do not have that script.
+#   3. No `@main` float. tronc's eleven consumers pin `uses: ...@main`, so an edit in
+#      dravr-tronc changes eleven repos with review in none. A local call is reviewed
+#      in the commit that changes its behaviour.
+#
+# Fleet-wide lessons this chain encodes, each paid for once:
+#
+#   * A GITHUB_TOKEN push starts NO workflow runs. The branch push below therefore
+#     dispatches each gate explicitly, and the squash onto main gets no push-triggered
+#     verdict at all — which is why the duplicate check runs again on the merged tree.
+#   * `gh run list --commit` silently returns zero rows. Runs are matched by branch,
+#     which is unambiguous because the branch is created fresh per version.
+#   * cancelled is not green. A cancelled run validated nothing (carnet#169).
+#   * Green jobs can ship nothing. carnet#94: six green jobs, no deploy, twice in one
+#     day — because `publish-images.yml` triggers on `workflow_run` of a push that
+#     GITHUB_TOKEN never made. Shipping is the caller's job, and it is not optional.
+#   * Counting only the crates a lane moved misses the split. carnet#323: the enforme
+#     lane counted its own crates and the duplicate was in dravr-equilibre, surfacing
+#     as E0053 twenty minutes into a gate on a branch that could never merge.
+#
+# What this workflow does NOT do: ship. It stops at the squash merge. Images, Cloud
+# Run deploys, digest assertions, rollbacks and `tag-deployed-*` stay in the caller
+# as ordinary jobs keyed on `state == 'pushed'`, moved verbatim rather than merged
+# into a shared tail. That is deliberate — it is the scar tissue that must not be
+# lost in a refactor, and every satellite's is different.
+
+name: "Satellite: Bump (reusable)"
+
+on:
+  workflow_call:
+    inputs:
+      satellite:
+        description: "Stanza name in satellites.toml"
+        required: true
+        type: string
+      version:
+        description: "Version to integrate; defaults to the satellite's newest release"
+        required: false
+        type: string
+      dry_run:
+        description: "Resolve and rewrite, but push nothing"
+        required: false
+        default: false
+        type: boolean
+      gate_timeout:
+        description: "Minutes to wait for the CI gates (must be <= 55)"
+        required: false
+        default: 45
+        type: number
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN:
+        required: true
+      DRAVR_CARNET_TOKEN:
+        required: true
+    outputs:
+      state:
+        description: "current | stood-down | pushed | dry-run"
+        value: ${{ jobs.bump.outputs.state || jobs.resolve.outputs.state }}
+      version:
+        description: "The version this run targeted"
+        value: ${{ jobs.resolve.outputs.version }}
+      pinned:
+        description: "The version pinned before this run"
+        value: ${{ jobs.resolve.outputs.pinned }}
+      branch:
+        description: "The bump branch, when one was pushed"
+        value: ${{ jobs.bump.outputs.branch }}
+      companions:
+        description: "JSON object of companion crate -> version this release dictates"
+        value: ${{ jobs.resolve.outputs.companions }}
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. What are we integrating, does it really exist, and is there anything to do?
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve target version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      pinned: ${{ steps.v.outputs.pinned }}
+      # Falls back to the primary comparison when the companion step never ran. That
+      # is the existence-proof failure path: the proof runs before companions, so a
+      # tag that was never published leaves `c` unexecuted — and report-failure gates
+      # on this output, so without the fallback a failed proof would file no stall
+      # issue at all. `false` is a non-empty string and so wins the `||`; only an
+      # unset value falls through.
+      needed: ${{ steps.c.outputs.needed || steps.v.outputs.primary_moved }}
+      state: ${{ steps.c.outputs.state }}
+      repo: ${{ steps.v.outputs.repo }}
+      source: ${{ steps.v.outputs.source }}
+      companions: ${{ steps.c.outputs.companions }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate the gate timeout against this workflow's own limit
+        env:
+          GATE_TIMEOUT: ${{ inputs.gate_timeout }}
+        run: |
+          set -euo pipefail
+          # The gate job below hardcodes `timeout-minutes: 60`; a caller asking for a
+          # poll deadline at or above that gets the job killed instead of the poll
+          # reporting which gates were still pending. One caller could be told to get
+          # this right by hand. Eleven cannot.
+          if [ "${GATE_TIMEOUT}" -gt 55 ]; then
+            echo "::error::gate_timeout ${GATE_TIMEOUT} must be <= 55; the gate job is capped at 60 minutes"
+            exit 1
+          fi
+
+      - name: Resolve the target version
+        id: v
+        env:
+          # NOT secrets.GITHUB_TOKEN. The default Actions token is scoped to this
+          # repository, and ten of the eleven satellites are private — only
+          # dravr-embacle is public — so every releases/tags/compare call here would
+          # 404 and the lane would report "could not resolve a version" for a release
+          # that exists. satellite-drift.yml records the same finding.
+          GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          SATELLITE: ${{ inputs.satellite }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          PIN=scripts/ci/satellite-pin.sh
+          REPO=$("$PIN" repo "${SATELLITE}")
+          SRC=$("$PIN" source "${SATELLITE}")
+          EVIDENCE=$("$PIN" evidence "${SATELLITE}")
+          echo "repo=${REPO}"     >> "$GITHUB_OUTPUT"
+          echo "source=${SRC}"    >> "$GITHUB_OUTPUT"
+
+          if [ "${SRC}" = "git-rev" ]; then
+            echo "::error::${SATELLITE} pins a git rev; this spine moves versions, not revs"
+            exit 1
+          fi
+
+          VERSION="${INPUT_VERSION:-}"
+          if [ -z "${VERSION}" ]; then
+            if [ "${EVIDENCE}" = "tag" ]; then
+              # No GitHub releases to read. Newest semver tag, judged for ancestry below.
+              VERSION=$(gh api "repos/dravr-ai/${REPO}/tags?per_page=100" \
+                        -q '.[].name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))' \
+                        | sort -Vr | head -1)
+            else
+              VERSION=$(gh release view --repo "dravr-ai/${REPO}" --json tagName -q .tagName)
+            fi
+          fi
+          [ -n "${VERSION}" ] || { echo "::error::could not resolve a ${REPO} version to integrate"; exit 1; }
+
+          VERSION="${VERSION#v}"
+          printf '%s' "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::resolved '${VERSION}', which is not a plain semver version"; exit 1; }
+
+          PINNED=$("$PIN" resolve "${SATELLITE}")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "pinned=${PINNED}"   >> "$GITHUB_OUTPUT"
+          # Whether the PRIMARY pin moved. `needed` is broader — it also covers a
+          # companion drifting under a current primary — but it cannot be known until
+          # the release's manifest has been read, and reading that manifest is only
+          # safe once the release is proven to exist. So the existence proof gates on
+          # this, and the companion step below computes `needed`.
+          if [ "${PINNED}" = "${VERSION}" ]; then
+            echo "primary_moved=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "primary_moved=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "resolved ${SATELLITE}: pinned ${PINNED}, target ${VERSION}"
+
+      - name: Prove the version exists and is consumable
+        if: steps.v.outputs.primary_moved == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          SATELLITE: ${{ inputs.satellite }}
+          REPO: ${{ steps.v.outputs.repo }}
+          SRC: ${{ steps.v.outputs.source }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          PIN=scripts/ci/satellite-pin.sh
+          EVIDENCE=$("$PIN" evidence "${SATELLITE}")
+
+          if [ "${SRC}" = "crates-io" ]; then
+            # The registry is the source of truth, not the GitHub release: a release
+            # job creates the tag around a `cargo publish` that is allowed to fail
+            # per-crate, so a tag can exist for a version that was never published.
+            # Pinning it fails later in `cargo update` with a resolver error naming
+            # nothing useful.
+            #
+            # This WAITS rather than checks: the dispatch arrives seconds after
+            # publication and the sparse index lags it. The User-Agent is mandatory,
+            # not politeness — crates.io answers an anonymous request with 403, which
+            # reads exactly like "not published".
+            UA="dravr-satellite-bump (github.com/dravr-ai/dravr-platform)"
+            DEADLINE=$(( $(date +%s) + 15 * 60 ))
+            for CRATE in $("$PIN" crates "${SATELLITE}"); do
+              while :; do
+                CODE=$(curl -s -o /tmp/resp.json -w '%{http_code}' -A "${UA}" \
+                       "https://crates.io/api/v1/crates/${CRATE}/${VERSION}" || echo 000)
+                if [ "${CODE}" = "200" ]; then
+                  YANKED=$(jq -r '.version.yanked' /tmp/resp.json 2>/dev/null || echo unknown)
+                  [ "${YANKED}" = "true" ] && { echo "::error::${CRATE} ${VERSION} is published but YANKED — refusing to pin it"; exit 1; }
+                  echo "${CRATE} ${VERSION} is on crates.io"
+                  break
+                fi
+                if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+                  echo "::error::${CRATE} ${VERSION} never appeared on crates.io (last HTTP ${CODE})"
+                  echo "::error::the tag exists but the publish did not land — fix ${REPO}'s release.yml, do not re-run this"
+                  exit 1
+                fi
+                echo "${CRATE} ${VERSION} not indexed yet (HTTP ${CODE}); retrying in 30s"
+                sleep 30
+              done
+            done
+            exit 0
+          fi
+
+          # A git-tag satellite. Two independent proofs, because each alone has
+          # already misfired in this fleet:
+          #
+          #   * A release can exist for a tag that is not on the default branch — a
+          #     release job pushes its TAG before its BRANCH, so a failed run leaves an
+          #     orphaned tag that still resolves and still builds. dravr-cageux's own
+          #     CHANGELOG carries "v0.8.3 — NEVER RELEASED, DO NOT PIN" for that.
+          #   * A tag can exist with no release behind it when the publish half failed.
+          # `release_evidence = "tag"` says a MISSING release is not itself a failure —
+          # it is a floor, not an override. So the release is still looked for, and
+          # still reported when found; the declaration only decides whether its absence
+          # stops the run. That way a satellite that starts cutting releases gets the
+          # stronger proof automatically, instead of keeping the weaker one until
+          # somebody remembers to edit satellites.toml. dravr-meteo is exactly that
+          # case: zero releases today, but its release.yml already has a job that
+          # would create one.
+          if gh api "repos/dravr-ai/${REPO}/releases/tags/v${VERSION}" -q .tag_name >/dev/null 2>&1; then
+            echo "v${VERSION} is a published release"
+          elif [ "${EVIDENCE}" = "tag" ]; then
+            echo "::notice::${SATELLITE} has no release for v${VERSION} and declares release_evidence = \"tag\"; ancestry is the whole proof"
+          else
+            echo "::error::v${VERSION} is not a published dravr-ai/${REPO} release"
+            exit 1
+          fi
+
+          DEFAULT=$(gh api "repos/dravr-ai/${REPO}" -q .default_branch)
+          [ -n "${DEFAULT}" ] || { echo "::error::could not read ${REPO}'s default branch"; exit 1; }
+          STATUS=$(gh api "repos/dravr-ai/${REPO}/compare/${DEFAULT}...v${VERSION}" -q .status)
+          case "${STATUS}" in
+            behind|identical) echo "v${VERSION} is an ancestor of ${DEFAULT}" ;;
+            "") echo "::error::could not compare v${VERSION} against ${DEFAULT} — refusing to guess"; exit 1 ;;
+            *)  echo "::error::v${VERSION} is '${STATUS}' relative to ${DEFAULT} — an orphaned tag from a failed release, not a release"; exit 1 ;;
+          esac
+
+      - name: Read the companion versions this release dictates, and decide if a bump is needed
+        id: c
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          SATELLITE: ${{ inputs.satellite }}
+          REPO: ${{ steps.v.outputs.repo }}
+          VERSION: ${{ steps.v.outputs.version }}
+          PINNED: ${{ steps.v.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          PIN=scripts/ci/satellite-pin.sh
+
+          # Companions are pins this repo holds that the SATELLITE's manifest decides.
+          # They are read HERE rather than in the bump job for two reasons. First, the
+          # decision below is a disjunction: enforme can be current while dravr-sciotte
+          # has drifted, and a lane that only compared the primary would report
+          # "nothing to integrate" against a real diamond split. Second, a caller that
+          # ships a companion's service — the sciotte image is enforme's — needs the
+          # companion version even on a run that bumps nothing, so it can converge.
+          #
+          # The release's own manifest is the authority, never the dispatch payload:
+          # the payload is a convenience and can be stale or absent, and reading the
+          # manifest is what guarantees both arms of the diamond land together.
+          # carnet#323 was that failure — dravr-equilibre 0.2.4 beside 0.2.5, surfacing
+          # as E0053 twenty minutes into a gate on a branch that could never merge.
+          NEEDED=false
+          [ "${PINNED}" != "${VERSION}" ] && NEEDED=true
+          JSON='{}'
+
+          COMPANIONS=$("$PIN" companions "${SATELLITE}")
+          if [ -n "${COMPANIONS}" ]; then
+            MANIFEST=$(gh api "repos/dravr-ai/${REPO}/contents/Cargo.toml?ref=v${VERSION}" \
+                         -H "Accept: application/vnd.github.raw")
+            for spec in ${COMPANIONS}; do
+              name="${spec%%:*}"; rule="${spec##*:}"
+              [ "${rule}" = "from-manifest" ] || { echo "::error::unknown companion rule '${rule}'"; exit 1; }
+              want=$(printf '%s' "${MANIFEST}" \
+                     | grep -oE "^${name} = \{[^}]*tag = \"v[0-9]+\.[0-9]+\.[0-9]+\"" \
+                     | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+              [ -n "${want}" ] || { echo "::error::could not read what ${REPO} v${VERSION} pins for ${name} — refusing to guess"; exit 1; }
+              have=$("$PIN" resolve "${name}")
+              [ "${have}" != "${want}" ] && NEEDED=true
+              echo "companion ${name}: pinned ${have}, ${REPO} v${VERSION} wants ${want}"
+              JSON=$(printf '%s' "${JSON}" | jq --arg k "${name}" --arg v "${want}" '. + {($k): $v}')
+            done
+          fi
+
+          echo "companions=$(printf '%s' "${JSON}" | jq -c .)" >> "$GITHUB_OUTPUT"
+          if [ "${NEEDED}" = "true" ]; then
+            echo "needed=true"  >> "$GITHUB_OUTPUT"
+            echo "state=pending" >> "$GITHUB_OUTPUT"
+            echo "integrating ${SATELLITE} ${PINNED} -> ${VERSION}"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "state=current" >> "$GITHUB_OUTPUT"
+            echo "${SATELLITE} and every companion are already current — nothing to integrate"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2. Move every pin onto the new version, on a branch
+  # ---------------------------------------------------------------------------
+  bump:
+    name: Bump the pins on a branch
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: needs.resolve.outputs.needed == 'true'
+    outputs:
+      branch: ${{ steps.push.outputs.branch }}
+      state: ${{ steps.state.outputs.state }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Configure auth for private git deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Rewrite every pin, and every companion pin
+        id: rewrite
+        env:
+          SATELLITE: ${{ inputs.satellite }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          COMPANIONS: ${{ needs.resolve.outputs.companions }}
+        run: |
+          set -euo pipefail
+          PIN=scripts/ci/satellite-pin.sh
+          "$PIN" rewrite "${SATELLITE}" "${VERSION}"
+          "$PIN" verify  "${SATELLITE}" "${VERSION}"
+          UPDATE_ARGS=""
+          for c in $("$PIN" crates "${SATELLITE}"); do UPDATE_ARGS="${UPDATE_ARGS} -p ${c}"; done
+
+          # Companions were resolved in `resolve`, off the release's own manifest.
+          # Moving one alone puts two copies of that crate in Cargo.lock and
+          # hard-fails the duplicate gate — carnet#323, found twenty minutes into a
+          # gate as E0053 in health_sync.rs. So both arms of the diamond move here, in
+          # the same commit, or neither does.
+          while IFS=$'\t' read -r name want; do
+            [ -z "${name}" ] && continue
+            echo "companion ${name} -> ${want}"
+            "$PIN" rewrite "${name}" "${want}"
+            "$PIN" verify  "${name}" "${want}"
+            UPDATE_ARGS="${UPDATE_ARGS} -p ${name}"
+          done < <(printf '%s' "${COMPANIONS:-{\}}" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+          echo "update_args=${UPDATE_ARGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Run the satellite's post-rewrite step
+        id: after
+        env:
+          SATELLITE: ${{ inputs.satellite }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Regeneration that must land inside the bump commit rather than as a
+          # follow-up — photograveur's TypeScript scene types are the only one today.
+          # The script receives the bare target version as $1 and is expected to leave
+          # its output in the worktree for the commit below to pick up.
+          AFTER=$(scripts/ci/satellite-pin.sh after-rewrite "${SATELLITE}")
+          if [ -z "${AFTER}" ]; then echo "no post-rewrite step"; exit 0; fi
+          [ -x "${AFTER}" ] || { echo "::error::after_rewrite '${AFTER}' is not executable"; exit 1; }
+          echo "running ${AFTER} ${VERSION}"
+          "${AFTER}" "${VERSION}"
+
+      - name: Update the lockfile, and stand down rather than push a split one
+        id: lock
+        env:
+          SATELLITE: ${{ inputs.satellite }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          UPDATE_ARGS: ${{ steps.rewrite.outputs.update_args }}
+        run: |
+          set -euo pipefail
+          PIN=scripts/ci/satellite-pin.sh
+          # shellcheck disable=SC2086
+          cargo update ${UPDATE_ARGS}
+
+          # Which dravr-ecosystem crates now resolve more than once? Read from the
+          # lockfile directly rather than by parsing check-lockfile-duplicates.sh's
+          # prose, so this cannot drift from that script's wording.
+          DUPES=$(awk '/^name = /{ n=$0; gsub(/name = "|"/,"",n);
+                                   if (n ~ /^(dravr-|embacle|photograveur)/) c[n]++ }
+                       END { for (k in c) if (c[k] > 1) print k }' Cargo.lock)
+
+          if [ -n "${DUPES}" ]; then
+            # A release that also moved a crate ANOTHER lane owns cannot be integrated
+            # by this lane alone. Standing down is correct behaviour, not a failure:
+            # pushing would produce a branch that can never merge. Only the lane that
+            # owns both can do it — embacle's releases that move dravr-tronc are the
+            # standing case, and tronc-bump.yml moves them together.
+            # Compare against every crate THIS lane owns, not just the stanza name:
+            # embacle's lane moves embacle and embacle-tool-host together, so a split
+            # in the second is this lane's own problem and must not be mistaken for
+            # another lane's to solve.
+            OWN=" $("$PIN" crates "${SATELLITE}" | tr '\n' ' ') "
+            BLOCKERS=""
+            for d in ${DUPES}; do
+              case "${OWN}" in *" ${d} "*) continue;; esac
+              OWNER=$("$PIN" lane "${d}" 2>/dev/null || true)
+              [ -n "${OWNER}" ] && BLOCKERS="${BLOCKERS} ${d} (moved by ${OWNER})"
+            done
+            if [ -n "${BLOCKERS}" ]; then
+              echo "::notice::${SATELLITE} ${VERSION} also moves:${BLOCKERS} — standing down"
+              {
+                echo "### Stood down — ${SATELLITE} ${VERSION} moves a crate another lane owns"
+                echo ""
+                echo "Integrating it here would leave two versions in the lockfile:"
+                echo "${BLOCKERS}" | tr ' ' '\n' | sed '/^$/d;s/^/- /'
+                echo ""
+                echo "The lane that owns both must move them together."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "stand_down=true" >> "$GITHUB_OUTPUT"
+              git checkout -- .
+              exit 0
+            fi
+            echo "::error::${SATELLITE} ${VERSION} splits the lockfile on:${DUPES}"
+            echo "::error::no lane owns those, so this is not a stand-down — it needs a human"
+            exit 1
+          fi
+
+          "$PIN" lock-assert "${SATELLITE}" "${VERSION}"
+          echo "stand_down=false" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to push a bump that splits the lockfile
+        # Compile-free, ~1s. The assertion above proves the crates this lane moved
+        # resolve at the target; this proves EVERY dravr-ecosystem crate resolves
+        # exactly once, and fails closed when the lockfile holds none at all.
+        if: steps.lock.outputs.stand_down == 'false'
+        run: scripts/ci/check-lockfile-duplicates.sh
+
+      - name: Push the branch and dispatch the gates onto it
+        id: push
+        if: steps.lock.outputs.stand_down == 'false' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SATELLITE: ${{ inputs.satellite }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          BRANCH="fix/${SATELLITE}-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
+          git add -A
+          git commit -m "chore(${SATELLITE}): bump ${SATELLITE} to ${VERSION}"
+          git push --force-with-lease origin "${BRANCH}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          # GitHub suppresses workflow runs on pushes made with GITHUB_TOKEN, so this
+          # branch triggers nothing on its own and the gate below would wait forever
+          # on runs that never start. Dispatch each gate explicitly. A PAT would avoid
+          # this, but DRAVR_PRIVATE_DEPS_TOKEN is read-only on this repo.
+          for wf in $(scripts/ci/satellite-pin.sh gates "${SATELLITE}"); do
+            gh workflow run "$wf" --ref "${BRANCH}"
+            echo "dispatched ${wf} on ${BRANCH}"
+          done
+
+      - name: Report what this job decided
+        id: state
+        env:
+          STOOD_DOWN: ${{ steps.lock.outputs.stand_down }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # One explicit output instead of a job-level `if:` with no status function.
+          # `if: steps.x != 'true'` quietly gains an implicit success() and skips the
+          # tail on ANY earlier failure — which is the behaviour wanted, but by
+          # accident. Eleven callers keying off it deserve it stated.
+          if [ "${STOOD_DOWN}" = "true" ]; then STATE=stood-down
+          elif [ "${DRY}" = "true" ];        then STATE=dry-run
+          else                                    STATE=pushed
+          fi
+          echo "state=${STATE}" >> "$GITHUB_OUTPUT"
+          echo "state: ${STATE}"
+
+  # ---------------------------------------------------------------------------
+  # 3. Wait for those gates, and require green
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Wait for CI on the bump branch
+    runs-on: ubuntu-latest
+    needs: [resolve, bump]
+    if: needs.bump.outputs.state == 'pushed'
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Poll until every gate reaches a terminal status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SATELLITE: ${{ inputs.satellite }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          GH_REPO: ${{ github.repository }}
+          GATE_TIMEOUT: ${{ inputs.gate_timeout }}
+        run: |
+          set -uo pipefail
+          WORKFLOWS=$(scripts/ci/satellite-pin.sh gates "${SATELLITE}")
+          DEADLINE=$(( $(date +%s) + GATE_TIMEOUT * 60 ))
+
+          # The branch is created fresh for this version and nothing else pushes to
+          # it, so the newest run per workflow on it is unambiguously ours. Matching
+          # by commit was rejected: `gh run list --commit` silently returns zero rows.
+          while :; do
+            PENDING=""; FAILED=""
+            for wf in ${WORKFLOWS}; do
+              LINE=$(gh run list --workflow "$wf" --branch "${BRANCH}" --limit 1 \
+                       --json status,conclusion \
+                       -q '.[0] | "\(.status) \(.conclusion // "-")"' 2>/dev/null || true)
+              STATUS="${LINE%% *}"; CONCL="${LINE##* }"
+              if [ -z "${LINE}" ] || [ "${STATUS}" != "completed" ]; then
+                PENDING="${PENDING} ${wf}(${STATUS:-not-started})"
+              elif [ "${CONCL}" != "success" ]; then
+                # cancelled and skipped are not green. A cancelled run validated nothing.
+                FAILED="${FAILED} ${wf}(${CONCL})"
+              fi
+            done
+
+            if [ -n "${FAILED}" ]; then
+              echo "::error::CI is not green on ${BRANCH}:${FAILED} — the branch is left in place for inspection"
+              exit 1
+            fi
+            if [ -z "${PENDING}" ]; then
+              echo "all gates green on ${BRANCH}"
+              break
+            fi
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "::error::timed out after ${GATE_TIMEOUT}m waiting on:${PENDING}"
+              exit 1
+            fi
+            echo "waiting on:${PENDING}"
+            sleep 60
+          done
+
+  # ---------------------------------------------------------------------------
+  # 4. Squash the branch onto main
+  # ---------------------------------------------------------------------------
+  merge:
+    name: Squash merge onto main
+    runs-on: ubuntu-latest
+    needs: [resolve, bump, gate]
+    if: needs.bump.outputs.state == 'pushed'
+    # Eleven lanes resolve, bump and gate in parallel — the expensive 45 minutes —
+    # and serialize only this ~1-minute critical section, which is the only part that
+    # actually races. A shared WORKFLOW-level group was rejected: it holds one waiting
+    # run, so a third lane silently replaces the second's queued run with zero jobs
+    # started, which is the carnet#169 shape that cost ci-postgres 9 of 84 verdicts.
+    #
+    # The group key mirrors this job's own `if:`. GitHub claims a concurrency group
+    # before evaluating a skip gate, so a run that will skip everything still enters
+    # the group and can block a live merge — that is how a no-op deploy destroyed a
+    # good one in `33270799943`. Keying the skip case on run_id makes it unable to
+    # touch the real group.
+    concurrency:
+      group: ${{ needs.bump.outputs.state == 'pushed' && 'platform-main-push' || format('platform-main-push-noop-{0}', github.run_id) }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Squash merge and delete the branch
+        env:
+          SATELLITE: ${{ inputs.satellite }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "${BRANCH}"
+          git merge --squash "origin/${BRANCH}"
+          # The gate validated the branch against the main it was cut from; this push
+          # lands the squash on whatever main is NOW, with GITHUB_TOKEN, so no
+          # push-triggered run validates it. A lockfile that merged cleanly but
+          # carries a pin main moved in the meantime is a split the gate never saw.
+          # One second, on the tree about to be pushed.
+          scripts/ci/check-lockfile-duplicates.sh
+          git commit -m "chore(${SATELLITE}): integrate ${SATELLITE} ${PINNED} -> ${VERSION}"
+          git push origin main
+          # Squash gives the merge a new SHA, so the branch is dead the moment it
+          # lands. Deleting it here keeps dead refs from accumulating per release.
+          git push origin --delete "${BRANCH}"
+
+  # ---------------------------------------------------------------------------
+  # Anything that stops the chain becomes a tracked issue
+  # ---------------------------------------------------------------------------
+  report-failure:
+    name: File the stall on the register
+    runs-on: ubuntu-latest
+    needs: [resolve, bump, gate, merge]
+    if: failure() && needs.resolve.outputs.needed == 'true'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Open or update the register issue
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          SATELLITE: ${{ inputs.satellite }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The private register, because this repo is public.
+          TRACKER=$(grep -oE '^tracker[[:space:]]*=[[:space:]]*"[^"]+"' registre.toml | grep -oE '[^"]+/[^"]+')
+          TITLE="[platform] ${SATELLITE} integration stalled (${PINNED} -> ${VERSION})"
+
+          # Indented to this block's level on purpose: YAML strips a block scalar's
+          # common indentation, so the shell receives column 0. Dedenting breaks the YAML.
+          BODY=$(cat <<EOF
+          Automated integration of \`${SATELLITE}\` **${VERSION}** did not complete.
+
+          - Pinned: **${PINNED}**
+          - Target: **${VERSION}**
+          - Branch: \`${BRANCH:-not created}\`
+          - Run: ${RUN_URL}
+
+          A stall is safe up to the merge: nothing ships until main has the bump, so
+          if this stopped at or before \`merge\` the deployed platform is unchanged
+          and the branch is still there to inspect. If it stopped after, main is ahead
+          of the running binary and the caller's ship job is what to re-run.
+
+          **If the existence proof was what failed**, the tag exists but the release
+          did not land — re-running this cannot help. Fix \`release.yml\` in
+          \`dravr-ai/${SATELLITE}\` and cut the release again.
+
+          While stalled, the platform keeps running the previously pinned version.
+
+          _Filed by \`satellite-bump.yml\` for \`${SATELLITE}\`._
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo "$TRACKER" --state open \
+                     --search "${SATELLITE} integration stalled in:title" \
+                     --json number -q '.[0].number' 2>/dev/null || true)
+          if [ -n "${EXISTING}" ]; then
+            gh issue edit "${EXISTING}" --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "updated ${TRACKER}#${EXISTING}"
+          else
+            gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY" \
+              --label "dravr-platform" --label "dependency" 2>/dev/null \
+              || gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "opened a new issue on ${TRACKER}"
+          fi

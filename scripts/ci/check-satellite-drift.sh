@@ -50,22 +50,20 @@ REPO_OWNER="dravr-ai"
 FAILURES=0
 CHECKED=0
 
-# Pins whose upstream owns them. Value is the repo whose pinned manifest decides
-# what this pin must equal.
-declare -A DIAMOND=(
-  [dravr-sciotte]=dravr-enforme
-  [dravr-equilibre]=dravr-enforme
-  [dravr-riviere]=dravr-enforme
-)
+# The diamond table and the lane table used to live here as two `declare -A` blocks.
+# They are the same per-satellite knowledge a bump lane needs, and keeping two copies
+# is how they drift: this file said dravr-stripe moves by "tronc-bump.yml (lockstep)"
+# while no lane moved it at all. Both now come out of satellites.toml, which is the
+# single declaration the bump spine also reads.
+PIN_SH="$(dirname "${BASH_SOURCE[0]}")/satellite-pin.sh"
+[ -x "$PIN_SH" ] || { echo "❌ ${PIN_SH} missing — cannot read satellites.toml"; exit 2; }
 
-# Pins a bump lane already moves. Still reported, never failed on: a lane's lag is
-# transient by construction, and failing here would red main for a bot's schedule.
-declare -A HAS_LANE=(
-  [dravr-enforme]=enforme-bump.yml
-  [dravr-contremaitre]=contremaitre-bump.yml
-  [photograveur]=photograveur-bump.yml
-  [dravr-stripe]="tronc-bump.yml (lockstep)"
-)
+# Value is the repo whose pinned manifest decides what this pin must equal.
+upstream_of() { "$PIN_SH" upstream "$1" 2>/dev/null; }
+
+# A lane's lag is transient by construction, so a satellite with a lane is reported,
+# never failed on — failing here would red main for a bot's schedule.
+lane_of() { "$PIN_SH" lane "$1" 2>/dev/null; }
 
 # GITHUB_TOKEN in CI, gh auth locally. Three attempts: a single `dial tcp ... i/o
 # timeout` is common enough that without a retry this gate reports "could not verify"
@@ -149,13 +147,71 @@ if [ -z "$PINS" ]; then
   exit 2
 fi
 
+# Reconcile the manifests against satellites.toml, both directions, before judging
+# anything. A pin with no stanza is invisible to the bump spine — it gets no lane and
+# no diamond rule, which is how dravr-cageux sat five releases behind. A stanza with
+# no pin is a lane pointed at a dependency this repo dropped, which will resolve a
+# version forever and report success. Neither is drift, so neither is exit 1: the
+# declaration is out of sync with the tree and the scan cannot be trusted, which is
+# what exit 2 means everywhere else in this repo.
+RECONCILE=0
+while IFS=$'\t' read -r name _; do
+  [ -z "$name" ] && continue
+  if [ -z "$("$PIN_SH" repo "$name" 2>/dev/null)" ]; then
+    echo "❌ ${name} is pinned in a manifest but has no stanza in satellites.toml"
+    RECONCILE=$(( RECONCILE + 1 ))
+  fi
+done <<< "$PINS"
+
+while read -r name; do
+  [ -z "$name" ] && continue
+  # crates.io and git-rev satellites carry no tag, so they are absent from PINS by
+  # construction. Everything that DOES carry one must be found.
+  case "$("$PIN_SH" source "$name" 2>/dev/null)" in
+    git-tag|git-tag+version) ;;
+    *) continue ;;
+  esac
+  if ! printf '%s' "$PINS" | awk -F'\t' -v n="$name" '$1==n{f=1} END{exit !f}'; then
+    echo "❌ satellites.toml declares ${name} but no manifest pins it"
+    RECONCILE=$(( RECONCILE + 1 ))
+  fi
+done < <("$PIN_SH" names)
+
+# A pin in a manifest nothing scans is the one failure with no safety net. The
+# rewriter would move every site it can see, report success, and leave that one
+# behind; and `check-lockfile-duplicates.sh` cannot catch it either, because a
+# manifest outside `members = ["crates/*"]` resolves against its own lockfile and
+# never reaches the workspace one. So convert a silent miss into a loud one: any
+# satellite-shaped pin outside the scanned scope fails the scan.
+OUT_OF_SCOPE=$(find . -name Cargo.toml \
+                 -not -path "./target/*" -not -path "*/target/*" -not -path "./.git/*" \
+                 -not -path "./Cargo.toml" -not -path "./crates/*/Cargo.toml" 2>/dev/null \
+               | while read -r m; do
+                   if grep -qE '^(dravr-[a-z-]+|photograveur|embacle(-[a-z-]+)?) = ' "$m" 2>/dev/null; then
+                     echo "$m"
+                   fi
+                 done)
+if [ -n "$OUT_OF_SCOPE" ]; then
+  echo "❌ a satellite pin lives in a manifest the bump chain does not scan:"
+  printf '   %s\n' $OUT_OF_SCOPE
+  echo "   satellite-pin.sh scans Cargo.toml and crates/*/Cargo.toml. A pin outside that"
+  echo "   would be left behind by every bump while the run reported success."
+  RECONCILE=$(( RECONCILE + 1 ))
+fi
+
+if [ "$RECONCILE" -gt 0 ]; then
+  echo
+  echo "❌ satellites.toml and the manifests disagree on ${RECONCILE} satellite(s) — scan unverified"
+  exit 2
+fi
+
 while IFS=$'\t' read -r name tag; do
   [ -z "$name" ] && continue
   CHECKED=$(( CHECKED + 1 ))
   repo="$name"; [ "$name" = "photograveur" ] && repo="dravr-photograveur"
 
-  if [ -n "${DIAMOND[$name]:-}" ]; then
-    upstream="${DIAMOND[$name]}"
+  upstream=$(upstream_of "$name")
+  if [ -n "$upstream" ]; then
     up_tag=$(printf '%s' "$PINS" | awk -F'\t' -v u="$upstream" '$1==u{print $2}')
     if [ -z "$up_tag" ]; then
       echo "❌ ${name} ${tag}: pinned by ${upstream}, but this repo pins no ${upstream} to read it from"
@@ -173,17 +229,27 @@ while IFS=$'\t' read -r name tag; do
       echo "✅ ${name} ${tag} — matches ${upstream} ${up_tag} (diamond; moves only with it)"
     else
       echo "❌ ${name} ${tag} — ${upstream} ${up_tag} pins ${want}. Two copies of ${name} would resolve."
-      echo "   Move both in one commit; ${HAS_LANE[dravr-enforme]} is the lane that does it."
+      echo "   Move both in one commit; $(lane_of "$upstream") is the lane that does it."
       FAILURES=$(( FAILURES + 1 ))
     fi
     continue
   fi
 
-  evidence="released"
-  latest=$(latest_released_tag "$repo")
-  if [ -z "$latest" ]; then
-    latest=$(latest_ancestor_tag "$repo")
+  # `release_evidence = "tag"` in satellites.toml says this repo cuts no GitHub
+  # releases, so the ancestor-of-default-branch check is the whole existence proof.
+  # It is strictly the weaker claim, which is why it is declared per satellite and
+  # never inferred: silently falling back would let a repo that USED to cut releases
+  # and stopped look the same as one that never did.
+  if [ "$("$PIN_SH" evidence "$name" 2>/dev/null)" = "tag" ]; then
     evidence="tagged (repo cuts no GitHub releases)"
+    latest=$(latest_ancestor_tag "$repo")
+  else
+    evidence="released"
+    latest=$(latest_released_tag "$repo")
+    if [ -z "$latest" ]; then
+      latest=$(latest_ancestor_tag "$repo")
+      evidence="tagged (no GitHub release resolved)"
+    fi
   fi
   if [ -z "$latest" ]; then
     # Distinguish "this repo has no versions" from "this token cannot see it".
@@ -200,8 +266,8 @@ while IFS=$'\t' read -r name tag; do
 
   if [ "$latest" = "$tag" ]; then
     echo "✅ ${name} ${tag} — current (${evidence})"
-  elif [ -n "${HAS_LANE[$name]:-}" ]; then
-    echo "⚠️  ${name} ${tag} — ${latest} is out; ${HAS_LANE[$name]} moves this, not reported as drift"
+  elif [ -n "$(lane_of "$name")" ]; then
+    echo "⚠️  ${name} ${tag} — ${latest} is out; $(lane_of "$name") moves this, not reported as drift"
   else
     behind=$(api "repos/${REPO_OWNER}/${repo}/releases?per_page=100" \
              | jq -r --arg t "$tag" '[.[] | select(.draft==false) | .tag_name] | index($t) // empty')

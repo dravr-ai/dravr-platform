@@ -56,7 +56,7 @@ jobs:
           # repository, and every satellite it reads is private, so each releases
           # call would 404 — the scan would fail closed on all ten pins and read as
           # total drift on its first run. DRAVR_PRIVATE_DEPS_TOKEN is the same
-          # secret contremaitre-bump, enforme-bump and photograveur-bump already
+          # secret contremaitre-bump and the satellite bump spine already
           # pass as GH_TOKEN for exactly this kind of cross-repo read.
           GITHUB_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
         run: scripts/ci/check-satellite-drift.sh

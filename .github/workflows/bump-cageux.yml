@@ -1,0 +1,101 @@
+# ABOUTME: The cageux lane — the shared bump spine, then a platform rebuild so the crate actually ships
+# ABOUTME: Everything version-shaped is in satellite-bump.yml and satellites.toml; this file is triggers and shipping
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# dravr-cageux is the training-plan engine — periodisation, phase targets, week
+# shaping — compiled into pierre-fitness-compute and pierre-intelligence. It has no
+# service of its own, so the platform binary is the only thing that ships it.
+#
+# This is the satellite that made carnet#419 worth filing. It shipped v0.12.0 through
+# v0.18.0 between 8 and 9 September 2026 while this repo stayed pinned at v0.13.0 —
+# five real releases behind, in one week, with nothing red. dependency-check.yml
+# could not see it: it runs `cargo upgrade --dry-run`, which reads crates.io and says
+# nothing about a git+tag dependency. Nothing else was watching, because cageux had
+# no lane. It has one now.
+#
+# A cageux bump is not always pin-only. v0.18.0 added fields to PhaseTargets and
+# WeekInput that pierre-tool-runtime has to fill with real values (carnet#422), so a
+# red gate here means source work, not a flake — and the stall issue the spine files
+# says so.
+#
+# Shipping is not optional and not automatic. publish-images.yml deploys the platform
+# on `workflow_run` of "CI: Backend (Rust)" against main, and the spine's squash merge
+# is pushed with GITHUB_TOKEN, which by design triggers nothing downstream. A bump
+# landing on a quiet main would report every job green and ship nothing — carnet#94,
+# twice in one day on photograveur's chain. The dispatch below is the whole delivery.
+
+name: "Cageux: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [cageux-released]
+  schedule:
+    # Weekly safety net: a missed or failed dispatch still gets the release
+    # integrated rather than silently dropped. Off the top of the hour deliberately —
+    # :00 is the most contended slot on GitHub's scheduler and a firing there has
+    # landed 6h20m late — and staggered against every other lane.
+    - cron: "07 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "dravr-cageux tag to integrate (defaults to the latest release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Rehearse: resolve and rewrite, push nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+
+concurrency:
+  # Never overlap. Two releases integrating at once would race on main, and the
+  # second would push a lockfile resolved against the first one's manifests.
+  group: cageux-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: ./.github/workflows/satellite-bump.yml
+    with:
+      satellite: dravr-cageux
+      version: ${{ github.event.client_payload.version || inputs.version || '' }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
+  ship:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: bump
+    if: ${{ !cancelled() && needs.bump.outputs.state == 'pushed' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.bump.outputs.version }}
+          PINNED: ${{ needs.bump.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up dravr-cageux ${VERSION}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "dravr-cageux **${PINNED} -> ${VERSION}** is merged to main, and the binary that"
+            echo "compiles it is now rebuilding. dravr-cageux has no service of its own — this"
+            echo "dispatch is the whole delivery."
+          } >> "$GITHUB_STEP_SUMMARY"

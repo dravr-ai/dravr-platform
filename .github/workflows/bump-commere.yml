@@ -1,0 +1,95 @@
+# ABOUTME: The commere lane — the shared bump spine, then a platform rebuild so the crate actually ships
+# ABOUTME: Everything version-shaped is in satellite-bump.yml and satellites.toml; this file is triggers and shipping
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# dravr-commere backs pierre-notifications — the delivery side of the notify events
+# catalogued in dravr-contremaitre. Compiled into the platform binary, no service of
+# its own.
+#
+# Its releases are the ones most likely to arrive with a catalogue change beside
+# them: a new notify event has to exist in contremaitre's notify-events.yaml before
+# the platform can emit it, and that pin moves on a different chain. A red gate here
+# naming notify_catalogue_test means the two are out of order, not that the bump is
+# wrong.
+#
+# Shipping is not optional and not automatic. publish-images.yml deploys the platform
+# on `workflow_run` of "CI: Backend (Rust)" against main, and the spine's squash merge
+# is pushed with GITHUB_TOKEN, which by design triggers nothing downstream. A bump
+# landing on a quiet main would report every job green and ship nothing — carnet#94,
+# twice in one day on photograveur's chain. The dispatch below is the whole delivery.
+
+name: "Commere: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [commere-released]
+  schedule:
+    # Weekly safety net: a missed or failed dispatch still gets the release
+    # integrated rather than silently dropped. Off the top of the hour deliberately —
+    # :00 is the most contended slot on GitHub's scheduler and a firing there has
+    # landed 6h20m late — and staggered against every other lane.
+    - cron: "41 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "dravr-commere tag to integrate (defaults to the latest release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Rehearse: resolve and rewrite, push nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+
+concurrency:
+  # Never overlap. Two releases integrating at once would race on main, and the
+  # second would push a lockfile resolved against the first one's manifests.
+  group: commere-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: ./.github/workflows/satellite-bump.yml
+    with:
+      satellite: dravr-commere
+      version: ${{ github.event.client_payload.version || inputs.version || '' }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
+  ship:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: bump
+    if: ${{ !cancelled() && needs.bump.outputs.state == 'pushed' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.bump.outputs.version }}
+          PINNED: ${{ needs.bump.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up dravr-commere ${VERSION}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "dravr-commere **${PINNED} -> ${VERSION}** is merged to main, and the binary that"
+            echo "compiles it is now rebuilding. dravr-commere has no service of its own — this"
+            echo "dispatch is the whole delivery."
+          } >> "$GITHUB_STEP_SUMMARY"

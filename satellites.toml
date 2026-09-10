@@ -1,0 +1,145 @@
+# ABOUTME: The only per-satellite knowledge in the bump chain — one stanza per pinned dravr satellite
+# ABOUTME: Read by scripts/ci/satellite-pin.sh and scripts/ci/check-satellite-drift.sh; an unknown key is an error
+
+# Why this file exists. Three bump lanes (embacle, enforme, photograveur) each carry
+# ~600 lines implementing the same seven-stage chain, and eight satellites have no
+# lane at all — dravr-cageux sat five real releases behind for a week with nothing
+# red (carnet#419, carnet#422). Copying a fourth 600-line file was not the answer:
+# the per-satellite differences are six small axes, and they belong in data.
+#
+# What is NOT declared here, deliberately:
+#
+#   * Pin sites. Discovered by grep over both manifest shapes, never listed. A
+#     hardcoded list is the failure contremaitre-bump.yml already records in-tree:
+#     it left one crate behind, put two revs in Cargo.lock and hard-failed Security
+#     Audit on main. It is also what killed photograveur-bump (89155c33e).
+#   * Aliases. `dravr-equilibre-sync` is resolved from its `package = "..."` key.
+#     A declared alias list is how carnet#323's split gets back in.
+#   * Ship topology. Nothing here reads it. A lane exists because
+#     .github/workflows/bump-<name>.yml exists — opt-in by file presence, the tronc
+#     idiom, with no list to go stale.
+#
+# Keys:
+#   repo              GitHub repo under dravr-ai. Required.
+#   source            git-tag | git-tag+version | crates-io | git-rev. Required.
+#   crates            space-separated package names moving on one version.
+#                     Defaults to the stanza name.
+#   gates             space-separated [gates] aliases. Defaults to "backend".
+#   release_evidence  release (default) | tag. "tag" for repos that cut no GitHub
+#                     releases; a strictly weaker existence proof, so it is opt-in
+#                     per satellite and never a default.
+#   companions        space-separated <name>:<rule> that must move in the same
+#                     commit. Only rule today is `from-manifest`: read what this
+#                     satellite's own manifest pins at the target tag.
+#   upstream          this pin is owned by another satellite's manifest; never
+#                     moved alone. The diamond.
+#   after_rewrite     script run inside the bump commit, after pins are rewritten.
+#   lane              ONLY for a pin moved by a chain that is not this spine. A spine
+#                     lane is derived from the caller that names the satellite, never
+#                     declared — check-satellite-drift.sh's old table claimed
+#                     dravr-stripe was moved by "tronc-bump.yml (lockstep)" and
+#                     suppressed its drift, while nothing moved it at all.
+
+[gates]
+backend  = "ci-backend.yml ci-postgres.yml integration-tests.yml"
+frontend = "frontend-tests.yml"
+
+# ---------------------------------------------------------------------------
+# Satellites with a lane today
+# ---------------------------------------------------------------------------
+
+[embacle]
+repo   = "dravr-embacle"
+source = "crates-io"
+# Four crates, one version. embacle-tool-host is published from the same repo and
+# must never resolve to a different version than embacle itself.
+crates = "embacle embacle-tool-host"
+
+[dravr-enforme]
+repo       = "dravr-enforme"
+source     = "git-tag+version"
+# `version` and `tag` sit on one line and must agree. The three companions are
+# enforme's own pins: moving one alone puts two copies in Cargo.lock and hard-fails
+# the duplicate gate — carnet#323, found twenty minutes into a gate as E0053.
+companions = "dravr-sciotte:from-manifest dravr-equilibre:from-manifest dravr-riviere:from-manifest"
+
+[photograveur]
+repo          = "dravr-photograveur"
+source        = "git-tag"
+gates         = "backend frontend"
+after_rewrite = "scripts/ci/regen-scene-types.sh"
+
+# ---------------------------------------------------------------------------
+# Satellites this issue adds a lane for
+# ---------------------------------------------------------------------------
+
+[dravr-cageux]
+repo = "dravr-cageux"
+source = "git-tag"
+
+[dravr-canot]
+repo = "dravr-canot"
+source = "git-tag"
+
+[dravr-commere]
+repo = "dravr-commere"
+source = "git-tag"
+
+[dravr-meteo]
+repo = "dravr-meteo"
+source = "git-tag"
+# Two tags, zero GitHub releases as of 2026-09-10 — though its release.yml does
+# carry a job that would cut one, so this may stop being true. That costs nothing:
+# the key is a floor, not an override, so the spine still prefers a release when it
+# finds one and only stops requiring it here. Ancestry of the default branch is then
+# the whole guard against an orphaned tag from a failed release run — the
+# "v0.8.3 — NEVER RELEASED, DO NOT PIN" case in dravr-cageux's own CHANGELOG.
+release_evidence = "tag"
+
+[dravr-stripe]
+repo = "dravr-stripe"
+source = "git-tag"
+
+# ---------------------------------------------------------------------------
+# Diamond pins — owned by dravr-enforme's manifest, never moved alone
+# ---------------------------------------------------------------------------
+
+[dravr-sciotte]
+repo     = "dravr-sciotte"
+source   = "git-tag"
+upstream = "dravr-enforme"
+
+[dravr-equilibre]
+repo     = "dravr-equilibre"
+source   = "git-tag"
+upstream = "dravr-enforme"
+
+[dravr-riviere]
+repo     = "dravr-riviere"
+source   = "git-tag"
+# Pinned v0.2.4 is a hand-cut tag whose newest GitHub release is v0.2.3.
+release_evidence = "tag"
+upstream = "dravr-enforme"
+
+# ---------------------------------------------------------------------------
+# Pins moved by a chain that is not this spine
+# ---------------------------------------------------------------------------
+
+[dravr-contremaitre]
+repo   = "dravr-contremaitre"
+source = "git-rev"
+# Hourly cron, rev pin, no branch, no gate, pushes direct to main, and syncs
+# in-tree fallback corpora in the same commit. Folding it into the spine needs a
+# push-direct flag — an "old mode vs new mode" switch this repo bans. Converting it
+# is a separate, deliberate decision.
+lane   = "contremaitre-bump.yml"
+
+[dravr-tronc]
+repo   = "dravr-tronc"
+source = "crates-io"
+# Moved by tronc-bump.yml, which lives in dravr-tronc and serves eleven consumers
+# via `uses: ...@main`. Costs the platform two things: no lockfile-duplicate check
+# before its push to main, and a cross-repo @main float that changes eleven repos
+# with review in none. Moving it onto this spine fixes both and diverges the
+# platform from ten sibling consumers — ChefFamille's call, not the spine's.
+lane   = "tronc-bump.yml (producer-hosted)"

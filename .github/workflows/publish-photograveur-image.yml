@@ -3,7 +3,7 @@
 
 name: "Deploy: Photograveur Image"
 
-# Normally called by photograveur-bump.yml rather than run by hand, and only
+# Normally called by bump-photograveur.yml rather than run by hand, and only
 # after main has accepted the matching pin — building earlier would advance
 # :latest to a photograveur the platform never validated. The dispatch entry
 # stays for rebuilding a known ref.

@@ -17,7 +17,7 @@
 # the chain's private-git-dep step arms for dravr-stripe and dravr-photograveur.
 #
 # Three things differ from a satellite. The gate is the three lanes
-# embacle-bump.yml already dispatches; on a fix/* branch ci-postgres runs the
+# bump-embacle.yml already dispatches; on a fix/* branch ci-postgres runs the
 # eight-file smoke rather than the suite, so 45 minutes fits inside the chain's
 # 60-minute gate job. A tronc minor is not always pin-only here — 0.10 and
 # 0.11 moved JsonSchema::properties to BTreeMap and forced fifteen source
@@ -29,10 +29,13 @@
 # The chain bumps embacle and embacle-tool-host to their latest release in
 # the same commit, after checking that release is on the target tronc; if it
 # is not, the run says which crate to release first and rewrites nothing.
-# dravr-stripe is the other arm: private, taken by git tag, pinning tronc in
-# its root, so it moves to its latest tag the same way (carnet#338). It is
-# listed first so a dry run at a tronc its tag does not satisfy makes that
-# guard fire before anything else.
+# dravr-stripe is NOT moved here, despite pinning tronc in its own root and
+# being exactly the `git:<crate>` case consumer-bump.yml documents (carnet#338).
+# `lockstep_crates` below lists only the two embacle crates. Nothing moved the
+# stripe pin at all until bump-stripe.yml, and check-satellite-drift.sh's lane
+# table meanwhile claimed this workflow owned it and suppressed its drift on
+# that basis. Adding `git:dravr-stripe` here would mean two chains moving one
+# pin, so the lane is the single owner and this is the note that says why.
 #
 # The schedule is a safety net for a dispatch that never arrived; offset off
 # the top of the hour and staggered against the other consumers.

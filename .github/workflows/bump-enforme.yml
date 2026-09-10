@@ -1,0 +1,385 @@
+# ABOUTME: The enforme lane — the shared bump spine (which moves the diamond), then the sciotte image and deploy
+# ABOUTME: Everything version-shaped is in satellite-bump.yml and satellites.toml; this file is triggers and shipping
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# enforme-specific knowledge, and nothing else:
+#
+# * Why this listens to enforme rather than to sciotte. This repo pins dravr-sciotte
+#   directly (pierre-logging, pierre-providers, pierre-routes-auth) and also depends
+#   on dravr-enforme, which pins dravr-sciotte itself for its Garmin and Strava
+#   scraping — a diamond. ci-backend.yml hard-fails any build where a dravr-* crate
+#   resolves to two versions, so moving the sciotte pin alone produces a lockfile with
+#   two dravr-sciotte entries and a branch that can never merge.
+#
+#   That is the real reason the pin sat on v0.8.0 through five sciotte releases. It
+#   read as neglect and was actually a blocked edge with nothing reporting the block:
+#   the old sciotte-pin-check.yml faithfully filed "the pin is behind" issues for a
+#   bump that could not have succeeded.
+#
+#   So sciotte announces to enforme, enforme bumps and releases, and the spine moves
+#   every arm of the diamond in one commit — taking each companion version from what
+#   the released enforme pins, so they converge by construction rather than by two
+#   workflows happening to agree. The diamond is wider than sciotte:
+#   satellites.toml declares dravr-equilibre and dravr-riviere as companions too,
+#   because carnet#323 was dravr-equilibre at 0.2.4 beside 0.2.5, in a run whose
+#   sciotte and enforme counts both read one.
+#
+# * Ordering is the other safety property: the sciotte image is built and :latest
+#   advanced only after main has merged. Building earlier would leave :latest pointing
+#   at a version this repo never accepted, and since terraform's sciotte_image is that
+#   moving tag, the next unrelated apply would deploy it.
+#
+# * There are TWO things to ship. This lane deploys the sciotte SERVICE, and it also
+#   has to rebuild the platform binary — pierre-enforme compiles dravr-enforme in.
+#   Until now it did not: the lane deployed sciotte and left main carrying an enforme
+#   the running binary did not have. That is carnet#94's shape, and the `platform` job
+#   below is the fix.
+
+name: "Enforme: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [enforme-released]
+  schedule:
+    # Weekly safety net, so a missed or failed dispatch still gets integrated.
+    # Off :00 deliberately: the top of the hour is the most contended slot on
+    # GitHub's scheduler, and this lane's 2026-08-31 firing landed 6h20m late
+    # (19:20 UTC for a 13:00 slot), well after anyone would look for it. :11
+    # also keeps it clear of bump-photograveur's :30 in the same hour.
+    - cron: "11 13 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "dravr-enforme tag to integrate (defaults to the latest release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Rehearse: resolve and rewrite, push nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+  id-token: write # WIF, for the image build and the deploy
+  security-events: write # Trivy SARIF, uploaded by the image build
+
+concurrency:
+  group: enforme-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: ./.github/workflows/satellite-bump.yml
+    with:
+      satellite: dravr-enforme
+      version: ${{ github.event.client_payload.version || inputs.version || '' }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+  # ---------------------------------------------------------------------------
+  # 5. Build the sciotte image — only now that main has accepted this version
+  # ---------------------------------------------------------------------------
+  image:
+    name: Build and publish the sciotte image
+    needs: bump
+    # Runs whether or not a bump was needed, so the deployment converges on whatever
+    # sciotte version main pins. Gating this on "a bump happened" instead meant a
+    # re-run after a merge skipped everything, leaving no way to finish a deploy that
+    # had failed after the bump already landed — which is precisely the state a
+    # false-alarm rollback leaves behind.
+    #
+    # `state` is read, not just `result`, because two of the spine's clean outcomes
+    # leave main pinning the OLD version: a stand-down and a dry run. Building either
+    # would advance :latest to a sciotte this repo never accepted, and terraform's
+    # sciotte_image is that moving tag — the next unrelated apply would deploy it.
+    if: >-
+      ${{ !cancelled()
+          && needs.bump.result == 'success'
+          && (needs.bump.outputs.state == 'pushed' || needs.bump.outputs.state == 'current') }}
+    uses: ./.github/workflows/publish-sciotte-image.yml
+    secrets: inherit
+    with:
+      # The spine resolves every companion off the released enforme's own manifest
+      # and publishes them as JSON. v-prefixed here: the spine deals in bare cargo
+      # versions, this wants a git ref.
+      sciotte_ref: v${{ fromJSON(needs.bump.outputs.companions)['dravr-sciotte'] }}
+
+  # ---------------------------------------------------------------------------
+  # 6. Deploy, verify the bytes, roll back if it goes wrong
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy sciotte to dev
+    runs-on: ubuntu-latest
+    needs: [bump, image]
+    if: ${{ !cancelled() && needs.image.result == 'success' }}
+    environment: development
+    steps:
+      - name: Authenticate to GCP (dev deployer)
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+          # sciotte enforces Cloud Run IAM (backend_sciotte_iam, on since
+          # 118571ed3), so the HTTP probe below needs a Google-signed identity
+          # token — an anonymous request is refused with 403 before any identity
+          # is considered. The audience mirrors terraform's local.sciotte_audience
+          # ("dravr-sciotte-${var.environment}"), the stable literal the service
+          # declares in custom_audiences; the generated URL is not known this
+          # early in the job. include_email is required, not cosmetic: Cloud Run
+          # matches the token's email claim against the invoker policy, and a
+          # token minted without it is rejected exactly like an anonymous one.
+          #
+          # The suffix is "development", not "dev": the tfvars directory is named
+          # environments/dev/ but the `environment` variable inside it is
+          # "development". Guessing "dev" from the path yields a token Cloud Run
+          # rejects with 401 — a valid token for an audience the service does not
+          # accept, which looks nothing like the 403 an unauthenticated call gets.
+          token_format: id_token
+          id_token_audience: dravr-sciotte-development
+          id_token_include_email: true
+
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          skip_install: true
+
+      - name: Capture the digest currently serving
+        id: prev
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: |
+          set -euo pipefail
+          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                  --format='value(status.latestReadyRevisionName)')
+          PREV=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                   --format='value(status.imageDigest)')
+          # Refuse to deploy with no rollback target. A rollback step that silently has
+          # nothing to roll back to is worse than none, because the workflow would still
+          # report that it recovered.
+          if [ -z "${PREV}" ]; then
+            echo "::error::could not read the serving digest of ${REV} — refusing to deploy without a rollback target"
+            exit 1
+          fi
+          echo "image=${PREV}" >> "$GITHUB_OUTPUT"
+          echo "serving ${REV} at ${PREV}"
+
+      - name: Deploy
+        # Deploys the moving :latest tag rather than the digest, because that is the
+        # literal value terraform holds in sciotte_image. Deploying a digest would leave
+        # the service permanently disagreeing with its own terraform, so every later
+        # apply would bounce it. The digest is asserted immediately below.
+        #
+        # Cloud Run refuses to shift traffic to a revision that fails its startup probe
+        # (GET /health, 10 attempts at 5s), so a container that cannot boot leaves the
+        # previous revision serving and fails this step. That probe is the health check;
+        # the rollback below covers the rest.
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/sciotte:latest
+
+      - name: Assert the serving bytes are the bytes we built and scanned
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          REGISTRY: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}
+          EXPECTED: ${{ needs.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                  --format='value(status.latestReadyRevisionName)')
+          GOT=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                  --format='value(status.imageDigest)')
+
+          # buildx publishes an OCI *index*, because it attaches a provenance
+          # attestation alongside the image. build-push-action reports that index's
+          # digest, while Cloud Run resolves the tag down to the linux/amd64 child and
+          # records the child. The two are never equal, so comparing them directly
+          # fails every time on a deploy that in fact shipped the right bytes — which
+          # is exactly what it did, rolling dev back to the previous digest over a
+          # correct rollout. Accept the index digest or any of its children.
+          HOST="${REGISTRY%%/*}"
+          PATH_PART="${REGISTRY#*/}/sciotte"
+          TOKEN=$(gcloud auth print-access-token)
+          CHILDREN=$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json" \
+            "https://${HOST}/v2/${PATH_PART}/manifests/${EXPECTED}" \
+            | jq -r '(.manifests // [])[].digest' || true)
+
+          for candidate in ${EXPECTED} ${CHILDREN}; do
+            if [ "${GOT}" = "${candidate}" ] || [ "${GOT##*@}" = "${candidate}" ]; then
+              echo "serving ${REV} at ${GOT} (matches ${candidate})"
+              exit 0
+            fi
+          done
+          echo "::error::${REV} serves ${GOT}, which is neither ${EXPECTED} nor any manifest it indexes"
+          echo "index children were: ${CHILDREN:-<none>}"
+          exit 1
+
+      - name: Probe the service over HTTP
+        # Cloud Run's startup probe already proved the container answers /health, but
+        # only that it answered — a build that lost a provider still boots. This asserts
+        # what the service says about itself: ok, and both scraping providers present.
+        #
+        # The service is INGRESS_TRAFFIC_ALL (the API pod egresses PRIVATE_RANGES_ONLY,
+        # so internal-only ingress would drop its calls) but NOT unauthenticated:
+        # backend_sciotte_iam has been true since 118571ed3, so Cloud Run verifies a
+        # Google-signed identity token and checks roles/run.invoker. The deployer SA
+        # carries that permission through its project-level roles/run.admin, which
+        # includes run.routes.invoke — no extra grant is needed, only the token.
+        #
+        # This step read as "the new image is unhealthy" for a week (carnet#164) while
+        # the real answer was a 403 the probe never named. The status code is now
+        # reported on failure so an auth refusal can never again be mistaken for a
+        # sick container: curl exits 22 on any >=400, and -f prints no body to say why.
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          ID_TOKEN: ${{ steps.auth.outputs.id_token }}
+        run: |
+          set -euo pipefail
+          URL=$(gcloud run services describe "${SVC}" --region "${REGION}" --format='value(status.url)')
+
+          CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' -m 30 --retry 3 --retry-delay 5 \
+              -H "Authorization: Bearer ${ID_TOKEN}" "${URL}/health")
+          if [ "${CODE}" != "200" ]; then
+              echo "::error::GET ${URL}/health returned HTTP ${CODE} — 401 means the identity token was rejected (usually a custom_audiences mismatch), 403 means no run.invoker; neither is a sick container"
+              head -c 500 /tmp/health.json || true
+              exit 1
+          fi
+          BODY=$(cat /tmp/health.json)
+          echo "${BODY}" | jq .
+
+          STATUS=$(jq -r '.status' <<<"${BODY}")
+          [ "${STATUS}" = "ok" ] || { echo "::error::/health reports status=${STATUS}"; exit 1; }
+          for p in garmin strava; do
+            jq -e --arg p "$p" '.providers | index($p)' <<<"${BODY}" >/dev/null \
+              || { echo "::error::/health does not advertise the ${p} provider"; exit 1; }
+          done
+          echo "healthy: ${URL} advertises $(jq -c '.providers' <<<"${BODY}")"
+
+      - name: Roll back to the previously serving digest
+        if: failure()
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREV: ${{ steps.prev.outputs.image }}
+        run: |
+          set -euo pipefail
+          # Redeploy the previous digest rather than repointing traffic. Traffic pins
+          # applied with `update-traffic --to-revisions` stick to the service and make
+          # every subsequent deploy land without receiving traffic — the failure mode is
+          # a deploy that reports success while nothing it shipped is serving.
+          echo "rolling back ${SVC} to ${PREV}"
+          gcloud run services update "${SVC}" --region "${REGION}" --image "${PREV}" --quiet
+          echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
+
+  # ---------------------------------------------------------------------------
+  # Mark the digest dev is serving so registry retention keeps it
+  # ---------------------------------------------------------------------------
+  tag-deployed-sciotte:
+    name: Tag Deployed Digest (sciotte, dev)
+    runs-on: ubuntu-latest
+    needs: [image, deploy]
+    # Explicit, not defaulted. With no `if:` a job evaluates `success()`, which is
+    # false when any *transitive* ancestor was skipped — and bump/gate/merge skip
+    # on every run that needs no version bump, which is most of them. That silently
+    # skipped this job while the run still reported success (2026-08-31), so a green
+    # lane proved nothing. The deploy job above carries the same guard for the same
+    # reason. The safety property is unchanged and now stated rather than inherited:
+    # tag only a deploy that succeeded, so a rolled-back image is never anchored.
+    if: ${{ !cancelled() && needs.image.result == 'success' && needs.deploy.result == 'success' }}
+
+    steps:
+      # image-publisher (artifactregistry.writer), not the dev deployer: the tag
+      # is written in the dravr-artifacts project, where the dev deployer has no
+      # write access. Same split as publish-images.yml's tag-deployed-dev.
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Tag the deployed sciotte digest
+        # Sciotte deploys by digest, so nothing on the serving image tells the
+        # cleanup policy to spare it: once two newer builds push it out of the
+        # recent-versions floor, the age rule deletes the image dev is running.
+        # `deployed-` is matched by the registry's keep-tags rule (infra/artifacts
+        # release_tag_prefixes), which wins over every delete rule, and the tfvars
+        # comment names this tag as what "carries the guarantee" that keep_count
+        # cannot. server and frontend have had it since publish-images.yml's
+        # tag-deployed-dev; sciotte never did, so its rollback anchor expired on
+        # the age window and the 2026-08-31 rollback failed with "Image not found"
+        # against a digest that had been serving since 08-24 (carnet#166).
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          PACKAGE="${IMAGE%@*}"
+          echo "Tagging ${IMAGE} as ${PACKAGE}:deployed-dev"
+          gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:deployed-dev" --quiet
+
+
+  # ---------------------------------------------------------------------------
+  # Ship the platform binary, which is where dravr-enforme actually runs
+  # ---------------------------------------------------------------------------
+  #
+  # Everything above deploys the sciotte SERVICE. dravr-enforme itself is a Rust
+  # crate compiled INTO dravr-mcp-server-api — `pierre-enforme` re-exports it and
+  # `server-production` turns on `health-sync`, so the Whoop, Garmin and Strava sync
+  # paths in the running binary are enforme's code. A merged pin changes nothing an
+  # athlete can reach until that binary is rebuilt.
+  #
+  # Nothing rebuilt it. This lane had no publish-images dispatch at all, while the
+  # embacle and photograveur lanes both had one: it deployed sciotte and left main
+  # carrying an enforme the running binary did not have, until an unrelated push
+  # happened to rebuild it. That is carnet#94's shape — six green jobs and nothing
+  # shipped — on the one lane that never got the fix.
+  #
+  # `publish-images.yml` deploys the platform on `workflow_run` of "CI: Backend
+  # (Rust)" against main, and the spine's squash merge is pushed with GITHUB_TOKEN,
+  # which by design triggers nothing downstream. So dispatch it explicitly, after the
+  # sciotte deploy: enforme talks to the sciotte service, so the service has to be on
+  # the version enforme expects before the binary that calls it starts up.
+  platform:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: [bump, deploy]
+    if: >-
+      ${{ !cancelled()
+          && needs.bump.outputs.state == 'pushed'
+          && needs.deploy.result == 'success' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: v${{ needs.bump.outputs.version }}
+          SCIOTTE: v${{ fromJSON(needs.bump.outputs.companions)['dravr-sciotte'] }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up enforme ${VERSION}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "The sciotte service is on **${SCIOTTE}**; the platform binary that"
+            echo "compiles dravr-enforme **${VERSION}** and calls that service is now"
+            echo "rebuilding to match."
+          } >> "$GITHUB_STEP_SUMMARY"

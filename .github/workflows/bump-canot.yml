@@ -1,0 +1,96 @@
+# ABOUTME: The canot lane — the shared bump spine, then a platform rebuild so the crate actually ships
+# ABOUTME: Everything version-shaped is in satellite-bump.yml and satellites.toml; this file is triggers and shipping
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# dravr-canot is the messaging channel abstraction — the ChannelDescriptor surface
+# pierre-messaging renders against — compiled into the platform binary. No service of
+# its own.
+#
+# One thing is specific to this pin and worth knowing before touching the rewriter:
+# architectural-validation.sh:852 extracts canot's tag with a regex that requires
+# `{ git = "...", tag = "..."` in that exact key order, hard-failing on CI and warning
+# locally. That is why satellite-pin.sh substitutes in place and never re-emits a
+# line, and why satellite-pin.test.sh pins the canot shape with a byte comparison: a
+# rewriter that normalised key order would break that check on a green local push.
+#
+# Shipping is not optional and not automatic. publish-images.yml deploys the platform
+# on `workflow_run` of "CI: Backend (Rust)" against main, and the spine's squash merge
+# is pushed with GITHUB_TOKEN, which by design triggers nothing downstream. A bump
+# landing on a quiet main would report every job green and ship nothing — carnet#94,
+# twice in one day on photograveur's chain. The dispatch below is the whole delivery.
+
+name: "Canot: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [canot-released]
+  schedule:
+    # Weekly safety net: a missed or failed dispatch still gets the release
+    # integrated rather than silently dropped. Off the top of the hour deliberately —
+    # :00 is the most contended slot on GitHub's scheduler and a firing there has
+    # landed 6h20m late — and staggered against every other lane.
+    - cron: "23 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "dravr-canot tag to integrate (defaults to the latest release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Rehearse: resolve and rewrite, push nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+
+concurrency:
+  # Never overlap. Two releases integrating at once would race on main, and the
+  # second would push a lockfile resolved against the first one's manifests.
+  group: canot-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: ./.github/workflows/satellite-bump.yml
+    with:
+      satellite: dravr-canot
+      version: ${{ github.event.client_payload.version || inputs.version || '' }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
+  ship:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: bump
+    if: ${{ !cancelled() && needs.bump.outputs.state == 'pushed' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.bump.outputs.version }}
+          PINNED: ${{ needs.bump.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up dravr-canot ${VERSION}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "dravr-canot **${PINNED} -> ${VERSION}** is merged to main, and the binary that"
+            echo "compiles it is now rebuilding. dravr-canot has no service of its own — this"
+            echo "dispatch is the whole delivery."
+          } >> "$GITHUB_STEP_SUMMARY"

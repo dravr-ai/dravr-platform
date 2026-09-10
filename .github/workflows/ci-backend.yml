@@ -209,7 +209,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces, satellite pins)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -224,6 +224,7 @@ jobs:
           ./scripts/ci/check-deploy-ancestry.test.sh
           ./scripts/ci/check-lockfile-duplicates.test.sh
           ./scripts/ci/check-twin-surfaces.test.sh
+          ./scripts/ci/satellite-pin.test.sh
 
       # The dev scripts decide which processes a stop may kill and which files a
       # tunnel may rewrite, so a quoting or word-splitting slip there reaches a

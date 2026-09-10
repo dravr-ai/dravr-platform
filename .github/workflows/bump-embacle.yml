@@ -1,0 +1,105 @@
+# ABOUTME: The embacle lane — dispatches the shared satellite bump spine, then ships the platform binary
+# ABOUTME: Everything version-shaped is in satellite-bump.yml and satellites.toml; this file is triggers and shipping
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# embacle-specific knowledge, and nothing else:
+#
+# * embacle ships from crates.io, so a GitHub release is not proof the platform can
+#   consume it. The spine's existence proof handles that (`source = "crates-io"` in
+#   satellites.toml), waiting on the sparse index for both crates.
+#
+# * There is no embacle service to deploy. embacle is a library crate — the ACP
+#   runner that drives `copilot --acp`, compiled into dravr-mcp-server-api — so the
+#   only thing that ships it is the platform image. That makes the dispatch below the
+#   WHOLE delivery, not a follow-up to it. Nothing rebuilds the binary on its own:
+#   publish-images.yml triggers on `workflow_run` of "CI: Backend (Rust)" against
+#   main, and the spine's squash merge is pushed with GITHUB_TOKEN, which by design
+#   triggers nothing. A bump landing on a quiet main would report every job green and
+#   ship nothing — carnet#94, twice in one day on photograveur's chain.
+#
+# * embacle releases sometimes move dravr-tronc, which the platform pins directly.
+#   That is not this lane's to integrate: the lockfile would carry two tronc versions
+#   and Security Audit would hard-fail the branch. The spine stands down on it, which
+#   shows up here as `state == 'stood-down'` and no ship.
+
+name: "Embacle: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [embacle-released]
+  schedule:
+    # Weekly safety net on the same cadence as the other satellites: a missed or
+    # failed dispatch still gets the release integrated rather than silently dropped.
+    - cron: "30 14 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "embacle version to integrate (defaults to the latest release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Rehearse: resolve and rewrite, push nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  # Never overlap. Two releases integrating at once would race on main, and the
+  # second would push a lockfile resolved against the first one's manifests.
+  group: embacle-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: ./.github/workflows/satellite-bump.yml
+    with:
+      satellite: embacle
+      version: ${{ github.event.client_payload.version || inputs.version || '' }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
+  ship:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: bump
+    if: ${{ !cancelled() && needs.bump.outputs.state == 'pushed' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.bump.outputs.version }}
+          PINNED: ${{ needs.bump.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up embacle ${VERSION}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "embacle **${PINNED} -> ${VERSION}** is merged to main, and the binary that"
+            echo "compiles it is now rebuilding. embacle has no service of its own — this"
+            echo "dispatch is the whole delivery."
+            echo ""
+            echo "Verify what is actually serving once it finishes:"
+            echo ""
+            echo '```'
+            echo "gcloud run services describe dravr-mcp-server-api \\"
+            echo "  --project=dravr-dev --region=northamerica-northeast1 \\"
+            echo "  --format='value(status.latestReadyRevisionName)'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

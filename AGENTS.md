@@ -469,6 +469,38 @@ This is a pre-1.0 project with zero external API consumers — **no backward com
 `dravr-tronc` backs every satellite's `-server`/`-mcp` crate plus the platform's `pierre-server`/`-services`/`-logging`/`-contremaitre`. When you bump/release it, **open a notification PR on each consumer repo** bumping its dependency (this is the sanctioned cross-repo carve-out to the no-PR rule — it governs platform self-merges only). A satellite that *publishes* to crates.io must republish member crates in dependency order (root lib → `-mcp` → `-server`) so the graph resolves a single version — a local `cargo check` won't catch the skew, only `cargo publish --dry-run` does. Full procedure: dravr-vault `Development/Runbooks/Releasing dravr-tronc — Notify Consumers`.
 </important>
 
+<important if="you are adding, removing, or changing a dravr-* satellite pin, or touching a bump lane">
+
+Every satellite pin is declared once in **`satellites.toml`** at the repo root — repo,
+pin transport, gate set, companions, diamonds — and moved by one shared reusable
+workflow, `.github/workflows/satellite-bump.yml`, called locally by a thin
+`.github/workflows/bump-<name>.yml` per satellite. Before this, three satellites had a
+hand-written ~600-line lane each and eight had none, which is how dravr-cageux shipped
+five releases in a week against a pin nobody moved (carnet#419).
+
+- **Adding a satellite**: a stanza in `satellites.toml`, a `bump-<name>.yml` caller
+  (~30 lines; copy `bump-commere.yml`), and a `notify-platform-release.yml` producer
+  half in the satellite repo. `DRAVR_PLATFORM_DISPATCH_TOKEN` is an org secret with
+  visibility `all` whose token reaches every `dravr-ai` repo, so no secret work.
+- **The version-shaped logic is `scripts/ci/satellite-pin.sh`**, tested by
+  `satellite-pin.test.sh` against a fixture per pin shape. Change the rewriter there,
+  not in YAML, and add the fixture — two rules it must keep: substitute **in place**
+  (architectural-validation.sh:852 needs canot's exact key order) and verify
+  **positively** (a negative check passes when the sed matched nothing).
+- **Never hardcode a manifest path or an alias list.** Pin sites are discovered by
+  grep and aliases resolved from `package = "..."`. A hardcoded path is what killed
+  the photograveur lane for weeks (`89155c33e`); a hardcoded alias list is carnet#323.
+- **Lane ownership is derived, never declared** — `satellite-pin.sh lane <name>` greps
+  the callers. A declared table claimed tronc's chain moved dravr-stripe while nothing
+  did, and suppressed its drift on that basis.
+- `scripts/ci/check-satellite-drift.sh` reads the same file and exits 2 when a pin has
+  no stanza or a stanza has no pin, so the declaration cannot drift from the tree.
+- **Not on this spine:** `contremaitre-bump.yml` (hourly, rev pin, pushes direct to
+  main) and `tronc-bump.yml` (producer-hosted in dravr-tronc, `@main`, serves eleven
+  consumers). Both are deliberate; see their stanza comments.
+
+</important>
+
 <important if="you are adding a notify event, a messaging/locale string, or an McpTool (a platform change that must mirror into dravr-contremaitre)">
 
 The platform is coupled to **dravr-contremaitre** catalogues. The tests policing that coupling (`contremaitre_test`, `notify_catalogue_test`, `messaging_locale_test`, `configuration_mcp_integration_test`) now run on **every push** via the `contremaitre-sync` job in `ci-backend.yml` — they used to be full-suite-only, which meant they first ran *after* the squash landed on main and red main post-merge. Two gates guard this now, but both only help if you mirror the change at authoring time:
