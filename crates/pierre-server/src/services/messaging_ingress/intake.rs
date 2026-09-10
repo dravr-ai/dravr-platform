@@ -18,10 +18,10 @@
 //!
 //! ## What an active intake costs the turn that opens it
 //!
-//! `guided_flow_is_active` reads the same `onboarding_state` column and does not
-//! discriminate by flow, so the one coached turn that opens an intake runs with
-//! the guided-flow tool withhold applied — the model cannot save a training plan
-//! on it. That is deliberate rather than incidental: the athlete is one message
+//! `active_guided_flow` reads the same `onboarding_state` column, and
+//! `Intake` is one of the flows that withholds, so the one coached turn that
+//! opens an intake runs with the guided-flow tool withhold applied — the model
+//! cannot save a training plan on it. That is deliberate rather than incidental: the athlete is one message
 //! away from being asked whether a doctor has ever told them they have a heart
 //! condition, and a plan written before that answer is exactly what the screen
 //! exists to inform. Every later intake turn skips the model entirely, so the

@@ -25,7 +25,7 @@
 //!   which is why those flows have no re-ask budget and lean on the
 //!   completion check instead.
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, ConversationRecord, CoverageMap, CoverageTarget,
     Dossier, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, SeasonConditions,
@@ -36,6 +36,17 @@ use uuid::Uuid;
 
 use super::completion;
 use crate::ChatPipelineContext;
+
+/// How many turns the fortnight rail owns before it retires.
+///
+/// The drafting turn plus two to negotiate it — "make Thursday easier",
+/// "swap the long run to Sunday" — which is the conversation the one-turn
+/// shape could not hold. It is a fixed budget rather than a condition
+/// because the alternative is a flow that owns the conversation until
+/// something tells it to stop, and nothing reliably would: an athlete who
+/// simply changes the subject would be answered by the fortnight rail for
+/// the rest of the day.
+pub const FORTNIGHT_FLOW_TURNS: u8 = 3;
 
 /// A session over this many minutes marks the athlete as a long-session
 /// athlete, which earns them the fueling topic. Three hours is where
@@ -69,8 +80,18 @@ impl GuidedTarget {
 /// flow state it was chosen from (so a delivered probe can be recorded onto it
 /// at the end of the turn).
 pub struct OnboardingTurn {
-    /// What this turn is capturing.
-    pub target: GuidedTarget,
+    /// What this turn is capturing, or `None` for a flow that captures
+    /// nothing.
+    ///
+    /// The four interview walks always carry a topic: they exist to ask a
+    /// question and record the answer. The fortnight rail owns its turns
+    /// without asking anything — it briefs the agent and the agent writes —
+    /// so it carries `None`, and every consumer of a topic has to say what it
+    /// does without one. That is the point of the `Option`: a fortnight slug
+    /// in the delivered-probe ledger would make [`answered_target`] fail to
+    /// parse it, silently, and stamp the athlete's next fact with the wrong
+    /// provenance.
+    pub target: Option<GuidedTarget>,
     /// The flow state as loaded at the start of the turn.
     pub state: OnboardingState,
 }
@@ -171,6 +192,25 @@ pub async fn resolve(
     {
         return GuidedResolution::Inactive;
     }
+    // The fortnight rail owns the turn without probing: it asks nothing and
+    // extracts nothing, so it never reaches the dossier load or the topic
+    // machinery below. It is a flow rather than a one-turn directive because
+    // the athlete negotiates the weeks after they are drafted, and an
+    // ordinary coaching turn would answer that with the brief only as far
+    // back as the transcript carries it.
+    if state.flow == GuidedFlow::Fortnight {
+        if state.turns_owned >= FORTNIGHT_FLOW_TURNS {
+            // The rail's turns are spent. It retires here rather than holding
+            // the conversation: the athlete keeps adjusting, just as ordinary
+            // coaching, and the wrap-up reads the saved weeks back.
+            let subject = walk_subject_id(&state, conv).map(|id| id.to_string());
+            return finish_fortnight(ctx, conv, tenant_id, facts_tenant, subject, locale).await;
+        }
+        return GuidedResolution::Probe(Box::new(OnboardingTurn {
+            target: None,
+            state,
+        }));
+    }
     let Some(subject_id) = walk_subject_id(&state, conv) else {
         return GuidedResolution::Inactive;
     };
@@ -188,7 +228,10 @@ pub async fn resolve(
     }
 
     if let Some(target) = next_target(&state, &dossier) {
-        return GuidedResolution::Probe(Box::new(OnboardingTurn { target, state }));
+        return GuidedResolution::Probe(Box::new(OnboardingTurn {
+            target: Some(target),
+            state,
+        }));
     }
 
     let subject = subject_id.to_string();
@@ -294,10 +337,11 @@ fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarge
         )
         .map(GuidedTarget::Season),
         // Unreachable: `resolve` returns before this for an intake, precisely so
-        // that `None` here is never read as "the walk is finished". Kept
-        // exhaustive rather than wildcarded so a third platform-driven flow has
-        // to make the same decision deliberately.
-        GuidedFlow::Intake => None,
+        // that `None` here is never read as "the walk is finished", and a
+        // fortnight marker is never active so no turn resolves against it.
+        // Kept exhaustive rather than wildcarded so a fourth platform-driven
+        // flow has to make the same decision deliberately.
+        GuidedFlow::Intake | GuidedFlow::Fortnight => None,
     }
 }
 
@@ -314,6 +358,67 @@ struct LeaveGuidedMode<'a> {
     subject_user_id: &'a str,
     dossier: &'a Dossier,
     locale: &'a str,
+}
+
+/// End the fortnight rail: read the saved weeks back, then retire the marker.
+///
+/// Separate from [`leave_guided_mode`] because that one needs a dossier and a
+/// walk window, and the fortnight has neither — it interviews nobody, so
+/// there are no facts to supersede and no coverage to summarise. What it does
+/// have is a claim to check: the agent said it wrote two weeks.
+async fn finish_fortnight(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    tenant_id: TenantId,
+    facts_tenant: TenantId,
+    subject_user_id: Option<String>,
+    locale: &str,
+) -> GuidedResolution {
+    // Rendered before the marker is retired, so a failed write does not also
+    // cost the athlete the answer to "did it land?".
+    let Some(subject) = subject_user_id else {
+        // No subject, no plan to read. Retire quietly rather than assert
+        // anything about weeks nobody can look up.
+        tracing::warn!(
+            conversation_id = %conv.id,
+            "fortnight rail ended with no subject; skipping the re-check"
+        );
+        clear_marker(ctx, conv, tenant_id).await;
+        return GuidedResolution::Inactive;
+    };
+    let summary = completion::render_fortnight(
+        ctx,
+        facts_tenant,
+        &subject,
+        conv.coach_id.as_deref(),
+        locale,
+    )
+    .await;
+    clear_marker(ctx, conv, tenant_id).await;
+    GuidedResolution::WalkComplete {
+        summary,
+        answered: None,
+    }
+}
+
+/// Clear the fortnight rail's marker outright, rather than retiring it.
+///
+/// A walk is *retired* so that one later turn can carry
+/// [`release_directive`] and revoke the interview's no-writing rule. The
+/// fortnight rail has no such rule to revoke and no wrap-up question to
+/// answer — it already said whether the weeks landed — and a retired marker
+/// would fall to the release's default arm and open with "the guided
+/// interview is over" to an athlete who was never interviewed. Clearing
+/// leaves the next turn as ordinary coaching, which is what it is.
+async fn clear_marker(ctx: &ChatPipelineContext, conv: &ConversationRecord, tenant_id: TenantId) {
+    if let Err(e) = ctx
+        .repos
+        .chat
+        .set_conversation_onboarding_state(&conv.id, None, tenant_id)
+        .await
+    {
+        tracing::warn!(error = %e, "failed to clear the fortnight rail marker");
+    }
 }
 
 /// End the walk: render any wrap-up, retire the marker, and leave guided mode.
@@ -353,9 +458,10 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
         GuidedFlow::Season => Some(
             completion::render_season(ctx, &state, facts_tenant, subject_user_id, locale).await,
         ),
-        // The intake writes its own wrap-up when the platform closes it out, so
-        // there is nothing to render here.
-        GuidedFlow::Pillars | GuidedFlow::Intake => None,
+        // The intake writes its own wrap-up when the platform closes it out,
+        // and the fortnight's is the command's own reply — neither has a
+        // wrap-up to render here.
+        GuidedFlow::Pillars | GuidedFlow::Intake | GuidedFlow::Fortnight => None,
     };
     // Close the walk's window in the profile, so the next re-run of THIS flow
     // supersedes exactly this run's answers and a re-run of the OTHER
@@ -454,6 +560,20 @@ pub fn answered_target(state: &OnboardingState) -> Option<GuidedTarget> {
     Pillar::parse(slug).map(|p| GuidedTarget::Coverage(CoverageTarget::Pillar(p)))
 }
 
+/// The state to write back at the end of a guided turn.
+///
+/// A turn that asked nothing records no question — the ledger is a
+/// delivered-*question* history, and writing a flow that asks none into it is
+/// what would poison [`answered_target`]'s parse. It still has to record that
+/// it spent a turn, or a topic-less rail's budget never falls and it owns the
+/// conversation for good.
+fn probe_state(turn: &OnboardingTurn) -> OnboardingState {
+    turn.target.map_or_else(
+        || turn.state.clone().with_owned_turn(),
+        |target| turn.state.clone().with_delivered_probe(target.slug()),
+    )
+}
+
 /// Record that this turn's probe question reached the athlete, so the next turn
 /// advances instead of re-asking while extraction is still in flight.
 ///
@@ -476,7 +596,7 @@ pub async fn record_delivered_probe(
     turn: &OnboardingTurn,
     tenant_id: TenantId,
 ) {
-    let state = turn.state.clone().with_delivered_probe(turn.target.slug());
+    let state = probe_state(turn);
     let column = match state.to_column() {
         Ok(column) => column,
         Err(e) => {
@@ -504,10 +624,29 @@ pub async fn record_delivered_probe(
     }
 }
 
-/// The system-prompt directive revoking the interview's rules, for the first
-/// turn after a guided flow ends.
+/// Whether a just-finished flow is one whose rules need revoking.
 ///
-/// [`directive`] is the most forcefully worded block in the whole prompt: it
+/// Only an interview leaves a prohibition behind. The fortnight rail clears
+/// its marker rather than retiring it, so this is normally false by absence —
+/// but a stored row from a rail that failed to clear must still not be handed
+/// the interview release, which would open with "the guided interview is
+/// over" to an athlete who was never interviewed.
+#[must_use]
+pub fn just_completed_interview(raw: Option<&str>, now: DateTime<Utc>) -> bool {
+    OnboardingState::just_completed(raw, now)
+        && OnboardingState::retired_flow(raw).is_some_and(GuidedFlow::is_interview)
+}
+
+/// The system-prompt block the first turn after a guided flow ends carries.
+///
+/// What it says depends on which flow retired: three of the four walks get the
+/// same revocation, and the season walk gets it plus the instruction that
+/// answers its wrap-up. The fortnight rail never reaches here — it carries its
+/// brief while it is ACTIVE, through [`directive`], because the drafting is
+/// the flow's own work rather than something released after it.
+///
+/// The revocation is why the slot exists at all. [`directive`] is the most
+/// forcefully worded block in the whole prompt: it
 /// claims to override every other instruction, and it closes with "do not
 /// build, propose, or save a training plan on this turn". On 2026-07-28 an
 /// athlete finished a calibration interview that had carried that block on
@@ -523,8 +662,20 @@ pub async fn record_delivered_probe(
 /// resolves them.
 #[must_use]
 pub fn release_directive(retired_column: Option<&str>) -> String {
-    let mut out =
-        "\n\n# Interview complete (this overrides the interview rules you were following)\n\
+    match OnboardingState::retired_flow(retired_column) {
+        // The season wrap-up asked whether to lay the season out. A yes on
+        // this turn is answered by the rule, not by the model's own
+        // periodization: the tool reads the profile and the plan, takes the
+        // walk's answers as arguments, and returns the ranked verdict the
+        // coach then presents.
+        Some(GuidedFlow::Season) => format!("{INTERVIEW_RELEASE}{SEASON_RELEASE_TAIL}"),
+        _ => INTERVIEW_RELEASE.to_owned(),
+    }
+}
+
+/// The block revoking a finished interview's no-writing rule.
+const INTERVIEW_RELEASE: &str =
+    "\n\n# Interview complete (this overrides the interview rules you were following)\n\
      The guided interview is over. The instruction not to build, propose or save a training \
      plan applied only while it was running and no longer applies — disregard it, along with \
      any statement you made under it about being unable to save.\n\
@@ -532,25 +683,44 @@ pub fn release_directive(retired_column: Option<&str>) -> String {
      save_training_plan.\n\
      Never tell the athlete that saving failed unless you called the tool on this turn and it \
      returned an error. If you intend to save, call the tool and report what it actually \
-     returned."
-            .to_owned();
-    // The season wrap-up asked whether to lay the season out. A yes on this
-    // turn is answered by the rule, not by the model's own periodization:
-    // the tool reads the profile and the plan, takes the walk's answers as
-    // arguments, and returns the ranked verdict the coach then presents.
-    if OnboardingState::retired_flow(retired_column) == Some(GuidedFlow::Season) {
-        out.push_str(
-            "\n\nThe wrap-up offered to lay out the athlete's season. If they accept, call \
-             recommend_plan_flavour on this turn — hours_per_week and sessions_per_week from \
-             their calibration availability, and event_class, weeks_to_goal, training_age, \
-             measurements and interval_experience from what they said in the walk — and present \
-             its verdict in your own words: the flavour it ranks first and why, what it ruled \
-             out and why, and the phases it laid out. Never choose a flavour yourself, and never \
-             describe a season you did not get from the tool.",
-        );
-    }
-    out
-}
+     returned.";
+
+/// Appended when the retired walk was the season one, whose wrap-up offered to
+/// lay the season out.
+const SEASON_RELEASE_TAIL: &str =
+    "\n\nThe wrap-up offered to lay out the athlete's season. If they accept, call \
+     recommend_plan_flavour on this turn — hours_per_week and sessions_per_week from \
+     their calibration availability, and event_class, weeks_to_goal, training_age, \
+     measurements and interval_experience from what they said in the walk — and present \
+     its verdict in your own words: the flavour it ranks first and why, what it ruled \
+     out and why, and the phases it laid out. Never choose a flavour yourself, and never \
+     describe a season you did not get from the tool.";
+
+/// The brief `/fortnight` leaves for the turn that follows its go-ahead.
+///
+/// The command has already decided — there is an active plan, it states
+/// phases, and the weeks the athlete can see stop short of the fortnight — and
+/// told the athlete two weeks are being drafted and their readiness checked
+/// first. That promise is kept here or nowhere: nothing else on an ordinary
+/// turn would make the agent read the ladder before writing.
+///
+/// It names `include_state` because the readiness the command promised is
+/// exactly what that flag returns, and the command deliberately did not read
+/// it — the gather is the agent's, on the turn it needs it anyway to write the
+/// days.
+const FORTNIGHT_BRIEF: &str = "\n\n# This turn: write the next fortnight\n\
+     The athlete asked for the next two weeks and the platform has already checked the \
+     three things that would refuse it: they have an active plan, it states phases, and \
+     the weeks they can currently see stop short of the fortnight ahead. Do not re-litigate \
+     any of that.\n\
+     Call get_training_plan with include_state true first. It returns the readiness ladder \
+     for the coming weeks, the compliance verdict on what they have been doing, and where \
+     the stored weeks stop — the readiness you were told would be checked before anything is \
+     committed. Read it before you draft, and never state a readiness it did not report.\n\
+     Then draft exactly two weeks, starting where the stored weeks stop, against the phase \
+     each week falls in, and save them with save_training_plan on this same turn. Never \
+     rewrite a week the athlete can already see. If the ladder blocks the fortnight, say so \
+     and write nothing rather than writing two weeks you would have to unwrite.";
 
 /// Retire the just-completed marker so [`release_directive`] fires once.
 ///
@@ -600,7 +770,13 @@ pub async fn clear_completed_marker(
 /// position alone.
 #[must_use]
 pub fn directive(turn: &OnboardingTurn) -> String {
-    let (mode, purpose, topic, hint) = match turn.target {
+    // A flow with no topic is not an interview and must not be handed the
+    // interview's block — which forbids building or saving a plan, the one
+    // thing the fortnight rail exists to do.
+    let Some(target) = turn.target else {
+        return FORTNIGHT_BRIEF.to_owned();
+    };
+    let (mode, purpose, topic, hint) = match target {
         GuidedTarget::Coverage(CoverageTarget::NorthStar) => (
             "Onboarding mode",
             "You are helping this athlete build their fitness profile one topic at a time",
@@ -699,7 +875,7 @@ const fn season_topic_label(topic: SeasonTopic) -> &'static str {
 /// there is no snapshot — no provider connected — so the coach asks cold
 /// instead of inventing figures.
 fn calibration_baseline_line(turn: &OnboardingTurn) -> String {
-    if turn.target != GuidedTarget::Calibration(CalibrationTopic::BaselineConfirm) {
+    if turn.target != Some(GuidedTarget::Calibration(CalibrationTopic::BaselineConfirm)) {
         return String::new();
     }
     turn.state.snapshot.as_ref().map_or_else(

@@ -420,3 +420,107 @@ fn the_tool_declares_the_profile_access_it_performs() {
         "the athlete's own grant covers it"
     );
 }
+
+// ============================================================================
+// A race the athlete ran is a field test, and it seeds their threshold
+// ============================================================================
+
+#[tokio::test]
+async fn a_race_result_gives_a_vdot_and_the_pace_it_implies() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // A 5 km in 19:30 — the personal best an athlete states in the season
+    // walk, in the units they state it in.
+    let result = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "method": "race_result", "distance_meters": 5000, "time_seconds": 1170 }),
+    )
+    .await?;
+
+    assert_eq!(result["method"], json!("race_result"));
+    // Daniels puts a sub-20 5 km in the low fifties; the assertion is a band
+    // rather than a point because the curve is fitted, not exact.
+    let estimated = vo2(&result);
+    assert!(
+        (45.0..=60.0).contains(&estimated),
+        "a 19:30 5 km should read in the high forties to high fifties, got {estimated}"
+    );
+    assert_eq!(
+        result["saved"],
+        json!(false),
+        "the tool estimates, it does not write"
+    );
+
+    // The threshold pace the estimate implies is the number set_physiology
+    // stores, so the athlete can confirm both in one exchange.
+    let pace = result["implied_threshold_pace_sec_per_km"]
+        .as_f64()
+        .expect("a race result implies a threshold pace");
+    assert!(
+        (180.0..=300.0).contains(&pace),
+        "threshold for a sub-20 5 km runner sits between 3:00 and 5:00 per km, got {pace}"
+    );
+    // Threshold is slower than the 5 km race pace it was derived from (234
+    // s/km), which is what makes it a threshold rather than a race effort.
+    assert!(
+        pace > 1170.0 / 5.0,
+        "threshold pace must be slower than the race pace it came from, got {pace}"
+    );
+    assert!(
+        result["to_store"]
+            .as_str()
+            .unwrap_or("")
+            .contains("threshold_pace_sec_per_km"),
+        "the tool must say the pace is storable: {}",
+        result["to_store"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn every_method_offers_the_threshold_pace_its_estimate_implies() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // The pace rides on the estimate, not on the method: a Cooper test and a
+    // stated VDOT both carry it, so an athlete who confirms a VO2max never
+    // has to run a second test to get a threshold.
+    for params in [
+        json!({ "method": "cooper_test", "distance_meters": 2800 }),
+        json!({ "method": "from_vdot", "vdot": 50 }),
+    ] {
+        let result = estimate(&executor, user_id, &tenant_id, params.clone()).await?;
+        let pace = result["implied_threshold_pace_sec_per_km"]
+            .as_f64()
+            .unwrap_or_else(|| panic!("{params} must imply a threshold pace: {result}"));
+        assert!(
+            (150.0..=600.0).contains(&pace),
+            "{params} implied an unusable pace: {pace}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_race_nobody_could_run_is_refused_rather_than_estimated() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // 5 km in 30 seconds is not a race result; the kernel refuses the VDOT
+    // and the tool says so instead of inventing a number.
+    let message = estimate_expecting_rejection(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "method": "race_result", "distance_meters": 5000, "time_seconds": 30 }),
+    )
+    .await?;
+    assert!(
+        message.contains("race_result") || message.contains("VDOT") || message.contains("vdot"),
+        "the refusal must name what it could not do: {message}"
+    );
+    Ok(())
+}

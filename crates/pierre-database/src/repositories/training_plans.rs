@@ -26,8 +26,14 @@ pub struct SaveTrainingPlanParams<'a> {
     pub goal_fact_id: Option<&'a str>,
     /// Snapshot of the goal race at plan time.
     pub goal_race: &'a GoalRace,
-    /// Secondary races on the calendar.
-    pub races: &'a [GoalRace],
+    /// The rest of the race calendar, or `None` to keep the one the plan
+    /// being superseded already carried.
+    ///
+    /// An outline save writes a *new* row, so a calendar the payload does not
+    /// restate has to be carried across or it is gone. `Some(&[])` clears it,
+    /// which is how a cancelled race is expressed; `None` is what an
+    /// adjustment that says nothing about racing means.
+    pub races: Option<&'a [GoalRace]>,
     /// The coach's strategy in prose.
     pub strategy: &'a str,
     /// The flavour the season runs on, when one was chosen.
@@ -50,8 +56,14 @@ pub struct SaveTrainingPlanParams<'a> {
 pub struct PlanOutlineInput<'a> {
     /// Snapshot of the goal race at plan time.
     pub goal_race: &'a GoalRace,
-    /// Secondary races on the calendar.
-    pub races: &'a [GoalRace],
+    /// The rest of the race calendar, or `None` to keep the one the plan
+    /// being superseded already carried.
+    ///
+    /// An outline save writes a *new* row, so a calendar the payload does not
+    /// restate has to be carried across or it is gone. `Some(&[])` clears it,
+    /// which is how a cancelled race is expressed; `None` is what an
+    /// adjustment that says nothing about racing means.
+    pub races: Option<&'a [GoalRace]>,
     /// The coach's strategy in prose.
     pub strategy: &'a str,
     /// The flavour the season runs on, when one was chosen.
@@ -337,8 +349,9 @@ pub(crate) struct PlanInsertValues {
     pub coach_slug: String,
     /// Serialized goal-race snapshot.
     pub goal_race_json: String,
-    /// Serialized secondary races.
-    pub races_json: String,
+    /// Serialized race calendar, or `None` to carry the superseded row's
+    /// calendar across verbatim rather than re-encode it.
+    pub races_json: Option<String>,
     /// Serialized phases.
     pub phases_json: String,
     /// Serialized flavour selection, when one was chosen.
@@ -353,7 +366,10 @@ pub(crate) fn plan_insert_values(
 ) -> AppResult<PlanInsertValues> {
     let goal_race_json = serde_json::to_string(params.goal_race)
         .map_err(|e| AppError::internal(format!("serialize goal race: {e}")))?;
-    let races_json = serde_json::to_string(params.races)
+    let races_json = params
+        .races
+        .map(serde_json::to_string)
+        .transpose()
         .map_err(|e| AppError::internal(format!("serialize races: {e}")))?;
     let phases_json = serde_json::to_string(params.phases)
         .map_err(|e| AppError::internal(format!("serialize phases: {e}")))?;

@@ -24,12 +24,16 @@ use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
     KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_FOLLOWUP_NO_PLAN,
     KEY_CALIBRATE_FOLLOWUP_PLAN, KEY_CALIBRATE_TOPIC_INJURY, KEY_CALIBRATE_TOPIC_RECOVERY,
-    KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
+    KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING, KEY_SEASON_COMPLETE_HEADER,
+    KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
 use pierre_core::models::{
     CalibrationTopic, ConversationRecord, Dossier, OnboardingState, SeasonTopic, TenantId,
 };
 use pierre_memory::{FactSource, UserFact};
+use pierre_services::athlete_clock::athlete_today;
+use pierre_services::fortnight::FORTNIGHT_WEEKS;
+use pierre_services::training_plan_render::select_active_weeks;
 
 use super::onboarding::{calibration_conditions, season_conditions};
 use crate::ChatPipelineContext;
@@ -287,6 +291,77 @@ pub async fn render_season(
     };
     out.push_str(&reg.render(followup, locale, &[]));
     out
+}
+
+/// The fortnight rail's wrap-up: did the two weeks actually land?
+///
+/// This is the re-check the rail exists to close. The command decided, the
+/// agent drafted and saved, and until now nothing read the result back — the
+/// command had ended by the time `save_training_plan` returned, so "I've
+/// written your fortnight" was the last word whether or not it was true.
+///
+/// It reads coverage rather than the full state block on purpose. The
+/// question at the end of the rail is "are the next two weeks on the plan",
+/// which the stored weeks answer directly; readiness and compliance are the
+/// drafting turn's inputs, and re-gathering them here would spend the rails'
+/// whole gather to say something the athlete did not ask.
+pub async fn render_fortnight(
+    ctx: &ChatPipelineContext,
+    facts_tenant: TenantId,
+    subject_user_id: &str,
+    agent: Option<&str>,
+    locale: &str,
+) -> String {
+    let reg = &ctx.messaging_strings_registry;
+    let today = athlete_today(&ctx.repos, subject_user_id.parse().unwrap_or_default()).await;
+
+    let covered = match ctx
+        .repos
+        .training_plans
+        .get_active_plan(&facts_tenant.to_string(), subject_user_id, agent)
+        .await
+    {
+        Ok(Some(plan)) => {
+            let weeks = ctx
+                .repos
+                .training_plans
+                .list_plan_weeks(&facts_tenant.to_string(), subject_user_id, &plan.id, false)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "fortnight wrap-up could not read the plan weeks");
+                    Vec::new()
+                });
+            select_active_weeks(&weeks, today, FORTNIGHT_WEEKS)
+                .weeks
+                .len()
+                >= FORTNIGHT_WEEKS
+        }
+        Ok(None) => false,
+        Err(e) => {
+            // An unreadable plan is not an empty one, and claiming the weeks
+            // landed on a failed read is the false confirmation this wrap-up
+            // exists to remove.
+            tracing::warn!(error = %e, "fortnight wrap-up could not read the active plan");
+            false
+        }
+    };
+
+    tracing::info!(
+        target: "notify",
+        event = "onboarding.completed",
+        flow = "fortnight",
+        topics_answered = u32::from(covered),
+        topics_asked = 1,
+        facts_landed = 0,
+        "guided interview completed"
+    );
+
+    let key = if covered {
+        KEY_FORTNIGHT_RECHECK_LANDED
+    } else {
+        KEY_FORTNIGHT_RECHECK_MISSING
+    };
+    reg.render(key, locale, &[])
 }
 
 #[cfg(test)]

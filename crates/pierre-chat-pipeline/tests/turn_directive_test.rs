@@ -99,17 +99,17 @@ fn the_turn_directive_asserts_no_identity() {
 
 /// The block must carry no length or format rule.
 ///
-/// Those belong to the Stage 7g channel constraints and the Stage 7g.2 output
-/// contract. A length rule here would contradict one of them depending on
-/// channel, and the contradiction would be invisible until a coach emitted
-/// prose where a card was expected.
+/// Those belong to the Stage 7g channel constraints and the Stage 7g.2b
+/// visual contract. A length rule here would contradict one of them depending
+/// on channel, and the contradiction would be invisible until a coach emitted
+/// prose where a block was expected.
 #[test]
 fn the_turn_directive_owns_no_formatting_rule() {
     let lower = TURN_DIRECTIVE.to_lowercase();
     for banned in ["characters", "markdown", "json", "plain text", "bullet"] {
         assert!(
             !lower.contains(banned),
-            "formatting belongs to Stage 7g / 7g.2, not the turn directive: found {banned:?}"
+            "formatting belongs to Stage 7g / 7g.2b, not the turn directive: found {banned:?}"
         );
     }
 }
@@ -135,66 +135,23 @@ fn the_ordinary_turn_arm_is_never_empty() {
     );
 }
 
-/// A builder coach that already has the JSON contract must NOT also get prose.
-///
-/// Stage 7g.2's output contract IS that turn's task, and it is appended above
-/// this slot. Prose landing below it wins on recency — the 2026-07-24 derail
-/// exactly.
-#[test]
-fn the_directive_yields_to_the_output_contract() {
-    let source = prompt_assembly_source();
-    let stage = slice_between(&source, "// Stage 7g.3:", "// Stage 7g.4:");
-
-    assert!(
-        stage.contains("None if structured_contract_active => raw_system_prompt"),
-        "a coach carrying the Stage 7g.2 JSON contract must not also receive the prose \
-         turn directive"
-    );
-}
-
-/// The suppression predicate must be bound once and read thrice.
-///
-/// Two copies would be free to drift, and the drift would be silent: a builder
-/// coach carrying both a JSON-only contract and a prose task directive.
-///
-/// The read count is pinned as well as the binding, so that adding a fourth
-/// consumer is a deliberate edit here rather than an unnoticed one. Every
-/// reader suppresses something for the same reason — a coach told to emit one
-/// JSON object has no prose to carry anything else.
-#[test]
-fn the_suppression_predicate_has_a_single_source() {
-    let source = prompt_assembly_source();
-    assert_eq!(
-        source.matches("let structured_contract_active =").count(),
-        1,
-        "the predicate must be bound exactly once; Stages 7g.2, 7g.2b and 7g.3 all read it"
-    );
-    assert_eq!(
-        source.matches("structured_contract_active").count(),
-        4,
-        "expected one binding plus three reads (Stage 7g.2's if, Stage 7g.2b's \
-         visual_contract_active guard, Stage 7g.3's match arm)"
-    );
-}
-
 /// Every arm of the slot leaves a task behind.
 ///
 /// The guided arm probes a topic, the release arm says "call the tool and
-/// report what it actually returned", the ordinary arm carries this block, and
-/// the builder arm already has the JSON contract. Four arms, no empty slot.
+/// report what it actually returned", and the ordinary arm carries this
+/// block. Three arms, no empty slot.
 #[test]
 fn every_arm_of_the_slot_carries_a_task() {
     let source = prompt_assembly_source();
     // Bounded by Stage 7g.3b, the turn-language block, rather than by the
     // identity anchor. The rebinding count below is a claim about this slot's
-    // four arms sharing one binding; blocks appended after the slot would
+    // three arms sharing one binding; blocks appended after the slot would
     // inflate it without bearing on that.
     let stage = slice_between(&source, "// Stage 7g.3:", "// Stage 7g.3b:");
 
     for arm in [
         "super::onboarding::directive(turn)",
         "super::onboarding::release_directive(",
-        "structured_contract_active",
         "TURN_DIRECTIVE",
     ] {
         assert!(stage.contains(arm), "Stage 7g.3 lost its {arm} arm");

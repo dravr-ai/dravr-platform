@@ -199,9 +199,12 @@ The athlete's typed measurements. `user_physiological_profiles` is read by
 training-load compute, the Endurance dossier and interval exports, the athlete
 snapshot, and `GET /api/v1/endurance/*`; `set_physiology` is its only writer.
 Two read-only estimators feed it: `estimate_vo2max` turns a field test the
-athlete describes into a VO2max, and `estimate_lactate_thresholds` turns a
-lactate step test into LT1 and LT2 — each a number the agent confirms with the
-athlete and then saves.
+athlete describes — including a race they ran, through Daniels' own curve —
+into a VO2max and the threshold pace it implies, and
+`estimate_lactate_thresholds` turns a lactate step test into LT1 and LT2 —
+each a number the agent confirms with the athlete and then saves. The race
+route is what lets a personal best stated in the season walk reach the
+profile every load calculation reads.
 
 | Tool Name | Description | Required Parameters | Optional Parameters |
 |-----------|-------------|---------------------|---------------------|

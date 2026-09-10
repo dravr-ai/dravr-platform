@@ -29,11 +29,11 @@ use crate::services::user_approval_notifier::ApprovalNotifier;
 // did not match its use — that combination is not a supported build today, so
 // nothing was broken, but the gate named the wrong thing.
 #[cfg(feature = "client-chat")]
-use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
-#[cfg(feature = "client-chat")]
-use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
+use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::viz_blocks;
+#[cfg(feature = "client-chat")]
+use pierre_chat_pipeline::stages::viz_schema::{self, SchemaTexts};
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::McpBridgeProvider;
 
@@ -349,9 +349,8 @@ impl ServerContext {
             pierre_system_prompt: self.pierre_system_prompt(),
             tool_discipline_prompt: self.tool_discipline_prompt(),
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),
-            structured_output_prompt: self.mcp.prompt_registry.structured_output_prompt(),
             visual_blocks_prompt: self.visual_blocks_prompt(),
-            structured_output_schemas: Self::structured_output_schemas(),
+            viz_schemas: Self::viz_schemas(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
             mcp_bridge,
         }
@@ -375,33 +374,25 @@ impl ServerContext {
     #[cfg(feature = "client-chat")]
     fn visual_blocks_prompt(&self) -> String {
         let directive = self.mcp.prompt_registry.visual_blocks_prompt();
-        let generated = viz_blocks::schema_contract(&Self::structured_output_schemas());
+        let generated = viz_blocks::schema_contract(&Self::viz_schemas());
         if generated.is_empty() {
             return directive;
         }
         format!("{directive}\n\n{generated}")
     }
 
-    /// Every structured-output schema the pipeline can validate against, keyed
-    /// by the id a coach names in `output_schema` or a block names in its fence.
+    /// Every block schema the pipeline can validate against, keyed by the id a
+    /// block names in its fence.
     ///
     /// Lives here because this is where contremaitre data enters the pipeline
     /// context — the same path the system prompts take. Adding a schema is one
     /// line plus a contremaitre constant; the registry compiles what it is given.
     #[cfg(feature = "client-chat")]
-    fn structured_output_schemas() -> SchemaTexts {
-        [
-            (
-                structured_output::STRUCTURED_WORKOUT.to_owned(),
-                STRUCTURED_WORKOUT_SCHEMA.to_owned(),
-            ),
-            (
-                structured_output::DRAVR_VIZ.to_owned(),
-                DRAVR_VIZ_SCHEMA.to_owned(),
-            ),
-        ]
-        .into_iter()
-        .collect()
+    fn viz_schemas() -> SchemaTexts {
+        SchemaTexts::from([(
+            viz_schema::DRAVR_VIZ.to_owned(),
+            DRAVR_VIZ_SCHEMA.to_owned(),
+        )])
     }
 
     /// Build a [`pierre_routes_web_admin::WebAdminContext`] view over this

@@ -108,19 +108,18 @@ export {
   summarizeVerdicts,
 } from './verdict.js';
 
-// Structured-workout plan types (builder-coach plan cards)
+// The workout_plan block: the saved plan projected for a card
 export type {
-  WorkoutRange,
-  WorkoutPlanWindow,
-  WorkoutCompliance,
-  WorkoutBlockType,
-  WorkoutBlock,
-  FuelingProtocol,
-  FluidProtocol,
-  WorkoutSession,
-  WorkoutDayName,
-  WorkoutDay,
-  WorkoutWeek,
+  PlanPhaseKind,
+  PlanSelectedBy,
+  PlanTemplateSource,
+  PlanGoalRace,
+  PlanFlavour,
+  PlanPhase,
+  PlanStep,
+  PlanFueling,
+  PlanDay,
+  PlanWeek,
   WorkoutPlan,
 } from './workout-plan.js';
 export { parseWorkoutPlan } from './workout-plan.js';

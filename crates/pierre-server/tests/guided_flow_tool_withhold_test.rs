@@ -22,9 +22,10 @@
 //! Enforcement — the server-side refusal that also covers the native-MCP path —
 //! is covered in `training_plan_tools_test.rs`.
 
+use pierre_core::models::GuidedFlow;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::implementations::guided_flow::{
-    is_withheld_during_guided_flow, GUIDED_FLOW_WITHHELD_TOOLS,
+    flow_withholds_writes, is_withheld_during_guided_flow, GUIDED_FLOW_WITHHELD_TOOLS,
 };
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_execution::build_mcp_tools;
@@ -38,12 +39,12 @@ fn full_registry() -> Arc<ToolRegistry> {
 
 /// The declared tool names the provider would see for a turn, with the
 /// guided-flow withhold applied the way `dispatch_llm_with_tools` applies it.
-fn declared_names(registry: &Arc<ToolRegistry>, guided_flow_active: bool) -> Vec<String> {
+fn declared_names(registry: &Arc<ToolRegistry>, guided_flow: Option<GuidedFlow>) -> Vec<String> {
     let mut tools = build_mcp_tools(registry);
-    if guided_flow_active {
+    if let Some(flow) = guided_flow {
         tools
             .function_declarations
-            .retain(|decl| !is_withheld_during_guided_flow(&decl.name));
+            .retain(|decl| !is_withheld_during_guided_flow(flow, &decl.name));
     }
     tools
         .function_declarations
@@ -56,7 +57,7 @@ fn declared_names(registry: &Arc<ToolRegistry>, guided_flow_active: bool) -> Vec
 fn withheld_tools_are_advertised_on_a_normal_turn() {
     let registry = full_registry();
 
-    let declared = declared_names(&registry, false);
+    let declared = declared_names(&registry, None);
 
     assert!(
         !GUIDED_FLOW_WITHHELD_TOOLS.is_empty(),
@@ -73,7 +74,7 @@ fn withheld_tools_are_advertised_on_a_normal_turn() {
 #[test]
 fn withheld_tools_vanish_during_a_guided_flow() {
     let registry = full_registry();
-    let declared = declared_names(&registry, true);
+    let declared = declared_names(&registry, Some(GuidedFlow::Pillars));
 
     for name in GUIDED_FLOW_WITHHELD_TOOLS {
         assert!(
@@ -87,8 +88,8 @@ fn withheld_tools_vanish_during_a_guided_flow() {
 fn only_the_withheld_tools_are_dropped() {
     let registry = full_registry();
 
-    let normal = declared_names(&registry, false);
-    let walking = declared_names(&registry, true);
+    let normal = declared_names(&registry, None);
+    let walking = declared_names(&registry, Some(GuidedFlow::Pillars));
 
     assert_eq!(
         normal.len(),
@@ -124,7 +125,7 @@ fn the_prompt_carries_no_second_tool_list() {
     use pierre_chat_pipeline::stages::prompt_builder::TOOL_BOUNDARY;
 
     let registry = full_registry();
-    for name in declared_names(&registry, false) {
+    for name in declared_names(&registry, None) {
         assert!(
             !TOOL_BOUNDARY.contains(&name),
             "TOOL_BOUNDARY names {name} — it must state the boundary without \
@@ -236,7 +237,7 @@ fn the_boundary_does_not_deny_the_index_that_follows_it() {
 #[test]
 fn the_surviving_advertisement_surface_is_populated() {
     let registry = full_registry();
-    let declared = declared_names(&registry, false);
+    let declared = declared_names(&registry, None);
 
     assert!(
         declared.len() > 20,
@@ -277,7 +278,7 @@ fn the_tool_index_is_exactly_the_declared_set() {
     use pierre_chat_pipeline::stages::prompt_builder::render_tool_index;
 
     let registry = full_registry();
-    let declared = declared_names(&registry, false);
+    let declared = declared_names(&registry, None);
     assert!(
         !declared.is_empty(),
         "the registry declares no chat-callable tools — the index below would be \
@@ -376,4 +377,115 @@ fn the_wire_tool_array_is_deterministically_ordered() {
         .map(|d| d.name)
         .collect();
     assert_eq!(names, again, "two reads of one registry disagreed");
+}
+
+/// The withhold used to be a property of *any* walk. It is a property of the
+/// particular walk now, and this pins that the change moved nothing today:
+/// every flow that exists is an interview, and an interview withholds.
+#[test]
+fn every_flow_that_exists_today_withholds_the_write_tools() {
+    for flow in [
+        GuidedFlow::Pillars,
+        GuidedFlow::Calibration,
+        GuidedFlow::Intake,
+        GuidedFlow::Season,
+    ] {
+        assert!(
+            flow_withholds_writes(flow),
+            "{flow:?} asks a question and records the answer — writing a plan \
+             mid-interview is the 2026-07-24 derail"
+        );
+        for tool in GUIDED_FLOW_WITHHELD_TOOLS {
+            assert!(
+                is_withheld_during_guided_flow(flow, tool),
+                "{flow:?} must still withhold {tool}"
+            );
+        }
+    }
+}
+
+/// A withholding flow keeps back the withheld set and nothing else: an
+/// athlete mid-walk can still ask what they rode yesterday.
+#[test]
+fn a_withholding_flow_keeps_back_only_the_write_tools() {
+    let registry = full_registry();
+    let mid_walk = declared_names(&registry, Some(GuidedFlow::Pillars));
+    let normal = declared_names(&registry, None);
+
+    let missing: Vec<&String> = normal.iter().filter(|n| !mid_walk.contains(n)).collect();
+    assert_eq!(
+        missing.len(),
+        GUIDED_FLOW_WITHHELD_TOOLS.len(),
+        "exactly the withheld set goes, no more: {missing:?}"
+    );
+    for tool in GUIDED_FLOW_WITHHELD_TOOLS {
+        assert!(
+            missing.iter().any(|name| name.as_str() == *tool),
+            "{tool} is the one withheld: {missing:?}"
+        );
+    }
+    assert!(
+        mid_walk.iter().any(|n| n == "get_activities"),
+        "read tools stay: the athlete can still ask what they rode yesterday"
+    );
+}
+
+/// The fortnight rail is the flow `flow_withholds_writes` was made a function
+/// for, and it must actually reach the athlete with its write tool.
+///
+/// Until the rail ran as a live flow this arm was unreachable — nothing
+/// constructed an active `Fortnight` state — so it asserted a design intention
+/// rather than a behaviour. It is a behaviour now: a rail that exists to save
+/// two weeks and is denied `save_training_plan` would tell the athlete it
+/// wrote them and write nothing.
+#[test]
+fn the_fortnight_rail_keeps_the_tool_it_exists_to_call() {
+    assert!(
+        !flow_withholds_writes(GuidedFlow::Fortnight),
+        "a flow whose whole purpose is to write a plan cannot be denied the \
+         tool that writes it"
+    );
+    let registry = full_registry();
+    let ordinary = declared_names(&registry, None);
+    let on_the_rail = declared_names(&registry, Some(GuidedFlow::Fortnight));
+    assert_eq!(
+        ordinary, on_the_rail,
+        "the rail withholds nothing at all: it is not an interview, and the \
+         plan tools are what it is for"
+    );
+    for tool in GUIDED_FLOW_WITHHELD_TOOLS {
+        assert!(
+            on_the_rail.iter().any(|name| name == tool),
+            "{tool} must still be advertised on the fortnight rail"
+        );
+    }
+}
+
+/// The four interviews keep their withhold when the fifth flow does not.
+///
+/// The suppressions and the withhold read one predicate
+/// (`GuidedFlow::is_interview`), so a mistake there is a single edit that
+/// silently disarms the 2026-07-24 guard for every walk at once. This is the
+/// test that fires if that happens.
+#[test]
+fn giving_the_rail_its_tool_did_not_disarm_the_interviews() {
+    for flow in [
+        GuidedFlow::Pillars,
+        GuidedFlow::Calibration,
+        GuidedFlow::Intake,
+        GuidedFlow::Season,
+    ] {
+        assert!(
+            flow.is_interview(),
+            "{flow:?} is an interview and must stay one"
+        );
+        assert!(
+            flow_withholds_writes(flow),
+            "{flow:?} must still withhold the write tools"
+        );
+    }
+    assert!(
+        !GuidedFlow::Fortnight.is_interview(),
+        "and the rail is the one flow that is not"
+    );
 }

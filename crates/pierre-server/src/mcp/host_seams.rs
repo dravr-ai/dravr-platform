@@ -47,8 +47,9 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_schema::McpResponse;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_tool_runtime::context::AuthMethod;
-use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
-use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
+use pierre_tool_runtime::implementations::guided_flow::{
+    active_guided_flow, is_withheld_tool, turn_withholds_writes,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
@@ -580,7 +581,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // Filtering only the latter was correct while
         // COPILOT_HEADLESS_MCP_TOOL_CALLING was false and became a silent no-op
         // the moment it was re-enabled, which is exactly the drift the shared
-        // `guided_flow_is_active` predicate exists to prevent: discovery and
+        // `active_guided_flow` lookup exists to prevent: discovery and
         // execution now answer the question the same way instead of one quietly
         // covering for the other.
         //
@@ -589,17 +590,16 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // server-side refusal would reject the call anyway.
         if let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) {
             if let Some(user_id) = ctx.user_id.as_deref() {
-                let active = guided_flow_is_active(
+                let lookup = active_guided_flow(
                     &self.resources.common.repos,
                     None,
                     None,
                     tenant_id,
                     user_id,
                 )
-                .await
-                .unwrap_or(true);
-                if active {
-                    schemas.retain(|s| !is_withheld_during_guided_flow(&s.name));
+                .await;
+                if turn_withholds_writes(&lookup) {
+                    schemas.retain(|s| !is_withheld_tool(&s.name));
                 }
             }
         }

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::GuidedFlow;
 use pierre_core::models::{CoachRuntimeContext, MemberFitnessSnapshot};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
@@ -67,12 +68,14 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// system prompt), used by Tier 1 compaction to anchor block first/last
     /// message ids to real persisted rows rather than positional guesses.
     pub source_ids: &'a [Option<String>],
-    /// Whether a guided conversational flow (today: the `/pillars` walk) owns
-    /// this turn. Deliberately a flow-agnostic bool rather than the pillar-typed
-    /// turn: everything this stage does with it — suppress activity injection,
-    /// withhold the plan-writing tool — is true of any guided interview, and a
-    /// second flow should not have to re-thread these call sites.
-    pub guided_flow_active: bool,
+    /// The guided flow that owns this turn, when one does.
+    ///
+    /// The flow itself, not a flag: what a walk withholds is a property of
+    /// that walk, and an interview and a walk that exists to write a plan
+    /// cannot answer the same way. The rest of what this stage does with it —
+    /// suppressing activity injection — is true of any guided interview and
+    /// reads only whether one is running.
+    pub guided_flow: Option<GuidedFlow>,
     /// Group roster snapshots (empty outside a group conversation). A turn
     /// whose inbound message names a roster member gets that member's real
     /// activities injected before dispatch — the deterministic half of the
@@ -105,7 +108,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         coach_ctx,
         history,
         source_ids,
-        guided_flow_active,
+        guided_flow,
         peer_roster,
     } = inputs;
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
@@ -139,7 +142,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         coach_ctx,
         &input.user_id,
         input.tool_tenant_id,
-        guided_flow_active,
+        guided_flow.is_some(),
     )
     .await;
 
@@ -173,7 +176,7 @@ pub(crate) async fn dispatch_llm_with_tools(
             coach_ctx,
             user_id: &input.user_id,
             tenant_id: input.tool_tenant_id,
-            guided_flow_active,
+            guided_flow_active: guided_flow.is_some(),
         },
         llm_messages,
     )
@@ -291,7 +294,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     // coach model routes natively over all coaching tools — no per-turn
     // narrowing that could starve a turn of a tool it needs.
     //
-    // LIMITATION(registre#103): `build_mcp_tools` publishes the whole
+    // LIMITATION(registre#406): `build_mcp_tools` publishes the whole
     // chat-callable set on every native call, so the catalogue is re-sent in
     // each iteration's prefix. That width is deliberate, not an oversight --
     // c89da2396 deleted the keyword prefilter after it dropped `search_recipes`
@@ -299,20 +302,22 @@ pub(crate) async fn dispatch_llm_with_tools(
     // classifier in its place was rejected. What remains registered is the cost
     // of that trade, not a missing narrowing step.
     //
-    // The iteration half is no longer open: `max_iterations` now bounds the
-    // agent's own loop too, spent per call in `TurnToolSurface::call`.
+    // The iteration half is not open at all: `max_iterations` bounds the
+    // agent's own loop too, spent per call in `TurnToolSurface::call`, which
+    // is why registre#103 closed and only the width above stayed registered.
     //
     // The one exception is a guided flow: a profile interview withholds the
     // plan-writing tool for its duration, in lockstep with the Stage 7a.2 prose
     // list, so the model neither sees it advertised nor finds it callable.
     let mut tools = build_mcp_tools(&ctx.tool_registry);
-    if guided_flow_active {
+    if let Some(flow) = guided_flow {
         let before = tools.function_declarations.len();
         tools
             .function_declarations
-            .retain(|decl| !is_withheld_during_guided_flow(&decl.name));
+            .retain(|decl| !is_withheld_during_guided_flow(flow, &decl.name));
         info!(
             withheld = before.saturating_sub(tools.function_declarations.len()),
+            flow = ?flow,
             "guided flow active: withholding write tools from the turn"
         );
     }

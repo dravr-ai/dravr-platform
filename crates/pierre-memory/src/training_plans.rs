@@ -390,11 +390,10 @@ pub struct PlannedDay {
     pub steps: Vec<WorkoutStep>,
     /// What to take in during the session, when the coach prescribes it.
     ///
-    /// The builder coaches have emitted a `fueling_protocol` on every long
-    /// session since the structured-workout schema defined one; without a
-    /// field to land in, that prescription was discarded on the way to
-    /// storage and the athlete never saw it. Absent for a session short
-    /// enough not to need fuelling, and for a rest day.
+    /// The agents prescribe fuelling on every long session; without a field
+    /// to land in, that prescription was discarded on the way to storage and
+    /// the athlete never saw it. Absent for a session short enough not to
+    /// need fuelling, and for a rest day.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling: Option<FuelingProtocol>,
     /// The catalogue template this day instantiates, when it does — the
@@ -469,7 +468,9 @@ pub struct TrainingPlan {
     pub goal_fact_id: Option<String>,
     /// Snapshot of the goal race taken at plan time.
     pub goal_race: GoalRace,
-    /// Secondary races on the calendar (B/C priorities).
+    /// The rest of the race calendar beside [`Self::goal_race`]. An entry
+    /// at [`RacePriority::A`] is a second peak the season is laid on, with
+    /// a transition between the two blocks; B and C entries are context.
     pub races: Vec<GoalRace>,
     /// The coach's strategy in prose — what the athlete sees as "what the
     /// coach has in mind".

@@ -94,7 +94,8 @@ describe('client locale corpus', () => {
     // `tokens.activeCount` and `settingsUi.midnightUtc` — nine — replaced
     // them (carnet#206).
     //
-    // 2361 until the scan reached `.ts` and found the quota banner building
+    // 2371 since /fortnight added ten command strings; 2361 until the scan
+    // reached `.ts` and found the quota banner building
     // three English sentences by hand on both clients. Seven `usage.*` keys
     // carry them, counter labels included, and the notification and A2A
     // relative times became `Intl.RelativeTimeFormat` rather than more keys
@@ -195,8 +196,14 @@ describe('client locale corpus', () => {
     // +1 for `commands.help.domain.agent`: the agent commands used to be
     // grouped under the human coach's `/help` heading, so the identifier
     // rename gave them a heading of their own rather than renaming his.
+    // +20 net for the plan card, `plan.card.*`: the season timeline and the
+    // fortnight the card renders from the saved plan (28 keys), less the
+    // eight the old builder-document card alone used (zones, TSS, CTL target,
+    // polarization, easy floor, gut training, week, % of threshold).
+    // +1 for `plan.card.alsoRacing`: the B and C races the athlete named,
+    // which the prompt block already carried and the card now shows too.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2340);
+    expect(reference).toHaveLength(2371);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

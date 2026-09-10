@@ -16,12 +16,10 @@ use pierre_contremaitre::messaging_strings::{
     KEY_TURN_LANGUAGE,
 };
 use pierre_contremaitre::PromptRegistry;
-use pierre_core::civil_time::{format_clock_stamp, resolve_zone};
+use pierre_core::civil_time::{clock_date, format_clock_stamp, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::{
-    CoachRuntimeContext, CoachingPersona, MemberFitnessSnapshot, OnboardingState,
-};
+use pierre_core::models::{CoachRuntimeContext, CoachingPersona, MemberFitnessSnapshot};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -135,8 +133,7 @@ Everything above is your coaching context, not a competing identity.";
 /// injected/conflicting instruction rather than a legitimate system directive".
 ///
 /// Carries no length or format rule either: those belong to the Stage 7g
-/// channel constraints and the Stage 7g.2 output contract, so this block cannot
-/// contradict either one.
+/// channel constraints, so this block cannot contradict them.
 ///
 /// ## Why it names one tool
 ///
@@ -378,16 +375,7 @@ fn interpolate_prompt_placeholders(
             // `include_str!()` content at startup, so chat works before the
             // first sync completes; once contremaitre lands a newer version
             // via webhook → selective_sync, the same lookup here picks it up.
-            //
-            // Builder coaches that declare an `output_schema` are exempt: their
-            // replies are schema-validated JSON plans that bypass the prose
-            // conformance stages (see `apply_style_stages`), so persona
-            // format rules would fight the schema for zero enforceable gain.
-            let persona_block = if coach_ctx.is_some_and(|c| c.output_schema.is_some()) {
-                String::new()
-            } else {
-                prompt_registry.coaching_persona_prompt(persona, locale)
-            };
+            let persona_block = prompt_registry.coaching_persona_prompt(persona, locale);
             let current_date = format_current_date(user_timezone, locale);
             prompt
                 .replace("{{SCOPE_REFUSAL}}", &scope)
@@ -719,7 +707,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // goes to Copilot over MCP and never reaches the prompt — the coach started
     // those turns unable to enumerate a single tool, and answered capability
     // questions from a prompt that named none. On the native path the full
-    // schemas already ship every turn (registre#103 covers that cost), so the
+    // schemas already ship every turn (registre#406 covers that cost), so the
     // index is a cheap, byte-stable restatement there rather than the only copy.
     let tool_names: Vec<String> = ctx
         .tool_registry
@@ -849,22 +837,23 @@ pub(crate) async fn assemble_prompt_and_messages(
     // so week selection and the race countdown match their calendar, not the
     // server's UTC clock.
     //
-    // Suppressed while the guided pillar walk is active (see
-    // `inject_training_plan` for the rationale and live incident).
-    let athlete_today = user_timezone
-        .as_deref()
-        .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
-        .map_or_else(
-            || chrono::Utc::now().date_naive(),
-            |tz| chrono::Utc::now().with_timezone(&tz).date_naive(),
-        );
+    // One decision, three consumers below plus the write-tool withhold in
+    // `flow_withholds_writes`: an interview gets none of the plan context, a
+    // flow that exists to write a plan gets all of it.
+    let interview_owns_turn = onboarding.is_some_and(|turn| turn.state.flow.is_interview());
+
+    // Suppressed while an INTERVIEW owns the turn (see `inject_training_plan`
+    // for the rationale and live incident). A flow that exists to write a plan
+    // needs the block it is writing against, which is why the test is the
+    // flow's own nature rather than "a guided flow is active".
+    let athlete_today = clock_date(chrono::Utc::now(), resolve_zone(user_timezone.as_deref()));
     let base_prompt = inject_training_plan(
         ctx.plan_prompt_sources(),
         &input.tool_tenant_id.to_string(),
         &input.user_id,
         turn_coach_id,
         athlete_today,
-        onboarding.is_some(),
+        interview_owns_turn,
         base_prompt,
     )
     .await;
@@ -872,21 +861,20 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7f.3: Append the load-progression guardrails for coaches whose
     // category can actually prescribe load.
     //
-    // Deliberately ABOVE the tool-discipline block (7g.1), the structured-output
-    // contract (7g.2) and the guided-flow directive (7g.3), giving up recency on
-    // purpose. Four of the twelve training coaches declare an `output_schema`
-    // and receive a JSON-only contract at 7g.2; ~450 tokens of prose landing
-    // after that contract is the same recency contest that turned the
-    // 2026-07-24 walk into an unwanted 16-week plan. These guardrails are
-    // content guidance, not an output-format rule, so they do not need to win
-    // that contest — and the real enforcement is the save-time ramp check in
+    // Deliberately ABOVE the tool-discipline block (7g.1), the visual contract
+    // (7g.2b) and the guided-flow directive (7g.3), giving up recency on
+    // purpose. ~450 tokens of prose landing after an output contract is the
+    // same recency contest that turned the 2026-07-24 walk into an unwanted
+    // 16-week plan. These guardrails are content guidance, not an
+    // output-format rule, so they do not need to win that contest — and the
+    // real enforcement is the save-time ramp check in
     // `save_training_plan`, which measures the plan rather than asking for it.
     //
     // Suppressed while a guided flow owns the turn, for the same reason 7f.2
-    // and 7g.2 are: a calibration interview is asking questions, not
+    // is: a calibration interview is asking questions, not
     // prescribing load, so the block would be pure prompt cost on every turn of
     // the interview.
-    let base_prompt = match progression_guardrails(ctx, coach_ctx, onboarding.is_some()) {
+    let base_prompt = match progression_guardrails(ctx, coach_ctx, interview_owns_turn) {
         Some(guardrails) => format!("{base_prompt}\n\n{guardrails}"),
         None => base_prompt,
     };
@@ -932,32 +920,6 @@ pub(crate) async fn assemble_prompt_and_messages(
     // resolved them; this is the surface-specific half plus that tail.
     let raw_system_prompt = format!("{raw_system_prompt}\n\n{tool_discipline_prompt}");
 
-    // Stage 7g.2: Builder coaches that declare an `output_schema` get the
-    // structured-output contract appended last (recency priority alongside
-    // tool-discipline): emit JSON-only for a plan, prose for a refusal, never
-    // narrate the data-gathering process. Only where a plan card can actually
-    // be laid out — without one the JSON directive (and the matching
-    // extraction) is skipped and the coach falls back to the surface's
-    // plain-prose mandate.
-    //
-    // Suppressed while the guided pillar walk is active, for the same reason
-    // Stage 7f.2 suppresses the plan block: a JSON-plan output contract has no
-    // business in a profile-building conversation, and it directly contradicts
-    // the onboarding directive appended below.
-    // Bound once and read twice: this same predicate decides whether Stage 7g.3
-    // may append [`TURN_DIRECTIVE`] below. Two copies of it would be free to
-    // drift, and the drift would be silent — a builder coach would carry both a
-    // JSON-only contract and a prose task directive, with the prose block
-    // winning on recency. That is the 2026-07-24 derail exactly.
-    let structured_contract_active = coach_ctx.is_some_and(|c| c.output_schema.is_some())
-        && profile.render.blocks.workout_plan_card
-        && onboarding.is_none();
-    let raw_system_prompt = if structured_contract_active {
-        format!("{raw_system_prompt}\n\n{}", ctx.structured_output_prompt)
-    } else {
-        raw_system_prompt
-    };
-
     // Stage 7g.2b: Inline visual contract. Granted per coach via `visuals:` and
     // withheld everywhere else, so a coach that was never granted one is never
     // even told the syntax — the post-process gate refuses its fences anyway,
@@ -970,18 +932,11 @@ pub(crate) async fn assemble_prompt_and_messages(
     // the egress presses — so the gate is what keeps a future text-only
     // transport from being taught a syntax it cannot honour.
     //
-    // Mutually exclusive with the structured-output contract above by
-    // construction: that contract demands the ENTIRE reply be one JSON object,
-    // which leaves no prose for a block to be embedded in. Handing a coach both
-    // would be handing it two contradictory output shapes and letting recency
-    // pick — the 2026-07-24 derail's exact mechanism.
-    //
     // The grant is read through `granted_visuals`, so "no coach bound" means the
     // platform baseline rather than "no visuals". A group chat binds no coach —
     // the platform is answering — and treating that as an empty grant withheld
     // the contract entirely, leaving the model to report it had no way to draw.
-    let visual_contract_active = !structured_contract_active
-        && onboarding.is_none()
+    let visual_contract_active = !interview_owns_turn
         && (profile.render.blocks.scene_inline || profile.render.blocks.scene_raster)
         && !viz_blocks::granted_visuals(coach_ctx.map(|c| c.visuals.as_slice())).is_empty();
     let raw_system_prompt = if visual_contract_active {
@@ -1005,8 +960,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     // anchor follows it, and that block states who the assistant IS rather than
     // what to do this turn, so it does not compete for behavioural precedence.
     // It used to sit mid-prompt
-    // (7e.1) where the channel response constraints, the tool-discipline block
-    // and the structured-output contract all landed after it; a builder coach
+    // (7e.1) where the channel response constraints and the tool-discipline
+    // block landed after it; a builder coach
     // whose persona mandates a plan on its first reply won that recency
     // contest, which is how the 2026-07-24 walk derailed into a 16-week plan on
     // the athlete's first answer.
@@ -1018,16 +973,16 @@ pub(crate) async fn assemble_prompt_and_messages(
     // is as turn-scoped as an interview probe.
     let raw_system_prompt = match onboarding {
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
-        None if OnboardingState::just_completed(conv.onboarding_state.as_deref(), Utc::now()) => {
+        None if super::onboarding::just_completed_interview(
+            conv.onboarding_state.as_deref(),
+            Utc::now(),
+        ) =>
+        {
             format!(
                 "{raw_system_prompt}{}",
                 super::onboarding::release_directive(conv.onboarding_state.as_deref())
             )
         }
-        // A builder coach on a card channel already received the JSON output
-        // contract at Stage 7g.2, which IS this turn's task. Appending prose
-        // below it would win the recency contest against the contract.
-        None if structured_contract_active => raw_system_prompt,
         None => format!("{raw_system_prompt}{TURN_DIRECTIVE}"),
     };
 
@@ -1060,8 +1015,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     // five locales. The gender-neutrality clause that shared its `Language:`
     // heading stays in contremaitre — different subject, still inference.
     //
-    // Appended unconditionally, including under the structured-output contract:
-    // this block says which language to write in, never what to produce, so it
+    // Appended unconditionally: this block says which language to write in,
+    // never what to produce, so it
     // does not enter the task-directive recency contest Stage 7g.3 guards. Each
     // locale's text is authored in its own language, which makes the
     // instruction an instance of what it asks for.

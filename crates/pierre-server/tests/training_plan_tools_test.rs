@@ -2584,3 +2584,185 @@ async fn an_infeasible_time_in_zone_target_is_refused() -> Result<()> {
     );
     assert_no_plan(&executor, user_id, &tenant_id).await
 }
+
+// ---------------------------------------------------------------------------
+// The race calendar across a re-save
+// ---------------------------------------------------------------------------
+
+/// Read the active plan's race names, in stored order.
+///
+/// Read from storage rather than through `get_training_plan`: the read tool
+/// does not project the calendar, so it could not tell a carried list from a
+/// dropped one.
+async fn stored_race_names(
+    executor: &UniversalToolExecutor,
+    user_id: uuid::Uuid,
+    tenant_id: &str,
+) -> Result<Vec<String>> {
+    let plan = executor
+        .resources
+        .repos()
+        .training_plans
+        .get_active_plan(tenant_id, &user_id.to_string(), Some("endurance-coach"))
+        .await?
+        .expect("an active plan");
+    Ok(plan.races.into_iter().map(|race| race.name).collect())
+}
+
+#[tokio::test]
+async fn an_adjustment_that_restates_no_races_keeps_the_calendar() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // The first save names the calendar.
+    let mut first = vision_payload();
+    first["outline"]["races"] = json!([
+        {"name": "Club 10k", "date": "2026-07-20", "discipline": "run_10k", "priority": "B"},
+        {"name": "Summer half", "date": "2026-08-02", "discipline": "half_marathon", "priority": "B"}
+    ]);
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            first,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(saved.success, "first save failed: {:?}", saved.error);
+    assert_eq!(
+        stored_race_names(&executor, user_id, &tenant_id).await?,
+        vec!["Club 10k".to_owned(), "Summer half".to_owned()],
+        "the calendar is stored as given"
+    );
+
+    // The adjustment restates the outline without the calendar. It supersedes
+    // the plan row, so the races have to be carried across or they are gone —
+    // and the athlete's card would quietly stop showing them.
+    let mut adjusted = vision_payload();
+    adjusted["outline"]["strategy"] = json!("hold the base a week longer, then build");
+    assert!(
+        adjusted["outline"].get("races").is_none(),
+        "the fixture must not restate the calendar for this test to mean anything"
+    );
+    let resaved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            adjusted,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(resaved.success, "re-save failed: {:?}", resaved.error);
+
+    assert_eq!(
+        stored_race_names(&executor, user_id, &tenant_id).await?,
+        vec!["Club 10k".to_owned(), "Summer half".to_owned()],
+        "an outline that says nothing about races keeps the ones it had"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_empty_race_list_clears_the_calendar() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let mut first = vision_payload();
+    first["outline"]["races"] = json!([
+        {"name": "Club 10k", "date": "2026-07-20", "discipline": "run_10k", "priority": "B"}
+    ]);
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            first,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(saved.success, "first save failed: {:?}", saved.error);
+    assert_eq!(
+        stored_race_names(&executor, user_id, &tenant_id)
+            .await?
+            .len(),
+        1
+    );
+
+    // Absent means unchanged; empty means the athlete cancelled them. The two
+    // have to stay tellable apart or a cancellation is unexpressible.
+    let mut cleared = vision_payload();
+    cleared["outline"]["races"] = json!([]);
+    let resaved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            cleared,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(resaved.success, "re-save failed: {:?}", resaved.error);
+
+    assert!(
+        stored_race_names(&executor, user_id, &tenant_id)
+            .await?
+            .is_empty(),
+        "an explicit empty list clears the calendar"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_null_race_list_is_refused_rather_than_read_as_keep() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let mut first = vision_payload();
+    first["outline"]["races"] = json!([
+        {"name": "Club 10k", "date": "2026-07-20", "discipline": "run_10k", "priority": "B"}
+    ]);
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            first,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(saved.success, "first save failed: {:?}", saved.error);
+
+    // `null` is neither of the two states the field offers. Read as "absent"
+    // it would hand back the calendar the model meant to drop, so it is a
+    // shape error the model can act on instead.
+    let mut nulled = vision_payload();
+    nulled["outline"]["races"] = Value::Null;
+    let refused = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            nulled,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await;
+    let complaint = match refused {
+        Err(e) => e.to_string(),
+        Ok(response) => {
+            assert!(
+                !response.success,
+                "a null race list is not a save: {:?}",
+                response.result
+            );
+            format!("{:?}", response.error)
+        }
+    };
+    assert!(
+        complaint.contains("races"),
+        "the refusal names the field that was wrong: {complaint}"
+    );
+
+    // And the calendar it would have dropped is untouched.
+    assert_eq!(
+        stored_race_names(&executor, user_id, &tenant_id).await?,
+        vec!["Club 10k".to_owned()],
+        "a refused save writes nothing"
+    );
+    Ok(())
+}

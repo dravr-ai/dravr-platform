@@ -56,16 +56,16 @@ fn directive_is_appended_after_every_other_prompt_block() {
 
     let response_constraints = sole_offset(&source, "// Stage 7g:");
     let tool_discipline = sole_offset(&source, "// Stage 7g.1:");
-    let structured_output = sole_offset(&source, "// Stage 7g.2:");
+    let visual_contract = sole_offset(&source, "// Stage 7g.2b:");
     let directive = sole_offset(&source, "// Stage 7g.3:");
     let harden = sole_offset(&source, "// Stage 7h:");
 
     assert!(
         response_constraints < tool_discipline
-            && tool_discipline < structured_output
-            && structured_output < directive,
+            && tool_discipline < visual_contract
+            && visual_contract < directive,
         "the onboarding directive must be appended after the channel constraints, \
-         the tool-discipline block and the structured-output contract"
+         the tool-discipline block and the visual contract"
     );
     assert!(
         directive < harden,
@@ -169,9 +169,10 @@ fn the_release_directive_shares_the_interview_directives_slot() {
         "the post-interview release directive must be appended from Stage 7g.3"
     );
     assert!(
-        stage.contains("OnboardingState::just_completed"),
-        "the release arm must be gated on the retired-interview marker, so it fires \
-         on the turn after the wrap-up and not on every ordinary turn"
+        stage.contains("just_completed_interview("),
+        "the release arm must be gated on the retired-INTERVIEW marker: it fires on \
+         the turn after a wrap-up and not on every ordinary turn, and never for a \
+         flow that ran no interview and so has no no-writing rule to revoke"
     );
     assert_eq!(
         stage.matches("let raw_system_prompt =").count(),
@@ -182,16 +183,17 @@ fn the_release_directive_shares_the_interview_directives_slot() {
 }
 
 #[test]
-fn structured_output_contract_is_suppressed_during_the_walk() {
+fn visual_contract_is_suppressed_during_the_walk() {
     let source = prompt_assembly_source();
-    let structured_output = sole_offset(&source, "// Stage 7g.2:");
+    let visual_contract = sole_offset(&source, "// Stage 7g.2b:");
     let directive = sole_offset(&source, "// Stage 7g.3:");
-    let stage = &source[structured_output..directive];
+    let stage = &source[visual_contract..directive];
 
     assert!(
-        stage.contains("onboarding.is_none()"),
-        "Stage 7g.2 must be gated on onboarding being inactive — a JSON-plan output \
-         contract contradicts the profile-building directive it would otherwise precede"
+        stage.contains("!interview_owns_turn"),
+        "Stage 7g.2b must be gated on no INTERVIEW owning the turn — an output \
+         contract contradicts the profile-building directive it would otherwise \
+         precede. A flow that exists to write a plan renders one, and keeps it"
     );
 }
 
@@ -233,7 +235,7 @@ fn the_tool_stage_states_the_boundary_without_listing_tools() {
 /// builds it.
 fn directive_for(target: CoverageTarget) -> String {
     let turn = OnboardingTurn {
-        target: GuidedTarget::Coverage(target),
+        target: Some(GuidedTarget::Coverage(target)),
         state: OnboardingState::start("2026-07-25T00:00:00Z".to_owned(), GuidedFlow::Pillars),
     };
     directive(&turn)

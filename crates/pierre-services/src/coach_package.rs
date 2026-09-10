@@ -226,6 +226,21 @@ impl<'a> PackagedCatalogue<'a> {
         out
     }
 
+    /// The skeleton with this id: the package's when it carries that id, else
+    /// the catalogue's.
+    #[must_use]
+    pub fn skeleton(&self, id: &str) -> Option<SkeletonTemplate> {
+        if let Some(own) = self
+            .package
+            .as_ref()
+            .and_then(|p| p.skeleton.as_ref())
+            .filter(|s| s.id == id)
+        {
+            return Some(own.clone());
+        }
+        self.catalogue.skeleton(id)
+    }
+
     /// Every skeleton, the package's replacing a catalogue skeleton of the
     /// same id and otherwise added, sorted by id.
     #[must_use]

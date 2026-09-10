@@ -688,3 +688,260 @@ fn the_tool_declares_the_profile_read_it_performs() {
     );
     assert_eq!(missing_scope(&OAuthScope::self_grant(), caps), None);
 }
+
+// ---------------------------------------------------------------------------
+// Two A races: the season the kernel lays for a calendar, not for one date
+// ---------------------------------------------------------------------------
+
+/// Save an outline whose calendar carries a second A race, then read the season
+/// the tool lays for it.
+async fn save_two_a_race_outline(
+    executor: &UniversalToolExecutor,
+    user_id: Uuid,
+    tenant_id: &str,
+    first_a: &str,
+    goal_a: &str,
+) -> Result<()> {
+    let response = executor
+        .execute_tool(request(
+            "save_training_plan",
+            json!({
+                "outline": {
+                    "goal_race": { "name": "Autumn marathon", "date": goal_a, "discipline": "marathon", "priority": "A" },
+                    "races": [
+                        { "name": "Summer half", "date": first_a, "discipline": "half_marathon", "priority": "A" }
+                    ],
+                    "strategy": "two peaks, the half first",
+                    "phases": []
+                },
+                "weeks": []
+            }),
+            user_id,
+            tenant_id,
+        ))
+        .await?;
+    assert!(
+        response.success,
+        "the two-race outline should save: {:?}",
+        response.error
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_second_a_race_becomes_a_second_peak_with_a_transition_between() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let today = Utc::now().date_naive();
+    let first_a = (today + chrono::Duration::weeks(20))
+        .format("%Y-%m-%d")
+        .to_string();
+    let goal_a = (today + chrono::Duration::weeks(36))
+        .format("%Y-%m-%d")
+        .to_string();
+    save_two_a_race_outline(&executor, user_id, &tenant_id, &first_a, &goal_a).await?;
+
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 8.0,
+            "sessions_per_week": 5,
+            "training_age": "trained",
+            "event_class": "marathon",
+        }),
+    )
+    .await?;
+
+    assert_eq!(payload["season"]["status"], "laid", "{}", payload["season"]);
+    let phases = payload["season"]["phases"]
+        .as_array()
+        .expect("a laid season lists its phases");
+    let kinds: Vec<&str> = phases.iter().filter_map(|p| p["kind"].as_str()).collect();
+    assert!(
+        kinds.contains(&"transition"),
+        "the race between today and the goal is absorbed before the next block: {kinds:?}"
+    );
+
+    // The transition sits between the two blocks, never first and never last:
+    // it exists to absorb a race that has already been run.
+    let at = kinds
+        .iter()
+        .position(|k| *k == "transition")
+        .expect("the transition was just asserted");
+    assert!(
+        at > 0,
+        "nothing is absorbed before the first race: {kinds:?}"
+    );
+    assert!(
+        at + 1 < kinds.len(),
+        "a season does not end on a transition: {kinds:?}"
+    );
+
+    // Both peaks are laid on: a phase ends on each race.
+    let peaks: Vec<&str> = phases.iter().filter_map(|p| p["peak"].as_str()).collect();
+    assert!(
+        peaks.contains(&first_a.as_str()),
+        "the first A race is a peak: {peaks:?}"
+    );
+    assert!(
+        peaks.contains(&goal_a.as_str()),
+        "the goal race is a peak: {peaks:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_b_race_is_not_a_peak() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let today = Utc::now().date_naive();
+    let b_race = (today + chrono::Duration::weeks(20))
+        .format("%Y-%m-%d")
+        .to_string();
+    let goal_a = (today + chrono::Duration::weeks(30))
+        .format("%Y-%m-%d")
+        .to_string();
+
+    let response = executor
+        .execute_tool(request(
+            "save_training_plan",
+            json!({
+                "outline": {
+                    "goal_race": { "name": "Autumn marathon", "date": goal_a, "discipline": "marathon", "priority": "A" },
+                    "races": [
+                        { "name": "Club 10k", "date": b_race, "discipline": "run_10k", "priority": "B" }
+                    ],
+                    "strategy": "one peak, a tune-up on the way",
+                    "phases": []
+                },
+                "weeks": []
+            }),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert!(response.success, "{:?}", response.error);
+
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 8.0,
+            "sessions_per_week": 5,
+            "training_age": "trained",
+            "event_class": "marathon",
+        }),
+    )
+    .await?;
+
+    let phases = payload["season"]["phases"]
+        .as_array()
+        .expect("a laid season lists its phases");
+    let kinds: Vec<&str> = phases.iter().filter_map(|p| p["kind"].as_str()).collect();
+    assert!(
+        !kinds.contains(&"transition"),
+        "a B race is ridden through, not peaked for: {kinds:?}"
+    );
+    let peaks: Vec<&str> = phases.iter().filter_map(|p| p["peak"].as_str()).collect();
+    assert!(
+        !peaks.contains(&b_race.as_str()),
+        "the B race is not a peak: {peaks:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_laid_season_never_goes_backwards() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let today = Utc::now().date_naive();
+    let first_a = (today + chrono::Duration::weeks(20))
+        .format("%Y-%m-%d")
+        .to_string();
+    let goal_a = (today + chrono::Duration::weeks(36))
+        .format("%Y-%m-%d")
+        .to_string();
+    save_two_a_race_outline(&executor, user_id, &tenant_id, &first_a, &goal_a).await?;
+
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 8.0,
+            "sessions_per_week": 5,
+            "training_age": "trained",
+            "event_class": "marathon",
+        }),
+    )
+    .await?;
+
+    // The report calls itself "the phases, earliest first". A second block laid
+    // backward through the first prescribed a taper and a base for the same
+    // week, and read as a plan because nothing checked the dates.
+    let starts: Vec<&str> = payload["season"]["phases"]
+        .as_array()
+        .expect("phases")
+        .iter()
+        .filter_map(|p| p["start"].as_str())
+        .collect();
+    let mut ordered = starts.clone();
+    ordered.sort_unstable();
+    assert_eq!(starts, ordered, "phases must be in calendar order");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_a_race_too_soon_for_a_block_is_named_not_silently_dropped() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let today = Utc::now().date_naive();
+    // Six weeks after the first: under the marathon skeleton's twelve-week
+    // floor, so it cannot carry a block of its own.
+    let crowded = (today + chrono::Duration::weeks(26))
+        .format("%Y-%m-%d")
+        .to_string();
+    let goal_a = (today + chrono::Duration::weeks(20))
+        .format("%Y-%m-%d")
+        .to_string();
+    save_two_a_race_outline(&executor, user_id, &tenant_id, &crowded, &goal_a).await?;
+
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 8.0,
+            "sessions_per_week": 5,
+            "training_age": "trained",
+            "event_class": "marathon",
+        }),
+    )
+    .await?;
+
+    assert_eq!(payload["season"]["status"], "laid", "{}", payload["season"]);
+    let unlaid: Vec<&str> = payload["season"]["unlaid_peaks"]
+        .as_array()
+        .map(|a| a.iter().filter_map(serde_json::Value::as_str).collect())
+        .unwrap_or_default();
+    assert_eq!(
+        unlaid,
+        vec![crowded.as_str()],
+        "the coach is told which race the season is not built toward: {}",
+        payload["season"]
+    );
+
+    let starts: Vec<&str> = payload["season"]["phases"]
+        .as_array()
+        .expect("phases")
+        .iter()
+        .filter_map(|p| p["start"].as_str())
+        .collect();
+    let mut ordered = starts.clone();
+    ordered.sort_unstable();
+    assert_eq!(starts, ordered, "and the season it did lay is in order");
+    Ok(())
+}

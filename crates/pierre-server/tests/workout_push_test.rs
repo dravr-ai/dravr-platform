@@ -421,7 +421,7 @@ impl Fixture {
         }];
         let outline = with_outline.then(|| PlanOutlineInput {
             goal_race: &goal,
-            races: &[],
+            races: Some(&[]),
             strategy: "steady base, then sharpen",
             phases: &phases,
             source_conversation_id: None,

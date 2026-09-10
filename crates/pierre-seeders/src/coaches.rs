@@ -1079,7 +1079,6 @@ fn build_seed_coach(
             .data_requirements
             .as_ref()
             .and_then(|dr| serde_json::to_string(dr).ok()),
-        output_schema: coach.frontmatter.startup.output_schema.clone(),
         visuals: visuals_column(&coach.frontmatter.startup.visuals),
         created_at: now,
         updated_at: now,

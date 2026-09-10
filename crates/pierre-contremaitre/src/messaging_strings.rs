@@ -657,6 +657,31 @@ pub const KEY_CALIBRATE_TOPIC_INJURY: &str = "commands.calibrate.topic_injury";
 /// message when that answer is missing.
 pub const KEY_CALIBRATE_TOPIC_RECOVERY: &str = "commands.calibrate.topic_recovery";
 
+// ── /fortnight command keys ───────────────────────────────────────────────
+
+/// Key: `/fortnight` go-ahead. `{0}` = how many weeks are being drafted.
+pub const KEY_FORTNIGHT_WRITING: &str = "commands.fortnight.writing";
+/// Key: `/fortnight` when the drafting turn could not be armed.
+///
+/// No conversation to brief, or the write failed. It says only that:
+/// nothing about the athlete's own state is known to have gone wrong.
+pub const KEY_FORTNIGHT_ARM_FAILED: &str = "commands.fortnight.arm_failed";
+/// Key: `/fortnight` while a guided walk owns the conversation.
+pub const KEY_FORTNIGHT_WALK_RUNNING: &str = "commands.fortnight.walk_running";
+/// Key: `/fortnight` with no active plan to extend.
+pub const KEY_FORTNIGHT_NO_PLAN: &str = "commands.fortnight.no_plan";
+/// Key: `/fortnight` on a plan that states no phases, so there are no
+/// targets to write the weeks against.
+pub const KEY_FORTNIGHT_NO_PHASES: &str = "commands.fortnight.no_phases";
+/// Key: `/fortnight` when the stored weeks already run past the fortnight.
+pub const KEY_FORTNIGHT_COVERED: &str = "commands.fortnight.covered";
+/// Key: the fortnight rail's wrap-up when the two weeks are on the plan.
+pub const KEY_FORTNIGHT_RECHECK_LANDED: &str = "commands.fortnight.recheck_landed";
+/// Key: the fortnight rail's wrap-up when they are not.
+pub const KEY_FORTNIGHT_RECHECK_MISSING: &str = "commands.fortnight.recheck_missing";
+/// Key: `/fortnight` when the readiness ladder allows recovery alone.
+pub const KEY_FORTNIGHT_BLOCKED: &str = "commands.fortnight.blocked";
+
 // ── /season command keys ──────────────────────────────────────────────────
 
 /// Key: `/season` opener for a walk started in a direct message, when no

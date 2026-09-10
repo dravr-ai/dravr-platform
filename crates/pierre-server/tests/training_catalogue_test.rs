@@ -21,9 +21,9 @@ use pierre_contremaitre::training_catalogue::{
     CatalogueItem, CatalogueKind, TrainingCatalogueRegistry, SELECTION_SLUG,
 };
 use pierre_core::models::periodization::{
-    evidence_ref_parts, Contraindication, EventClass, EvidenceTier, Flavour, Measurement,
-    PhaseKind, ReadinessLevel, RelativeIntensity, SelectionTable, SkeletonTemplate, WorkoutFilter,
-    WorkoutPurpose, WorkoutTemplate,
+    evidence_ref_parts, Contraindication, EventClass, EvidenceTier, Flavour, FlavourFamily,
+    Measurement, Modifier, PhaseKind, ReadinessLevel, RelativeIntensity, SelectionTable,
+    SkeletonTemplate, WorkoutFilter, WorkoutPurpose, WorkoutTemplate,
 };
 use pierre_core::models::SportType;
 
@@ -707,4 +707,123 @@ fn the_open_water_skeleton_is_carried_by_swim_templates() {
         );
         assert!(!carriers.is_empty(), "{purpose}: no swim carrier");
     }
+}
+
+/// Every citation the catalogue makes, by the kind of file that makes it.
+///
+/// Measured from the tree: one `evidence_refs` key per flavour, skeleton and
+/// workout file and per selection row, 328 references in all.
+const CATALOGUE_EVIDENCE_REFS: [(&str, usize); 4] = [
+    ("flavour ", 30),
+    ("skeleton ", 171),
+    ("workout ", 55),
+    ("selection table", 72),
+];
+
+/// The positive control for [`every_evidence_ref_resolves_against_the_fixtures`].
+///
+/// That test's assertion is negative — the list of dangling references must be
+/// empty — so a checker that always returned nothing would pass it identically
+/// and the catalogue's citations would go unpoliced. Deny every proposition and
+/// the checker must report all of them, counted per owner kind.
+///
+/// Counting per kind is what makes this a control rather than a formality.
+/// `unresolved_references` walks four independent arms — flavours, skeletons,
+/// workouts, the selection table — and an assertion on the total alone, or one
+/// that hunts for any single reference that fires, stays green when three of
+/// the four go silent. These four numbers name which one did.
+#[test]
+fn the_reference_check_reports_every_citation_when_none_resolve() {
+    let keys = evidence_keys();
+    let registry = TrainingCatalogueRegistry::new();
+
+    // The baseline the sibling test pins: with the real fixtures, nothing
+    // dangles. Without it the counts below could be met by references that are
+    // broken in the shipped catalogue rather than by the denial.
+    let resolves =
+        |category: &str, slug: &str| keys.contains(&(category.to_owned(), slug.to_owned()));
+    assert!(
+        registry.unresolved_references(&resolves).is_empty(),
+        "the control starts from a catalogue whose references all resolve"
+    );
+
+    let denied = registry.unresolved_references(&|_: &str, _: &str| false);
+    let counted: usize = CATALOGUE_EVIDENCE_REFS.iter().map(|(_, n)| n).sum();
+    assert_eq!(
+        denied.len(),
+        counted,
+        "every citation must be reported when none resolve"
+    );
+    for (owner_kind, expected) in CATALOGUE_EVIDENCE_REFS {
+        let reported = denied
+            .iter()
+            .filter(|u| u.owner.starts_with(owner_kind))
+            .count();
+        assert_eq!(
+            reported, expected,
+            "{owner_kind}citations went unreported — that arm of the walk is silent"
+        );
+    }
+}
+
+/// The long-course pyramidal is the flavour the Ironman scenario picks *because
+/// of* its durability block, and until now nothing asserted the block existed.
+///
+/// `recommend_plan_flavour_tool_test`'s Ironman case is named for it and says
+/// so in an assertion message, but the payload carries no modifiers — it emits
+/// `id`, `label`, `score` and `reasons` — so the claim could only ever be made
+/// here. Deleting `durability_block` from the flavour file left every test in
+/// the repository green, which is the state this closes.
+#[test]
+fn the_long_course_pyramidal_carries_the_durability_block() {
+    let registry = TrainingCatalogueRegistry::new();
+    let flavour = registry
+        .flavour("pyramidal-long-course")
+        .expect("seeded from the embedded catalogue");
+    assert!(
+        flavour.modifiers.contains(&Modifier::DurabilityBlock),
+        "a race over six hours is what this flavour exists for: {:?}",
+        flavour.modifiers
+    );
+    assert!(
+        flavour.modifiers.contains(&Modifier::FuellingProgression),
+        "and fuelling is the other half of that demand: {:?}",
+        flavour.modifiers
+    );
+    // The sibling it is chosen over shares the architecture and not the
+    // emphasis — which is the whole reason the Ironman scenario must land on
+    // this one rather than on `pyramidal-base`.
+    let base = registry.flavour("pyramidal-base").expect("seeded");
+    assert_eq!(
+        base.family, flavour.family,
+        "same architecture, or the scenario is not about the modifiers"
+    );
+    assert!(
+        !base.modifiers.contains(&Modifier::DurabilityBlock),
+        "and the plain pyramidal does not carry the block: {:?}",
+        base.modifiers
+    );
+}
+
+/// The Ironman skeleton pins its base phase to pyramidal, the way the 5 km
+/// skeleton pins its build to polarized.
+///
+/// The tool test asserts the 5 km case and not this one; the asymmetry was an
+/// omission rather than a decision, and "gets a pyramidal base" is half of
+/// what that scenario's name claims.
+#[test]
+fn the_ironman_skeleton_pins_its_base_to_pyramidal() {
+    let registry = TrainingCatalogueRegistry::new();
+    let skeleton = registry.skeleton("ironman").expect("seeded");
+    let base = skeleton
+        .phases
+        .iter()
+        .find(|p| p.kind == PhaseKind::Base)
+        .expect("an ironman season has a base phase");
+    assert_eq!(
+        base.flavour_override,
+        Some(FlavourFamily::Pyramidal),
+        "the long-course base is pyramidal whatever the season flavour: {:?}",
+        base.flavour_override
+    );
 }

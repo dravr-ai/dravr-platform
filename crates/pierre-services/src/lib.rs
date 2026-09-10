@@ -36,6 +36,9 @@ pub mod auth;
 /// Product analytics (`PostHog`) for messaging funnel, tool usage, and command tracking
 pub mod analytics;
 
+/// The athlete's civil date, from the timezone on their user row.
+pub mod athlete_clock;
+
 /// Athlete physiology snapshot builder for the personalized-physiology layer.
 #[cfg(feature = "tools-verification")]
 pub mod athlete_snapshot;
@@ -79,6 +82,10 @@ pub mod coach_import;
 
 /// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's coach
 pub mod coach_package;
+
+/// The workout_plan block's payload — the saved plan projected for a card
+pub mod fortnight;
+pub mod plan_card;
 
 /// Coach-selection recording — the one emit site for `coach.selected`
 pub mod coach_selection;

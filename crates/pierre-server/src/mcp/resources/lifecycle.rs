@@ -38,6 +38,7 @@ use pierre_commands::{
     },
     coach_create::CoachCreateHandler,
     discover::{DiscoverHandler, DiscoverInstallHandler},
+    fortnight::FortnightHandler,
     group::{
         GroupCoachHandler, GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler,
         GroupListHandler, GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
@@ -703,6 +704,7 @@ impl ServerContext {
             ("plan-share", Arc::new(PlanShareHandler)),
             ("calibrate", Arc::new(CalibrateHandler)),
             ("season", Arc::new(SeasonHandler)),
+            ("fortnight", Arc::new(FortnightHandler)),
         ]
         .into_iter()
         .map(|(name, handler)| (name.to_owned(), handler))

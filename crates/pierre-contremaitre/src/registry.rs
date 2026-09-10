@@ -18,9 +18,8 @@ use pierre_llm::prompts::{
     ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
     MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT,
     PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
-    RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT, STRUCTURED_OUTPUT_PROMPT,
-    TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT,
-    VISUAL_BLOCKS_PROMPT,
+    RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT,
+    TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT, VISUAL_BLOCKS_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -127,7 +126,6 @@ impl PromptRegistry {
             ("tool_discipline_shared", TOOL_DISCIPLINE_SHARED_PROMPT),
             ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
             ("progression_guardrails", PROGRESSION_GUARDRAILS_PROMPT),
-            ("structured_output", STRUCTURED_OUTPUT_PROMPT),
             ("visual_blocks", VISUAL_BLOCKS_PROMPT),
             ("insight_generation", INSIGHT_GENERATION_PROMPT),
             ("insight_validation", INSIGHT_VALIDATION_PROMPT),
@@ -263,12 +261,6 @@ impl PromptRegistry {
     /// coaches.
     pub fn progression_guardrails_prompt(&self) -> String {
         self.get_system_prompt("progression_guardrails")
-    }
-
-    /// Get the structured-output contract appended for coaches that declare an
-    /// `output_schema`.
-    pub fn structured_output_prompt(&self) -> String {
-        self.get_system_prompt("structured_output")
     }
 
     /// Get the inline-visual contract appended for coaches with a `visuals:`
@@ -563,7 +555,6 @@ impl PromptRegistry {
             "tool_discipline_shared" => TOOL_DISCIPLINE_SHARED_PROMPT,
             "memory_extraction" => MEMORY_EXTRACTION_PROMPT,
             "progression_guardrails" => PROGRESSION_GUARDRAILS_PROMPT,
-            "structured_output" => STRUCTURED_OUTPUT_PROMPT,
             "visual_blocks" => VISUAL_BLOCKS_PROMPT,
             "insight_generation" => INSIGHT_GENERATION_PROMPT,
             "insight_validation" => INSIGHT_VALIDATION_PROMPT,

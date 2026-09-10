@@ -52,10 +52,12 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{HrZoneSet, PowerZoneSet, SportType, TenantId, UserPhysiologicalProfile};
-use pierre_intelligence::algorithms::Vo2maxAlgorithm;
+use pierre_fitness_compute::velocity_at_vo2max;
+use pierre_intelligence::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -522,6 +524,12 @@ pub struct EstimateVo2maxResult {
     /// The `VO2max` already on the profile, for comparison. Absent when none
     /// is stored.
     pub stored_vo2_max: Option<f64>,
+    /// The threshold pace this estimate implies, in seconds per kilometre —
+    /// the running pace at the share of velocity-at-`VO2max` the training
+    /// zones config states, which is what `set_physiology` stores as
+    /// `threshold_pace_sec_per_km`. Absent when the estimate does not give a
+    /// usable velocity.
+    pub implied_threshold_pace_sec_per_km: Option<f64>,
     /// Always false: this tool estimates, it does not write.
     pub saved: bool,
     /// What to do with the number once the athlete confirms it.
@@ -742,13 +750,21 @@ pub struct EstimateVo2maxTool;
 
 /// The field-test methods the tool accepts, in the spelling the schema
 /// advertises. Each maps to exactly one [`Vo2maxAlgorithm`] variant.
-const VO2MAX_METHODS: [&str; 5] = [
+const VO2MAX_METHODS: [&str; 6] = [
     "cooper_test",
     "rockport_walk",
     "astrand_ryhming",
     "from_pace",
     "from_vdot",
+    "race_result",
 ];
+
+/// Seconds in a minute, for turning a velocity in metres per minute into a
+/// pace in seconds per kilometre.
+const SECONDS_PER_MINUTE: f64 = 60.0;
+
+/// Metres in a kilometre.
+const METRES_PER_KM: f64 = 1_000.0;
 
 impl EstimateVo2maxTool {
     fn properties() -> BTreeMap<String, PropertySchema> {
@@ -762,7 +778,8 @@ impl EstimateVo2maxTool {
                      rockport_walk: a timed one-mile walk with heart rate at the finish. \
                      astrand_ryhming: steady-state cycling at a known power with heart rate. \
                      from_pace: a hard 3–8 minute speed and an easy speed. \
-                     from_vdot: a VDOT the athlete already knows."
+                     from_vdot: a VDOT the athlete already knows. \
+                     race_result: a race or time trial the athlete ran — its distance and its time."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -772,12 +789,12 @@ impl EstimateVo2maxTool {
             (
                 "distance_meters",
                 "number",
-                "cooper_test: metres covered in 12 minutes on flat ground.",
+                "cooper_test: metres covered in 12 minutes on flat ground. race_result: the race distance in metres (5 km is 5000).",
             ),
             (
                 "time_seconds",
                 "number",
-                "rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible.",
+                "rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible. race_result: the finishing time in seconds (19:30 is 1170).",
             ),
             (
                 "heart_rate",
@@ -944,6 +961,23 @@ impl EstimateVo2maxTool {
             "from_vdot" => Vo2maxAlgorithm::FromVdot {
                 vdot: Self::required_number(args, "vdot", &method)?,
             },
+            // A race the athlete actually ran is a field test with a much
+            // longer history than the rest: the distance and the time give
+            // VDOT through Daniels' own curve, and VDOT is already a method
+            // here. Nothing is invented in between.
+            "race_result" => {
+                let distance_meters = Self::required_number(args, "distance_meters", &method)?;
+                let time_seconds = Self::required_number(args, "time_seconds", &method)?;
+                let vdot = VdotAlgorithm::Daniels
+                    .calculate_vdot(distance_meters, time_seconds)
+                    .map_err(|e| {
+                        AppError::invalid_input(format!(
+                            "race_result: {distance_meters:.0} m in {time_seconds:.0} s does not \
+                             give a usable VDOT: {e}"
+                        ))
+                    })?;
+                Vo2maxAlgorithm::FromVdot { vdot }
+            }
             other => {
                 return Err(AppError::invalid_input(format!(
                     "unknown method '{other}': expected one of {}",
@@ -1032,9 +1066,14 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
                     formula: algorithm.description(),
                     defaults_from_profile,
                     stored_vo2_max: profile.as_ref().and_then(|p| p.vo2_max),
+                    implied_threshold_pace_sec_per_km: implied_threshold_pace(
+                        vo2max,
+                        &context.resources.config().training_zones,
+                    ),
                     saved: false,
                     to_store:
-                        "call set_physiology with vo2_max once the athlete confirms the number"
+                        "call set_physiology with vo2_max, and with threshold_pace_sec_per_km when \
+                         the athlete confirms the implied pace too"
                             .to_owned(),
                 },
             )
@@ -1042,6 +1081,23 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
         .await;
         tool_result_to_response(result)
     }
+}
+
+/// The threshold pace an estimated `VO2max` implies, in seconds per
+/// kilometre.
+///
+/// Velocity at `VO2max` comes off Daniels' oxygen-cost curve; the threshold
+/// share of it is the same configured number the pace zones are cut at, so a
+/// pace offered here and a pace drawn in the zones cannot disagree. `None`
+/// when the velocity is not usable — an estimate that low describes no
+/// running pace, and inventing one would be worse than saying nothing.
+fn implied_threshold_pace(vo2max: f64, zones: &TrainingZonesConfig) -> Option<f64> {
+    let velocity_m_per_min = velocity_at_vo2max(vo2max) * zones.vdot_threshold_zone_percent;
+    if velocity_m_per_min <= 0.0 || !velocity_m_per_min.is_finite() {
+        return None;
+    }
+    let pace = METRES_PER_KM / velocity_m_per_min * SECONDS_PER_MINUTE;
+    pace.is_finite().then(|| (pace * 10.0).round() / 10.0)
 }
 
 /// Build the physiology tool set for registration.

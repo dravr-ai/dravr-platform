@@ -60,6 +60,8 @@ pub mod peer_grounding;
 pub mod persistence;
 /// Per-persona output-format conformance check (post-LLM, advisory).
 pub mod persona_conformance;
+/// Stage 15.7 — the workout_plan block on the turn that saved a plan.
+pub mod plan_block;
 /// Post-LLM content processing: canary scan, guardrails, verification, hook.
 pub mod post_process;
 pub mod prefetch;
@@ -67,8 +69,6 @@ pub mod prefetch;
 pub mod prompt_assembly;
 pub mod prompt_builder;
 pub mod refresh;
-/// Structured-output extraction + schema validation for builder coaches.
-pub mod structured_output;
 /// Pre-dispatch prep + multi-turn tool execution loop.
 pub mod tool_dispatch;
 #[cfg(feature = "tools-verification")]
@@ -76,3 +76,5 @@ pub mod verification;
 /// Inline visual blocks lifted out of a reply's prose.
 pub mod viz_blocks;
 pub mod viz_route;
+/// The compiled JSON-schema validators inline visual blocks are checked against.
+pub mod viz_schema;

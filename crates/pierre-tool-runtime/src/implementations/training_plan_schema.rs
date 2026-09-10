@@ -287,12 +287,10 @@ fn template_params_schema() -> PropertySchema {
     )
 }
 
-/// Schema for one planned day.
 /// Schema for a day's fuelling prescription.
 ///
-/// Mirrors `$defs.FuelingProtocol` in the structured-workout schema the
-/// builder coaches already emit against, minus the required sodium: a coach
-/// with no sweat estimate should omit it rather than invent one.
+/// Sodium is optional: an agent with no sweat estimate should omit it rather
+/// than invent one, and the athlete reads it as an estimated loss.
 fn fueling_schema() -> PropertySchema {
     let mut p = HashMap::new();
     p.insert(
@@ -382,7 +380,7 @@ pub(super) fn outline_schema() -> PropertySchema {
     p.insert(
         "races".to_owned(),
         array_prop(
-            "Other races on the calendar (B/C priorities).",
+            "The rest of the race calendar. An A race here becomes a second peak the season is laid on, with a transition after the first; B and C races are carried for context. Omit the field to keep the calendar already stored; send an empty array to clear it.",
             race_schema("A secondary race."),
         ),
     );

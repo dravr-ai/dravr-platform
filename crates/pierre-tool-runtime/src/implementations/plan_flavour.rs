@@ -31,7 +31,6 @@ use tracing::info;
 
 use super::data_helpers::read_only_annotations;
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
-use super::training_plan_telemetry::athlete_today;
 use super::training_plans::load_conversation;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -56,9 +55,11 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::{SportFamily, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::PropertySchema;
-use pierre_memory::training_plans::parse_plan_date;
+use pierre_memory::training_plans::{parse_plan_date, RacePriority, TrainingPlan};
+use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::locale::resolve_user_locale;
+use pierre_services::plan_card::flavour_label;
 use pierre_tools_core::ToolResult;
 
 /// Upper bound on weekly hours a payload may claim; above this it is a typo.
@@ -178,30 +179,6 @@ fn vocab_array_prop(description: &str, values: &[&str]) -> PropertySchema {
             ..Default::default()
         })),
         ..Default::default()
-    }
-}
-
-/// The athlete-facing name of a flavour, in one locale.
-///
-/// Plain words — "mostly easy with two hard days", never "polarized" —
-/// from the string catalogue under `messaging.flavour.<id>`, the hyphens
-/// of the id folded to underscores. A flavour the catalogue has no words
-/// for (a coach package's house flavour) is named by its id, which is at
-/// least honest.
-struct FlavourLabels<'a> {
-    registry: &'a MessagingStringsRegistry,
-    locale: &'a str,
-}
-
-impl FlavourLabels<'_> {
-    fn of(&self, id: &str) -> String {
-        let key = format!("messaging.flavour.{}", id.replace('-', "_"));
-        let label = self.registry.get(&key, self.locale);
-        if label.is_empty() {
-            id.to_owned()
-        } else {
-            label
-        }
     }
 }
 
@@ -513,14 +490,18 @@ impl RecommendPlanFlavourTool {
     /// unknown field is ignored on the way back in, so the coach can still
     /// pass this to `save_training_plan.flavour.verdict` verbatim and have
     /// the stored snapshot deserialize into `FlavourVerdict`.
-    fn verdict_json(v: &FlavourVerdict, label: &FlavourLabels<'_>) -> LabelledVerdict {
+    fn verdict_json(
+        v: &FlavourVerdict,
+        registry: &MessagingStringsRegistry,
+        locale: &str,
+    ) -> LabelledVerdict {
         LabelledVerdict {
             ranked: v
                 .ranked
                 .iter()
                 .map(|s| LabelledFlavour {
                     id: s.id.clone(),
-                    label: label.of(&s.id),
+                    label: flavour_label(registry, locale, &s.id),
                     score: s.score,
                     reasons: s.reasons.clone(),
                 })
@@ -530,7 +511,7 @@ impl RecommendPlanFlavourTool {
                 .iter()
                 .map(|e| LabelledExclusion {
                     id: e.id.clone(),
-                    label: label.of(&e.id),
+                    label: flavour_label(registry, locale, &e.id),
                     reasons: e.reasons.clone(),
                 })
                 .collect(),
@@ -677,6 +658,44 @@ fn event_class_from_discipline(discipline: &str) -> Option<EventClass> {
         .find(|e| e.as_str() == d || e.as_str().replace('_', " ") == d)
 }
 
+/// Every peak the season is laid on, in date order: the goal race, plus any
+/// other A race the athlete's calendar carries.
+///
+/// The kernel takes A races only — a B race's mini-taper leaves too much
+/// unstated to place, so it refuses to guess rather than silently swallow one
+/// — and it turns each peak after the first into a transition and a second
+/// block. Passing the goal race alone made that whole arm unreachable: an
+/// athlete with two A races got a season built for the first and nothing said
+/// about the second.
+fn peak_dates(
+    plan: Option<&TrainingPlan>,
+    goal_date: NaiveDate,
+    today: NaiveDate,
+) -> Vec<NaiveDate> {
+    let mut peaks = vec![goal_date];
+    if let Some(plan) = plan {
+        peaks.extend(
+            plan.races
+                .iter()
+                .filter(|race| race.priority == RacePriority::A)
+                .filter_map(|race| parse_plan_date(&race.date)),
+        );
+    }
+    peaks.retain(|date| *date > today);
+    peaks.sort_unstable();
+    peaks.dedup();
+    // A goal race that has already been run must not discard the calendar
+    // behind it. Nothing retires an active plan when its race is over, so an
+    // athlete with a spring A race saved and last autumn's marathon still on
+    // the plan would have had every future peak thrown away by a date in the
+    // past. When nothing is left the goal date stands alone, so the runway
+    // refusal the caller already knows how to report is what comes back.
+    if peaks.is_empty() {
+        peaks.push(goal_date);
+    }
+    peaks
+}
+
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
     fn definition(&self) -> Tool {
@@ -762,7 +781,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 Some((ec, date))
             });
 
-            let today = athlete_today(repos, &user_id.to_string()).await;
+            let today = athlete_today(repos, user_id).await;
             let mut resolved = Self::resolve(&payload, profile.as_ref(), goal, today);
 
             // The coach's package over the catalogue: its house flavour is
@@ -786,7 +805,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             let layout = match (&skeleton, resolved.goal_date) {
                 (Some(sk), Some(goal_date)) => Some(build_skeleton(
                     sk,
-                    &[goal_date],
+                    &peak_dates(plan.as_ref(), goal_date, today),
                     today,
                     resolved.inputs.recovery_speed == RecoverySpeed::Limited,
                 )),
@@ -796,10 +815,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             // The verdict speaks the athlete's language: the labels are what
             // the coach says, resolved the way the memory tool resolves them.
             let locale = resolve_user_locale(repos.users.as_ref(), user_id).await;
-            let labels = FlavourLabels {
-                registry: context.resources.messaging_strings_registry(),
-                locale: &locale,
-            };
+            let strings = context.resources.messaging_strings_registry();
 
             info!(
                 user_id = %user_id,
@@ -816,7 +832,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 "recommend_plan_flavour",
                 PlanFlavourResult {
                     athlete: scope.acting_for.clone(),
-                    verdict: Self::verdict_json(&verdict, &labels),
+                    verdict: Self::verdict_json(&verdict, strings, &locale),
                     season: Self::season_json(
                         layout.as_ref(),
                         skeleton.as_ref().map(|s| s.id.as_str()),

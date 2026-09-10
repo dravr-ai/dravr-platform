@@ -13,6 +13,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
+use pierre_services::athlete_clock::athlete_today;
 use pierre_services::plan_calendar_push::{
     desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, PushReport,
     CALENDAR_PROVIDER,
@@ -22,9 +23,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use super::calendar::{calendar_provider, destructive_annotations};
-use super::training_plan_telemetry::{
-    athlete_today, emit_calendar_sync_completed, emit_calendar_sync_failed,
-};
+use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use super::training_plans::{load_conversation, resolve_coach_slug};
 use super::training_plans_output::{CalendarBlock, CalendarEntry, CalendarPreview};
 use crate::capabilities::ToolCapabilities;
@@ -249,7 +248,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 .map(str::to_owned)
                 .filter(|s| !s.trim().is_empty());
             let repos = context.resources.repos();
-            let today = athlete_today(repos, &user_str).await;
+            let today = athlete_today(repos, user_id).await;
             let from = match args.get("from_date").and_then(Value::as_str) {
                 Some(raw) => parse_plan_date(raw)
                     .ok_or_else(|| {

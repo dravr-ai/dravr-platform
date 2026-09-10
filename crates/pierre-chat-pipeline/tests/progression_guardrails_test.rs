@@ -24,15 +24,13 @@ fn prompt_assembly_source() -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {display}: {e}"))
 }
 
-/// The block must be appended ABOVE the tool-discipline block, the
-/// structured-output contract and the guided-flow directive.
+/// The block must be appended ABOVE the tool-discipline block, the visual
+/// contract and the guided-flow directive.
 ///
-/// Four of the twelve training coaches declare an `output_schema` and receive a
-/// JSON-only contract at Stage 7g.2. Prose landing after that contract is the
-/// recency contest that turned the 2026-07-24 walk into an unwanted 16-week
-/// plan. These guardrails give up recency deliberately — the enforcement that
-/// matters is the save-time ramp check, which measures the plan instead of
-/// asking for it.
+/// Prose landing after an output contract is the recency contest that turned
+/// the 2026-07-24 walk into an unwanted 16-week plan. These guardrails give up
+/// recency deliberately — the enforcement that matters is the save-time ramp
+/// check, which measures the plan instead of asking for it.
 #[test]
 fn guardrails_sit_above_the_output_format_blocks() {
     let source = prompt_assembly_source();
@@ -47,7 +45,7 @@ fn guardrails_sit_above_the_output_format_blocks() {
     };
     let guardrails = at("// Stage 7f.3:");
     let tool_discipline = at("// Stage 7g.1:");
-    let structured_output = at("// Stage 7g.2:");
+    let visual_contract = at("// Stage 7g.2b:");
     let directive = at("// Stage 7g.3:");
 
     assert!(
@@ -55,9 +53,9 @@ fn guardrails_sit_above_the_output_format_blocks() {
         "guardrails must precede the tool-discipline block"
     );
     assert!(
-        guardrails < structured_output,
-        "guardrails must precede the structured-output contract — prose after a \
-         JSON-only contract is what derailed the walk on 2026-07-24"
+        guardrails < visual_contract,
+        "guardrails must precede the visual contract — prose after an output \
+         contract is what derailed the walk on 2026-07-24"
     );
     assert!(
         guardrails < directive,
@@ -66,7 +64,7 @@ fn guardrails_sit_above_the_output_format_blocks() {
 }
 
 /// The append is suppressed while a guided flow owns the turn, for the same
-/// reason Stages 7f.2 and 7g.2 are: a calibration interview asks questions, it
+/// reason Stages 7f.2 and 7g.2b are: a calibration interview asks questions, it
 /// does not prescribe load, so the block would be pure prompt cost on every
 /// turn of the interview.
 #[test]

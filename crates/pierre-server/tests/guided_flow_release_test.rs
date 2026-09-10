@@ -22,7 +22,7 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, Utc};
-use pierre_chat_pipeline::stages::onboarding::release_directive;
+use pierre_chat_pipeline::stages::onboarding::{just_completed_interview, release_directive};
 use pierre_core::models::{GuidedFlow, OnboardingState, COMPLETION_RELEASE_WINDOW_MINUTES};
 
 fn active_column(flow: GuidedFlow) -> String {
@@ -190,4 +190,43 @@ fn the_season_release_names_the_rule_and_forbids_the_models_own_periodization() 
     // generic release beats none.
     assert_eq!(release_directive(None), calibration);
     assert_eq!(release_directive(Some("{")), calibration);
+}
+
+#[test]
+fn a_retired_fortnight_marker_never_claims_an_interview_ran() {
+    // The rail clears its marker rather than retiring it, so this normally
+    // cannot arise — but a clear that failed to write would leave one, and
+    // the release's default arm would open with "the guided interview is
+    // over" to an athlete who was never interviewed. The predicate that gates
+    // the whole release slot is what stops it.
+    assert!(
+        !just_completed_interview(
+            Some(&completed_column(GuidedFlow::Fortnight, 1)),
+            Utc::now()
+        ),
+        "a fortnight has no no-writing rule to revoke, so it takes the \
+         ordinary turn directive"
+    );
+    for interview in [
+        GuidedFlow::Calibration,
+        GuidedFlow::Season,
+        GuidedFlow::Pillars,
+        GuidedFlow::Intake,
+    ] {
+        assert!(
+            just_completed_interview(Some(&completed_column(interview, 1)), Utc::now()),
+            "{interview:?} still gets its revocation"
+        );
+    }
+}
+
+#[test]
+fn a_stale_fortnight_brief_stops_claiming_the_turn() {
+    // The marker is cleared the turn it fires; the window is what bounds a
+    // clear that failed to write. A brief still firing an hour later would
+    // hijack an unrelated turn into drafting a fortnight nobody asked for.
+    assert!(!OnboardingState::just_completed(
+        Some(&completed_column(GuidedFlow::Fortnight, 31)),
+        Utc::now()
+    ));
 }

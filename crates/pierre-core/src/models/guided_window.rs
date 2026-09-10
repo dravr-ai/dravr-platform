@@ -48,7 +48,10 @@ impl GuidedFlow {
         match self {
             Self::Calibration => Some("calibration"),
             Self::Season => Some("season"),
-            Self::Pillars | Self::Intake => None,
+            // The pillars walk supersedes by pillar, the intake writes its
+            // own record, and the fortnight probes nothing at all — there is
+            // no run of it for a later run to supersede.
+            Self::Pillars | Self::Intake | Self::Fortnight => None,
         }
     }
 }

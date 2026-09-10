@@ -42,8 +42,10 @@ use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::McpBridgeProvider;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
+use pierre_tool_runtime::implementations::guided_flow::{
+    active_guided_flow, turn_withholds_writes,
+};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_results::project_activities_payload;
@@ -125,28 +127,30 @@ impl TurnToolSurface {
         }
     }
 
-    /// Whether a guided interview currently owns this athlete's turn.
+    /// Whether the walk that owns this athlete's turn withholds the write
+    /// tools.
     ///
-    /// Fails closed: an unreadable answer withholds the write tools rather
-    /// than advertising them, because the cost of withholding one turn is a
-    /// coach that says "let me finish the interview first", and the cost of
-    /// advertising is a plan written mid-interview.
-    async fn walk_is_active(&self) -> bool {
-        guided_flow_is_active(&self.repos, None, None, self.tenant_id, &self.user_id)
-            .await
-            .unwrap_or(true)
+    /// Fails closed: an unreadable answer withholds rather than advertising,
+    /// because the cost of withholding one turn is an agent that says "let me
+    /// finish the interview first", and the cost of advertising is a plan
+    /// written mid-interview.
+    async fn walk_withholds_writes(&self) -> bool {
+        let lookup =
+            active_guided_flow(&self.repos, None, None, self.tenant_id, &self.user_id).await;
+        turn_withholds_writes(&lookup)
     }
 }
 
 #[async_trait]
 impl ToolSurface for TurnToolSurface {
-    /// LIMITATION(registre#103): `list_tools` publishes every chat-callable
+    /// LIMITATION(registre#406): `list_tools` publishes every chat-callable
     /// tool on every turn, so each native call carries the whole catalogue in
     /// its prefix. Deliberate: narrowing by message keyword was deleted in
     /// c89da2396 for starving turns of tools they needed. The iteration budget
-    /// that this marker also used to cover is enforced now, in `call`.
+    /// this marker used to name alongside it is enforced in `call`, so
+    /// registre#103 closed and the width kept its own issue.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
-        let withhold = self.walk_is_active().await;
+        let withhold = self.walk_withholds_writes().await;
         self.tool_registry
             .chat_callable_schemas()
             .into_iter()

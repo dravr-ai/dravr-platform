@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
-use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::{extract_viz_blocks, repair_refused_blocks};
 use pierre_chat_pipeline::stages::viz_route::RouteTracks;
+use pierre_chat_pipeline::stages::viz_schema::SchemaTexts;
 use pierre_core::errors::AppError;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,

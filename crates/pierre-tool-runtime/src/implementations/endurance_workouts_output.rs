@@ -14,7 +14,8 @@
 //! second copy of the workout bank's shape.
 
 use pierre_core::models::periodization::{
-    EvidenceTier, IntensityDistribution, PhaseKind, ReadinessLevel, WorkoutPurpose,
+    EvidenceTier, IntensityDistribution, PhaseKind, ProgressionLever, ReadinessLevel,
+    WorkoutPurpose,
 };
 use pierre_core::models::{SportType, WorkoutTemplate};
 use serde::Serialize;
@@ -62,8 +63,24 @@ pub struct WorkoutTemplateSummary {
     pub params: Value,
     /// Where it fits in a plan.
     pub fit: TemplateFit,
+    /// How the session grows week to week.
+    pub progression: TemplateProgression,
     /// Whether it ships with the platform rather than being athlete-authored.
     pub is_compiled_in: bool,
+}
+
+/// How a session is made harder from one week to the next.
+///
+/// Every template in the bank authors this and nothing read it, so an agent
+/// writing week 2 of a fortnight invented the step — a rep here, a longer
+/// interval there — with no source of truth to invent it from. The levers are
+/// ordered: pull the first before the second.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TemplateProgression {
+    /// The levers to pull, in the order the bank says to pull them.
+    pub order: Vec<ProgressionLever>,
+    /// How many levers may move in a single week.
+    pub max_weekly_step: u8,
 }
 
 /// One row of the workout bank, at the detail the caller asked for.

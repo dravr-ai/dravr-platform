@@ -54,19 +54,10 @@ pub struct CoachStartup {
     #[serde(default)]
     pub data_requirements: Option<DataRequirements>,
 
-    /// Identifier of the structured output schema this coach emits (e.g.
-    /// `"structured-workout"`). When present, the chat pipeline appends the
-    /// structured-output contract to the system prompt, extracts the JSON
-    /// object from the reply, validates it against the schema, and renders it
-    /// as a plan card instead of leaking raw JSON to the user.
-    #[serde(default)]
-    pub output_schema: Option<String>,
     /// Inline visuals this coach may embed in its prose, e.g. `[chart, table]`.
     ///
-    /// Orthogonal to [`Self::output_schema`], which says "my whole reply IS this
-    /// object". This says "I may embed these *inside* a reply", and a reply may
-    /// carry several. Empty — the default — means the coach is never told the
-    /// visual contract, so it never emits a block.
+    /// A reply may carry several. Empty — the default — means the coach is
+    /// never told the visual contract, so it never emits a block.
     ///
     /// Intent only: whether a visual actually reaches a given athlete is decided
     /// per-channel at render time, since messaging has no block renderer.

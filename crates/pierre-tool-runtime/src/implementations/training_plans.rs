@@ -33,6 +33,7 @@ use pierre_memory::training_plans::{
     MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::ramp_check::assess_ramp;
 use pierre_services::training_plan_render::plan_goal_is_stale;
@@ -44,12 +45,13 @@ use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
 use super::training_plan_compliance::emit_week_compliance;
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
+use super::training_plan_readiness::{emit_week_readiness, week_is_actionable};
 use super::training_plan_schema::{
     athlete_prop, outline_schema, parse_payload_part, string_prop, weeks_schema,
 };
+use super::training_plan_state::plan_state_block;
 use super::training_plan_telemetry::{
-    athlete_today, emit_coverage_check, emit_plan_saved, emit_ramp_verdict, emit_vision_saved,
-    ramp_baseline,
+    emit_coverage_check, emit_plan_saved, emit_ramp_verdict, emit_vision_saved, ramp_baseline,
 };
 use super::training_plan_vision::{
     check_phase_indexes, check_template_slugs, resolve_flavour, validate_day_template,
@@ -70,7 +72,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 
-use crate::implementations::guided_flow::guided_flow_is_active;
+use crate::implementations::guided_flow::{active_guided_flow, flow_withholds_writes};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -109,12 +111,31 @@ fn ctx_user_id(context: &ToolExecutionContext) -> String {
 // Save payload deserialization
 // ============================================================================
 
+/// Deserialize a stated `races` list, refusing `null`.
+///
+/// The field offers two states — absent keeps the stored calendar, `[]` clears
+/// it — and `null` is neither. Left to `Option`'s own impl it would read as
+/// absent, so a model that means "no races" and writes `null` would be handed
+/// back the calendar it meant to drop. Refusing it returns the shape hint that
+/// teaches the right form instead.
+fn stated_races<'de, D>(deserializer: D) -> Result<Option<Vec<GoalRace>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Vec::<GoalRace>::deserialize(deserializer).map(Some)
+}
+
 /// Outline half of the save payload.
 #[derive(Deserialize)]
 struct OutlinePayload {
     goal_race: GoalRace,
-    #[serde(default)]
-    races: Vec<GoalRace>,
+    /// The rest of the calendar. Absent means *unchanged* — a re-saved
+    /// outline that does not restate the races keeps the ones it had — while
+    /// an empty array clears them. The two must stay distinguishable: an
+    /// adjustment that only moves a phase would otherwise erase every race
+    /// the athlete named, and the plan card would stop showing them.
+    #[serde(default, deserialize_with = "stated_races")]
+    races: Option<Vec<GoalRace>>,
     strategy: String,
     /// Optional: a short plan ("hold form for two weeks, then taper") has no
     /// mesocycle structure to describe, and requiring one made every such plan
@@ -160,10 +181,9 @@ const MAX_PHASES: usize = 24;
 const MAX_WEEKS: usize = 104;
 pub(super) const MAX_TARGET_HOURS: f32 = 60.0;
 const MAX_DURATION_MIN: u32 = 24 * 60;
-/// Fuelling ceilings, mirroring `$defs.FuelingProtocol` in the
-/// structured-workout schema. The schema bounds what a coach may emit; nothing
-/// bounded what a plan could store, so a rate no gut can absorb reached the
-/// athlete's calendar unchallenged.
+/// Fuelling ceilings. Nothing bounded what a plan could store, so a rate no
+/// gut can absorb reached the athlete's calendar unchallenged; these are the
+/// bound the save enforces.
 const MAX_CARBS_G_PER_H: f32 = 150.0;
 const MAX_FLUID_ML_PER_H: f32 = 1_500.0;
 const MAX_SODIUM_MG_PER_H: f32 = 2_000.0;
@@ -216,13 +236,14 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
         &outline.goal_race.discipline,
         MAX_SHORT_TEXT_LEN,
     )?;
-    if outline.races.len() > MAX_RACES {
+    let stated_races = outline.races.as_deref().unwrap_or(&[]);
+    if stated_races.len() > MAX_RACES {
         return Err(AppError::invalid_input(format!(
             "too many races ({}; max {MAX_RACES})",
-            outline.races.len()
+            stated_races.len()
         )));
     }
-    for race in &outline.races {
+    for race in stated_races {
         plan_date(&format!("race '{}' date", race.name), &race.date)?;
         bounded("race.name", &race.name, MAX_SHORT_TEXT_LEN)?;
         bounded("race.discipline", &race.discipline, MAX_SHORT_TEXT_LEN)?;
@@ -592,6 +613,23 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 ..Default::default()
             },
         );
+        properties.insert(
+            "include_state".to_owned(),
+            PropertySchema {
+                property_type: "boolean".to_owned(),
+                description: Some(
+                    "Include what the readiness and compliance rails make of the plan as it \
+                     stands: the athlete's readiness level and the alerts behind it, the days \
+                     that level no longer allows, how each week measures against its phase, \
+                     and where the stored weeks stop covering the outline. Ask for it before \
+                     adjusting or extending a plan; leave it off for 'what am I doing this \
+                     week', since it costs roughly a dozen extra reads across the training \
+                     history, recovery, sleep and template stores."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
         properties.insert("athlete".to_owned(), athlete_prop());
         let schema = object_schema(properties, None);
         answers_with::<GetTrainingPlanResult>(tool_definition(
@@ -620,6 +658,14 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let athlete = optional_string_field(&args, "athlete");
             let include_history = args
                 .get("include_history")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            // Off by default: reading the rails costs roughly a dozen extra
+            // reads across the training-history, recovery, sleep and template
+            // stores, and this tool is on the "what am I doing this week" hot
+            // path.
+            let include_state = args
+                .get("include_state")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
 
@@ -651,7 +697,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let tenant_id = tenant.to_string();
             let user_id = scope.user_id.to_string();
             let coach = scope.coach_slug.clone();
-            let today = athlete_today(repos, &user_id).await;
+            let today = athlete_today(repos, scope.user_id).await;
             let Some(plan) = repos
                 .training_plans
                 .get_active_plan(&tenant_id, &user_id, coach.as_deref())
@@ -670,6 +716,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                         weeks: None,
                         goal_stale: None,
                         calendar,
+                        state: None,
                     },
                 );
             };
@@ -691,6 +738,18 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let calendar =
                 calendar_block(repos, tenant, scope.user_id, &active_weeks, today).await?;
 
+            // Both rails have measured every save since they shipped and
+            // reported into a log line no agent reads. Asked for, the same
+            // verdict comes back to the agent that has to act on it.
+            let state = if include_state {
+                Some(
+                    plan_state_block(state, repos, tenant, scope.user_id, &plan, &active_weeks, today)
+                        .await,
+                )
+            } else {
+                None
+            };
+
             ok_typed(
                 "get_training_plan",
                 GetTrainingPlanResult {
@@ -700,6 +759,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                     weeks: Some(weeks),
                     goal_stale: Some(goal_stale),
                     calendar,
+                    state,
                 },
             )
         }
@@ -846,19 +906,21 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // neither covers the native-MCP path, where an ACP subprocess reads
             // `tools/list` straight off the `/mcp` endpoint. That path carries
             // no conversation, so the walk is resolved from the athlete there
-            // (see `guided_flow_is_active`) and the withhold holds on every
+            // (see `active_guided_flow`) and the withhold holds on every
             // surface, including a direct MCP call. Self scope only: a coach
             // saving for an athlete is not inside that athlete's profile walk.
-            if scope.acting_for.is_none()
-                && guided_flow_is_active(
-                    repos,
-                    conv.as_ref(),
-                    context.conversation_ref(),
-                    tenant,
-                    &user_id,
-                )
-                .await?
-            {
+            // Asks the walk, not merely whether one is running: an interview
+            // must not write a plan, and a walk whose purpose is to write one
+            // must be allowed to.
+            let walk = active_guided_flow(
+                repos,
+                conv.as_ref(),
+                context.conversation_ref(),
+                tenant,
+                &user_id,
+            )
+            .await?;
+            if scope.acting_for.is_none() && walk.is_some_and(flow_withholds_writes) {
                 return Err(AppError::invalid_input(
                     "this conversation is building the athlete's profile one topic at a time — \
                      finish the profile walk before saving a training plan",
@@ -935,9 +997,13 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     phase_index: w.phase_index,
                 })
                 .collect();
+            // `races` absent reaches the repository as `None`, and the
+            // supersede carries the replaced row's calendar across inside its
+            // own transaction — the same place, and for the same reason, that
+            // the replaced row's weeks are re-parented.
             let outline_input = outline.as_ref().map(|o| PlanOutlineInput {
                 goal_race: &o.goal_race,
-                races: &o.races,
+                races: o.races.as_deref(),
                 strategy: &o.strategy,
                 flavour: flavour_selection.as_ref(),
                 season_start: o.season_start.as_deref(),
@@ -991,12 +1057,19 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             if let Some(flavour) = flavour_selection.as_ref() {
                 emit_vision_saved(&bundle.plan.id, flavour);
             }
+            // One reading of the athlete's clock for the whole post-save
+            // report: coverage, week readiness and the calendar preview all
+            // ask "where does this plan stand today", and reading it three
+            // times let a save that straddles their midnight answer with two
+            // different days.
+            let today = athlete_today(repos, scope.user_id).await;
             emit_coverage_check(
                 repos,
                 &tenant_id,
                 &user_id,
                 &bundle.plan.id,
                 &bundle.plan.phases,
+                today,
             )
             .await;
             // The compliance rail, Log-only: every week this save wrote is
@@ -1013,11 +1086,32 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 &bundle.weeks,
             )
             .await;
+            // The readiness rail, also Log-only, and the other half of the
+            // question: compliance asks whether the week was built to its
+            // phase, this asks whether the athlete can run it today. Only
+            // weeks that still have days left to change are worth reading —
+            // substituting a session already completed helps nobody.
+            let actionable: Vec<PlanWeek> = bundle
+                .weeks
+                .iter()
+                .filter(|week| week_is_actionable(week, today))
+                .cloned()
+                .collect();
+            if !actionable.is_empty() {
+                emit_week_readiness(
+                    state,
+                    repos,
+                    tenant,
+                    scope.user_id,
+                    &bundle.plan,
+                    &actionable,
+                )
+                .await;
+            }
 
             // The save is committed; if the calendar already carries this
             // plan, say what a push would now change so the athlete learns
             // the calendar is behind — without pushing on anyone's behalf.
-            let today = athlete_today(repos, &user_id).await;
             let calendar =
                 calendar_preview_after_save(repos, tenant, scope.user_id, &bundle.plan.id, today)
                     .await;

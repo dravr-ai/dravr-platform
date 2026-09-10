@@ -32,7 +32,7 @@ use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandConte
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, WalkAudience};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::CoachesCtx;
-use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
+use pierre_tool_runtime::implementations::guided_flow::active_guided_flow;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -223,25 +223,27 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
     // watching coach — refusing the coach a plan save because their athlete
     // is calibrating would be the wrong refusal.
     assert!(
-        guided_flow_is_active(
+        active_guided_flow(
             repos,
             Some(&conv),
             None,
             fix.walker_tenant,
             &fix.walker_id.to_string()
         )
-        .await?,
+        .await?
+        .is_some(),
         "the walker is mid-interview; save_training_plan must be withheld"
     );
     assert!(
-        !guided_flow_is_active(
+        active_guided_flow(
             repos,
             Some(&conv),
             None,
             fix.coach_tenant,
             &fix.coach_id.to_string()
         )
-        .await?,
+        .await?
+        .is_none(),
         "the walk binds its subject alone — other members are not withheld"
     );
 
@@ -250,25 +252,27 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
     // conversation-tenant fallback. Before that fallback existed this returned
     // false and the withhold silently never fired on room walks.
     assert!(
-        guided_flow_is_active(
+        active_guided_flow(
             repos,
             None,
             Some((fix.conversation_id.as_str(), fix.channel_tenant)),
             fix.walker_tenant,
             &fix.walker_id.to_string()
         )
-        .await?,
+        .await?
+        .is_some(),
         "the conversation-tenant fallback must surface the room walk"
     );
     assert!(
-        !guided_flow_is_active(
+        active_guided_flow(
             repos,
             None,
             Some((fix.conversation_id.as_str(), fix.channel_tenant)),
             fix.coach_tenant,
             &fix.coach_id.to_string()
         )
-        .await?,
+        .await?
+        .is_none(),
         "the fallback must not withhold from a member who owns no walk on that row"
     );
     Ok(())

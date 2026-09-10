@@ -3972,6 +3972,7 @@ fn estimate_vo2max_says_it_did_not_save() {
         formula: "Cooper (1968): VO2max = (distance_m - 504.9) / 44.73".to_owned(),
         defaults_from_profile: vec!["weight", "age"],
         stored_vo2_max: None,
+        implied_threshold_pace_sec_per_km: Some(246.5),
         saved: false,
         to_store: "call set_physiology with vo2_max once the athlete confirms the number"
             .to_owned(),

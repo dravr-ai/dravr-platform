@@ -37,7 +37,6 @@ fn coach(data_requirements: Option<&str>) -> CoachRuntimeContext {
         system_prompt: "You are a coach.".to_owned(),
         startup_query: None,
         data_requirements: data_requirements.map(ToOwned::to_owned),
-        output_schema: None,
         visuals: Vec::new(),
         max_tool_iterations: None,
         temperature: None,

@@ -155,7 +155,6 @@ pub(super) async fn fork_coach(
         temperature: source.temperature,
         startup_query: source.startup_query,
         data_requirements: source.data_requirements,
-        output_schema: source.output_schema,
         purpose: source.purpose,
         when_to_use: source.when_to_use,
         instructions: source.instructions,

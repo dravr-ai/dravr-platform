@@ -108,14 +108,6 @@ pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = system::ACTIVITY_ANALYSIS_SYST
 /// themselves (preferences, physiology, injuries, goals, schedule, equipment).
 pub const MEMORY_EXTRACTION_PROMPT: &str = system::MEMORY_EXTRACTION;
 
-/// Structured-output contract for coach tools that emit a schema-validated
-/// plan.
-///
-/// Appended to the system prompt when the active coach declares an
-/// `output_schema`: JSON-only for a draftable plan, prose for a refusal, and
-/// never a narration of the data-gathering that led there.
-pub const STRUCTURED_OUTPUT_PROMPT: &str = system::STRUCTURED_OUTPUT;
-
 /// Inline-visual contract — how to embed a chart or table in a reply and the
 /// rules the platform enforces on one (verified `source_tool`, closed field
 /// set, v1 chart kinds, size caps).

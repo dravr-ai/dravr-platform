@@ -28,7 +28,7 @@ const STARTED_AT: &str = "2026-07-28T00:00:00Z";
 
 fn calibration_turn(topic: CalibrationTopic, snapshot: Option<LoadSnapshot>) -> OnboardingTurn {
     OnboardingTurn {
-        target: GuidedTarget::Calibration(topic),
+        target: Some(GuidedTarget::Calibration(topic)),
         state: OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Calibration)
             .with_snapshot(snapshot),
     }
@@ -308,7 +308,7 @@ fn the_directive_tells_the_coach_to_recover_from_a_clarifying_question() {
         GuidedTarget::Coverage(CoverageTarget::NorthStar),
     ] {
         let turn = OnboardingTurn {
-            target,
+            target: Some(target),
             state: OnboardingState::start("2026-07-28T00:00:00Z".to_owned(), GuidedFlow::Pillars),
         };
         assert!(
@@ -321,7 +321,9 @@ fn the_directive_tells_the_coach_to_recover_from_a_clarifying_question() {
 #[test]
 fn the_pillars_directive_is_unchanged_in_substance() {
     let turn = OnboardingTurn {
-        target: GuidedTarget::Coverage(CoverageTarget::Pillar(Pillar::Fuelling)),
+        target: Some(GuidedTarget::Coverage(CoverageTarget::Pillar(
+            Pillar::Fuelling,
+        ))),
         state: OnboardingState::start("2026-07-28T00:00:00Z".to_owned(), GuidedFlow::Pillars),
     };
     let text = directive(&turn);

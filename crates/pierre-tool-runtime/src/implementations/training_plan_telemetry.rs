@@ -93,7 +93,7 @@ pub(super) fn emit_plan_saved(plan_id: &str, has_outline: bool, saved: &[PlanWee
 
 /// Which way a stored plan fails to cover the athlete.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CoverageGap {
+pub(super) enum CoverageGap {
     /// No stored week spans the athlete's current date.
     UncoveredToday,
     /// The day-by-day weeks stop before the outline's last block ends.
@@ -101,8 +101,9 @@ enum CoverageGap {
 }
 
 impl CoverageGap {
-    /// Catalogue value for the event's `kind` field.
-    const fn as_str(self) -> &'static str {
+    /// Catalogue value for the event's `kind` field, and what an agent
+    /// reading the plan's state is shown.
+    pub(super) const fn as_str(self) -> &'static str {
         match self {
             Self::UncoveredToday => "uncovered_today",
             Self::ShortOfOutline => "short_of_outline",
@@ -110,35 +111,22 @@ impl CoverageGap {
     }
 }
 
-/// The civil date the athlete is living in, falling back to UTC.
+/// Where the stored weeks stop covering what the outline promised, given the
+/// plan's weeks and its outline phases.
 ///
-/// A plan is "covering today" from the athlete's calendar, not the server's —
-/// the same rule `/plan` applies when it picks which week to show.
-pub(super) async fn athlete_today(repos: &RepositoryRegistry, user_id: &str) -> NaiveDate {
-    let tz = match Uuid::parse_str(user_id) {
-        Ok(uuid) => repos
-            .users
-            .get_global(uuid)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|u| u.timezone),
-        Err(_) => None,
-    };
-    tz.as_deref()
-        .and_then(|t| t.parse::<chrono_tz::Tz>().ok())
-        .map_or_else(
-            || chrono::Utc::now().date_naive(),
-            |t| chrono::Utc::now().with_timezone(&t).date_naive(),
-        )
-}
-
-/// The gaps a stored plan leaves, given its active weeks and outline phases.
+/// Reported to the agent as well as emitted: the plan running out is the
+/// signal that a fortnight needs writing, and it had no reader at all — the
+/// event went to the notify layer and nothing on the platform consumed it, so
+/// nothing anywhere told anyone the plan had stopped covering the athlete.
 ///
 /// A week or block whose date does not parse, or whose span leaves the
 /// calendar, is skipped rather than guessed at — `parse_plan_date` is a format
 /// check, so a stored `+262142-12-31` reaches here intact.
-fn coverage_gaps(weeks: &[PlanWeek], phases: &[PlanPhase], today: NaiveDate) -> Vec<CoverageGap> {
+pub(super) fn coverage_gaps(
+    weeks: &[PlanWeek],
+    phases: &[PlanPhase],
+    today: NaiveDate,
+) -> Vec<CoverageGap> {
     let spans: Vec<(NaiveDate, NaiveDate)> = weeks
         .iter()
         .filter_map(|w| {
@@ -189,12 +177,18 @@ fn coverage_gaps(weeks: &[PlanWeek], phases: &[PlanPhase], today: NaiveDate) -> 
 /// Reads the plan's full active week set rather than the payload, because a
 /// save that superseded an outline carries earlier weeks forward and those
 /// count toward coverage just as much as the ones in this call.
+///
+/// `today` is the athlete's civil date, supplied by the caller rather than read
+/// here: the save path measures coverage, week readiness and the calendar
+/// preview against it, and reading the clock once means all three describe the
+/// same day even when the save straddles the athlete's midnight.
 pub(super) async fn emit_coverage_check(
     repos: &RepositoryRegistry,
     tenant_id: &str,
     user_id: &str,
     plan_id: &str,
     phases: &[PlanPhase],
+    today: NaiveDate,
 ) {
     let weeks = match repos
         .training_plans
@@ -207,7 +201,6 @@ pub(super) async fn emit_coverage_check(
             return;
         }
     };
-    let today = athlete_today(repos, user_id).await;
     let last_week_start = weeks
         .iter()
         .filter(|w| parse_plan_date(&w.week_start).is_some())

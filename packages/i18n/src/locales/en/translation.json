@@ -513,7 +513,6 @@
     "pasteProviderClientSecret": "Paste your {{provider}} Client Secret",
     "pasteProviderClientSecretLower": "paste your {{provider}} Client Secret",
     "paymentProblem": "Payment problem — action needed",
-    "pctOfThreshold": "{{value}} of threshold",
     "peerCompareBlurb": "Allows consenting members to be compared with each other.",
     "peerDataSharing": "Peer data sharing",
     "pendingApprovalTitle": "Account Pending Approval",
@@ -956,7 +955,6 @@
     "detectorFindings": "What the detector found",
     "dismiss": "Dismiss",
     "dismissWarning": "Dismiss warning",
-    "easyFloor": "Easy floor",
     "editAgent": "Edit agent",
     "editAgentTitle": "Edit Agent",
     "emptyStateBody": "Your agent reads your training and answers here. Pick a conversation on the left, or start a new one.",
@@ -981,7 +979,6 @@
     "fromChannel": "From {{channel}}",
     "fuelCarbs": "{{value}} g/h carbs",
     "fuelFluid": "{{value}} ml/h fluid",
-    "fuelGutTraining": "Gut training",
     "fuelLabel": "Fuel",
     "fuelSodiumLoss": "~{{value}} mg/h sodium lost",
     "generateInsight": "Generate insight",
@@ -1102,7 +1099,6 @@
     "verdictsCount": "{{count}} verdicts",
     "verdictsLoading": "Loading verdicts…",
     "verdictsTitle": "Verdicts on this reply",
-    "weeklyTss": "Weekly TSS",
     "whatItDoesSection": "What it does"
   },
   "commands": {
@@ -1186,6 +1182,18 @@
     },
     "discover-install": {
       "description": "Install a catalogue agent by its @handle"
+    },
+    "fortnight": {
+      "arm_failed": "I couldn't set up the drafting turn just now, so I haven't started on the two weeks. Ask me again and I'll pick it up.",
+      "blocked": "Your readiness reads block right now: recovery only. Writing two weeks of training over that would be the wrong answer — let's talk about what's driving it first.",
+      "covered": "Your plan already covers the next fortnight — nothing to add. Ask me to adjust a week if something needs to change.",
+      "description": "Write the next two weeks — the platform checks that your plan is running out and has phases to write against, then your agent drafts the fortnight and checks your readiness before saving it",
+      "no_phases": "Your plan has no phases, so there's nothing to write the next two weeks against. Lay the season out and I'll pick it up from there.",
+      "no_plan": "There's no active plan to extend yet. Lay out a season first and I'll write the fortnights against it.",
+      "recheck_landed": "The next two weeks are on your plan. Tell me any time if a session needs moving.",
+      "recheck_missing": "I don't see the two weeks saved on your plan yet. Ask me for them again and I'll write them.",
+      "walk_running": "You're in the middle of a guided walk — let's finish that first, and I'll write the next fortnight straight after.",
+      "writing": "Your plan runs out soon, and it has the phases to write against. Drafting the next {0} weeks now — I'll check your readiness before I commit them."
     },
     "group": {
       "consent_updated": "Sharing your data with the other members of {1} is now {0}.",
@@ -1522,7 +1530,6 @@
     "couldntLoadStore": "Couldn't load the store",
     "couldntSearchAgents": "Couldn't search agents",
     "couldntStartThe": "We couldn't start the",
-    "ctlTarget": "CTL target",
     "dailyLimitsResetAt": "Daily limits reset at",
     "errorLabel": "Error:",
     "examplesLabel": "Examples:",
@@ -1546,7 +1553,6 @@
     "perDay": "per day",
     "perDayN": "{{count}} per day",
     "perDayOne": "1 per day",
-    "polarization": "Polarization",
     "preparingYour": "Preparing your",
     "purposeLabel": "Purpose:",
     "qrCodeFor": "QR code to connect {{app}}",
@@ -1562,9 +1568,7 @@
     "used": "Used",
     "verdictEmitted": "Verdict emitted",
     "waitingForYouIn": "Waiting for you to finish in",
-    "week": "Week",
-    "your": "Your",
-    "zones": "Zones"
+    "your": "Your"
   },
   "groups": {
     "activeInvitesCount": "Active Invites ({{n}})",
@@ -2118,7 +2122,44 @@
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
-    "starter": "Starter"
+    "starter": "Starter",
+    "card": {
+      "goalRace": "Goal race",
+      "approach": "Approach",
+      "season": "Season",
+      "now": "now",
+      "weeksShort": "{{count}} wk",
+      "thisWeek": "This week",
+      "nextWeek": "Next week",
+      "weekOf": "Week of {{date}}",
+      "moreWeeks": "{{count}} more weeks in the plan",
+      "hardPerWeek": "{{count}} hard/wk",
+      "hoursPerWeek": "{{hours}} h/wk",
+      "steps": "Steps",
+      "template": "Template",
+      "source": {
+        "package": "this agent's own template",
+        "catalogue": "catalogue",
+        "athlete": "your own session"
+      },
+      "phase": {
+        "prep": "Prep",
+        "base": "Base",
+        "build": "Build",
+        "specialty": "Specialty",
+        "peak": "Peak",
+        "taper": "Taper",
+        "race": "Race",
+        "transition": "Transition",
+        "recovery": "Recovery"
+      },
+      "selectedBy": {
+        "rule": "chosen by the rule",
+        "coach": "chosen by your human coach",
+        "athlete": "chosen by you"
+      },
+      "alsoRacing": "Also racing"
+    }
   },
   "profile": {
     "accountStatus": "Account Status",

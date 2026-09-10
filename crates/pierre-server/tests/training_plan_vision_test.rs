@@ -22,8 +22,8 @@ use pierre_core::models::periodization::{
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{
-    FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, SelectedBy,
-    TemplateParams, TrainingPlan,
+    FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, RacePriority,
+    SelectedBy, TemplateParams, TrainingPlan, WeekStatus,
 };
 use pierre_services::coach_package::PackagedCatalogue;
 use pierre_services::training_plan_render::render_training_plan_block;
@@ -168,7 +168,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),
-                races: &[],
+                races: Some(&[]),
                 strategy: "polarized build into a two-week taper",
                 flavour: Some(&selection),
                 season_start: Some("2026-08-24"),
@@ -231,7 +231,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),
-                races: &[],
+                races: Some(&[]),
                 strategy: "same season, one more recovery week",
                 flavour: None,
                 season_start: None,
@@ -370,6 +370,107 @@ async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()>
     assert!(
         !block.contains("Time-in-zone target"),
         "a phase stating no target renders none: {block}"
+    );
+    Ok(())
+}
+
+/// A week the block will render, with no days: the phase headers are what is
+/// under test, not the day detail.
+fn empty_week(week_start: &str, phase_index: u32) -> PlanWeek {
+    PlanWeek {
+        id: format!("week-{week_start}"),
+        tenant_id: "t".to_owned(),
+        user_id: "u".to_owned(),
+        plan_id: "plan-v".to_owned(),
+        week_start: week_start.to_owned(),
+        focus: String::new(),
+        phase_index: Some(phase_index),
+        days: Vec::new(),
+        status: WeekStatus::Active,
+        supersedes_id: None,
+        adjustment_reason: String::new(),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    }
+}
+
+#[tokio::test]
+async fn a_fortnight_crossing_a_phase_boundary_carries_both_headers() -> Result<()> {
+    let registry = TrainingCatalogueRegistry::new();
+    let catalogue = PackagedCatalogue::catalogue_only(&registry);
+    let plan = TrainingPlan {
+        id: "plan-v".to_owned(),
+        tenant_id: "t".to_owned(),
+        user_id: "u".to_owned(),
+        coach_slug: Some("endurance-coach".to_owned()),
+        goal_fact_id: None,
+        goal_race: goal(),
+        races: Vec::new(),
+        strategy: "polarized build into a two-week taper".to_owned(),
+        flavour: Some(flavour()),
+        season_start: Some("2026-08-24".to_owned()),
+        season_end: None,
+        // build 2026-08-24 +5wk (ends 2026-09-28), taper 2026-09-28 +2wk
+        phases: phases(),
+        status: PlanStatus::Active,
+        supersedes_id: None,
+        source_conversation_id: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    // The fortnight the block renders is the last build week and the first
+    // taper week — it straddles the boundary exactly.
+    let weeks = vec![empty_week("2026-09-21", 0), empty_week("2026-09-28", 1)];
+
+    let block = render_training_plan_block(&plan, &weeks, d("2026-09-21"), &catalogue)
+        .expect("a plan renders");
+
+    assert!(
+        block.contains("Current phase: build"),
+        "the phase covering today is still shown: {block}"
+    );
+    assert!(
+        block.contains("Current phase: taper"),
+        "the second rendered week runs under the taper, and its caps are what \
+         that week must be written to — showing only build's silently applied \
+         the wrong cap to it: {block}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_fortnight_inside_one_phase_carries_that_phase_alone() -> Result<()> {
+    let registry = TrainingCatalogueRegistry::new();
+    let catalogue = PackagedCatalogue::catalogue_only(&registry);
+    let plan = TrainingPlan {
+        id: "plan-v".to_owned(),
+        tenant_id: "t".to_owned(),
+        user_id: "u".to_owned(),
+        coach_slug: Some("endurance-coach".to_owned()),
+        goal_fact_id: None,
+        goal_race: goal(),
+        races: Vec::new(),
+        strategy: "polarized build into a two-week taper".to_owned(),
+        flavour: Some(flavour()),
+        season_start: Some("2026-08-24".to_owned()),
+        season_end: None,
+        phases: phases(),
+        status: PlanStatus::Active,
+        supersedes_id: None,
+        source_conversation_id: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    // Both weeks sit inside build; the taper is a fortnight away.
+    let weeks = vec![empty_week("2026-08-31", 0), empty_week("2026-09-07", 0)];
+
+    let block = render_training_plan_block(&plan, &weeks, d("2026-08-31"), &catalogue)
+        .expect("a plan renders");
+
+    assert!(block.contains("Current phase: build"), "{block}");
+    assert!(
+        !block.contains("Current phase: taper"),
+        "a phase the fortnight never touches is prompt cost with no reader: {block}"
     );
     Ok(())
 }

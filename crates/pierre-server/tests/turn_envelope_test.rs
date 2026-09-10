@@ -63,7 +63,7 @@ const ACTIVITY_LIST: &str =
 
 /// A stored chart spec plus a stored plan, on the one `content_blocks` rail.
 const STORED_BLOCKS: &str = r#"[{"type":"chart","source_tool":"get_activities","title":"Charge"},
-     {"type":"workout_plan","source_tool":"structured-workout","plan":{"weeks":3}}]"#;
+     {"type":"workout_plan","source_tool":"save_training_plan","plan":{"weeks":3}}]"#;
 
 fn in_app_profile() -> SurfaceProfile {
     SurfaceProfile::resolve(&SurfaceRequest {

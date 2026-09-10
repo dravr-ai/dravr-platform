@@ -180,8 +180,10 @@ pub mod playbooks;
 pub mod training_plan_compliance;
 /// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
 pub mod training_plan_push;
+pub mod training_plan_readiness;
 /// The schema `save_training_plan` advertises, and the rejection skeleton generated from it.
 pub mod training_plan_schema;
+pub mod training_plan_state;
 /// Notify telemetry for training-plan writes: what was saved, and what it leaves uncovered.
 pub mod training_plan_telemetry;
 /// The vision half of a save payload — flavour provenance, phase targets, template references.

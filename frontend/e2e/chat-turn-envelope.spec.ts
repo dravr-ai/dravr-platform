@@ -58,28 +58,60 @@ const WORKOUT_PLAN_BLOCK = {
   kind: 'workout_plan',
   source_tool: 'save_training_plan',
   plan: {
-    plan_window: { start: '2026-09-01', end: '2026-09-07' },
-    rationale: 'One threshold session, everything else aerobic.',
-    compliance: { z1_pct: 70, z2_pct: 20, z3_pct: 10, weekly_tss_target: 420 },
-    evidence_refs: [],
+    goal_race: { name: 'Parkrun PB', date: '2026-11-14', discipline: 'run_5k', priority: 'A' },
+    season_start: '2026-09-01',
+    season_end: '2026-11-16',
+    flavour: {
+      id: 'polarized-classic',
+      label: 'mostly easy with two hard days',
+      selected_by: 'coach',
+    },
+    phases: [
+      {
+        kind: 'build',
+        start: '2026-09-01',
+        end: '2026-10-13',
+        weeks: 6,
+        purpose: 'raise the ceiling',
+        intent: 'two hard days, the rest easy',
+        target_hours: 8,
+        hard_sessions_max: 2,
+        current: true,
+      },
+      {
+        kind: 'taper',
+        start: '2026-11-02',
+        end: '2026-11-16',
+        weeks: 2,
+        purpose: 'arrive fresh',
+        intent: 'sharpen',
+        current: false,
+      },
+    ],
+    current_phase_index: 0,
     weeks: [
       {
-        week_index: 1,
+        week_start: '2026-09-01',
+        focus: 'first build week',
+        phase_index: 0,
+        current: true,
         days: [
           {
-            day: 'Tue',
-            session: {
-              name: 'Seuil 3x10',
-              duration_min: 55,
-              intensity_factor: 0.88,
-              tss_estimate: 72,
-              blocks: [],
-            },
+            date: '2026-09-02',
+            sport: 'run',
+            workout: 'Seuil 3x10',
+            duration_min: 55,
+            intensity: 'threshold',
+            rest: false,
+            steps: [{ label: 'Seuil', duration_seconds: 600, target_zone: 'Threshold', repeat: 3 }],
+            template_slug: 'threshold_3x10',
+            template_source: 'catalogue',
           },
-          { day: 'Wed', session: null },
+          { date: '2026-09-03', sport: 'run', workout: 'off', intensity: '', rest: true },
         ],
       },
     ],
+    weeks_deferred: 0,
   },
 };
 
@@ -339,13 +371,18 @@ test.describe('Chat - the web surface profile', () => {
 
     const turn = assistantTurn(page);
     await expect(turn).toContainText('Training plan');
-    await expect(turn).toContainText('2026-09-01 → 2026-09-07');
+    await expect(turn).toContainText('Parkrun PB');
+    await expect(turn).toContainText('mostly easy with two hard days');
+    // The season timeline flags the phase covering today.
+    await expect(turn).toContainText('Build');
+    await expect(turn).toContainText('now');
+    // The fortnight, down to the session's structure.
     await expect(turn).toContainText('Seuil 3x10');
-    await expect(turn).toContainText('55 min · IF 0.88 · 72 TSS');
-    await expect(turn).toContainText('Weekly TSS');
-    // The card replaced the JSON; the plan's field names never reach the page.
-    await expect(turn).not.toContainText('plan_window');
-    await expect(turn).not.toContainText('intensity_factor');
+    await expect(turn).toContainText('Seuil · 10m · Threshold ×3');
+    await expect(turn).toContainText('threshold_3x10');
+    // The card is the rendering; the projection's field names never reach the page.
+    await expect(turn).not.toContainText('goal_race');
+    await expect(turn).not.toContainText('week_start');
   });
 
   test('a scene block renders inline as SVG', async ({ page }) => {

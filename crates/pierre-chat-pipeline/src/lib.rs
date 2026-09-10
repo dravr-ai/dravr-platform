@@ -95,8 +95,8 @@ use pierre_contremaitre::{
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    AddMessageParams, CoachRuntimeContext, MemberFitnessSnapshot, OnboardingState, TenantId,
-    UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
+    AddMessageParams, CoachRuntimeContext, GuidedFlow, MemberFitnessSnapshot, OnboardingState,
+    TenantId, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
@@ -221,26 +221,19 @@ pub struct ChatPipelineContext {
     pub tool_discipline_prompt: String,
     /// Tool-discipline prompt for messaging channels.
     pub tool_discipline_messaging_prompt: String,
-    /// Output-contract directive appended to the system prompt for coaches
-    /// that declare an `output_schema` (JSON-only plan, prose refusal, no
-    /// process narration).
-    pub structured_output_prompt: String,
     /// Contract telling a granted coach how to embed an inline chart or table,
     /// and which of those rules the platform enforces. Appended only when the
     /// coach carries a non-empty `visuals:` grant and the channel can render a
     /// block.
     pub visual_blocks_prompt: String,
-    /// JSON Schema texts keyed by schema id, compiled once on first use.
-    ///
-    /// Keyed rather than singular because a reply can carry more than one kind
-    /// of structured payload: a whole-reply workout plan (`structured-workout`)
-    /// or inline visual blocks (`dravr-viz`), which are a different content
-    /// model and can appear several times in one reply.
+    /// JSON Schema texts keyed by schema id, compiled once on first use — the
+    /// inline visual block schema (`dravr-viz`), which can appear several
+    /// times in one reply.
     ///
     /// Injected like every other contremaitre datum the pipeline needs — the
     /// prompts above arrive the same way — rather than fetched here, so the
     /// pipeline keeps one entry point for configuration.
-    pub structured_output_schemas: stages::structured_output::SchemaTexts,
+    pub viz_schemas: stages::viz_schema::SchemaTexts,
     /// Memory extraction system prompt (used by Tier 2 background extraction).
     pub memory_extraction_prompt: String,
     /// Optional MCP bridge — mints the per-turn MCP servers an ACP provider
@@ -623,9 +616,9 @@ struct DispatchStageArgs<'a> {
     /// Per-message history-row ids parallel to `llm_messages` (`None` for the
     /// system prompt), threaded to Tier 1 compaction for id-anchored blocks.
     source_ids: &'a [Option<String>],
-    /// Whether a guided conversational flow owns this turn (see
-    /// `DispatchLlmInputs::guided_flow_active`).
-    guided_flow_active: bool,
+    /// Which guided conversational flow owns this turn, when one does (see
+    /// `DispatchLlmInputs::guided_flow`).
+    guided_flow: Option<GuidedFlow>,
     /// Group roster (empty outside a group conversation) for peer grounding.
     peer_roster: &'a [MemberFitnessSnapshot],
 }
@@ -647,7 +640,7 @@ async fn dispatch_stage(
             coach_ctx: args.coach_ctx,
             history: args.history,
             source_ids: args.source_ids,
-            guided_flow_active: args.guided_flow_active,
+            guided_flow: args.guided_flow,
             peer_roster: args.peer_roster,
         },
         llm_messages,
@@ -913,7 +906,7 @@ async fn run_turn(
             coach_ctx: coach_ctx.as_ref(),
             history: &history,
             source_ids: &source_ids,
-            guided_flow_active: onboarding_turn.is_some(),
+            guided_flow: onboarding_turn.as_ref().map(|turn| turn.state.flow),
             peer_roster: &group_roster,
         },
         &mut llm_messages,

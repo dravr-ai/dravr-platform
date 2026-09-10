@@ -69,6 +69,35 @@ pub enum GuidedFlow {
     /// The season walk — the race calendar and what it demands; topics come
     /// from a fixed list, like calibration.
     Season,
+    /// The fortnight rail — the next two weeks of an existing plan.
+    ///
+    /// The odd one out: it is never *active*. Its platform half — read the
+    /// plan, decide whether two weeks can be written — happens inside the
+    /// `/fortnight` handler and is over before the athlete reads the reply,
+    /// so the command writes the marker already retired. The variant exists
+    /// to name which brief the next turn carries, which is the only thing a
+    /// retired marker is ever asked.
+    Fortnight,
+}
+
+impl GuidedFlow {
+    /// Whether this flow is an interview — it asks the athlete questions and
+    /// records the answers — rather than doing work on their behalf.
+    ///
+    /// One decision with four consumers, deliberately. An interview must not
+    /// be handed the training-plan block, the progression guardrails, the
+    /// visual contract, or `save_training_plan`: it is asking questions, and
+    /// on 2026-07-24 a walk carrying that context turned into an unwanted
+    /// 16-week plan on the athlete's first answer. A flow that exists to
+    /// *write* a plan needs all four. Splitting the four predicates apart is
+    /// how three of them end up agreeing and the fourth does not.
+    #[must_use]
+    pub const fn is_interview(self) -> bool {
+        match self {
+            Self::Pillars | Self::Calibration | Self::Intake | Self::Season => true,
+            Self::Fortnight => false,
+        }
+    }
 }
 
 /// Whether a guided-interview topic may be probed where other people read
@@ -181,6 +210,15 @@ pub struct OnboardingState {
     /// field existed; those are all private walks — hence `serde(default)`.
     #[serde(default)]
     pub audience: WalkAudience,
+    /// How many turns a topic-less flow has already taken.
+    ///
+    /// The interview walks end when they run out of topics to ask. A flow
+    /// that asks nothing has no such bound, so it carries its own: without
+    /// one, a fortnight rail that opened would own every later turn of the
+    /// conversation forever. Absent from rows written before the field
+    /// existed — hence `serde(default)`, which reads as zero.
+    #[serde(default)]
+    pub turns_owned: u8,
 }
 
 /// How long after a guided interview ends its release directive keeps firing.
@@ -205,7 +243,15 @@ impl OnboardingState {
             completed_at: None,
             subject_user_id: None,
             audience: WalkAudience::Private,
+            turns_owned: 0,
         }
+    }
+
+    /// This state with one more owned turn counted against its budget.
+    #[must_use]
+    pub fn with_owned_turn(mut self) -> Self {
+        self.turns_owned = self.turns_owned.saturating_add(1);
+        self
     }
 
     /// This state marked finished, stamped `at` (RFC3339).
@@ -324,6 +370,9 @@ impl OnboardingState {
                     }
                     GuidedFlow::Intake => r#"{"active":true,"started_at":"","flow":"intake"}"#,
                     GuidedFlow::Season => r#"{"active":true,"started_at":"","flow":"season"}"#,
+                    GuidedFlow::Fortnight => {
+                        r#"{"active":true,"started_at":"","flow":"fortnight"}"#
+                    }
                 }
                 .to_owned()
             },

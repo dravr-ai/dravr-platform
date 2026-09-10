@@ -293,3 +293,142 @@ async fn a_restatement_named_across_kinds_is_refused() {
     );
     assert_eq!(facts[0].object, ANCHOR);
 }
+
+/// A coach prescription does not become a `Schedule` fact once the plan that
+/// carries it is stored — asserted through the real extraction path, not on
+/// the predicate.
+///
+/// `is_coach_prescription` has unit tests on both of its branches, but nothing
+/// drove a schedule fact through `extract_and_persist` with `plan_was_saved`
+/// true and read the table back. The flag has exactly one producer (the chat
+/// pipeline) and nothing pinned that wiring, so a regression there would have
+/// left every unit test green while `Schedule` facts were minted again — the
+/// duplicate record this gate exists to prevent, since the plan rows are
+/// already the schedule.
+#[tokio::test]
+async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, _email) = create_test_user(&resources.coach.database)
+        .await
+        .expect("test user");
+    let repos = resources.coach.database.repositories();
+    let tenant_id = repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("tenants")
+        .first()
+        .expect("the test user has a tenant")
+        .id;
+    let user = user_id.to_string();
+
+    // The extractor names a schedule the COACH stated — the shape a
+    // prescription arrives in.
+    let extractor = Arc::new(ScriptedExtractor {
+        reply: r#"[{"kind":"schedule","predicate_code":"trains_on","object":"intervals Tuesday and Thursday","confidence":0.9,"stated_by":"coach"}]"#
+            .to_owned(),
+        seen: Mutex::new(String::new()),
+    });
+    let provider = ChatProvider::Custom(Arc::clone(&extractor) as Arc<dyn LlmProvider>);
+
+    extract_and_persist(
+        repos.memory.as_ref(),
+        &provider,
+        "SYSTEM",
+        &ExtractionRequest {
+            tenant_id,
+            user_id: &user,
+            coach_id: None,
+            pillar: None,
+            source: FactSource::Conversation,
+            source_msg_id: Some("m-prescribed"),
+            user_message: "what am I doing this week?",
+            assistant_reply: "Intervals Tuesday and Thursday, easy otherwise.",
+            force_kind: None,
+            // The plan tool ran on this turn: the weeks are the record.
+            plan_was_saved: true,
+        },
+        CONFIG,
+    )
+    .await
+    .expect("extraction succeeds");
+
+    let scheduled = repos
+        .memory
+        .list_user_facts(tenant_id, &user, None, Some(FactKind::Schedule), 50)
+        .await
+        .expect("facts listed");
+    assert!(
+        scheduled.is_empty(),
+        "the saved plan is the schedule; a fact beside it is a second copy \
+         that drifts: {scheduled:?}"
+    );
+}
+
+/// The same prescription IS kept when no plan was saved.
+///
+/// The guard is conditional and the claim it is usually written as is not: with
+/// nothing stored, the fact is the only record the athlete has. Asserting both
+/// directions through the real path is what stops the gate being "fixed" into
+/// dropping prescriptions unconditionally.
+#[tokio::test]
+async fn the_same_prescription_survives_when_no_plan_was_saved() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, _email) = create_test_user(&resources.coach.database)
+        .await
+        .expect("test user");
+    let repos = resources.coach.database.repositories();
+    let tenant_id = repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("tenants")
+        .first()
+        .expect("the test user has a tenant")
+        .id;
+    let user = user_id.to_string();
+
+    let extractor = Arc::new(ScriptedExtractor {
+        reply: r#"[{"kind":"schedule","predicate_code":"trains_on","object":"intervals Tuesday and Thursday","confidence":0.9,"stated_by":"coach"}]"#
+            .to_owned(),
+        seen: Mutex::new(String::new()),
+    });
+    let provider = ChatProvider::Custom(Arc::clone(&extractor) as Arc<dyn LlmProvider>);
+
+    extract_and_persist(
+        repos.memory.as_ref(),
+        &provider,
+        "SYSTEM",
+        &ExtractionRequest {
+            tenant_id,
+            user_id: &user,
+            coach_id: None,
+            pillar: None,
+            source: FactSource::Conversation,
+            source_msg_id: Some("m-unsaved"),
+            user_message: "what should I do this week?",
+            assistant_reply: "Intervals Tuesday and Thursday, easy otherwise.",
+            force_kind: None,
+            plan_was_saved: false,
+        },
+        CONFIG,
+    )
+    .await
+    .expect("extraction succeeds");
+
+    let scheduled = repos
+        .memory
+        .list_user_facts(tenant_id, &user, None, Some(FactKind::Schedule), 50)
+        .await
+        .expect("facts listed");
+    assert_eq!(
+        scheduled.len(),
+        1,
+        "with no plan stored the prescription is the only record of itself: \
+         {scheduled:?}"
+    );
+}

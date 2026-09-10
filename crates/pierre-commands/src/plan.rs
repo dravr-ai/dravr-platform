@@ -20,15 +20,11 @@ use pierre_memory::training_plans::{
 use pierre_messaging::commands::CommandResponse;
 use pierre_messaging::rich_text::escape_markdown;
 use pierre_services::training_plan_render::{
-    plan_goal_is_stale, resolve_plan_coach_slug, select_active_weeks, SelectedWeek,
+    plan_goal_is_stale, resolve_plan_coach_slug, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
 use std::fmt::Write as _;
 
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
-
-/// Weeks the selection may return — `/plan` never shows more than the current
-/// and next, matching the prompt-side block.
-const PLAN_WEEK_LIMIT: usize = 2;
 
 /// What the athlete asked to see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -372,7 +368,7 @@ async fn render_plan_reply(
         .training_plans
         .list_plan_weeks(&tenant, &user, &plan.id, false)
         .await?;
-    let selection = select_active_weeks(&stored, today, PLAN_WEEK_LIMIT);
+    let selection = select_active_weeks(&stored, today, ACTIVE_WEEKS);
 
     let mut body = render_header(reg, &ctx.locale, &plan, &selection.weeks, today);
     body.push_str(&render_view(

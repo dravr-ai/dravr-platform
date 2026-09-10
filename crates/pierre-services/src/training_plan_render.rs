@@ -16,7 +16,7 @@
 //! current and next microcycle in day-by-day detail. Remaining weeks are
 //! summarized as a count with a pointer to `get_training_plan`.
 
-use chrono::NaiveDate;
+use chrono::{Days, NaiveDate};
 use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{WorkoutFilter, WorkoutPurpose};
 use pierre_core::models::{TenantId, WorkoutStep};
@@ -31,8 +31,18 @@ use uuid::Uuid;
 
 use crate::coach_package::PackagedCatalogue;
 
-/// Maximum weeks rendered day-by-day (current + next).
-const MAX_WEEKS_RENDERED: usize = 2;
+/// Weeks [`select_active_weeks`] may return: the current one and the next —
+/// the fortnight the athlete acts on, and the unit `save_training_plan`
+/// writes.
+///
+/// The other half of that function's math, and public for the same reason it
+/// is: the prompt block, the plan card and `/plan` all show the athlete's
+/// fortnight, so a second copy of this number is a second fortnight waiting
+/// to disagree with the first.
+pub const ACTIVE_WEEKS: usize = 2;
+
+/// Days in a training week, for testing a phase against a week's whole span.
+const DAYS_PER_WEEK: u64 = 7;
 
 /// One week chosen by [`select_active_weeks`], with the dates it spans.
 pub struct SelectedWeek<'a> {
@@ -247,7 +257,16 @@ pub fn render_training_plan_block(
         sanitize_prompt_field(&plan.goal_race.discipline, MAX_FIELD_LEN),
         plan.goal_race.date
     );
-    for race in plan.races.iter().take(MAX_RACES_RENDERED) {
+    // Only races still ahead. The calendar now survives a re-save that says
+    // nothing about it, which is what an athlete wants and also means a race
+    // stays on the plan after it is run — presenting last spring's B races to
+    // the agent in September as things to prepare for.
+    for race in plan
+        .races
+        .iter()
+        .filter(|race| parse_plan_date(&race.date).is_none_or(|date| date >= today))
+        .take(MAX_RACES_RENDERED)
+    {
         let _ = writeln!(
             out,
             "Also on the calendar: {} ({}) on {} [{} priority]",
@@ -326,23 +345,25 @@ pub fn render_training_plan_block(
             sanitize_prompt_field(&phase.intent, MAX_FIELD_LEN)
         );
     }
-    if let Some((index, current)) = plan
-        .phases
-        .iter()
-        .enumerate()
-        .find(|(_, p)| p.covers(today))
-    {
-        out.push_str(&render_phase_header(plan, index, current, today, catalogue));
-    }
-
     // Day-by-day detail for the current and next active weeks only.
-    let selection = select_active_weeks(weeks, today, MAX_WEEKS_RENDERED);
+    let selection = select_active_weeks(weeks, today, ACTIVE_WEEKS);
+
+    // A header for every phase the rendered weeks actually touch, not only the
+    // one covering today. The block renders a fortnight, and a fortnight that
+    // crosses a phase boundary was being written against week one's targets
+    // for both weeks — the taper's cap silently applied to the last build
+    // week, or the build's applied to the first taper week.
+    for (index, phase) in plan.phases.iter().enumerate() {
+        if phase_touches_rendered_weeks(phase, &selection, today) {
+            out.push_str(&render_phase_header(plan, index, phase, today, catalogue));
+        }
+    }
     let future_weeks = selection.deferred;
     for (position, selected) in selection.weeks.iter().enumerate() {
         let week = selected.week;
         let label = selected.label();
         // `position` is 0-based; the renderer's original numbering was 1-based.
-        debug_assert!(position < MAX_WEEKS_RENDERED);
+        debug_assert!(position < ACTIVE_WEEKS);
         let focus = if week.focus.is_empty() {
             String::new()
         } else {
@@ -431,8 +452,41 @@ fn phase_marker(phase: &PlanPhase, today: NaiveDate) -> &'static str {
     }
 }
 
-/// The header for the phase running today: what it is for, how long it has
-/// left, the targets the fortnight is written against, and the catalogue
+/// Whether a phase overlaps any week the block is about to render.
+///
+/// The block shows a fortnight, so it must show the targets of every phase
+/// that fortnight runs under. A week counts as touching a phase when the
+/// phase covers any of its seven days: a week starting in build and ending in
+/// taper belongs to both, and the agent needs both caps to write it.
+///
+/// Falls back to the phase covering `today` when no rendered week parses a
+/// date, so a plan whose weeks are unreadable still shows the phase it is in
+/// rather than nothing at all.
+fn phase_touches_rendered_weeks(
+    phase: &PlanPhase,
+    selection: &WeekSelection<'_>,
+    today: NaiveDate,
+) -> bool {
+    let mut any_week_parsed = false;
+    for selected in &selection.weeks {
+        let Some(start) = parse_plan_date(&selected.week.week_start) else {
+            continue;
+        };
+        any_week_parsed = true;
+        if (0..DAYS_PER_WEEK).any(|offset| {
+            start
+                .checked_add_days(Days::new(offset))
+                .is_some_and(|day| phase.covers(day))
+        }) {
+            return true;
+        }
+    }
+    !any_week_parsed && phase.covers(today)
+}
+
+/// The header for one phase the rendered fortnight runs under — the phase
+/// covering today, and any other the fortnight reaches into: what it is for,
+/// how long it has left, the targets it is written against, and the catalogue
 /// templates that fit it — delivered platform-side every turn, so the coach
 /// never spends a tool call learning what this phase allows.
 fn render_phase_header(

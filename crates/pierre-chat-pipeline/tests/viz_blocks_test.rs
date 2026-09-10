@@ -7,27 +7,19 @@
 // Test files: allow missing_docs (rustc lint) and unwrap/expect/panic (valid in tests per CLAUDE.md).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
-use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
+use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
 use pierre_chat_pipeline::stages::prefetch::PREFETCH_TOOL;
-use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::{
     extract_viz_blocks, granted_visuals, marker, markers_intact, strip_fences, DEFAULT_VISUALS,
 };
 use pierre_chat_pipeline::stages::viz_route::RouteTracks;
+use pierre_chat_pipeline::stages::viz_schema::SchemaTexts;
 
 /// The full schema set, as production assembles it. Every test hands over the
 /// same map: compiled validators live in a process-wide `OnceLock`, so the
 /// first call in a binary decides what is registered for all of them.
 fn schemas() -> SchemaTexts {
-    [
-        (
-            "structured-workout".to_owned(),
-            STRUCTURED_WORKOUT_SCHEMA.to_owned(),
-        ),
-        ("dravr-viz".to_owned(), DRAVR_VIZ_SCHEMA.to_owned()),
-    ]
-    .into_iter()
-    .collect()
+    SchemaTexts::from([("dravr-viz".to_owned(), DRAVR_VIZ_SCHEMA.to_owned())])
 }
 
 /// Both kinds granted — the common case for the fixtures below.

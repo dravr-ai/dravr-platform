@@ -17,9 +17,9 @@
 use std::collections::BTreeMap;
 
 use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
-use pierre_chat_pipeline::stages::structured_output::{SchemaTexts, DRAVR_VIZ};
 use pierre_chat_pipeline::stages::viz_blocks::extract_viz_blocks;
 use pierre_chat_pipeline::stages::viz_route::RouteTracks;
+use pierre_chat_pipeline::stages::viz_schema::{SchemaTexts, DRAVR_VIZ};
 use serde_json::Value;
 
 fn schemas() -> SchemaTexts {

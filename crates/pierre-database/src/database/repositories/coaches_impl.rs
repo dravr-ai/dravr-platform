@@ -144,7 +144,6 @@ impl CoachesRepository for Database {
             temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
-            output_schema: None,
             purpose: request.purpose.clone(),
             when_to_use: request.when_to_use.clone(),
             instructions: request.instructions.clone(),
@@ -220,7 +219,6 @@ impl CoachesRepository for Database {
             temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
-            output_schema: None,
             purpose: request.purpose.clone(),
             when_to_use: request.when_to_use.clone(),
             instructions: request.instructions.clone(),
@@ -696,7 +694,6 @@ impl CoachesRepository for Database {
             temperature: source.temperature,
             startup_query: source.startup_query,
             data_requirements: source.data_requirements,
-            output_schema: source.output_schema,
             purpose: source.purpose,
             when_to_use: source.when_to_use,
             instructions: source.instructions,
@@ -850,7 +847,6 @@ impl CoachesRepository for Database {
             temperature: None,
             startup_query: None,
             data_requirements: None,
-            output_schema: None,
             purpose: None,
             when_to_use: None,
             instructions: None,
@@ -1093,13 +1089,12 @@ impl CoachesRepository for Database {
             Option<String>,
             Option<String>,
             Option<String>,
-            Option<String>,
             Option<i32>,
             Option<f32>,
             String,
         );
         let row: Option<Row> = sqlx::query_as(
-            r"SELECT slug, source, system_prompt, startup_query, data_requirements, output_schema, visuals, max_tool_iterations, temperature, category
+            r"SELECT slug, source, system_prompt, startup_query, data_requirements, visuals, max_tool_iterations, temperature, category
             FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
         )
         .bind(coach_id)
@@ -1114,7 +1109,6 @@ impl CoachesRepository for Database {
                 system_prompt,
                 startup_query,
                 data_requirements,
-                output_schema,
                 visuals,
                 max_tool_iterations,
                 temperature,
@@ -1126,7 +1120,6 @@ impl CoachesRepository for Database {
                     system_prompt,
                     startup_query,
                     data_requirements,
-                    output_schema,
                     visuals: split_visuals(visuals.as_deref()),
                     max_tool_iterations,
                     temperature,

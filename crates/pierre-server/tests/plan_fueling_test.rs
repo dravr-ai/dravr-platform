@@ -7,11 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! The ultra and heat builder coaches attach a `fueling_protocol` to every
-//! long session, and the platform validates it against the structured-workout
-//! schema — but until 2026-08-30 `PlannedDay` had no field for it and neither
-//! plan card rendered it, so the prescription was discarded on the way to the
-//! athlete. Each test here asserts a concrete rendered value, because the
+//! The ultra and heat builder agents prescribe fuelling on every long
+//! session — but until 2026-08-30 `PlannedDay` had no field for it and
+//! neither plan card rendered it, so the prescription was discarded on the
+//! way to the athlete. Each test here asserts a concrete rendered value, because the
 //! failure mode being guarded against is silence: a shape that parses, stores
 //! and displays nothing looks exactly like success.
 

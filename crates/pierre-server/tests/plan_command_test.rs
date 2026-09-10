@@ -204,7 +204,7 @@ async fn seed_plan_with(
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
-                races: &[],
+                races: Some(&[]),
                 strategy: "rebuild volume then sharpen",
                 phases: &blocks,
                 source_conversation_id: None,
@@ -717,7 +717,7 @@ async fn seed_future_only_plan(
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
-                races: &[],
+                races: Some(&[]),
                 strategy: "rest, then rebuild toward the A race",
                 phases: &phases,
                 source_conversation_id: None,
@@ -797,7 +797,7 @@ async fn seed_week_missing_today(
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
-                races: &[],
+                races: Some(&[]),
                 strategy: "build volume",
                 phases: &phases,
                 source_conversation_id: None,
@@ -949,7 +949,7 @@ async fn seed_expired_plan(
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
-                races: &[],
+                races: Some(&[]),
                 strategy: "taper and race",
                 phases: &phases,
                 source_conversation_id: None,

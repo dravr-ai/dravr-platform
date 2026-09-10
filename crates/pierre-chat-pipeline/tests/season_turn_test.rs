@@ -28,7 +28,7 @@ const STARTED_AT: &str = "2026-09-07T00:00:00Z";
 
 fn season_turn(topic: SeasonTopic, audience: WalkAudience) -> OnboardingTurn {
     OnboardingTurn {
-        target: GuidedTarget::Season(topic),
+        target: Some(GuidedTarget::Season(topic)),
         state: OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Season)
             .with_audience(audience),
     }

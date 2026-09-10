@@ -27,8 +27,8 @@ use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
     apply_isolation_redaction, check_reply_conformance, enforce_conformance, RosterScope,
 };
+use super::plan_block::{append_block, plan_block_for_turn};
 use super::prompt_assembly::resolve_user_persona;
-use super::structured_output;
 #[cfg(feature = "tools-verification")]
 use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
@@ -49,10 +49,8 @@ pub(crate) struct PostProcessedReply {
     /// when the verification feature is disabled.
     #[cfg(feature = "tools-verification")]
     pub pending_verdicts: Vec<(pierre_evals::ExtractedClaim, pierre_evals::VerdictOutcome)>,
-    /// Schema-validated structured payload (e.g. a workout plan) extracted
-    /// from a builder-coach reply. `Some` only when the coach declares an
-    /// `output_schema` and the reply validates against it.
-    /// Ordered visual blocks lifted out of the reply's prose, JSON-encoded.
+    /// Ordered visual blocks lifted out of the reply's prose, JSON-encoded,
+    /// plus the plan card on a turn that saved a plan.
     /// `Some` only when at least one fenced `dravr-viz` block validated; the
     /// reply text then carries a positional marker where each block sat.
     pub content_blocks: Option<String>,
@@ -85,9 +83,9 @@ pub(crate) struct PostProcessInputs<'a> {
     pub coach_ctx: Option<&'a CoachRuntimeContext>,
     pub prompt_guard: &'a prompt_leak::PromptGuard,
     /// What the turn's surface can render, plus its resolved locale. Read for
-    /// the plan-card capability that gates structured-output extraction, the
-    /// transport character ceiling the guardrails stage enforces, and the
-    /// locale every canned reply renders in.
+    /// the plan-card capability that gates the plan block, the transport
+    /// character ceiling the guardrails stage enforces, and the locale every
+    /// canned reply renders in.
     pub profile: &'a SurfaceProfile,
     /// Names of the tools that actually ran this turn. A visual block claiming
     /// a `source_tool` outside this set is rejected, which is what makes the
@@ -263,13 +261,8 @@ async fn repaired_extraction(
     // A repaired reply may name an activity the first pass never read. The
     // map is shared, so the ones it already holds cost nothing here.
     viz_route::read_route_tracks(ctx, input, granted, tools_called, &repaired, tracks).await;
-    let second = viz_blocks::extract_viz_blocks(
-        &ctx.structured_output_schemas,
-        granted,
-        tools_called,
-        tracks,
-        &repaired,
-    )?;
+    let second =
+        viz_blocks::extract_viz_blocks(&ctx.viz_schemas, granted, tools_called, tracks, &repaired)?;
     if second.blocks.len() > current.blocks.len() && second.refusals.len() < current.refusals.len()
     {
         info!(
@@ -320,7 +313,7 @@ async fn lift_viz_blocks(
     viz_route::read_route_tracks(ctx, input, granted, tools_called, &raw_content, &mut tracks)
         .await;
     let Some(mut extraction) = viz_blocks::extract_viz_blocks(
-        &ctx.structured_output_schemas,
+        &ctx.viz_schemas,
         granted,
         tools_called,
         &tracks,
@@ -480,41 +473,6 @@ pub(crate) async fn post_process_assistant_reply(
         };
     }
 
-    // Stage 15.5: Structured-output extraction. Builder coaches emit a
-    // schema-validated JSON plan, not prose — extract and validate it from the
-    // RAW reply before the prose stages below (guardrails, acronym expansion,
-    // conformance) can truncate or rewrite the JSON. On a valid plan the prose
-    // stages are skipped: the payload is rendered as a card, not glossed text.
-    // A coach that refuses replies in prose, so extraction returns `None` and
-    // the normal path runs.
-    //
-    // The plan leaves here as a `workout_plan` **block**, not on a field of its
-    // own. It used to ride `structured_content` with a separate validator and a
-    // separate extractor while charts and tables rode `content_blocks` — two
-    // rails for one idea. One rail means a client learns a single shape, and a
-    // reply could carry a plan and a chart together if a coach ever wanted it.
-    if let Some(schema_id) = coach_ctx.and_then(|c| c.output_schema.as_deref()) {
-        if let Some(extraction) = structured_output::extract_structured_plan(
-            Some(schema_id),
-            profile.render.blocks.workout_plan_card,
-            &ctx.structured_output_schemas,
-            &raw_content,
-        ) {
-            return PostProcessedReply {
-                content: extraction.cleaned_text,
-                #[cfg(feature = "tools-verification")]
-                pending_verdicts: Vec::new(),
-                content_blocks: structured_output::plan_as_block(
-                    &extraction.structured_content,
-                    schema_id,
-                ),
-                leak_replaced: false,
-                identity_leak: None,
-                verdict_chips: Vec::new(),
-            };
-        }
-    }
-
     // Stage 15.55: Inline visual blocks.
     let (raw_content, content_blocks, block_count) = lift_viz_blocks(
         ctx,
@@ -620,6 +578,15 @@ pub(crate) async fn post_process_assistant_reply(
         }
         intact
     });
+
+    // Stage 15.7: the plan card. On a turn that saved or read the athlete's
+    // plan, the reply carries a `workout_plan` block projected from what the
+    // tool stored — never from the reply's text, so nothing above could have
+    // rewritten it and no marker positions it: the card sits beside the prose.
+    let content_blocks = match plan_block_for_turn(ctx, input, conv, profile, tools_called).await {
+        Some(block) => append_block(content_blocks, block),
+        None => content_blocks,
+    };
 
     PostProcessedReply {
         content,

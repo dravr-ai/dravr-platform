@@ -162,9 +162,8 @@ fn test_manifest_round_trip() {
 /// cold-start content, no row in the admin listing, and reaches a running
 /// binary only through whatever compiled-in constant its call site reads —
 /// a rev bump plus a redeploy, while its siblings hot-reload in about a
-/// minute through the webhook. `structured_output` and `visual_blocks` — the
-/// JSON-plan and inline-chart contracts, both athlete-visible — sat outside
-/// the registry that way (carnet#312).
+/// minute through the webhook. `visual_blocks` — the inline-chart contract,
+/// athlete-visible — sat outside the registry that way (carnet#312).
 const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "activity_analysis",
     "activity_analysis_system",
@@ -178,7 +177,6 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "progression_guardrails",
     "recommendation_analysis",
     "recommendation_system",
-    "structured_output",
     "tool_discipline",
     "tool_discipline_messaging",
     "tool_discipline_shared",
@@ -220,34 +218,25 @@ fn test_every_seeded_system_prompt_has_content() {
     }
 }
 
-/// The two athlete-visible contracts resolve through the registry, so a synced
-/// edit replaces them.
+/// The athlete-visible visual contract resolves through the registry, so a
+/// synced edit replaces it.
 #[test]
-fn test_structured_output_and_visual_blocks_hot_reload() {
+fn test_visual_blocks_hot_reload() {
     let registry = PromptRegistry::new();
 
-    let compiled_structured = registry.structured_output_prompt();
     let compiled_visual = registry.visual_blocks_prompt();
-    assert!(!compiled_structured.is_empty());
     assert!(!compiled_visual.is_empty());
 
-    registry.update_system_prompt(
-        "structured_output",
-        "JSON only, no prose.".to_owned(),
-        "sha_structured".to_owned(),
-    );
     registry.update_system_prompt(
         "visual_blocks",
         "One chart, and say what it shows.".to_owned(),
         "sha_visual".to_owned(),
     );
 
-    assert_eq!(registry.structured_output_prompt(), "JSON only, no prose.");
     assert_eq!(
         registry.visual_blocks_prompt(),
         "One chart, and say what it shows."
     );
-    assert_ne!(registry.structured_output_prompt(), compiled_structured);
     assert_ne!(registry.visual_blocks_prompt(), compiled_visual);
 }
 
@@ -255,10 +244,10 @@ fn test_structured_output_and_visual_blocks_hot_reload() {
 fn test_new_registry_all_compiled_in() {
     let registry = PromptRegistry::new();
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 17);
+    assert_eq!(stats.system_count, 16);
     assert_eq!(stats.coach_count, 0);
     assert_eq!(stats.persona_count, 4);
-    assert_eq!(stats.compiled_in_count, 21);
+    assert_eq!(stats.compiled_in_count, 20);
     assert_eq!(stats.contremaitre_count, 0);
 }
 
@@ -293,7 +282,7 @@ fn test_update_system_prompt() {
 
     let stats = registry.stats();
     assert_eq!(stats.contremaitre_count, 1);
-    assert_eq!(stats.compiled_in_count, 20);
+    assert_eq!(stats.compiled_in_count, 19);
 }
 
 #[test]
@@ -360,10 +349,10 @@ fn test_stats_counts() {
     registry.update_system_prompt("pierre_system", "override".to_owned(), "sha_o".to_owned());
 
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 17);
+    assert_eq!(stats.system_count, 16);
     assert_eq!(stats.coach_count, 3, "3 per-locale coach entries");
     assert_eq!(stats.persona_count, 4);
-    assert_eq!(stats.compiled_in_count, 20);
+    assert_eq!(stats.compiled_in_count, 19);
     assert_eq!(stats.contremaitre_count, 4);
 }
 

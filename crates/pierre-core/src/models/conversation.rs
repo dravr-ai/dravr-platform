@@ -207,17 +207,10 @@ pub struct CoachRuntimeContext {
     pub startup_query: Option<String>,
     /// Optional JSON-encoded data requirements for deterministic pre-fetch
     pub data_requirements: Option<String>,
-    /// Optional structured-output schema identifier (e.g. `"structured-workout"`).
-    /// When set, the pipeline appends the structured-output contract to the
-    /// system prompt and extracts/validates/renders the emitted plan JSON.
-    pub output_schema: Option<String>,
     /// Inline visuals this coach may embed, as stored wire names
     /// (`"chart"`, `"table"`). Empty means the visual contract is never added
-    /// to the prompt, so the coach never emits a block.
-    ///
-    /// Orthogonal to [`Self::output_schema`]: that says "my whole reply is this
-    /// object", this says "I may embed these inside prose", and a reply may
-    /// carry several. Intent only — whether a visual reaches a given athlete is
+    /// to the prompt, so the coach never emits a block. A reply may carry
+    /// several. Intent only — whether a visual reaches a given athlete is
     /// decided per-channel at render time.
     #[serde(default)]
     pub visuals: Vec<String>,

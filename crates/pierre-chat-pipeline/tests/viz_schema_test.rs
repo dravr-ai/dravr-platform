@@ -9,8 +9,8 @@
 
 use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
 use dravr_contremaitre::system::VISUAL_BLOCKS as DRAVR_VIZ_DIRECTIVE;
-use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::schema_contract;
+use pierre_chat_pipeline::stages::viz_schema::SchemaTexts;
 use serde_json::{json, Value};
 
 /// Compile the shipped schema the same way the pipeline registry does — the

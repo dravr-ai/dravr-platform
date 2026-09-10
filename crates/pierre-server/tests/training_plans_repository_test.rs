@@ -129,7 +129,7 @@ fn plan_params<'a>(
         coach_slug: Some("endurance-coach"),
         goal_fact_id: Some("fact-goal-1"),
         goal_race: race,
-        races: &[],
+        races: Some(&[]),
         strategy: "rest week done; rebuild volume, then race-specific tempo, taper into Aug 8",
         flavour: None,
         season_start: None,
@@ -549,7 +549,7 @@ async fn a_coach_bound_plan_is_invisible_to_a_coachless_lookup() -> Result<()> {
 fn outline_input<'a>(race: &'a GoalRace, phases: &'a [PlanPhase]) -> PlanOutlineInput<'a> {
     PlanOutlineInput {
         goal_race: race,
-        races: &[],
+        races: Some(&[]),
         strategy: "rebuild volume, race-specific tempo, taper into Aug 8",
         flavour: None,
         season_start: None,

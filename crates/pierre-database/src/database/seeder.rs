@@ -765,9 +765,9 @@ impl SeederRepository for Database {
               sample_prompts, token_count, created_at, updated_at, is_system, visibility, \
               slug, purpose, when_to_use, instructions, example_inputs, example_outputs, \
               success_criteria, prerequisites, source_file, content_hash, startup_query, \
-              data_requirements, output_schema, visuals, source) \
+              data_requirements, visuals, source) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1, $13, \
-                     $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'contremaitre')",
+                     $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 'contremaitre')",
         )
         .bind(&coach.id)
         .bind(coach.user_id.to_string())
@@ -794,7 +794,6 @@ impl SeederRepository for Database {
         .bind(&coach.content_hash)
         .bind(&coach.startup_query)
         .bind(&coach.data_requirements)
-        .bind(&coach.output_schema)
         .bind(&coach.visuals)
         .execute(&self.pool)
         .await
@@ -813,8 +812,8 @@ impl SeederRepository for Database {
                visibility = $9, purpose = $10, when_to_use = $11, instructions = $12, \
                example_inputs = $13, example_outputs = $14, success_criteria = $15, \
                prerequisites = $16, source_file = $17, content_hash = $18, startup_query = $19, \
-               data_requirements = $20, output_schema = $21, visuals = $22, source = 'contremaitre' \
-             WHERE id = $23",
+               data_requirements = $20, visuals = $21, source = 'contremaitre' \
+             WHERE id = $22",
         )
         .bind(&coach.title)
         .bind(&coach.description)
@@ -836,7 +835,6 @@ impl SeederRepository for Database {
         .bind(&coach.content_hash)
         .bind(&coach.startup_query)
         .bind(&coach.data_requirements)
-        .bind(&coach.output_schema)
         .bind(&coach.visuals)
         .bind(&coach.id)
         .execute(&self.pool)

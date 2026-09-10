@@ -37,6 +37,8 @@ pub mod coach_create;
 pub mod discover;
 /// Transport-agnostic slash-command dispatcher — single authority for every chat surface
 pub mod dispatch;
+/// `/fortnight` — decide whether the next two weeks of the plan can be written.
+pub mod fortnight;
 /// Group coaching commands (status, invite, members, leave)
 pub mod group;
 /// Group membership commands (`/group create`, `/group join`)

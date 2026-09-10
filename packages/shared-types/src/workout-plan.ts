@@ -1,126 +1,129 @@
-// ABOUTME: TypeScript shape of the structured-workout plan emitted by builder coaches.
-// ABOUTME: Mirrors schemas/structured-workout.schema.json; consumed by the web/mobile plan cards.
+// ABOUTME: TypeScript shape of the workout_plan block — the saved plan projected for a card, never a document the model wrote.
+// ABOUTME: Mirrors pierre_services::plan_card::PlanCard; consumed by the web and mobile plan cards.
 
-/** Inclusive [min, max] pair (pace/power %, RPE, lactate mmol, etc.). */
-export type WorkoutRange = [number, number];
+/** The phase kinds the periodization kernel knows. */
+export type PlanPhaseKind =
+  | 'prep'
+  | 'base'
+  | 'build'
+  | 'specialty'
+  | 'peak'
+  | 'taper'
+  | 'race'
+  | 'transition'
+  | 'recovery';
 
-export interface WorkoutPlanWindow {
+/** Who chose the plan's flavour. */
+export type PlanSelectedBy = 'rule' | 'coach' | 'athlete';
+
+/** Which authorship tier a day's template resolved in when the day was saved. */
+export type PlanTemplateSource = 'package' | 'catalogue' | 'athlete';
+
+export interface PlanGoalRace {
+  name: string;
+  /** `YYYY-MM-DD`. */
+  date: string;
+  discipline: string;
+  priority: 'A' | 'B' | 'C';
+}
+
+export interface PlanFlavour {
+  /** Catalogue id. */
+  id: string;
+  /** The plain-words label in the athlete's locale, or the id when none exists. */
+  label: string;
+  selected_by: PlanSelectedBy;
+}
+
+/** One phase on the season timeline. */
+export interface PlanPhase {
+  kind: PlanPhaseKind;
+  /** First day, `YYYY-MM-DD`. */
   start: string;
-  end: string;
+  /** Day after the last day, `YYYY-MM-DD`. */
+  end?: string;
+  weeks: number;
+  purpose: string;
+  intent: string;
+  target_hours?: number;
+  hard_sessions_max?: number;
+  /** True for the phase covering the athlete's today. */
+  current: boolean;
 }
 
-export interface WorkoutCompliance {
-  polarization_index?: number | null;
-  z1_pct?: number;
-  z2_pct?: number;
-  z3_pct?: number;
-  weekly_tss_target?: number;
-  heat_session_count?: number;
-  active_minutes_total?: number;
-  passive_minutes_total?: number;
+/** One step of a session's structure — the one vocabulary the calendar push writes too. */
+export interface PlanStep {
+  label: string;
+  duration_seconds: number;
+  distance_meters?: number;
+  target_zone: string;
+  repeat?: number;
+  note?: string;
 }
 
-export type WorkoutBlockType =
-  | 'warmup'
-  | 'steady'
-  | 'interval'
-  | 'tempo'
-  | 'recovery'
-  | 'cooldown';
-
-export interface WorkoutBlock {
-  type: WorkoutBlockType;
-  reps: number;
-  work_min: number;
-  rest_min: number;
-  zone: number;
-  target_pct_ftp_or_pace: WorkoutRange;
-  rpe: WorkoutRange;
-  target_hr_pct_max?: WorkoutRange;
-}
-
-/**
- * Per-session fuelling target. Mirrors `$defs.FuelingProtocol` in
- * structured-workout.schema.json, where all three rates are required.
- * `sodium_mg_per_h` is an estimated sweat loss, never a required intake.
- */
-export interface FuelingProtocol {
+export interface PlanFueling {
   carbs_g_per_h: number;
   fluid_ml_per_h: number;
-  sodium_mg_per_h: number;
-  carb_source?: string;
+  sodium_mg_per_h?: number;
 }
 
-/**
- * Fluid-only variant carried by heat sessions. Mirrors
- * `$defs.FluidProtocol`, which omits the carbohydrate rate.
- */
-export interface FluidProtocol {
-  fluid_ml_per_h: number;
-  sodium_mg_per_h: number;
+export interface PlanDay {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  sport: string;
+  workout: string;
+  duration_min?: number;
+  intensity: string;
+  rest: boolean;
+  steps?: PlanStep[];
+  fueling?: PlanFueling;
+  template_slug?: string;
+  template_source?: PlanTemplateSource;
 }
 
-export interface WorkoutSession {
-  name: string;
-  duration_min: number;
-  intensity_factor: number;
-  tss_estimate: number;
-  blocks: WorkoutBlock[];
-  lactate_target_mmol?: WorkoutRange;
-  pace_power_target_pct?: WorkoutRange;
-  hr_cap_bpm_over_lt?: number;
-  fueling_protocol?: FuelingProtocol;
-  fluid_protocol?: FluidProtocol;
+export interface PlanWeek {
+  /** Monday, `YYYY-MM-DD`. */
+  week_start: string;
+  focus: string;
+  phase_index?: number;
+  /** True when the athlete's today falls in this week. */
+  current: boolean;
+  days: PlanDay[];
 }
 
-export type WorkoutDayName = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
-
-export interface WorkoutDay {
-  day: WorkoutDayName;
-  session: WorkoutSession | null;
-  am_pm_split?: boolean;
-  pm_session?: WorkoutSession;
-}
-
-export interface WorkoutWeek {
-  week_index: number;
-  ctl_target?: number;
-  days: WorkoutDay[];
-  gut_training_progression?: string[];
-}
-
-/**
- * A structured training plan. Required fields mirror the schema's `required`
- * list; coach-specific fields (lactate, taper, heat, ultra) are optional.
- */
+/** The card: the season and the fortnight the athlete acts on. */
 export interface WorkoutPlan {
-  plan_window: WorkoutPlanWindow;
-  rationale: string;
-  compliance: WorkoutCompliance;
-  weeks: WorkoutWeek[];
-  evidence_refs: string[];
-  lactate_targets_mmol?: { LT1: WorkoutRange; LT2: WorkoutRange };
-  lactate_fallback_mode?: 'lactate' | 'pace_power' | 'hr_cap';
-  easy_volume_floor_pct?: number;
+  goal_race: PlanGoalRace;
+  /** The other races on the calendar, in the order the outline stores them. */
+  races?: PlanGoalRace[];
+  season_start?: string;
+  season_end?: string;
+  flavour?: PlanFlavour;
+  phases: PlanPhase[];
+  current_phase_index?: number;
+  weeks: PlanWeek[];
+  /** Future weeks the plan holds beyond `weeks`. */
+  weeks_deferred: number;
 }
 
 /**
- * Parse a `Message.structured_content` JSON string into a `WorkoutPlan`.
- * Returns `null` when the payload is absent or not a well-formed plan object,
- * so callers fall back to rendering the raw text.
+ * Parse a `workout_plan` block's `plan` JSON into a `WorkoutPlan`.
+ * Returns `null` when the payload is absent or not a well-formed card, so
+ * callers render nothing rather than a broken card.
  */
-export function parseWorkoutPlan(structuredContent: string | undefined): WorkoutPlan | null {
-  if (!structuredContent) {
+export function parseWorkoutPlan(planJson: string | undefined): WorkoutPlan | null {
+  if (!planJson) {
     return null;
   }
   try {
-    const parsed = JSON.parse(structuredContent) as Partial<WorkoutPlan>;
+    const parsed = JSON.parse(planJson) as Partial<WorkoutPlan>;
     if (
       parsed &&
       typeof parsed === 'object' &&
-      parsed.plan_window &&
-      Array.isArray(parsed.weeks) &&
-      parsed.weeks.length > 0
+      parsed.goal_race &&
+      typeof parsed.goal_race.name === 'string' &&
+      Array.isArray(parsed.phases) &&
+      Array.isArray(parsed.weeks)
     ) {
       return parsed as WorkoutPlan;
     }

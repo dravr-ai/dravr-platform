@@ -60,7 +60,6 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
     let data_requirements_json: Option<String> = row.try_get("data_requirements").ok().flatten();
     let data_requirements: Option<DataRequirements> =
         data_requirements_json.and_then(|json| serde_json::from_str(&json).ok());
-    let output_schema: Option<String> = row.try_get("output_schema").ok().flatten();
 
     // Structured sections (nullable columns populated by seeder or structured API)
     let purpose: Option<String> = row.try_get("purpose").ok().flatten();
@@ -102,7 +101,6 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         temperature,
         startup_query,
         data_requirements,
-        output_schema,
         purpose,
         when_to_use,
         instructions,

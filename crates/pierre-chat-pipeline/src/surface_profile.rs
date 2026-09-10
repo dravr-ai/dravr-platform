@@ -135,9 +135,10 @@ pub struct BlockSupport {
     /// The surface fetches and shows a rasterised chart from a URL. What a
     /// messaging channel offers instead of an inline Scene.
     pub scene_raster: bool,
-    /// A schema-validated workout plan renders as a card, so the coach may be
-    /// handed the JSON-only output contract and the reply's JSON may be
-    /// lifted out of the prose.
+    /// The athlete's stored training plan renders as a card, so a turn that
+    /// saved or read one carries the platform's `workout_plan` block. The
+    /// model never writes that block; when this is false it is simply not
+    /// produced.
     pub workout_plan_card: bool,
     /// `get_activities` output renders as its own "Your Activities" panel
     /// above the coach's analysis. When false the egress must prepend the

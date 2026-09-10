@@ -250,7 +250,7 @@ mod slack_room {
                 goal_fact_id: None,
                 outline: Some(PlanOutlineInput {
                     goal_race: &goal,
-                    races: &[],
+                    races: Some(&[]),
                     strategy: "rebuild volume then sharpen",
                     flavour: None,
                     season_start: None,

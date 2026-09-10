@@ -39,8 +39,8 @@ use crate::conversions::{
     tool_result_to_response,
 };
 use crate::implementations::endurance_workouts_output::{
-    PrescribeWorkoutResult, TemplateFit, WithdrawWorkoutResult, WorkoutTemplateFilters,
-    WorkoutTemplateRow, WorkoutTemplateSummary, WorkoutTemplatesResult,
+    PrescribeWorkoutResult, TemplateFit, TemplateProgression, WithdrawWorkoutResult,
+    WorkoutTemplateFilters, WorkoutTemplateRow, WorkoutTemplateSummary, WorkoutTemplatesResult,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -487,6 +487,10 @@ fn summary_row(template: &WorkoutTemplate) -> AppResult<WorkoutTemplateSummary> 
             readiness_min: template.fit.readiness_min,
             max_per_week: template.fit.max_per_week,
             min_spacing_hours: template.fit.min_spacing_hours,
+        },
+        progression: TemplateProgression {
+            order: template.progression.order.clone(),
+            max_weekly_step: template.progression.max_weekly_step,
         },
         is_compiled_in: template.is_compiled_in,
     })

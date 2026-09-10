@@ -14,6 +14,9 @@
 //! is empty permanently. `scope` says so in words next to the emptiness, and
 //! it is part of the declared shape for that reason rather than a nicety.
 
+use std::collections::BTreeSet;
+
+use pierre_core::models::periodization::{ReadinessLevel, SubstitutionVerdict, TrainingAlert};
 use pierre_core::models::CalendarEventSource;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 use pierre_services::plan_calendar_push::PushPreview;
@@ -44,6 +47,78 @@ pub struct GetTrainingPlanResult {
     pub goal_stale: Option<bool>,
     /// What Dravr has on the athlete's calendar provider.
     pub calendar: CalendarBlock,
+    /// What the two rails make of the plan as it stands. Present only when
+    /// the caller asked for it — reading it costs three history queries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<PlanStateBlock>,
+}
+
+/// What the readiness and compliance rails say about the plan as it stands.
+///
+/// Both rails have measured every save since they shipped and reported into
+/// a log line no agent reads. This is the same verdict, handed to the agent
+/// that has to act on it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PlanStateBlock {
+    /// The readiness level the athlete's signals clear: `p0` block, `p1`
+    /// caution, `p2` maintain, `p3` build. Absent when the plan carries no
+    /// flavour, since the ladder is per-flavour data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<ReadinessLevel>,
+    /// The alert labels the athlete's series raised, from the taxonomy the
+    /// agent bodies already describe. Empty means none raised, which covers
+    /// both measured-and-fine and not-measurable.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub alerts: BTreeSet<TrainingAlert>,
+    /// Per week, what the readiness level no longer allows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub readiness_weeks: Vec<WeekReadiness>,
+    /// Per week, how the week measures against its phase.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compliance_weeks: Vec<WeekComplianceBlock>,
+    /// Where the stored weeks stop covering what the outline promised:
+    /// `uncovered_today` when no week spans the athlete's today,
+    /// `short_of_outline` when the weeks stop before the last phase ends.
+    /// Empty means the plan covers what it said it would — this is the signal
+    /// that a fortnight needs writing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coverage_gaps: Vec<String>,
+}
+
+/// The kernel's readiness verdict for one week, with the week named.
+///
+/// A pair would serialise positionally — `["2026-09-16", {...}]` — and an
+/// agent reading that has to know which slot is which. The verdict is
+/// flattened rather than copied field by field, so the kernel stays the one
+/// definition of what a substitution is.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct WeekReadiness {
+    /// Monday, `YYYY-MM-DD`.
+    pub week_start: String,
+    /// What the level allows and what it refuses, from the kernel.
+    #[serde(flatten)]
+    pub verdict: SubstitutionVerdict,
+}
+
+/// One week against its phase's targets.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct WeekComplianceBlock {
+    /// Monday, `YYYY-MM-DD`.
+    pub week_start: String,
+    /// Time in zone against the phase's target: `within`, `off` or
+    /// `unmeasured`.
+    pub tid: String,
+    /// Hard-session count against the cap.
+    pub hard_sessions: String,
+    /// Hours between hard sessions.
+    pub spacing: String,
+    /// Hours against the phase's volume target.
+    pub volume: String,
+    /// Whether the week is a load week, a recovery week, or a recovery week
+    /// measured against the full target because no cut was on file.
+    pub week_loading: String,
+    /// Days the grammar could place no time for.
+    pub unclassified_days: u8,
 }
 
 /// What `save_training_plan` answers with.

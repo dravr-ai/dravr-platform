@@ -32,8 +32,8 @@ use tracing::warn;
 
 use std::sync::Arc;
 
-use super::structured_output::SchemaTexts;
 use super::viz_blocks::{next_fence, validated_block, FENCE_INFO};
+use super::viz_schema::SchemaTexts;
 use crate::{ChatPipelineContext, TurnInput};
 
 /// The block kind whose geometry the platform reads on the coach's behalf.
@@ -339,11 +339,10 @@ pub async fn read_route_tracks(
     if !granted.iter().any(|kind| kind == ROUTE_KIND) {
         return;
     }
-    let wanted: Vec<String> =
-        route_activity_ids(&ctx.structured_output_schemas, granted, tools_called, reply)
-            .into_iter()
-            .filter(|activity_id| !tracks.contains_key(activity_id))
-            .collect();
+    let wanted: Vec<String> = route_activity_ids(&ctx.viz_schemas, granted, tools_called, reply)
+        .into_iter()
+        .filter(|activity_id| !tracks.contains_key(activity_id))
+        .collect();
     if wanted.is_empty() {
         return;
     }

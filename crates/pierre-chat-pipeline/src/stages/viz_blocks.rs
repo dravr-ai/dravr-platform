@@ -6,10 +6,10 @@
 
 //! Inline visual blocks.
 //!
-//! The workout-plan path in [`super::structured_output`] is *whole-reply
-//! replacement*: the agent emits one JSON object and nothing else. Visual
-//! blocks are the other content model — embedded in prose, several per reply —
-//! so they need their own extraction rather than a second schema on that path.
+//! Visual blocks are embedded in prose, several per reply, each a fenced
+//! span the model writes; the plan card on the same `content_blocks` array
+//! is the other content model — a projection of the saved plan the platform
+//! writes, never text the model produced.
 //!
 //! A block is a fenced code span with the `dravr-viz` info string. The outer
 //! fence here is four backticks so the three-backtick fences it contains stay
@@ -47,7 +47,7 @@ use super::viz_route::{hydrate_route, RouteTracks};
 use serde_json::Value;
 use tracing::warn;
 
-use super::structured_output::{validator_for, SchemaTexts, DRAVR_VIZ};
+use super::viz_schema::{validator_for, SchemaTexts, DRAVR_VIZ};
 
 /// What a conversation with no agent persona bound may draw.
 ///
@@ -679,7 +679,7 @@ fn branch_validators(schemas: &SchemaTexts) -> &'static BTreeMap<String, jsonsch
         let Ok(mut schema) = serde_json::from_str::<Value>(text) else {
             return compiled;
         };
-        // Same reason as structured_output::compile: leaving these in makes the
+        // Same reason as viz_schema::compile: leaving these in makes the
         // validator reach for the draft meta-schema over the network.
         if let Some(obj) = schema.as_object_mut() {
             obj.remove("$schema");

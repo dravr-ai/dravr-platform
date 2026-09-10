@@ -1,5 +1,5 @@
 // ABOUTME: The compliance rail's platform half — a saved week resolved into the kernel's inputs, measured, reported
-// ABOUTME: Log-only: every verdict is a training_plan.week_assessed event; nothing here warns the agent or refuses a save
+// ABOUTME: Log-only: every verdict is a training_plan.week_assessed event, handed back only to an agent that asks; nothing refuses a save
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,7 +16,9 @@
 //!
 //! Log-only is the ledger's first phase (`feature-phases.yaml`,
 //! `training-plan-week-compliance-rail`): the verdict is data for the
-//! base-rate measurement, and nothing downstream reads it yet.
+//! base-rate measurement, and the only reader is an agent that asks for it —
+//! `get_training_plan` with `include_state`. Nothing warns unasked, and
+//! nothing refuses a save.
 
 use pierre_core::models::periodization::{
     assess_week_compliance, PhaseTargets, PlannedSession, RecoverySpeed, SessionParams, WeekInput,
@@ -33,19 +35,26 @@ use uuid::Uuid;
 
 use crate::runtime::ToolRuntime;
 
-/// Measure every week of the plan and report the ones this save wrote.
+/// Measure the weeks in `saved` against their phases, and return each verdict.
+///
+/// The walk covers the whole plan in date order, because one week's last hard
+/// day bounds the next week's first gap; only the weeks in `saved` come back,
+/// each paired with its `week_start` — the ones a save just wrote, or the
+/// active ones a read asked about. Returning them rather than only logging
+/// them is what lets `get_training_plan` hand the same verdict to the agent
+/// that has to act on it.
 ///
 /// Best-effort and after the commit, like the ramp check: an unreadable
 /// store logs and returns, never fails the save. Weeks whose `week_start`
 /// does not parse are skipped, since they cannot be ordered.
-pub(super) async fn emit_week_compliance(
+pub(super) async fn assess_saved_weeks(
     state: &Arc<dyn ToolRuntime>,
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
     plan: &TrainingPlan,
     saved: &[PlanWeek],
-) {
+) -> Vec<(String, WeekVerdict)> {
     let tenant_id = tenant.to_string();
     let user = user_id.to_string();
     let mut weeks = match repos
@@ -56,7 +65,7 @@ pub(super) async fn emit_week_compliance(
         Ok(weeks) => weeks,
         Err(e) => {
             warn!(error = %e, "week compliance: plan weeks unreadable");
-            return;
+            return Vec::new();
         }
     };
     weeks.retain(|w| parse_plan_date(&w.week_start).is_some());
@@ -94,12 +103,18 @@ pub(super) async fn emit_week_compliance(
     let skeletons = catalogue.skeletons();
     let reported: Vec<&str> = saved.iter().map(|w| w.id.as_str()).collect();
 
+    let mut assessed = Vec::new();
     let mut previous_hard = None;
     for week in &weeks {
         let phase = week
             .phase_index
             .and_then(|i| usize::try_from(i).ok())
             .and_then(|i| plan.phases.get(i));
+        // A recovery week is a position, not a flag: the phase states its
+        // loading pattern and names the skeleton whose cut applies, and the
+        // week's own start says where in the cycle it falls. A phase laid out
+        // without a pattern has no recovery week to find, and every week is
+        // measured against the full target.
         let targets = PhaseTargets {
             kind: phase.map(|p| p.kind),
             tid_target: phase.and_then(|p| p.tid_target.as_ref()),
@@ -121,6 +136,7 @@ pub(super) async fn emit_week_compliance(
                 .and_then(|id| skeletons.iter().find(|s| s.id == id))
                 .map(|s| s.recovery_week_cut),
         };
+        let week_index_in_phase = phase.and_then(|p| week_index_in_phase(p, &week.week_start));
         let sessions: Vec<PlannedSession<'_>> = week
             .days
             .iter()
@@ -145,17 +161,6 @@ pub(super) async fn emit_week_compliance(
                 })
             })
             .collect();
-        // 0-based position inside the phase, taken from the calendar rather
-        // than from this week's position in the vector: the saved weeks are
-        // whatever the athlete has, so counting them would make a phase whose
-        // first weeks were never written start at its third. Both dates parse
-        // or the position is unknown, which the kernel reads as a load week.
-        let week_index_in_phase = phase
-            .and_then(PlanPhase::start_date)
-            .zip(parse_plan_date(&week.week_start))
-            .map(|(phase_start, week_start)| (week_start - phase_start).num_days() / 7)
-            .filter(|weeks| *weeks >= 0)
-            .and_then(|weeks| u8::try_from(weeks).ok());
         let verdict = assess_week_compliance(&WeekInput {
             sessions: &sessions,
             previous_hard,
@@ -166,9 +171,47 @@ pub(super) async fn emit_week_compliance(
         });
         previous_hard = verdict.hard_days.last().copied().or(previous_hard);
         if reported.contains(&week.id.as_str()) {
-            emit_week_assessed(&plan.id, &week.week_start, &verdict);
+            assessed.push((week.week_start.clone(), verdict));
         }
     }
+    assessed
+}
+
+/// Measure the saved weeks and report each verdict, on the save path.
+pub(super) async fn emit_week_compliance(
+    state: &Arc<dyn ToolRuntime>,
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: Uuid,
+    plan: &TrainingPlan,
+    saved: &[PlanWeek],
+) {
+    for (week_start, verdict) in
+        assess_saved_weeks(state, repos, tenant, user_id, plan, saved).await
+    {
+        emit_week_assessed(&plan.id, &week_start, &verdict);
+    }
+}
+
+/// Which week of its phase this week is, 0-based, counted from the phase's own
+/// start date rather than from this week's position in the saved vector.
+///
+/// The distinction matters: the saved weeks are whatever the athlete actually
+/// has, so counting them would make a phase whose first weeks were never
+/// written start at its third — and a recovery week is a *position*, so that
+/// would move it.
+///
+/// `None` when either date does not parse or the week starts before its phase.
+/// The caller then measures against the full target rather than guessing a
+/// position, which the kernel reads as a load week.
+fn week_index_in_phase(phase: &PlanPhase, week_start: &str) -> Option<u8> {
+    let start = phase.start_date()?;
+    let week = parse_plan_date(week_start)?;
+    let days = (week - start).num_days();
+    if days < 0 {
+        return None;
+    }
+    u8::try_from(days / 7).ok()
 }
 
 /// Every template the plan's days name, resolved once: the package, then
@@ -228,6 +271,7 @@ fn emit_week_assessed(plan_id: &str, week_start: &str, verdict: &WeekVerdict) {
         spacing = verdict.spacing_outcome().as_str(),
         template_ranges = verdict.template_ranges.len(),
         volume = verdict.volume_outcome().as_str(),
+        week_loading = verdict.week_loading.as_str(),
         unclassified_days = verdict.unclassified_days,
         hard_days = verdict.hard_days.len(),
         detail = %detail,

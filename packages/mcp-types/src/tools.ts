@@ -672,7 +672,7 @@ export interface EstimateVo2maxParams {
   /** Age in years. rockport_walk needs it; when omitted the stored profile age is used. */
   age?: number;
 
-  /** cooper_test: metres covered in 12 minutes on flat ground. */
+  /** cooper_test: metres covered in 12 minutes on flat ground. race_result: the race distance in metres (5 km is 5000). */
   distance_meters?: number;
 
   /** rockport_walk and astrand_ryhming: the sex the published equation was fitted on, female or male. */
@@ -684,7 +684,7 @@ export interface EstimateVo2maxParams {
   /** from_pace: the fastest speed in metres per second the athlete can hold for 3–8 minutes. */
   max_speed_ms?: number;
 
-  /** Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot. cooper_test: distance run in 12 minutes. rockport_walk: a timed one-mile walk with heart rate at the finish. astrand_ryhming: steady-state cycling at a known power with heart rate. from_pace: a hard 3–8 minute speed and an easy speed. from_vdot: a VDOT the athlete already knows. */
+  /** Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot. cooper_test: distance run in 12 minutes. rockport_walk: a timed one-mile walk with heart rate at the finish. astrand_ryhming: steady-state cycling at a known power with heart rate. from_pace: a hard 3–8 minute speed and an easy speed. from_vdot: a VDOT the athlete already knows. race_result: a race or time trial the athlete ran — its distance and its time. */
   method: string;
 
   /** astrand_ryhming: the steady power held on the ergometer, in watts. */
@@ -693,7 +693,7 @@ export interface EstimateVo2maxParams {
   /** from_pace: the athlete's easy or recovery speed in metres per second. */
   recovery_speed_ms?: number;
 
-  /** rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible. */
+  /** rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible. race_result: the finishing time in seconds (19:30 is 1170). */
   time_seconds?: number;
 
   /** from_vdot: the VDOT value, 30–85. It is already VO2max in ml/kg/min, so this reports it after range-checking. */
@@ -1089,6 +1089,9 @@ export interface GetTrainingPlanParams {
 
   /** Include superseded week versions (the adjustment audit trail). */
   include_history?: boolean;
+
+  /** Include what the readiness and compliance rails make of the plan as it stands: the athlete's readiness level and the alerts behind it, the days that level no longer allows, how each week measures against its phase, and where the stored weeks stop covering the outline. Ask for it before adjusting or extending a plan; leave it off for 'what am I doing this week', since it costs roughly a dozen extra reads across the training history, recovery, sleep and template stores. */
+  include_state?: boolean;
 }
 
 
@@ -1676,7 +1679,7 @@ export interface SaveTrainingPlanParams {
   weeks: number;
 }[];
 
-  /** Other races on the calendar (B/C priorities). */
+  /** The rest of the race calendar. An A race here becomes a second peak the season is laid on, with a transition after the first; B and C races are carried for context. Omit the field to keep the calendar already stored; send an empty array to clear it. */
   races?: {
 
   /** Race date, YYYY-MM-DD. */

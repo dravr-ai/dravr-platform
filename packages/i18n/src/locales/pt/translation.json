@@ -513,7 +513,6 @@
     "pasteProviderClientSecret": "Cola o teu segredo de cliente {{provider}}",
     "pasteProviderClientSecretLower": "cola o teu segredo de cliente {{provider}}",
     "paymentProblem": "Problema de pagamento — é necessária ação",
-    "pctOfThreshold": "{{value}} do limiar",
     "peerCompareBlurb": "Permite comparar entre si os membros que consentirem.",
     "peerDataSharing": "Partilha de dados entre pares",
     "pendingApprovalTitle": "Conta a aguardar aprovação",
@@ -956,7 +955,6 @@
     "detectorFindings": "O que o detetor encontrou",
     "dismiss": "Dispensar",
     "dismissWarning": "Dispensar o aviso",
-    "easyFloor": "Mínimo fácil",
     "editAgent": "Editar agente",
     "editAgentTitle": "Editar agente",
     "emptyStateBody": "O teu agente lê o teu treino e responde aqui. Escolhe uma conversa à esquerda ou começa uma nova.",
@@ -981,7 +979,6 @@
     "fromChannel": "Via {{channel}}",
     "fuelCarbs": "{{value}} g/h de hidratos",
     "fuelFluid": "{{value}} ml/h de líquido",
-    "fuelGutTraining": "Treino digestivo",
     "fuelLabel": "Abastecimento",
     "fuelSodiumLoss": "~{{value}} mg/h de sódio perdido",
     "generateInsight": "Gerar análise",
@@ -1102,7 +1099,6 @@
     "verdictsCount": "{{count}} vereditos",
     "verdictsLoading": "A carregar os vereditos…",
     "verdictsTitle": "Vereditos sobre esta resposta",
-    "weeklyTss": "TSS semanal",
     "whatItDoesSection": "O que faz"
   },
   "commands": {
@@ -1186,6 +1182,18 @@
     },
     "discover-install": {
       "description": "Instalar um agente do catálogo pelo seu @handle"
+    },
+    "fortnight": {
+      "arm_failed": "Não consegui preparar o turno de redação agora, por isso não comecei as duas semanas. Pede-me outra vez e retomo.",
+      "blocked": "A tua prontidão está em bloco neste momento: só recuperação. Escrever duas semanas de treino por cima seria a resposta errada — vamos falar primeiro do que está a causar isso.",
+      "covered": "O teu plano já cobre a próxima quinzena — nada a acrescentar. Pede-me para ajustar uma semana se algo tiver de mudar.",
+      "description": "Escrever as duas próximas semanas — a plataforma verifica se o teu plano está a acabar e se tem fases contra as quais escrever, e depois o teu agente redige a quinzena e verifica a tua prontidão antes de a guardar",
+      "no_phases": "O teu plano não tem fases, por isso não há nada contra o que escrever as duas próximas semanas. Define a época e retomo a partir daí.",
+      "no_plan": "Ainda não há um plano ativo para prolongar. Define primeiro uma época e eu escrevo as quinzenas sobre ela.",
+      "recheck_landed": "As duas próximas semanas estão no teu plano. Diz-me quando quiseres se alguma sessão precisar de mudar.",
+      "recheck_missing": "Ainda não vejo as duas semanas guardadas no teu plano. Pede-mas outra vez e eu escrevo-as.",
+      "walk_running": "Estás a meio de um percurso guiado — vamos terminá-lo primeiro e escrevo a próxima quinzena logo a seguir.",
+      "writing": "O teu plano está a acabar e tem as fases necessárias. Vou redigir as próximas {0} semanas — verifico a tua prontidão antes de as guardar."
     },
     "group": {
       "consent_updated": "Partilhar os teus dados com os outros membros de {1} está agora {0}.",
@@ -1522,7 +1530,6 @@
     "couldntLoadStore": "Não foi possível carregar a loja",
     "couldntSearchAgents": "Não foi possível pesquisar agentes",
     "couldntStartThe": "Não foi possível iniciar o",
-    "ctlTarget": "Objetivo de CTL",
     "dailyLimitsResetAt": "Os limites diários reiniciam às",
     "errorLabel": "Erro:",
     "examplesLabel": "Exemplos:",
@@ -1546,7 +1553,6 @@
     "perDay": "por dia",
     "perDayN": "{{count}} por dia",
     "perDayOne": "1 por dia",
-    "polarization": "Polarização",
     "preparingYour": "A preparar o teu",
     "purposeLabel": "Objetivo:",
     "qrCodeFor": "Código QR para ligar com {{app}}",
@@ -1562,9 +1568,7 @@
     "used": "Usado",
     "verdictEmitted": "Veredicto emitido",
     "waitingForYouIn": "A aguardar que termines em",
-    "week": "Semana",
-    "your": "O teu",
-    "zones": "Zonas"
+    "your": "O teu"
   },
   "groups": {
     "activeInvitesCount": "Convites ativos ({{n}})",
@@ -2118,7 +2122,44 @@
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
-    "starter": "Starter"
+    "starter": "Starter",
+    "card": {
+      "goalRace": "Prova-alvo",
+      "approach": "Abordagem",
+      "season": "Temporada",
+      "now": "agora",
+      "weeksShort": "{{count}} sem",
+      "thisWeek": "Esta semana",
+      "nextWeek": "Próxima semana",
+      "weekOf": "Semana de {{date}}",
+      "moreWeeks": "{{count}} semanas a mais no plano",
+      "hardPerWeek": "{{count}} fortes/sem",
+      "hoursPerWeek": "{{hours}} h/sem",
+      "steps": "Passos",
+      "template": "Modelo",
+      "source": {
+        "package": "um modelo próprio deste agente",
+        "catalogue": "catálogo",
+        "athlete": "a tua própria sessão"
+      },
+      "phase": {
+        "prep": "Preparação",
+        "base": "Base",
+        "build": "Construção",
+        "specialty": "Específica",
+        "peak": "Pico",
+        "taper": "Descarga",
+        "race": "Prova",
+        "transition": "Transição",
+        "recovery": "Recuperação"
+      },
+      "selectedBy": {
+        "rule": "escolhida pela regra",
+        "coach": "escolhida pelo teu treinador humano",
+        "athlete": "escolhida por ti"
+      },
+      "alsoRacing": "Também no calendário"
+    }
   },
   "profile": {
     "accountStatus": "Estado da conta",

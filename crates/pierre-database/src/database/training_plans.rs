@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
+use pierre_memory::training_plans::{GoalRace, PlanWeek, TrainingPlan};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;
@@ -90,7 +90,7 @@ fn map_col(column: &'static str) -> impl Fn(sqlx::Error) -> AppError {
 
 const SUPERSEDE_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans SET status = 'superseded', \
      updated_at = ?1 WHERE tenant_id = ?2 AND user_id = ?3 AND coach_slug = ?4 \
-     AND status = 'active' RETURNING id";
+     AND status = 'active' RETURNING id, races_json";
 
 const INSERT_PLAN_SQL: &str = "INSERT INTO training_plans (id, tenant_id, user_id, coach_slug, \
      goal_fact_id, goal_race_json, races_json, strategy, phases_json, status, supersedes_id, \
@@ -164,7 +164,7 @@ async fn supersede_and_insert_plan(
     params: &SaveTrainingPlanParams<'_>,
 ) -> AppResult<TrainingPlan> {
     let v = plan_insert_values(params)?;
-    let superseded: Option<String> = sqlx::query_scalar(SUPERSEDE_ACTIVE_PLAN_SQL)
+    let replaced = sqlx::query(SUPERSEDE_ACTIVE_PLAN_SQL)
         .bind(v.now)
         .bind(params.tenant_id)
         .bind(params.user_id)
@@ -172,6 +172,36 @@ async fn supersede_and_insert_plan(
         .fetch_optional(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("supersede active plan: {e}")))?;
+    // Split the superseded row into the id the weeks are re-parented onto and
+    // the calendar the new row inherits when this save states none.
+    let superseded: Option<String> = replaced
+        .as_ref()
+        .map(|row| row.try_get("id"))
+        .transpose()
+        .map_err(|e| AppError::database(format!("superseded plan id: {e}")))?;
+    // The calendar crosses the supersede the way the weeks do, and for the
+    // same reason: the new row is a different row, so anything the payload
+    // does not restate has to be carried or it is lost. Carried verbatim as
+    // JSON — it was validated when it was first stated, and re-encoding it
+    // would only invent a way for the two rows to disagree.
+    let carried_races: Option<String> = replaced
+        .as_ref()
+        .map(|row| row.try_get("races_json"))
+        .transpose()
+        .map_err(|e| AppError::database(format!("superseded plan races_json: {e}")))?;
+    let races_json = v
+        .races_json
+        .clone()
+        .or(carried_races)
+        .unwrap_or_else(|| "[]".to_owned());
+    // What the returned plan says it holds must be what the row now holds,
+    // carried calendar included — a caller that read the payload back would
+    // otherwise be told the calendar is empty on the very save that kept it.
+    let written_races: Vec<GoalRace> = match params.races {
+        Some(races) => races.to_vec(),
+        None => serde_json::from_str(&races_json)
+            .map_err(|e| AppError::database(format!("carried races_json: {e}")))?,
+    };
     sqlx::query(INSERT_PLAN_SQL)
         .bind(&v.id)
         .bind(params.tenant_id)
@@ -179,7 +209,7 @@ async fn supersede_and_insert_plan(
         .bind(&v.coach_slug)
         .bind(params.goal_fact_id)
         .bind(&v.goal_race_json)
-        .bind(&v.races_json)
+        .bind(&races_json)
         .bind(params.strategy)
         .bind(&v.phases_json)
         .bind(superseded.as_deref())
@@ -212,7 +242,7 @@ async fn supersede_and_insert_plan(
         coach_slug: params.coach_slug,
         goal_fact_id: params.goal_fact_id,
         goal_race: params.goal_race,
-        races: params.races,
+        races: &written_races,
         strategy: params.strategy,
         flavour: params.flavour,
         season_start: params.season_start,
