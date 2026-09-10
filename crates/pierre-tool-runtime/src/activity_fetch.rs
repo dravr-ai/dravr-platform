@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
 
-use chrono::{Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, TenantId};
@@ -804,14 +804,66 @@ pub(crate) async fn write_through_activity_cache(
         }
     };
     let cutoff = Utc::now() - Duration::days(retention_days);
-    if let Err(e) = cache
+    prune_and_realign_coverage(cache.as_ref(), user_id, tenant_id, provider, cutoff).await;
+    stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
+    Some(persisted)
+}
+
+/// Prune below `cutoff`, then raise any coverage floor the prune just falsified.
+///
+/// The two writes belong together: a prune that removed rows has deleted
+/// exactly what a deeper coverage record vouches for, and a claim left standing
+/// makes the historical gate serve the now-shallow cache as a complete window
+/// without calling a provider. Best-effort throughout — retention is not worth
+/// failing a fetch over, and a clamp that fails costs one stale claim, which
+/// the next prune retries.
+async fn prune_and_realign_coverage(
+    cache: &dyn ActivityCacheRepository,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    cutoff: DateTime<Utc>,
+) {
+    match cache
         .prune_activities_before(user_id, &tenant_id, cutoff)
         .await
     {
-        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
+        Ok(0) => {}
+        Ok(pruned) => {
+            realign_coverage_floor(cache, user_id, tenant_id, provider, cutoff, pruned).await;
+        }
+        Err(e) => {
+            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
+        }
     }
-    stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
-    Some(persisted)
+}
+
+/// Raise coverage floors the prune just falsified. Best-effort: a failed clamp
+/// costs one stale claim, which the next prune retries.
+async fn realign_coverage_floor(
+    cache: &dyn ActivityCacheRepository,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    cutoff: DateTime<Utc>,
+    pruned: u64,
+) {
+    match cache
+        .clamp_backfill_coverage(user_id, &tenant_id, cutoff)
+        .await
+    {
+        Ok(0) => {}
+        Ok(clamped) => info!(
+            user_id = %user_id,
+            provider = %provider,
+            pruned,
+            clamped,
+            "Activity cache: prune raised backfill coverage floors"
+        ),
+        Err(e) => {
+            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: coverage clamp failed");
+        }
+    }
 }
 
 /// Record that this fetch happened, independent of how many rows it returned.

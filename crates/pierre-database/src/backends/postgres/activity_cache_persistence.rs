@@ -313,6 +313,31 @@ impl ActivityCacheRepository for PostgresDatabase {
         Ok(result.rows_affected())
     }
 
+    async fn clamp_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        cutoff: DateTime<Utc>,
+    ) -> AppResult<u64> {
+        // tenant_id/user_id are UUID columns: bind the string form and cast.
+        let result = sqlx::query(
+            r"
+            UPDATE activity_backfill_coverage
+            SET oldest_reached_ts = $1, hit_feed_end = FALSE, updated_at = $2
+            WHERE user_id = $3::uuid AND tenant_id = $4::uuid AND oldest_reached_ts < $1
+            ",
+        )
+        .bind(cutoff.timestamp())
+        .bind(Utc::now())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to clamp backfill coverage: {e}")))?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn upsert_backfill_coverage(
         &self,
         user_id: Uuid,

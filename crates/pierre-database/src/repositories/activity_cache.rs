@@ -178,6 +178,28 @@ pub trait ActivityCacheRepository: Send + Sync {
         coverage: BackfillCoverage,
     ) -> AppResult<()>;
 
+    /// Raise every coverage floor for `(tenant, user)` that claims to reach
+    /// below `cutoff`, across all providers. Returns the number of rows moved.
+    ///
+    /// Coverage records what a backfill FETCHED; the prune decides what is
+    /// still STORED, and the two drift apart because `prune_activities_before`
+    /// is keyed per `(user, tenant)` across every provider. One narrow
+    /// write-through therefore reclaims a deep backfill's rows while the
+    /// coverage row goes on naming the depth it once reached, and the
+    /// historical gate serves that shallow cache as a complete window without
+    /// calling a provider. Clamping at the moment of the prune keeps the claim
+    /// true: a floor is only ever raised to what survived.
+    ///
+    /// `hit_feed_end` is cleared with it. That flag means the provider reported
+    /// its feed exhausted — a statement about upstream, not about what the
+    /// cache kept — so it must not go on excusing a depth the prune removed.
+    async fn clamp_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        cutoff: DateTime<Utc>,
+    ) -> AppResult<u64>;
+
     /// Read the recorded backfill coverage for `(tenant, user, provider)`, or
     /// `None` when no deep backfill has run for this athlete+provider yet.
     async fn get_backfill_coverage(

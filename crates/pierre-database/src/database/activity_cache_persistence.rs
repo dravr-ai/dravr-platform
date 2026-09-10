@@ -337,6 +337,31 @@ impl ActivityCacheRepository for Database {
         Ok(result.rows_affected())
     }
 
+    async fn clamp_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        cutoff: DateTime<Utc>,
+    ) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            UPDATE activity_backfill_coverage
+            SET oldest_reached_ts = ?, hit_feed_end = 0, updated_at = ?
+            WHERE user_id = ? AND tenant_id = ? AND oldest_reached_ts < ?
+            ",
+        )
+        .bind(cutoff.timestamp())
+        .bind(Utc::now().to_rfc3339())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(cutoff.timestamp())
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to clamp backfill coverage: {e}")))?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn upsert_backfill_coverage(
         &self,
         user_id: Uuid,
