@@ -768,25 +768,24 @@ import sys
 cm_root = sys.argv[1]
 tools_dir = os.path.join(cm_root, "tools")
 
-# Rust side: associate each properties.insert("x") with the tool_definition that
-# follows it, which is how these files are written throughout.
-declared = {}
-for path in glob.glob("crates/**/*.rs", recursive=True):
-    try:
-        src = open(path, encoding="utf-8").read()
-    except OSError:
-        continue
-    if "tool_definition(" not in src:
-        continue
-    prev = 0
-    for m in re.finditer(r'tool_definition\(\s*\n?\s*"([a-z0-9_]+)"', src):
-        seg = src[prev:m.start()]
-        props = set(re.findall(r'properties\.insert\(\s*\n?\s*"([a-z0-9_]+)"', seg))
-        declared.setdefault(m.group(1), set()).update(props)
-        prev = m.start()
+# Rust side: the shared attribution, also used by check-declared-parameters.sh
+# (Tier 1i), which asks the opposite question — this is "declared in the yaml
+# overlay, not in the schema", that one is "refused for something never
+# offered". The helper asserts its own premise: it raises when a file declares
+# properties after its final tool_definition (the ordering this attribution
+# depends on) or when a tool name is not a readable literal. carnet#424.
+sys.path.insert(0, "scripts/ci")
+import tool_schema_properties as tsp
 
-# Universal parameters every tool accepts, added outside the per-tool schema.
-UNIVERSAL = {"format"}
+try:
+    _tools, _stats = tsp.scan()
+except tsp.ScanError as exc:
+    print(f"SCAN_UNSOUND {exc}")
+    raise SystemExit(0)
+
+declared = {name: entry["properties"] for name, entry in _tools.items()}
+
+UNIVERSAL = tsp.UNIVERSAL
 
 yamls = sorted(glob.glob(os.path.join(tools_dir, "*.yaml")))
 if not yamls:
@@ -820,7 +819,11 @@ for y in yamls:
 print("\n".join(dead))
 PYPARAM
 )"; then
-        if [[ "$PARAM_REPORT" == "SCAN_EMPTY" ]]; then
+        if [[ "$PARAM_REPORT" == SCAN_UNSOUND* ]]; then
+            echo -e "${RED}❌ Overlay parameter scan cannot stand behind its result:${NC}"
+            echo -e "${YELLOW}   ${PARAM_REPORT#SCAN_UNSOUND }${NC}"
+            FAILED=true
+        elif [[ "$PARAM_REPORT" == "SCAN_EMPTY" ]]; then
             echo -e "${RED}❌ Overlay parameter scan incomplete: ${CM_ROOT}tools holds no *.yaml.${NC}"
             echo -e "${YELLOW}   The overlays moved or changed extension — point this at the new layout.${NC}"
             FAILED=true
