@@ -602,6 +602,7 @@ impl RecommendPlanFlavourTool {
             has_weeks: None,
             phases: Vec::new(),
             shrunk: Vec::new(),
+            unlaid_peaks: Vec::new(),
         };
         match layout {
             None => SeasonReport {
@@ -620,10 +621,15 @@ impl RecommendPlanFlavourTool {
                 note: Some("the skeleton cannot be compressed into this runway; move the goal or choose another skeleton rather than squeezing every phase".to_owned()),
                 ..base
             },
-            Some(SeasonLayout::Laid { phases, shrunk }) => SeasonReport {
+            Some(SeasonLayout::Laid {
+                phases,
+                shrunk,
+                unlaid_peaks,
+            }) => SeasonReport {
                 status: "laid".to_owned(),
                 phases: phases.iter().map(Self::phase_json).collect(),
                 shrunk: shrunk.iter().map(|k| k.as_str().to_owned()).collect(),
+                unlaid_peaks: unlaid_peaks.iter().map(ToString::to_string).collect(),
                 ..base
             },
         }

@@ -356,3 +356,101 @@ async fn a_weeks_only_adjustment_is_measured_with_the_previous_weeks_last_hard_d
     assert_eq!(week.field("hard_sessions"), "within");
     Ok(())
 }
+
+/// An easy day of an exact length, for the volume arithmetic below.
+fn easy_day_of(date: &str, minutes: u32) -> Value {
+    json!({"date": date, "sport": "run", "workout": "easy", "duration_min": minutes, "intensity": "Z2"})
+}
+
+/// The build phase, now laid out from a catalogue skeleton and carrying a
+/// loading pattern. `"3:1"` puts the recovery week at index 3; `run-5k-10k`
+/// is where the size of its cut is authored.
+fn plan_on_a_skeleton(days: &[Value], week_start: &str) -> Value {
+    json!({
+        "agent_id": "endurance-coach",
+        "outline": {
+            "goal_race": { "name": "Parkrun PB", "date": "2026-11-14", "discipline": "run_5k", "priority": "A" },
+            "strategy": "polarised build, three up one down",
+            "flavour": { "id": "polarized-classic", "selected_by": "coach", "override_reason": "house style" },
+            "phases": [
+                {
+                    "kind": "build", "start": "2026-09-14", "weeks": 8, "intent": "three up, one down",
+                    "target_hours": 8.0, "hard_sessions_max": 2,
+                    "loading_pattern": "3:1", "skeleton_id": "run-5k-10k"
+                }
+            ]
+        },
+        "weeks": [
+            { "week_start": week_start, "focus": "measured week", "phase_index": 0, "days": days }
+        ]
+    })
+}
+
+/// A 5.6-hour week — 4 x 84 min. Against the phase's 8 h target that is 30 %
+/// down and reads `off`; against the recovery target it is exact.
+fn five_point_six_hours(mondays: [&str; 4]) -> Vec<Value> {
+    mondays.iter().map(|d| easy_day_of(d, 84)).collect()
+}
+
+/// The phase's loading pattern, the week's position in it, and the skeleton's
+/// recovery cut all reach the kernel, and together they change the verdict.
+///
+/// Both saves are the same 5.6 hours against the same 8-hour phase target. The
+/// only difference is the calendar. 2026-09-14 is the phase start — index 0, a
+/// load week, measured against 8 h, so 5.6 h is 30 % down and reads `off`.
+/// 2026-10-05 is three weeks later — index 3, which `"3:1"` makes the recovery
+/// week, and `run-5k-10k` cuts a recovery week by 25-35 %, so the target
+/// becomes 8 x (1 - 0.30) = 5.6 h and the same week is exactly on it.
+///
+/// The arithmetic is what makes this a real assertion: `VOLUME_TOLERANCE` is
+/// 20 %, so a load week is within from 6.4 h and a recovery week from 4.48 h.
+/// 5.6 h sits outside the first band and dead centre of the second. A build
+/// passing `loading_pattern: None`, `week_index_in_phase: None`, or a
+/// `recovery_week_cut` it never looked up — each of the three fields this
+/// change wired — collapses the recovery target back to 8 h and returns `off`
+/// twice.
+#[tokio::test]
+async fn a_recovery_week_is_measured_against_the_skeletons_cut() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let (events, guard) = setup_capture();
+    executor
+        .execute_tool(request(
+            "save_training_plan",
+            plan_on_a_skeleton(
+                &five_point_six_hours(["2026-09-14", "2026-09-15", "2026-09-17", "2026-09-19"]),
+                "2026-09-14",
+            ),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    executor
+        .execute_tool(request(
+            "save_training_plan",
+            plan_on_a_skeleton(
+                &five_point_six_hours(["2026-10-05", "2026-10-06", "2026-10-08", "2026-10-10"]),
+                "2026-10-05",
+            ),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    drop(guard);
+
+    let captured = events.lock().expect("capture mutex");
+    let load_week = assessed(&captured, "2026-09-14").field("volume").to_owned();
+    let recovery_week = assessed(&captured, "2026-10-05").field("volume").to_owned();
+
+    assert_eq!(
+        load_week, "off",
+        "index 0 is a load week measured against the full 8 h, and 5.6 h is 30% under it"
+    );
+    assert_eq!(
+        recovery_week, "within",
+        "index 3 of a 3:1 phase is the recovery week; run-5k-10k cuts 25-35%, \
+         so 5.6 h is on target — got {recovery_week}, load week read {load_week}"
+    );
+    Ok(())
+}

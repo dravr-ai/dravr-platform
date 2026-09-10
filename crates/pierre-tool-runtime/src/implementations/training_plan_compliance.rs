@@ -24,7 +24,7 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
+use pierre_memory::training_plans::{parse_plan_date, PlanPhase, PlanWeek, TrainingPlan};
 use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -89,6 +89,9 @@ pub(super) async fn emit_week_compliance(
         .is_some_and(|inputs| inputs.recovery_speed == RecoverySpeed::Limited);
 
     let templates = resolve_templates(&catalogue, repos, tenant, user_id, &weeks).await;
+    // Resolved once: the lookup is per phase, and a season is a handful of phases
+    // against a catalogue that rebuilds this vector on every call.
+    let skeletons = catalogue.skeletons();
     let reported: Vec<&str> = saved.iter().map(|w| w.id.as_str()).collect();
 
     let mut previous_hard = None;
@@ -104,6 +107,19 @@ pub(super) async fn emit_week_compliance(
                 .and_then(|p| p.hard_sessions_max)
                 .and_then(|cap| u8::try_from(cap).ok()),
             target_hours: phase.and_then(|p| p.target_hours),
+            // The saved phase carries its own pattern; a plan written before
+            // the field existed, or by a coach who stated none, holds None and
+            // the kernel reads every week as a load week.
+            loading_pattern: phase.and_then(|p| p.loading_pattern),
+            // The cut is the skeleton's, not the phase's — the phase records
+            // which skeleton it was laid out from, and that is where the share
+            // a recovery week drops is authored. A phase laid out from no
+            // skeleton, or from one the catalogue has since dropped, leaves it
+            // unmeasured rather than inventing a default cut.
+            recovery_week_cut: phase
+                .and_then(|p| p.skeleton_id.as_deref())
+                .and_then(|id| skeletons.iter().find(|s| s.id == id))
+                .map(|s| s.recovery_week_cut),
         };
         let sessions: Vec<PlannedSession<'_>> = week
             .days
@@ -129,12 +145,24 @@ pub(super) async fn emit_week_compliance(
                 })
             })
             .collect();
+        // 0-based position inside the phase, taken from the calendar rather
+        // than from this week's position in the vector: the saved weeks are
+        // whatever the athlete has, so counting them would make a phase whose
+        // first weeks were never written start at its third. Both dates parse
+        // or the position is unknown, which the kernel reads as a load week.
+        let week_index_in_phase = phase
+            .and_then(PlanPhase::start_date)
+            .zip(parse_plan_date(&week.week_start))
+            .map(|(phase_start, week_start)| (week_start - phase_start).num_days() / 7)
+            .filter(|weeks| *weeks >= 0)
+            .and_then(|weeks| u8::try_from(weeks).ok());
         let verdict = assess_week_compliance(&WeekInput {
             sessions: &sessions,
             previous_hard,
             targets,
             flavour: flavour.as_ref(),
             recovery_limited,
+            week_index_in_phase,
         });
         previous_hard = verdict.hard_days.last().copied().or(previous_hard);
         if reported.contains(&week.id.as_str()) {

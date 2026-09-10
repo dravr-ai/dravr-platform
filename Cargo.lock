@@ -1436,8 +1436,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.13.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.13.0#a43c3dfd3ffb40b6e7313be5b4b7758c48258b25"
+version = "0.18.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.18.0#0f45fcf2e952ecb18673d0779833755c67952db7"
 dependencies = [
  "async-trait",
  "chrono",

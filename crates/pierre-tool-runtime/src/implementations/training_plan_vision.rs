@@ -141,11 +141,11 @@ pub(super) fn validate_phase(phase: &PlanPhase) -> AppResult<()> {
             )));
         }
     }
-    if let Some(share) = phase.volume_share_of_peak.as_ref() {
+    if let Some(share) = phase.volume_share_of_peak {
         share_in_unit("phase.volume_share_of_peak", share)?;
     }
     if let Some(tid) = phase.tid_target.as_ref() {
-        for (name, share) in [("z1", &tid.z1), ("z2", &tid.z2), ("z3", &tid.z3)] {
+        for (name, share) in [("z1", tid.z1), ("z2", tid.z2), ("z3", tid.z3)] {
             share_in_unit(&format!("phase.tid_target.{name}"), share)?;
         }
         let min_sum = tid.z1.min + tid.z2.min + tid.z3.min;
@@ -171,7 +171,7 @@ pub(super) fn validate_phase(phase: &PlanPhase) -> AppResult<()> {
 }
 
 /// A share must be a finite value inside `0..=1` with `min <= max`.
-fn share_in_unit(field: &str, share: &Share) -> AppResult<()> {
+fn share_in_unit(field: &str, share: Share) -> AppResult<()> {
     for (bound, value) in [("min", share.min), ("max", share.max)] {
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return Err(AppError::invalid_input(format!(

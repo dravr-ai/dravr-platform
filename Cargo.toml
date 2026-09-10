@@ -26,7 +26,7 @@ members = ["crates/*"]
 dravr-tronc = "1.1.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.13.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.18.0" }
 
 # Messaging types and channel adapters.
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.28" }

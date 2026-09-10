@@ -120,6 +120,14 @@ pub struct SeasonReport {
     /// disagree with.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shrunk: Vec<String>,
+    /// A races the layout could not build a block for, in date order, as
+    /// `YYYY-MM-DD`. An A race closer to what precedes it than the skeleton's
+    /// floor still gets raced — the season is simply not built toward it
+    /// twice. Named rather than dropped, for the same reason `shrunk` is:
+    /// omitting it would hide a decision the layout made on the athlete's
+    /// behalf.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unlaid_peaks: Vec<String>,
 }
 
 /// One phase of a laid season.
