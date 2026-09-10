@@ -41,7 +41,13 @@ export function buildFitnessProviderCards(
   return (providers ?? [])
     .filter((p) => p.provider !== 'strava' && p.provider !== 'garmin')
     .map((p) =>
-      p.provider === 'sciotte' && stravaOAuth && !p.connected
+      // The fold applies whenever a native Strava grant exists, NOT only when
+      // the sciotte row reads disconnected. The server coalesces the pair, so
+      // `sciotte.connected` is already true for an OAuth-backed Strava card; a
+      // `!p.connected` guard here therefore never fired for a real connection
+      // and the card carried `sciotte` as its disconnect id, deleting a row
+      // that did not exist while the `strava` grant survived.
+      p.provider === 'sciotte' && stravaOAuth
         ? {
             ...p,
             connected: true,

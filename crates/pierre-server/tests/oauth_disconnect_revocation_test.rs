@@ -929,3 +929,46 @@ async fn local_only_backends_send_nothing_upstream() {
     strava_upstream.assert_silent("an Intervals.icu disconnect");
     assert_locally_disconnected(&resources, user_id, tenant_id, "intervals_icu").await;
 }
+
+/// The Strava card is served by EITHER a native `strava` OAuth grant or the
+/// `sciotte` mirror, and `get_connection_status` coalesces the pair into ONE
+/// card. A client that names the card's own id must therefore clear whichever
+/// backend actually holds the grant.
+///
+/// Resolution runs one way only — `mirror_backend_for` maps `strava` → `sciotte`
+/// and never the reverse — so disconnecting by `sciotte` deleted a row that did
+/// not exist, reported success, and left the live `strava` grant to fold
+/// straight back onto the card. That is the "disconnect does nothing" users hit
+/// on the web app and on the installed PWA: HTTP 204, still connected.
+///
+/// Asserting on the surviving grant is the point: a disconnect that returns Ok
+/// while the token row lives is exactly the shape this regression takes.
+#[tokio::test]
+async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
+    let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let mut config = (*resources.common.config).clone();
+    config.external_services.strava_api.revoke_url =
+        format!("{}/oauth/revoke", strava_upstream.base_url);
+    let service = oauth_service(&resources, config);
+
+    // A native Strava OAuth grant — no sciotte row anywhere.
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "strava",
+        "strava-access-do-not-log",
+        Some("strava-refresh-do-not-log"),
+        Utc::now() + Duration::days(30),
+    )
+    .await;
+
+    // Disconnect naming the CARD's id, which is what both clients send.
+    service
+        .disconnect_provider(user_id, "sciotte", Some(tenant_id.as_uuid()))
+        .await
+        .expect("disconnect succeeds");
+
+    // The grant the card actually reported must be gone — token row,
+    // connection row and cached activities alike.
+    assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
+}
