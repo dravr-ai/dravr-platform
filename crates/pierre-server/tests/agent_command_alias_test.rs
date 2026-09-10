@@ -250,7 +250,7 @@ mod agent_alias {
             }
         }
         assert_eq!(
-            checked, 24,
+            checked, 25,
             "the catalogue's alias inventory changed; read the new one and update this \
              count, so an alias silently dropped from a definition cannot pass here"
         );
