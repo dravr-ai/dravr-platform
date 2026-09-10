@@ -36,7 +36,6 @@ use crate::config::LlmProviderType;
 use crate::errors::AppError;
 use crate::fallback_policy::{is_empty_completion, is_retryable_for_fallback};
 use crate::tool_bridge::{with_tool_defs, with_tools_response};
-use embacle::CliRunnerType;
 
 /// Unified chat provider that wraps Gemini, Groq, Local, `OpenRouter`, or embacle-based LLM
 ///
@@ -195,7 +194,7 @@ impl ChatProvider {
     async fn create_tertiary_provider(tertiary_type: LlmProviderType) -> Result<Self, AppError> {
         let model_override = LlmProviderType::tertiary_provider_model_from_env();
 
-        if let Some(runner_type) = cli_runner_type_for(tertiary_type) {
+        if let Some(runner_type) = LlmProviderType::cli_runner_type(tertiary_type) {
             return Ok(Self::Cli(CliLlmProvider::from_runner_type_with_model(
                 runner_type,
                 model_override.as_deref(),
@@ -363,7 +362,7 @@ impl ChatProvider {
     async fn create_fallback_provider(fallback_type: LlmProviderType) -> Result<Self, AppError> {
         let model_override = LlmProviderType::fallback_provider_model_from_env();
 
-        if let Some(runner_type) = cli_runner_type_for(fallback_type) {
+        if let Some(runner_type) = LlmProviderType::cli_runner_type(fallback_type) {
             return Ok(Self::Cli(CliLlmProvider::from_runner_type_with_model(
                 runner_type,
                 model_override.as_deref(),
@@ -510,7 +509,8 @@ impl ChatProvider {
             | LlmProviderType::WarpCli
             | LlmProviderType::KiroCli
             | LlmProviderType::KiloCli
-            | LlmProviderType::OpenAiApi => Self::cli().await,
+            | LlmProviderType::OpenAiApi
+            | LlmProviderType::Router => Self::cli().await,
         }
     }
 
@@ -779,42 +779,6 @@ impl ChatProvider {
     /// Returns an error if the health check fails.
     pub async fn health_check(&self) -> Result<bool, AppError> {
         LlmProvider::health_check(self).await
-    }
-}
-
-/// Map an [`LlmProviderType`] to its corresponding embacle [`CliRunnerType`]
-/// for the subprocess-CLI runners.
-///
-/// Returns `None` for provider types that are not driven by an embacle
-/// `CliRunnerType` dispatch — Gemini, Groq, Local, `OpenRouter` (each
-/// construct directly from their own env vars), and `CopilotHeadless` /
-/// `OpenAiApi` (which follow their own bespoke construction paths in
-/// [`CliLlmProvider`]).
-///
-/// Used by [`ChatProvider::create_fallback_provider`] to build the runtime
-/// chain's secondary against a specific runner type instead of re-reading
-/// `PIERRE_LLM_PROVIDER`.
-fn cli_runner_type_for(provider_type: LlmProviderType) -> Option<CliRunnerType> {
-    match provider_type {
-        LlmProviderType::ClaudeCode => Some(CliRunnerType::ClaudeCode),
-        LlmProviderType::Copilot => Some(CliRunnerType::Copilot),
-        LlmProviderType::CursorAgent => Some(CliRunnerType::CursorAgent),
-        LlmProviderType::OpenCode => Some(CliRunnerType::OpenCode),
-        LlmProviderType::GeminiCli => Some(CliRunnerType::GeminiCli),
-        LlmProviderType::CodexCli => Some(CliRunnerType::CodexCli),
-        LlmProviderType::GooseCli => Some(CliRunnerType::GooseCli),
-        LlmProviderType::ClineCli => Some(CliRunnerType::ClineCli),
-        LlmProviderType::ContinueCli => Some(CliRunnerType::ContinueCli),
-        LlmProviderType::WarpCli => Some(CliRunnerType::WarpCli),
-        LlmProviderType::KiroCli => Some(CliRunnerType::KiroCli),
-        LlmProviderType::KiloCli => Some(CliRunnerType::KiloCli),
-        LlmProviderType::Gemini
-        | LlmProviderType::Groq
-        | LlmProviderType::Local
-        | LlmProviderType::OpenRouter
-        | LlmProviderType::Cohere
-        | LlmProviderType::CopilotHeadless
-        | LlmProviderType::OpenAiApi => None,
     }
 }
 

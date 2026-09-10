@@ -397,6 +397,25 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             // CLI/ACP providers handle their own auth; no env vars required at startup
             vec![]
         }
+        // The router requires nothing at startup: without a credential a backend
+        // is simply unmetered, which the provider warns about and which still
+        // routes and still reroutes on a refusal. Both are declared so a missing
+        // one is visible at boot rather than discovered as a quota surprise.
+        LlmProviderType::Router => vec![
+            EnvValidation {
+                name: "CLAUDE_CODE_OAUTH_TOKEN",
+                value: env::var("CLAUDE_CODE_OAUTH_TOKEN").ok(),
+                required: false,
+                description: "Anthropic OAuth token — without it the lead backend runs unmetered \
+                              and can only fall back reactively",
+            },
+            EnvValidation {
+                name: "COPILOT_GITHUB_TOKEN",
+                value: env::var("COPILOT_GITHUB_TOKEN").ok(),
+                required: false,
+                description: "GitHub token — without it the Copilot backend runs unmetered",
+            },
+        ],
         LlmProviderType::OpenAiApi => vec![
             EnvValidation {
                 name: "OPENAI_API_BASE_URL",

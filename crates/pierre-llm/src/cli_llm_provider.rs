@@ -22,6 +22,8 @@ use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
 use tracing::{debug, info, warn};
 
+use embacle::quota_http::{AnthropicUsageChecker, GithubHeadroomChecker};
+use embacle::router::{Backend, PreferInOrder, RouterProvider};
 use embacle::types::{
     ChatStream as EmbacleChatStream, LlmProvider as EmbacleLlmProvider, RunnerError,
 };
@@ -51,6 +53,12 @@ pub struct CliLlmProvider {
     headless_runner: Option<Arc<CopilotHeadlessRunner>>,
     /// Cached display name (embacle returns `&str`, pierre trait needs `&'static str`)
     cached_display_name: &'static str,
+    /// Typed reference to the router, when this provider is one.
+    ///
+    /// `Box<dyn EmbacleLlmProvider>` cannot be downcast, and dispatch has to ask
+    /// which backend is live on every turn — so the handle is kept here rather
+    /// than recovered from `runner`.
+    router: Option<Arc<RouterProvider>>,
 }
 
 impl CliLlmProvider {
@@ -117,6 +125,7 @@ impl CliLlmProvider {
                 Ok(Self::build_cli(CliRunnerType::KiloCli, config))
             }
             "openai_api" | "openai-api" | "openai" => Ok(Self::build_openai_api().await?),
+            "router" | "quota_router" | "quota-router" => Self::build_router(),
             "cli" => {
                 debug!("PIERRE_LLM_PROVIDER=cli, auto-detecting installed CLI runner");
                 let (runner_type, base_config) = embacle::discover_runner()?;
@@ -194,6 +203,7 @@ impl CliLlmProvider {
 
         let display_name = runner_display_name(runner_type);
         let provider = Self {
+            router: None,
             runner,
             readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
             headless_runner: None,
@@ -228,7 +238,83 @@ impl CliLlmProvider {
             readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
             headless_runner: Some(headless),
             cached_display_name: "GitHub Copilot (Headless)",
+            router: None,
         }
+    }
+
+    /// Build the quota-aware router: Claude Code in front, Copilot Headless behind.
+    ///
+    /// Both backends are constructed once. `CopilotHeadlessRunner` pools
+    /// subprocesses and caches its observed model list in a `OnceLock`, so
+    /// rebuilding it on every switch would throw both away.
+    ///
+    /// The lead backend is metered against the real Anthropic budget, so the
+    /// router steps aside *before* a turn is spent rather than after one fails.
+    /// The Copilot backend is metered too, but on GitHub's core rate-limit
+    /// headroom — a proxy, not the premium-request quota, because no endpoint
+    /// for the latter exists. It is deliberately second: a proxy is enough to
+    /// notice a collapsing budget, not enough to lead on.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` when the Claude Code binary cannot be resolved or the
+    /// router rejects the backend set.
+    fn build_router() -> Result<Self, AppError> {
+        let claude_config = build_runner_config(CliRunnerType::ClaudeCode)?;
+        let claude: Box<dyn EmbacleLlmProvider> = Box::new(ClaudeCodeRunner::new(claude_config));
+
+        let mut headless_config = CopilotHeadlessConfig::from_env();
+        if let Ok(model) = env::var("PIERRE_LLM_MODEL") {
+            if !model.is_empty() {
+                headless_config.model = model;
+            }
+        }
+        let headless = Arc::new(CopilotHeadlessRunner::with_config(headless_config));
+
+        let lead = match env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+            Ok(token) if !token.is_empty() => {
+                Backend::metered(claude, Box::new(AnthropicUsageChecker::new(token)))
+            }
+            // Without the token the budget cannot be read. Unmetered is the
+            // honest state: the router still leads with Claude Code and still
+            // reroutes on a refusal, it simply cannot step aside in advance.
+            _ => {
+                warn!(
+                    "CLAUDE_CODE_OAUTH_TOKEN is unset — the router leads with Claude Code but \
+                     cannot read its budget, so it can only fall back reactively"
+                );
+                Backend::unmetered(claude)
+            }
+        };
+
+        let fallback = match env::var("COPILOT_GITHUB_TOKEN") {
+            Ok(token) if !token.is_empty() => Backend::metered(
+                Box::new(HeadlessRunnerAdapter(Arc::clone(&headless))),
+                Box::new(GithubHeadroomChecker::new(token)),
+            ),
+            _ => Backend::unmetered(Box::new(HeadlessRunnerAdapter(Arc::clone(&headless)))),
+        }
+        .with_headless(Arc::clone(&headless));
+
+        let mut router = RouterProvider::new(vec![lead, fallback], Box::new(PreferInOrder))
+            .map_err(|e| AppError::config(format!("router: {}", e.message)))?;
+        if let Some(threshold) = threshold_from_env() {
+            router = router.with_threshold(threshold);
+        }
+        let router = Arc::new(router);
+
+        info!(
+            threshold = threshold_from_env().unwrap_or(80.0),
+            "Creating quota router (claude_code -> copilot_headless)"
+        );
+
+        Ok(Self {
+            runner: Box::new(RouterAdapter(Arc::clone(&router))),
+            readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
+            headless_runner: None,
+            cached_display_name: "Quota Router",
+            router: Some(router),
+        })
     }
 
     /// Build an `OpenAI`-compatible HTTP API runner (via embacle `OpenAiApiRunner`)
@@ -259,16 +345,28 @@ impl CliLlmProvider {
             readiness: Arc::new(AtomicU8::new(READINESS_READY)),
             headless_runner: None,
             cached_display_name: "OpenAI API",
+            router: None,
         })
     }
 
-    /// Access the inner `CopilotHeadlessRunner` if this provider wraps one.
+    /// Access the `CopilotHeadlessRunner` currently able to serve an ACP turn.
     ///
-    /// Returns `Some` only for Copilot Headless (ACP) providers.
-    /// Used by the headless tool loop to access `converse()`.
+    /// `Some` for a Copilot Headless provider, and — for the router — only
+    /// while Copilot is the backend actually answering. `None` otherwise, which
+    /// is the correct answer rather than a missing capability: when the router
+    /// has Claude Code live, dispatch must take the CLI text loop, because
+    /// `claude -p` runs its own tool loop and takes `--mcp-config`. Handing back
+    /// a stale runner would run the ACP loop against a provider that is not
+    /// serving the turn.
+    ///
+    /// Returns an owned `Arc` rather than a reference because the router
+    /// resolves the live backend per call; there is no field to borrow from.
     #[must_use]
-    pub fn as_headless_runner(&self) -> Option<&CopilotHeadlessRunner> {
-        self.headless_runner.as_deref()
+    pub fn as_headless_runner(&self) -> Option<Arc<CopilotHeadlessRunner>> {
+        if let Some(router) = &self.router {
+            return router.active_runner();
+        }
+        self.headless_runner.clone()
     }
 }
 
@@ -473,6 +571,71 @@ const fn runner_display_name(runner_type: CliRunnerType) -> &'static str {
 /// Prompt SIZE is the only thing on our side of the boundary. Re-run the probe
 /// before believing otherwise; a vendor that began honouring our prefix would
 /// show the cached read growing with it.
+/// The share of a window at which the router steps aside, from the environment.
+///
+/// Absent or unparseable means the router's own default. A threshold outside
+/// 0-100 is refused rather than clamped: a typo that reads as "never step
+/// aside" is the failure this whole provider exists to prevent.
+fn threshold_from_env() -> Option<f32> {
+    let raw = env::var("PIERRE_LLM_ROUTER_THRESHOLD").ok()?;
+    match raw.trim().parse::<f32>() {
+        Ok(pct) if (0.0..=100.0).contains(&pct) => Some(pct),
+        _ => {
+            warn!(
+                value = %raw,
+                "PIERRE_LLM_ROUTER_THRESHOLD is not a percentage between 0 and 100 — using the \
+                 router default instead of a value that could disable stepping aside"
+            );
+            None
+        }
+    }
+}
+
+/// Presents the router to the platform as one embacle provider.
+///
+/// Every method delegates, so `name()` and `default_model()` report the backend
+/// that is currently answering rather than a fixed label — which is what makes
+/// `llm_usage.provider` honest, unlike the chain it replaces.
+struct RouterAdapter(Arc<RouterProvider>);
+
+#[async_trait]
+impl EmbacleLlmProvider for RouterAdapter {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+
+    fn display_name(&self) -> &str {
+        self.0.display_name()
+    }
+
+    fn capabilities(&self) -> super::LlmCapabilities {
+        self.0.capabilities()
+    }
+
+    fn default_model(&self) -> &str {
+        self.0.default_model()
+    }
+
+    fn available_models(&self) -> &[String] {
+        self.0.available_models()
+    }
+
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
+        self.0.complete(request).await
+    }
+
+    async fn complete_stream(
+        &self,
+        request: &ChatRequest,
+    ) -> Result<EmbacleChatStream, RunnerError> {
+        self.0.complete_stream(request).await
+    }
+
+    async fn health_check(&self) -> Result<bool, RunnerError> {
+        self.0.health_check().await
+    }
+}
+
 struct HeadlessRunnerAdapter(Arc<CopilotHeadlessRunner>);
 
 #[async_trait]

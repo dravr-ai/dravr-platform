@@ -1316,7 +1316,7 @@ async fn run_headless_tool_loop(
 
     let call_start = Instant::now();
     let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
-        headless_stream::run_headless_streaming(headless_runner, &request, sink).await
+        headless_stream::run_headless_streaming(&headless_runner, &request, sink).await
     } else {
         headless_runner
             .converse(&request)
@@ -1375,7 +1375,7 @@ async fn run_headless_tool_loop(
 
     finalize_headless_turn(
         headless_response,
-        headless_runner,
+        &headless_runner,
         &request,
         params,
         &prompt_text,

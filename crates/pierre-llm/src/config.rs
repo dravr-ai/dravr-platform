@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use embacle::CliRunnerType;
 use embacle::CopilotHeadlessConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -50,6 +51,9 @@ pub enum LlmProviderType {
     KiroCli,
     /// Kilo Code CLI provider - subprocess-based Kilo coding agent
     KiloCli,
+    /// Quota-aware router over several backends — leads with one, steps aside
+    /// before its budget runs out, and returns when the window resets
+    Router,
     /// `OpenAI`-compatible HTTP API provider via embacle (any `OpenAI`-compatible endpoint)
     OpenAiApi,
 }
@@ -80,6 +84,7 @@ impl LlmProviderType {
             "kiro_cli" | "kiro-cli" | "kiro" => Self::KiroCli,
             "kilo_cli" | "kilo-cli" | "kilo" => Self::KiloCli,
             "openai_api" | "openai-api" | "openai" => Self::OpenAiApi,
+            "router" | "quota_router" | "quota-router" => Self::Router,
             _ => Self::Gemini, // Default fallback (including "gemini", "google")
         }
     }
@@ -212,6 +217,46 @@ impl LlmProviderType {
     /// When set, it takes priority over provider-specific env vars (e.g. `COPILOT_SDK_MODEL`,
     /// `CLI_LLM_MODEL`). When not set, falls back to each runner's own default.
     /// Returns None for non-embacle providers.
+    /// Map an [`LlmProviderType`] to its corresponding embacle [`CliRunnerType`]
+    /// for the subprocess-CLI runners.
+    ///
+    /// Returns `None` for provider types that are not driven by an embacle
+    /// `CliRunnerType` dispatch — Gemini, Groq, Local, `OpenRouter` (each
+    /// construct directly from their own env vars), and `CopilotHeadless` /
+    /// `OpenAiApi` (which follow their own bespoke construction paths in
+    /// [`CliLlmProvider`]).
+    ///
+    /// Used by [`ChatProvider::create_fallback_provider`] to build the runtime
+    /// chain's secondary against a specific runner type instead of re-reading
+    /// `PIERRE_LLM_PROVIDER`.
+    pub(crate) fn cli_runner_type(self) -> Option<CliRunnerType> {
+        match self {
+            Self::ClaudeCode => Some(CliRunnerType::ClaudeCode),
+            Self::Copilot => Some(CliRunnerType::Copilot),
+            Self::CursorAgent => Some(CliRunnerType::CursorAgent),
+            Self::OpenCode => Some(CliRunnerType::OpenCode),
+            Self::GeminiCli => Some(CliRunnerType::GeminiCli),
+            Self::CodexCli => Some(CliRunnerType::CodexCli),
+            Self::GooseCli => Some(CliRunnerType::GooseCli),
+            Self::ClineCli => Some(CliRunnerType::ClineCli),
+            Self::ContinueCli => Some(CliRunnerType::ContinueCli),
+            Self::WarpCli => Some(CliRunnerType::WarpCli),
+            Self::KiroCli => Some(CliRunnerType::KiroCli),
+            Self::KiloCli => Some(CliRunnerType::KiloCli),
+            Self::Gemini
+            | Self::Groq
+            | Self::Local
+            | Self::OpenRouter
+            | Self::Cohere
+            | Self::CopilotHeadless
+            | Self::OpenAiApi
+            // The router is several runners behind one provider, so it has no single
+            // CliRunnerType. Which one is live changes per turn, and the caller that
+            // needs the concrete runner asks `as_headless_runner()` instead.
+            | Self::Router => None,
+        }
+    }
+
     #[must_use]
     fn embacle_model_from_env(self) -> Option<String> {
         match self {
@@ -247,7 +292,11 @@ impl LlmProviderType {
             | Self::ContinueCli
             | Self::WarpCli
             | Self::KiroCli
-            | Self::KiloCli => Some(Self::DEFAULT_CLAUDE_SONNET_CLI_MODEL.to_owned()),
+            | Self::KiloCli
+            // The router leads with a Claude Code backend, so its default is the
+            // CLI default. A backend it steps aside to reports its own model
+            // through `name()` and `default_model()` once it is the live one.
+            | Self::Router => Some(Self::DEFAULT_CLAUDE_SONNET_CLI_MODEL.to_owned()),
             Self::OpenAiApi => Some(
                 env::var(Self::OPENAI_API_MODEL_ENV_VAR)
                     .ok()
@@ -372,6 +421,7 @@ impl Display for LlmProviderType {
             Self::KiroCli => write!(f, "kiro_cli"),
             Self::KiloCli => write!(f, "kilo_cli"),
             Self::OpenAiApi => write!(f, "openai_api"),
+            Self::Router => write!(f, "router"),
         }
     }
 }
