@@ -206,7 +206,15 @@ echo "    Creating admin user (runs migrations)..."
 # ../dravr-contremaitre. Override with PIERRE_AGENTS_DIR if your checkout
 # lives elsewhere.
 echo "    Seeding AI agents from contremaitre..."
-AGENTS_DIR="${PIERRE_AGENTS_DIR:-../dravr-contremaitre/prompts/coaches}"
+# The personas directory is being renamed coaches -> agents in
+# dravr-contremaitre; a sibling checkout may be on either side of that.
+if [ -n "${PIERRE_AGENTS_DIR:-}" ]; then
+    AGENTS_DIR="$PIERRE_AGENTS_DIR"
+elif [ -d "../dravr-contremaitre/prompts/agents" ]; then
+    AGENTS_DIR="../dravr-contremaitre/prompts/agents"
+else
+    AGENTS_DIR="../dravr-contremaitre/prompts/coaches"
+fi
 if [ ! -d "$AGENTS_DIR" ]; then
     echo "    ! Agent source not found at $AGENTS_DIR"
     echo "      Clone https://github.com/dravr-ai/dravr-contremaitre"

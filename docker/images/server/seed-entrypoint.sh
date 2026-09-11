@@ -47,13 +47,26 @@ if [ "$DOMAIN" = "agents" ]; then
     BRANCH="${CONTREMAITRE_BRANCH:-main}"
     CLONE_DIR=$(mktemp -d -t contremaitre.XXXXXX)
     trap 'rm -rf "$CLONE_DIR"' EXIT
-    echo "Cloning ${CONTREMAITRE_REPO}@${BRANCH} for coach ${VERB}"
+    echo "Cloning ${CONTREMAITRE_REPO}@${BRANCH} for agent ${VERB}"
     git clone \
         --depth 1 \
         --branch "$BRANCH" \
         "https://x-access-token:${CONTREMAITRE_GITHUB_PAT}@github.com/${CONTREMAITRE_REPO}.git" \
         "$CLONE_DIR"
-    export PIERRE_AGENTS_DIR="${CLONE_DIR}/prompts/coaches"
+    # The personas directory is being renamed coaches -> agents in
+    # dravr-contremaitre, and the two repositories deploy independently, so the
+    # clone may carry either name. Prefer the new one, accept the old, and fail
+    # loudly rather than handing the seeder a path that is not there -- a
+    # missing directory is how this job has failed silently before.
+    if [ -d "${CLONE_DIR}/prompts/agents" ]; then
+        export PIERRE_AGENTS_DIR="${CLONE_DIR}/prompts/agents"
+    elif [ -d "${CLONE_DIR}/prompts/coaches" ]; then
+        export PIERRE_AGENTS_DIR="${CLONE_DIR}/prompts/coaches"
+    else
+        echo "ERROR: neither prompts/agents nor prompts/coaches in ${CONTREMAITRE_REPO}@${BRANCH}" >&2
+        exit 1
+    fi
+    echo "Personas: ${PIERRE_AGENTS_DIR#"${CLONE_DIR}/"}"
 fi
 
 echo "Running: pierre-cli ${VERB} ${DOMAIN}"
