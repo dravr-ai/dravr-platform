@@ -163,7 +163,7 @@ pub async fn selected_coach_id(
 }
 
 /// Best-effort `coach_assignments.use_count++` through the shared recorder,
-/// which also emits `coach.selected`.
+/// which also emits `agent.selected`.
 async fn record_coach_usage(
     repos: &RepositoryRegistry,
     coach_id: &str,

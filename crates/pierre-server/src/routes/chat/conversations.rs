@@ -34,7 +34,7 @@ use super::dto::{
 };
 
 /// Best-effort `coach_assignments.use_count++` for REST-created conversations,
-/// via the shared selection recorder that also emits `coach.selected`.
+/// via the shared selection recorder that also emits `agent.selected`.
 /// Logs and swallows errors so a transient DB hiccup doesn't fail the user-
 /// visible conversation create. `record_coach_selection` logs the
 /// coach-not-visible case itself and emits nothing for it.

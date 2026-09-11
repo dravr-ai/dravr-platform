@@ -991,7 +991,7 @@ pub(super) async fn handle_record_usage<C: CoachesCtx + MiddlewareCtx>(
     span.record("user_id", field::display(&auth.user_id));
     span.record("tenant_id", field::display(&tenant_id));
 
-    // `coach.selected` is emitted by `record_coach_selection`, which the web
+    // `agent.selected` is emitted by `record_coach_selection`, which the web
     // chat, `/coach add` and messaging ingress also call — the event
     // follows the selection, not this transport.
     let manager = super::get_coaches_manager(&ctx);

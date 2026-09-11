@@ -442,7 +442,7 @@ async fn apply_coach_rebind(
 }
 
 /// Best-effort `coach_assignments.use_count++` for a rebound conversation,
-/// through the shared recorder that also emits `coach.selected`.
+/// through the shared recorder that also emits `agent.selected`.
 async fn record_rebound_coach_usage(
     resources: &ServerContext,
     coach_id: &str,

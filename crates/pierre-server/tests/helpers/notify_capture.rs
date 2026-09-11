@@ -21,7 +21,7 @@ use tracing::{Event, Metadata, Subscriber};
 /// One `target: "notify"` event, with every field rendered as a string.
 #[derive(Clone, Debug)]
 pub struct NotifyEvent {
-    /// The catalogued event name (`coach.installed`, `group.created`, …).
+    /// The catalogued event name (`agent.installed`, `group.created`, …).
     pub event: String,
     /// Every field the emission carried, rendered as text.
     pub fields: HashMap<String, String>,

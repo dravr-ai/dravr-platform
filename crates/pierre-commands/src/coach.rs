@@ -498,7 +498,7 @@ impl CommandHandler for CoachAssignHandler {
 }
 
 /// Record the agent selection an `/agent` command just made, emitting the
-/// catalogued `coach.selected` event through the shared recorder.
+/// catalogued `agent.selected` event through the shared recorder.
 ///
 /// `/agent add` is the chat equivalent of picking an agent on Discover, so it
 /// is the same product event as `POST /api/agents/{id}/usage` — before this

@@ -214,7 +214,7 @@ impl CommandHandler for DiscoverHandler {
 ///
 /// Resolves the handle against the published catalogue — the origin coach,
 /// never an athlete's copy — and installs it through the one path the REST
-/// route and the `install_agent_from_store` tool share, so `coach.installed`
+/// route and the `install_agent_from_store` tool share, so `agent.installed`
 /// counts the install once. The reply is the post-install hint: how to bring
 /// the coach into a chat (`/coach add @handle`) or borrow it for one turn
 /// (`@handle` in a message). A coach already on the caller's list gets the

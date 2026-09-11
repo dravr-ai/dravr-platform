@@ -87,7 +87,7 @@ pub mod coach_package;
 pub mod fortnight;
 pub mod plan_card;
 
-/// Coach-selection recording — the one emit site for `coach.selected`
+/// Coach-selection recording — the one emit site for `agent.selected`
 pub mod coach_selection;
 
 /// Coach generation from a conversation — the draft behind `/coach create`,

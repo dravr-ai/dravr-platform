@@ -1,4 +1,4 @@
-// ABOUTME: The one place a coach is bound to a conversation and coach.selected is emitted
+// ABOUTME: The one place a coach is bound to a conversation and agent.selected is emitted
 // ABOUTME: Shared by the REST usage endpoint, web chat, /coach add, and messaging ingress
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,7 +13,7 @@
 //! creation. All four bump the same `coach_assignments.use_count`, so all
 //! four are the same product event.
 //!
-//! Only the REST route used to emit `coach.selected`, which made the metric
+//! Only the REST route used to emit `agent.selected`, which made the metric
 //! read as "nobody picks coaches" while every chat user picked one — the
 //! event belongs to the domain operation, not to whichever transport
 //! happened to trigger it.
@@ -35,7 +35,7 @@ use pierre_database::repositories::CoachesRepository;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-/// Which surface bound the coach, carried on `coach.selected` as `source`.
+/// Which surface bound the coach, carried on `agent.selected` as `source`.
 ///
 /// An additive field — the catalogue's `required_fields` for the event are
 /// `user_id`, `tenant_id` and `coach_slug`, so this narrows the metric
@@ -76,7 +76,7 @@ impl fmt::Display for CoachSelectionSource {
 }
 
 /// Record that `coach_id` was selected for a conversation and emit the
-/// catalogued `coach.selected` event.
+/// catalogued `agent.selected` event.
 ///
 /// Returns whether the usage bump landed. `Ok(false)` means the coach is not
 /// visible to this tenant (a caller passing an id they cannot see); no event
@@ -116,10 +116,10 @@ pub async fn record_coach_selection(
     // `coach_id`.
     info!(
         target: "notify",
-        event = "coach.selected",
+        event = "agent.selected",
         user_id = %user_id,
         tenant_id = %tenant_id,
-        coach_slug = %coach_id,
+        agent_slug = %coach_id,
         source = source.as_str(),
         "user selected coach"
     );

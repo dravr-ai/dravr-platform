@@ -19,7 +19,7 @@
 //! is what makes those surfaces the same store: a coach that ranks third in
 //! the web browse ranks third in chat, and installing from any of them — the
 //! REST route, the `install_agent_from_store` tool, `/discover install` —
-//! writes the same row and emits `coach.installed` exactly once, from here.
+//! writes the same row and emits `agent.installed` exactly once, from here.
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -268,10 +268,10 @@ pub async fn install_store_coach(
     // span to carry them.
     info!(
         target: "notify",
-        event = "coach.installed",
+        event = "agent.installed",
         user_id = %user_id,
         tenant_id = %tenant_id,
-        coach_slug = %coach_id,
+        agent_slug = %coach_id,
         "coach installed from store"
     );
 

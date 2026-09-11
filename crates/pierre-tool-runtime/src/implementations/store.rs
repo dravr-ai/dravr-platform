@@ -426,7 +426,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
             let repos = context.resources.data().repos().coach_repos();
             let installed = install_store_coach(&repos, coach_id, user_id, tenant_id).await?;
 
-            // `coach.installed` is emitted by `install_store_coach`, the one
+            // `agent.installed` is emitted by `install_store_coach`, the one
             // install path this tool shares with the REST route and
             // `/discover install`, so it fires once per install on every surface.
             info!(

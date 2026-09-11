@@ -441,7 +441,7 @@ mod discover_over_messaging {
         );
         assert_eq!(hint.actions.len(), 1);
         assert_eq!(hint.actions[0].value, "/agent add @tempo-coach");
-        let installed = only(&events, "coach.installed");
+        let installed = only(&events, "agent.installed");
         assert_eq!(installed.field("user_id"), athlete.user_id.to_string());
 
         let again = dispatch(&resources, &athlete, "/discover install @tempo-coach").await;
@@ -453,7 +453,7 @@ mod discover_over_messaging {
                 &["Tempo Coach", "tempo-coach"]
             )
         );
-        assert_eq!(named(&events, "coach.installed").len(), 1, "counted once");
+        assert_eq!(named(&events, "agent.installed").len(), 1, "counted once");
         let library = repos
             .store_listings
             .get_installed_coaches(athlete.user_id, athlete.tenant_id)

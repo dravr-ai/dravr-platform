@@ -549,7 +549,7 @@ async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
     );
     assert!(actions(&unknown).is_empty());
     assert!(
-        named(&events, "coach.installed").is_empty(),
+        named(&events, "agent.installed").is_empty(),
         "nothing was installed"
     );
 
@@ -589,10 +589,10 @@ async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
         .expect("the athlete's copy resolves by handle");
     assert_eq!(copy.forked_from, Some(origin));
     assert_eq!(copy.title, "Recovery Coach");
-    let emitted = only(&events, "coach.installed");
+    let emitted = only(&events, "agent.installed");
     assert_eq!(emitted.field("user_id"), user_id.to_string());
     assert_eq!(emitted.field("tenant_id"), tenant_id.to_string());
-    assert_eq!(emitted.field("coach_slug"), origin.to_string());
+    assert_eq!(emitted.field("agent_slug"), origin.to_string());
 
     // A second install is the same hint and no second copy.
     let again = send(router, &auth, &conv, "/discover install @recovery-coach").await;
@@ -617,7 +617,7 @@ async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
         1,
         "one copy, however many times it is asked for"
     );
-    assert_eq!(named(&events, "coach.installed").len(), 1, "counted once");
+    assert_eq!(named(&events, "agent.installed").len(), 1, "counted once");
 }
 
 // ============================================================================

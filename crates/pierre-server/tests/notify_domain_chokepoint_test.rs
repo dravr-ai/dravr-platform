@@ -6,7 +6,7 @@
 
 //! Regression tests for dravr-carnet#27.
 //!
-//! `group.created`, `group.joined` and `coach.selected` were emitted from the
+//! `group.created`, `group.joined` and `agent.selected` were emitted from the
 //! HTTP route handlers, so the messaging paths — which carry effectively all
 //! real traffic — emitted nothing. The events had never fired once in
 //! `PostHog`, which read as "nobody uses groups" while the operator was
@@ -436,7 +436,7 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
 }
 
 // ============================================================================
-// coach.selected — shared by REST, web chat, slash commands, and messaging
+// agent.selected — shared by REST, web chat, slash commands, and messaging
 // ============================================================================
 
 #[tokio::test]
@@ -456,8 +456,8 @@ async fn coach_selection_emits_from_the_shared_recorder() {
     .unwrap();
 
     assert!(recorded, "selecting a visible coach records usage");
-    let selected = only(&events, "coach.selected");
-    assert_eq!(selected.field("coach_slug"), coach_id);
+    let selected = only(&events, "agent.selected");
+    assert_eq!(selected.field("agent_slug"), coach_id);
     assert_eq!(selected.field("user_id"), user_id.to_string());
     assert_eq!(selected.field("tenant_id"), tenant_id.to_string());
     // The surface is on the event so an explicit pick can be told apart from
@@ -487,7 +487,7 @@ async fn an_invisible_coach_records_nothing_and_emits_nothing() {
     );
     assert!(
         events.lock().unwrap().is_empty(),
-        "nothing was selected, so coach.selected must not fire"
+        "nothing was selected, so agent.selected must not fire"
     );
 }
 
@@ -520,8 +520,8 @@ async fn slash_coach_add_emits_coach_selected() {
     let (events, _guard) = capture_notify();
     CoachAddHandler.execute(&ctx).await.unwrap();
 
-    let selected = only(&events, "coach.selected");
-    assert_eq!(selected.field("coach_slug"), coach_id);
+    let selected = only(&events, "agent.selected");
+    assert_eq!(selected.field("agent_slug"), coach_id);
     assert_eq!(selected.field("user_id"), user_id.to_string());
     assert_eq!(selected.field("tenant_id"), tenant_id.to_string());
     assert_eq!(selected.field("source"), "slash_command");

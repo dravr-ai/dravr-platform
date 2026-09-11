@@ -372,12 +372,12 @@ async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
 
 /// Handle POST /api/store/agents/{id}/install - Install a coach from the Store
 ///
-/// `coach.installed` is emitted by `install_store_coach`, the one install
+/// `agent.installed` is emitted by `install_store_coach`, the one install
 /// path this route shares with the `install_agent_from_store` tool and
 /// `/discover install`, so it fires once per install on every surface.
 #[tracing::instrument(
     skip(ctx, auth),
-    fields(route = "coach_install", coach_slug = %coach_id)
+    fields(route = "coach_install", agent_slug = %coach_id)
 )]
 async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
@@ -415,7 +415,7 @@ async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
     skip(ctx, auth),
     fields(
         route = "coach_uninstall",
-        coach_slug = %coach_id,
+        agent_slug = %coach_id,
         user_id = field::Empty,
         tenant_id = field::Empty,
     )
@@ -429,7 +429,7 @@ async fn handle_uninstall<C: CoachesCtx + MiddlewareCtx>(
     let tenant_id = get_user_tenant(&auth)?;
 
     // Record IDs on the span so the NotifyLayer can attribute the
-    // coach.uninstalled event without re-passing fields.
+    // agent.uninstalled event without re-passing fields.
     let span = Span::current();
     span.record("user_id", field::display(&auth.user_id));
     span.record("tenant_id", field::display(&tenant_id));
@@ -453,7 +453,7 @@ async fn handle_uninstall<C: CoachesCtx + MiddlewareCtx>(
     // notify: coach was successfully uninstalled (coach_slug is on the span).
     info!(
         target: "notify",
-        event = "coach.uninstalled",
+        event = "agent.uninstalled",
         "coach uninstalled"
     );
 

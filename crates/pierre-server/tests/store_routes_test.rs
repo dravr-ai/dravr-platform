@@ -976,10 +976,10 @@ async fn test_install_coach() {
     assert!(result.message.contains("Successfully installed"));
     assert_eq!(result.coach.title, "Installable Coach");
 
-    // `coach.installed` fires once, from the install service this route
+    // `agent.installed` fires once, from the install service this route
     // shares with the `install_agent_from_store` tool and `/discover install`.
-    let installed = only(&events, "coach.installed");
-    assert_eq!(installed.field("coach_slug"), coach.id.to_string());
+    let installed = only(&events, "agent.installed");
+    assert_eq!(installed.field("agent_slug"), coach.id.to_string());
     assert_eq!(installed.field("user_id"), installer_id.to_string());
 }
 
@@ -1033,7 +1033,7 @@ async fn test_install_coach_already_installed() {
 
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
     assert_eq!(
-        named(&events, "coach.installed").len(),
+        named(&events, "agent.installed").len(),
         1,
         "a refused second install is not counted"
     );
