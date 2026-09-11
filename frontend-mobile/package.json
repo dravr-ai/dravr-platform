@@ -68,6 +68,7 @@
     "expo-speech-recognition": "~3.1.1",
     "expo-splash-screen": "~55.0.10",
     "expo-status-bar": "~55.0.4",
+    "expo-updates": "55.0.12",
     "expo-web-browser": "~55.0.9",
     "firebase": "^12.7.0",
     "i18next": "^25.7.3",

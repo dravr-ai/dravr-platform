@@ -1,12 +1,32 @@
-// ABOUTME: Expo configuration for Dravr mobile app
+// ABOUTME: Expo configuration for Dravr mobile app — identity, native modules and the OTA update channel
 // ABOUTME: Uses Expo Go for development; native builds only needed for speech recognition testing
 
 module.exports = {
   name: 'Dravr',
   slug: 'dravr-app',
   version: '1.0.0',
+  // Over-the-air updates. Without these, everything the JS bundle decides is
+  // frozen into each binary for the life of that install — and one of those
+  // decisions is EXPO_PUBLIC_API_URL, which eas.json still points at a raw
+  // Cloud Run hostname. Recreating that service changes the hostname, and
+  // every phone already carrying the old one would have talked to nothing,
+  // with the only remedy an App Store submission and a forced upgrade. An
+  // update channel is what turns that from a recall into a publish.
+  updates: {
+    url: 'https://u.expo.dev/74a36e57-41ac-4c07-95bc-89a1cde64bc7',
+  },
+  // `fingerprint`, not `sdkVersion`. The runtime version decides which builds
+  // an update is allowed to land on, and this app carries real native code —
+  // MapLibre, speech recognition, Google sign-in, and expo-updates itself. On
+  // the `sdkVersion` policy every SDK 55 build accepts every SDK 55 update, so
+  // a JS bundle calling a native module the installed binary does not have
+  // would be delivered and crash on launch: a worse outage than the one OTA is
+  // here to prevent. A fingerprint is a hash of the native project, so a
+  // JS-only fix ships over the air and anything that moves native code is
+  // withheld from old binaries and waits for a store build, which is the
+  // distinction that makes shipping an update safe.
   runtimeVersion: {
-    policy: 'sdkVersion',
+    policy: 'fingerprint',
   },
   // 'default' rather than 'portrait': supportsTablet is true below, and Apple
   // expects a tablet-capable app to rotate and to support Split View. A phone
