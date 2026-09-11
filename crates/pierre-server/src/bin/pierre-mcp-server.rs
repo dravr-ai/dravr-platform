@@ -911,6 +911,16 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_short_link_sweeper(Arc::clone(&resources.common.repos.short_links));
     }
 
+    // Start the OAuth launch sweeper. A connect flow that dies between the
+    // authorize redirect and the callback leaves an unconsumed state row and no
+    // other trace: on 2026-09-10 that shape was invisible to every signal we
+    // keep while users could not connect. This reports the count so a broken
+    // launch pages someone instead of hiding.
+    {
+        use pierre_mcp_server::start_oauth_launch_sweeper;
+        start_oauth_launch_sweeper(Arc::clone(&resources.common.repos.oauth_client_state));
+    }
+
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
     // tasks extension stamps every handle with `expires_at_ms` and advertises
     // the same budget to the client as `ttlMs`; reads filter on it, but until

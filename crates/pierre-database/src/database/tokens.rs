@@ -482,4 +482,11 @@ impl OAuthClientStateRepository for Database {
     ) -> AppResult<Option<OAuthClientState>> {
         Self::consume_oauth_client_state_impl(self, state_value, provider, now).await
     }
+
+    async fn reap_expired_oauth_client_states(
+        &self,
+        now: DateTime<Utc>,
+    ) -> AppResult<Vec<(String, u64)>> {
+        Self::reap_expired_oauth_client_states_impl(self, now).await
+    }
 }

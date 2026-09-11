@@ -61,6 +61,8 @@ pub mod messaging_reactions;
 pub mod mobility;
 /// OAuth token and authorization repository implementations
 pub mod oauth;
+/// OAuth client-state repository implementation (CSRF `state` + PKCE verifier)
+mod oauth_client_state;
 /// Postgres `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
 /// Pre-approved email allow-list consulted at registration (Postgres)

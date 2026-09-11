@@ -296,6 +296,22 @@ pub trait OAuthClientStateRepository: Send + Sync {
         provider: &str,
         now: DateTime<Utc>,
     ) -> AppResult<Option<OAuthClientState>>;
+    /// Delete the client states that expired without ever being consumed, and
+    /// report how many went per provider.
+    ///
+    /// An OAuth launch the athlete never completed leaves exactly one such row —
+    /// `expires_at` in the past with `used` still false — so the per-provider
+    /// counts are the abandoned-launch signal. A row that expired *after* being
+    /// consumed is the ordinary residue of a flow that succeeded and is left
+    /// alone, as is an unexpired row a callback may still redeem.
+    ///
+    /// Entries are `(provider, deleted_rows)` sorted by provider name, so the
+    /// output is stable across calls and backends; an empty vec means nothing was
+    /// reaped, never that a provider reaped zero.
+    async fn reap_expired_oauth_client_states(
+        &self,
+        now: DateTime<Utc>,
+    ) -> AppResult<Vec<(String, u64)>>;
 }
 
 /// Provider connection management repository
