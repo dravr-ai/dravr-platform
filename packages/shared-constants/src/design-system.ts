@@ -58,6 +58,9 @@ export const BOREAL_LIGHT = {
 
   outline: '#525a55',
   outlineVariant: '#c0c8c3',
+
+  /** The veil behind a sheet or a dialog, drawn at 60 % — `--color-scrim`. */
+  scrim: '#1a1c1b',
 } as const;
 
 // ========== BOREAL DARK — tuned variant for mobile OLED night use ==========
@@ -115,6 +118,8 @@ export const BOREAL_DARK = {
 
   outline: '#8a9389',
   outlineVariant: '#414845',
+
+  scrim: '#000000',
 } as const;
 
 /** Color scheme identifier for runtime theme selection. */
@@ -337,6 +342,7 @@ export const PROVIDER_COLORS = {
   fitbit: '#00B0B9',
   whoop: '#00D46A',
   terra: '#6366F1',
+  intervals_icu: '#1273DE',
   google: '#4285F4',
   sciotte: '#FC4C02',
   sciotte_garmin: '#007CC3',
@@ -485,9 +491,12 @@ export const BORDER_RADIUS = {
   full: 9999,
 } as const;
 
-/** Font size scale (unchanged). */
+/** Font size scale for inline styles. `chrome` is the phone's interface
+ *  size (13, weight 500 on anything navigable); the class ladder in
+ *  `frontend-mobile/tailwind.config.js` is the primary path there. */
 export const FONT_SIZE = {
   xs: 12,
+  chrome: 13,
   sm: 14,
   md: 16,
   lg: 18,

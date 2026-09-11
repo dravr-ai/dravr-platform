@@ -1,8 +1,10 @@
 // ABOUTME: Unit tests for Button component
-// ABOUTME: Tests variants, sizes, states, and interactions
+// ABOUTME: Tests the four variants, the 44/8/no-shadow shape, states, and interactions
 
 import React from 'react';
+import type { ViewStyle } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
+import { BOREAL_DARK } from '@pierre/shared-constants';
 import { Button } from '../src/components/ui/Button';
 
 describe('Button Component', () => {
@@ -52,26 +54,29 @@ describe('Button Component', () => {
     });
   });
 
-  describe('sizes', () => {
-    it('should render small size', () => {
-      const { getByText } = render(
-        <Button title="Small" onPress={() => {}} size="sm" />
+  describe('shape (Boreal v2.2 D4)', () => {
+    it('is 44 tall with radius 8 and casts no shadow at rest', () => {
+      const { UNSAFE_getByType } = render(
+        <Button title="Shape" onPress={() => {}} testID="shape-button" />
       );
-      expect(getByText('Small')).toBeTruthy();
+      // The touchable's host view does not carry the className; the element does.
+      const TouchableOpacity = require('react-native').TouchableOpacity;
+      const button = UNSAFE_getByType(TouchableOpacity);
+      const className = button.props.className as string;
+      expect(className).toContain('h-11');
+      expect(className).toContain('rounded-lg');
+      expect(className).not.toMatch(/rounded-(xl|full)/);
+      const style = button.props.style as ViewStyle | undefined;
+      expect(style?.shadowOpacity).toBeUndefined();
+      expect(style?.elevation).toBeUndefined();
     });
 
-    it('should render medium size by default', () => {
-      const { getByText } = render(
-        <Button title="Medium" onPress={() => {}} />
-      );
-      expect(getByText('Medium')).toBeTruthy();
-    });
-
-    it('should render large size', () => {
-      const { getByText } = render(
-        <Button title="Large" onPress={() => {}} size="lg" />
-      );
-      expect(getByText('Large')).toBeTruthy();
+    it('spins in the label ink of the ground, not a frozen hex', () => {
+      const ActivityIndicator = require('react-native').ActivityIndicator;
+      const filled = render(<Button title="Go" onPress={() => {}} loading />);
+      expect(filled.UNSAFE_getByType(ActivityIndicator).props.color).toBe(BOREAL_DARK.onPrimary);
+      const bare = render(<Button title="Go" onPress={() => {}} loading variant="ghost" />);
+      expect(bare.UNSAFE_getByType(ActivityIndicator).props.color).toBe(BOREAL_DARK.primary);
     });
   });
 

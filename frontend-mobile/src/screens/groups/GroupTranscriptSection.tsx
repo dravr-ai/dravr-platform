@@ -43,7 +43,7 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
   if (isError || !transcript) {
     return (
       <View style={sectionCardStyle}>
-        <Text style={{ fontSize: 13, color: colors.text.tertiary, textAlign: 'center' }}>
+        <Text className="text-sm" style={{ color: colors.text.tertiary, textAlign: 'center' }}>
           {t('app.roomTranscriptFailed')}
         </Text>
       </View>
@@ -52,26 +52,26 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
 
   return (
     <View style={sectionCardStyle} testID="group-transcript">
-      <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text.primary, marginBottom: 8 }}>
+      <Text className="text-base font-semibold" style={{ color: colors.text.primary, marginBottom: 8 }}>
         {t('app.room')}
       </Text>
       {transcript.entries.length === 0 ? (
-        <Text style={{ fontSize: 13, color: colors.text.tertiary }}>
+        <Text className="text-sm" style={{ color: colors.text.tertiary }}>
           {t('app.roomEmpty')}
         </Text>
       ) : (
         transcript.entries.map((entry) => (
           <View key={entry.id} style={{ marginBottom: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.text.secondary }}>
+              <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
                 {entry.author_display_name ?? entry.author_user_id}
                 {entry.speaker === 'coach' ? ' · agent' : ''}
               </Text>
-              <Text style={{ fontSize: 11, color: colors.text.tertiary }}>
+              <Text className="text-xs font-mono tabular-nums" style={{ color: colors.text.tertiary }}>
                 {new Date(entry.created_at).toLocaleDateString()}
               </Text>
             </View>
-            <Text style={{ fontSize: 14, color: colors.text.primary, marginTop: 2 }}>
+            <Text className="text-sm" style={{ color: colors.text.primary, marginTop: 2 }}>
               {entry.content}
             </Text>
           </View>

@@ -154,7 +154,7 @@ export function MessagingChannelsScreen() {
       ) : (
         <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
           <View>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.linked')}</Text>
+            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>{t('app.linked')}</Text>
             <View style={cardStyle}>
               {links.length === 0 ? (
                 <View style={{ padding: spacing.md }} testID="messaging-no-links">
@@ -175,16 +175,16 @@ export function MessagingChannelsScreen() {
                     style={[
                       rowStyle,
                       index < links.length - 1
-                        ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+                        ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
                         : {},
                     ]}
                     testID={`messaging-link-${link.channel}`}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 16, color: colors.text.primary }}>
+                      <Text className="text-base" style={{ color: colors.text.primary }}>
                         {available.find((c) => c.channel === link.channel)?.display_name ?? link.channel}
                       </Text>
-                      <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
+                      <Text className="text-sm" style={{ color: colors.text.tertiary }}>
                         {link.display_name ?? link.channel_user_id}
                       </Text>
                     </View>
@@ -206,7 +206,7 @@ export function MessagingChannelsScreen() {
           </View>
 
           <View>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.available')}</Text>
+            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>{t('app.available')}</Text>
             <View style={cardStyle}>
               {unlinked.map((channel, index) => (
                 <TouchableOpacity
@@ -214,14 +214,14 @@ export function MessagingChannelsScreen() {
                   style={[
                     rowStyle,
                     index < unlinked.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
                       : {},
                   ]}
                   onPress={() => handleLink(channel)}
                   disabled={busyChannel === channel.channel}
                   testID={`messaging-link-add-${channel.channel}`}
                 >
-                  <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{channel.display_name}</Text>
+                  <Text className="text-base" style={{ flex: 1, color: colors.text.primary }}>{channel.display_name}</Text>
                   {busyChannel === channel.channel ? (
                     <ActivityIndicator color={colors.text.tertiary} />
                   ) : (

@@ -39,23 +39,20 @@ describe('DragIndicator', () => {
   });
 
   describe('visual structure', () => {
-    it('should render the indicator pill with rgba background', () => {
+    it('draws the pill in the strong hairline of the scheme, not a fixed white', () => {
       const tree = render(<DragIndicator />);
       const json = tree.toJSON();
 
-      // The pill is the child View with the inline backgroundColor style
-      if (json && !Array.isArray(json) && json.children) {
-        const pill = json.children[0];
-        if (pill && typeof pill === 'object' && 'props' in pill) {
-          expect(pill.props.style).toBeDefined();
-          // Check that the pill has the rgba background color
-          const styles = Array.isArray(pill.props.style) ? pill.props.style : [pill.props.style];
-          const hasRgbaBackground = styles.some(
-            (s: Record<string, string>) => s && s.backgroundColor === 'rgba(255, 255, 255, 0.3)'
-          );
-          expect(hasRgbaBackground).toBe(true);
-        }
-      }
+      // The pill is the child View with the inline backgroundColor style.
+      // Outside a ThemeProvider the palette is the dark one, so the strong
+      // hairline is the pale grey-green at the web's dark alpha.
+      expect(json && !Array.isArray(json) && json.children).toBeTruthy();
+      const pill = (json as { children: Array<{ props: { style: unknown } }> }).children[0];
+      const styles = Array.isArray(pill.props.style) ? pill.props.style : [pill.props.style];
+      const hasHairlineFill = styles.some(
+        (s: Record<string, string>) => s && s.backgroundColor === 'rgba(192, 200, 195, 0.34)'
+      );
+      expect(hasHairlineFill).toBe(true);
     });
   });
 });

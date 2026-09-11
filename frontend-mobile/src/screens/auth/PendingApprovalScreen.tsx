@@ -134,7 +134,7 @@ export function PendingApprovalScreen() {
             )}
 
             {/* Info Box with glassmorphism */}
-            <View className="bg-background-tertiary rounded-xl p-4 mb-6 border border-border-subtle">
+            <View className="bg-background-tertiary rounded-xl p-4 mb-6 border border-border-faint">
               <Text className="text-base font-semibold text-text-primary mb-3">
                 {t('app.whatHappensNext')}
               </Text>

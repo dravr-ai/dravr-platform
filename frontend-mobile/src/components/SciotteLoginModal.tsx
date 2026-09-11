@@ -415,9 +415,9 @@ export function SciotteLoginModal({
           </View>
 
           <View className="mb-3">
-            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium uppercase tracking-wide">{t('common.email')}</Text>
+            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium">{t('common.email')}</Text>
             <TextInput
-              className="bg-background-secondary rounded-xl px-4 py-3.5 text-base text-text-primary border border-border-default"
+              className="bg-background-secondary rounded-xl px-4 py-3.5 text-base text-text-primary border border-border"
               placeholder={t(methodConfig.emailPlaceholderKey)}
               placeholderTextColor={colors.text.tertiary}
               value={email}
@@ -430,8 +430,8 @@ export function SciotteLoginModal({
           </View>
 
           <View className="mb-4">
-            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium uppercase tracking-wide">{t('common.password')}</Text>
-            <View className="flex-row items-center bg-background-secondary rounded-xl border border-border-default">
+            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium">{t('common.password')}</Text>
+            <View className="flex-row items-center bg-background-secondary rounded-xl border border-border">
               <TextInput
                 className="flex-1 px-4 py-3.5 text-base text-text-primary"
                 placeholder={t('app.enterYourPassword')}
@@ -520,7 +520,7 @@ export function SciotteLoginModal({
             {twoFactorOptions.map((option) => (
               <TouchableOpacity
                 key={option.id}
-                className="bg-background-secondary rounded-xl p-4 border border-border-default active:border-primary"
+                className="bg-background-secondary rounded-xl p-4 border border-border active:border-primary"
                 onPress={() => handleSelect2FA(option.id)}
                 disabled={isLoading}
                 activeOpacity={0.7}
@@ -572,7 +572,7 @@ export function SciotteLoginModal({
           </View>
 
           <TextInput
-            className="bg-background-secondary rounded-xl px-4 py-4 mb-4 text-text-primary text-center text-2xl tracking-[8px] font-mono border border-border-default"
+            className="bg-background-secondary rounded-xl px-4 py-4 mb-4 text-text-primary text-center text-2xl tracking-[8px] font-mono border border-border"
             placeholder="000000"
             placeholderTextColor={colors.text.tertiary}
             value={otpCode}
@@ -655,7 +655,7 @@ export function SciotteLoginModal({
         className="flex-1"
       >
         <TouchableOpacity
-          className="flex-1 bg-black/60 justify-end"
+          className="flex-1 bg-scrim/60 justify-end"
           activeOpacity={1}
           onPress={onClose}
         >

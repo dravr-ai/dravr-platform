@@ -14,7 +14,7 @@ import {
   Keyboard,
   type ViewStyle,
 } from 'react-native';
-import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
 interface PromptDialogProps {
@@ -100,7 +100,7 @@ export function PromptDialog({
       testID={testID}
     >
       <TouchableWithoutFeedback onPress={dismissKeyboard}>
-        <View className="flex-1 bg-black/50 justify-center items-center">
+        <View className="flex-1 bg-scrim/60 justify-center items-center">
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             className="w-full items-center px-6"
@@ -120,12 +120,12 @@ export function PromptDialog({
 
               <TextInput
                 ref={inputRef}
-                className="bg-background-tertiary border border-border-default rounded-lg py-2.5 px-4 text-text-primary text-base mb-6"
+                className="bg-background-tertiary border border-border rounded-lg py-2.5 px-4 text-text-primary text-base mb-6"
                 value={inputValue}
                 onChangeText={setInputValue}
                 placeholder={placeholder}
                 placeholderTextColor={colors.text.tertiary}
-                selectionColor={PRIMARY_PALETTE[500]}
+                selectionColor={colors.tokens.primary}
                 autoCapitalize="sentences"
                 autoCorrect
                 returnKeyType="done"
@@ -146,7 +146,7 @@ export function PromptDialog({
 
                 <TouchableOpacity
                   className={`flex-1 py-2.5 rounded-lg items-center justify-center ${
-                    isSubmitDisabled ? 'bg-background-tertiary' : 'bg-primary-600'
+                    isSubmitDisabled ? 'bg-background-tertiary' : 'bg-primary'
                   }`}
                   onPress={handleSubmit}
                   disabled={isSubmitDisabled}

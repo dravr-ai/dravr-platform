@@ -4,8 +4,8 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
+import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import {
   ADMIN_HIDDEN_PANES,
@@ -15,6 +15,7 @@ import {
   type SettingsPaneId,
 } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
+import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 import { BILLING_ENABLED } from '../../constants/features';
@@ -85,7 +86,7 @@ export function SettingsScreen() {
       style={[
         rowStyle,
         index < panes.length - 1
-          ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+          ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
           : {},
       ]}
       onPress={() => router.push(pane.mobile as never)}
@@ -105,8 +106,8 @@ export function SettingsScreen() {
         <Feather name={PANE_ICONS[pane.id]} size={20} color={colors.text.secondary} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 16, color: colors.text.primary }}>{t(pane.nameKey)}</Text>
-        <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t(pane.hintKey)}</Text>
+        <Text className="text-base" style={{ color: colors.text.primary }}>{t(pane.nameKey)}</Text>
+        <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t(pane.hintKey)}</Text>
       </View>
       <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
     </TouchableOpacity>
@@ -126,55 +127,29 @@ export function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         testID="settings-scroll"
       >
-        <View style={{ alignItems: 'center', paddingVertical: 24 }} testID="settings-profile-section">
-          <LinearGradient
-            colors={[colors.pierre.violet, colors.pierre.cyan]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{
-              width: 112,
-              height: 112,
-              borderRadius: 56,
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: 16,
-              padding: 4,
-            }}
-          >
-            <View
-              style={{
-                width: '100%',
-                height: '100%',
-                borderRadius: 56,
-                backgroundColor: colors.background.primary,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text style={{ fontSize: 36, fontWeight: 'bold', color: colors.text.primary }}>
-                {displayName[0]?.toUpperCase() ?? '?'}
-              </Text>
-            </View>
-          </LinearGradient>
-
-          <Text style={{ fontSize: 24, fontWeight: 'bold', color: colors.text.primary, marginBottom: 4 }}>
-            {displayName}
-          </Text>
-          <Text style={{ fontSize: 16, color: colors.text.tertiary, marginBottom: 16 }}>{user?.email}</Text>
-
+        {/* The identity row: the same initials circle and colour hash the
+            conversation list draws, the name and email beside it, and the way
+            to the profile pane as an ink link — no hero ring, no filled pill. */}
+        <View className="h-14 flex-row items-center my-2" testID="settings-profile-section">
+          <InitialsAvatar
+            initials={initialsFor(displayName)}
+            slot={avatarSlot({ id: user?.id ?? displayName, coach_id: null, group_id: null })}
+          />
+          <View className="flex-1 ml-3">
+            <Text className="text-base font-semibold text-text-primary" numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Text className="text-sm text-text-secondary" numberOfLines={1}>
+              {user?.email}
+            </Text>
+          </View>
           <TouchableOpacity
-            style={{
-              paddingHorizontal: 24,
-              paddingVertical: 10,
-              borderRadius: 9999,
-              backgroundColor: colors.pierre.violet,
-            }}
+            className="py-2 pl-3"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             onPress={() => router.push(settingsPane('profile').mobile as never)}
             testID="settings-edit-profile-button"
           >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.tokens.onPrimary }}>
-              {t('app.editProfile')}
-            </Text>
+            <Text className="text-sm font-medium text-primary">{t('app.editProfile')}</Text>
           </TouchableOpacity>
         </View>
 

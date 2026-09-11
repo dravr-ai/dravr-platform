@@ -125,7 +125,7 @@ export function TokensScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="tokens-screen">
       <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
-        <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.mcpTokenBlurb')}</Text>
+        <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('app.mcpTokenBlurb')}</Text>
 
         {loadError && (
           <View style={{ ...cardStyle, padding: 16, gap: 12 }} testID="tokens-load-error">
@@ -160,16 +160,16 @@ export function TokensScreen() {
                     paddingHorizontal: 16,
                   },
                   index < tokens.length - 1
-                    ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+                    ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
                     : {},
                 ]}
                 testID={`mcp-token-row-${token.id}`}
               >
                 <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={{ fontSize: 16, color: colors.text.primary }} numberOfLines={1}>
+                  <Text className="text-base" style={{ color: colors.text.primary }} numberOfLines={1}>
                     {token.name}
                   </Text>
-                  <Text style={{ fontSize: 12, color: colors.text.tertiary }}>
+                  <Text className="text-xs font-mono tabular-nums" style={{ color: colors.text.tertiary }}>
                     {t('app.tokenPrefixUsage', { prefix: token.token_prefix, uses: token.usage_count })}
                   </Text>
                 </View>
@@ -200,7 +200,7 @@ export function TokensScreen() {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontSize: 16, fontWeight: '600', color: colors.tokens.onPrimary }}>
+          <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>
             {t('app.newToken')}
           </Text>
         </TouchableOpacity>
@@ -212,7 +212,7 @@ export function TokensScreen() {
         transparent
         onRequestClose={() => setShowCreateToken(false)}
       >
-        <View className="flex-1 bg-black/70 justify-center" style={{ paddingHorizontal: spacing.lg }}>
+        <View className="flex-1 bg-scrim/60 justify-center" style={{ paddingHorizontal: spacing.lg }}>
           <View className="bg-surface-container-low p-5" style={{ borderRadius: borderRadius.xl }}>
             <Text className="text-xl font-semibold text-on-surface mb-5 text-center">
               {newToken ? t('app.tokenCreatedTitle') : t('app.createMcpToken')}
@@ -220,7 +220,7 @@ export function TokensScreen() {
 
             {newToken ? (
               <>
-                <Text className="text-sm text-amber-500 text-center mb-3">{t('app.copyTokenNow')}</Text>
+                <Text className="text-sm text-on-warning-container text-center mb-3">{t('app.copyTokenNow')}</Text>
                 <View className="bg-surface rounded-lg p-3 mb-5">
                   <Text className="text-sm text-on-surface font-mono" selectable>
                     {newToken}

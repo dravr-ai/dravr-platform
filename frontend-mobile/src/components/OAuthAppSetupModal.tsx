@@ -153,7 +153,7 @@ export function OAuthAppSetupModal({
       transparent
       onRequestClose={onClose}
     >
-      <View className="flex-1 bg-black/70 justify-end">
+      <View className="flex-1 bg-scrim/60 justify-end">
         <View
           className="bg-background-primary rounded-t-3xl pt-3 pb-10 px-4 max-h-[92%]"
           accessibilityViewIsModal
@@ -184,7 +184,7 @@ export function OAuthAppSetupModal({
               {displayName} requires each user to register their own developer
               app. Create one at{' '}
               <Text
-                className="text-primary-500 underline"
+                className="text-primary underline"
                 onPress={handleOpenDevPortal}
               >
                 {devPortalHost}

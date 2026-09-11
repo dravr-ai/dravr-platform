@@ -30,7 +30,7 @@ import {
 } from '@pierre/chat-utils';
 import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
-import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, useThemeColors } from '../../constants/theme';
+import { spacing, fontSize, borderRadius, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
 import {
@@ -172,7 +172,7 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
   },
   code_inline: {
     backgroundColor: colors.background.tertiary,
-    color: PRIMARY_PALETTE[400],
+    color: colors.tokens.primary,
     paddingHorizontal: 4,
     borderRadius: 4,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -190,7 +190,7 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
     color: colors.text.primary,
   },
   link: {
-    color: PRIMARY_PALETTE[400],
+    color: colors.tokens.primary,
     textDecorationLine: 'underline' as const,
   },
   hr: {
@@ -223,14 +223,14 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
   },
   tr: {
     borderBottomWidth: 1,
-    borderColor: colors.border.subtle,
+    borderColor: colors.border.faint,
     flexDirection: 'row' as const,
   },
   td: {
     padding: 8,
     minWidth: TABLE_CELL_MIN_WIDTH,
     borderRightWidth: 1,
-    borderColor: colors.border.subtle,
+    borderColor: colors.border.faint,
     fontSize: fontSize.sm,
     color: colors.text.secondary,
   },
@@ -611,7 +611,7 @@ export function MessageList({
               {block.actions.map((action, idx) => (
                 <TouchableOpacity
                   key={`${action.value}-${idx}`}
-                  className="px-3 py-2 rounded-lg bg-pierre-violet/15"
+                  className="px-3 py-2 rounded-lg bg-primary/15"
                   onPress={() => onActionClick?.(action)}
                 >
                   <Text className="text-sm text-primary font-medium">{action.label}</Text>
@@ -871,7 +871,7 @@ export function MessageList({
   if (isLoading) {
     return (
       <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+        <ActivityIndicator size="large" color={colors.tokens.primary} />
       </View>
     );
   }

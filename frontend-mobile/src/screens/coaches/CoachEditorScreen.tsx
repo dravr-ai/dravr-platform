@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { PRIMARY_PALETTE, spacing, useCardStyle, buttonGlow, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
+import { spacing, useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import type { UpdateCoachRequest } from '../../types';
@@ -243,11 +243,11 @@ export function CoachEditorScreen() {
         <View className="flex-1 justify-center items-center p-6">
           <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
           <TouchableOpacity
-            className="px-5 py-2 bg-primary-500 rounded-lg"
+            className="px-5 py-2 bg-primary rounded-lg"
             onPress={() => router.back()}
             testID="back-button"
           >
-            <Text className="text-text-primary text-base font-medium">{t('app.goBack')}</Text>
+            <Text className="text-on-primary text-base font-medium">{t('app.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -258,7 +258,7 @@ export function CoachEditorScreen() {
     return (
       <View className="flex-1 bg-background-primary">
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+          <ActivityIndicator size="large" color={colors.tokens.primary} />
           <Text className="text-text-secondary mt-3 text-base">{t('app.loadingAgent')}</Text>
         </View>
       </View>
@@ -476,7 +476,6 @@ export function CoachEditorScreen() {
                 className="w-12 justify-center items-center rounded-xl"
                 style={{
                   backgroundColor: colors.pierre.violet,
-                  ...buttonGlow,
                 }}
                 onPress={addTag}
                 testID="add-tag-button"
@@ -636,7 +635,7 @@ export function CoachEditorScreen() {
                     }}
                   >
                     {athleteProfile && (
-                      <Text className="text-[10px] font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
+                      <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
                     )}
                   </View>
                   <Text className="text-text-secondary text-xs">{t('app.alsoFetchProfile')}</Text>
@@ -669,12 +668,12 @@ export function CoachEditorScreen() {
         presentationStyle="pageSheet"
       >
         <SafeAreaView className="flex-1 bg-background-primary" testID="expanded-modal">
-          <View className="flex-row items-center justify-between px-3 py-2 border-b border-border-default">
+          <View className="flex-row items-center justify-between px-3 py-2 border-b border-border">
             <TouchableOpacity
               onPress={() => setExpandedTextArea(false)}
               testID="modal-done-button"
             >
-              <Text className="text-primary-500 text-base font-semibold">{t('app.done')}</Text>
+              <Text className="text-primary text-base font-semibold">{t('app.done')}</Text>
             </TouchableOpacity>
             <Text className="text-text-primary text-base font-semibold">{t('app.systemPrompt')}</Text>
             <View className="w-[50px]" />
@@ -690,7 +689,7 @@ export function CoachEditorScreen() {
             textAlignVertical="top"
             autoFocus
           />
-          <View className="px-3 py-2 border-t border-border-default">
+          <View className="px-3 py-2 border-t border-border">
             <Text className="text-text-secondary text-sm" testID="modal-token-count">
               ~{tokenCount.toLocaleString()} tokens ({contextPercentage}% of context)
             </Text>
@@ -706,8 +705,7 @@ export function CoachEditorScreen() {
         onRequestClose={() => setShowCategoryModal(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          className="flex-1 justify-end bg-scrim/60"
           onPress={() => setShowCategoryModal(false)}
         >
           {/* The sheet sits over the page, so it is a raised surface and takes

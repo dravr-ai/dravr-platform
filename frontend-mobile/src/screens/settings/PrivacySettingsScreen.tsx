@@ -80,7 +80,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
     <View className="flex-1 bg-background-primary" testID="privacy-settings-screen">
       <PaneScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Analytics consent */}
-        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
+        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2">
           {t('app.usageAnalytics')}
         </Text>
         <View style={sectionCardStyle}>
@@ -109,7 +109,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
         </View>
 
         {/* What we collect */}
-        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
+        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2">
           {t('app.whatWeCollect')}
         </Text>
         <View style={sectionCardStyle}>
@@ -121,7 +121,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
           ))}
         </View>
 
-        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
+        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2">
           {t('app.whatWeNeverCollect')}
         </Text>
         <View style={sectionCardStyle}>

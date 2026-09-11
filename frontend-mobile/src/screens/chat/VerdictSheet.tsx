@@ -26,7 +26,7 @@ export interface VerdictSheetProps {
   onAskAboutClaim: (verdict: ClaimVerdict) => void;
 }
 
-const SECTION_HEADING = 'text-xs font-semibold uppercase tracking-wide text-text-tertiary mt-4 mb-1';
+const SECTION_HEADING = 'text-sm font-semibold text-text-secondary mt-4 mb-1';
 
 /** Everything the sheet says about one verdict. */
 function VerdictCard({
@@ -52,7 +52,7 @@ function VerdictCard({
     : new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(emitted);
 
   return (
-    <View testID="verdict-card" className="py-4 border-b border-border-default">
+    <View testID="verdict-card" className="py-4 border-b border-border">
       <View className="flex-row flex-wrap gap-2">
         <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: chip.fill }}>
           <Text className="text-xs" style={{ color: chip.ink }}>
@@ -126,7 +126,7 @@ export function VerdictSheet({ visible, verdicts, loading, onClose, onAskAboutCl
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <TouchableOpacity
-        className="flex-1 justify-end bg-black/40"
+        className="flex-1 justify-end bg-scrim/60"
         activeOpacity={1}
         onPress={onClose}
         testID="verdict-sheet-backdrop"

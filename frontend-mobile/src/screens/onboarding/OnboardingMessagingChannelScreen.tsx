@@ -85,7 +85,7 @@ function ChannelCard({
       <View className="flex-row items-center gap-2">
         <Text className="text-base font-semibold text-on-surface">{channel.display_name}</Text>
         {channel.recommended ? (
-          <Text className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
+          <Text className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
             {t('app.recommended')}
           </Text>
         ) : null}

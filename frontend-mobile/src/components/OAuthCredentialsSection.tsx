@@ -11,7 +11,7 @@ import {
   FlatList,
 } from 'react-native';
 import { TouchableOpacity, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PRIMARY_PALETTE, PROVIDER_COLORS } from '../constants/theme';
+import { PROVIDER_COLORS, useThemeColors } from '../constants/theme';
 import { Card, Button, Input } from './ui';
 import { userApi } from '../services/api';
 import type { OAuthApp, OAuthProvider } from '../types';
@@ -27,6 +27,7 @@ type ModalView = 'form' | 'providerPicker';
 
 export function OAuthCredentialsSection() {
   const { t } = useTranslation();
+  const colors = useThemeColors();
   const [oauthApps, setOauthApps] = useState<OAuthApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -136,7 +137,7 @@ export function OAuthCredentialsSection() {
     return PROVIDERS.find(p => p.id.toLowerCase() === providerId.toLowerCase()) || {
       id: providerId,
       name: providerId.charAt(0).toUpperCase() + providerId.slice(1),
-      color: PRIMARY_PALETTE[500],
+      color: colors.tokens.outline,
     };
   };
 
@@ -153,12 +154,12 @@ export function OAuthCredentialsSection() {
         <Text className="text-lg font-semibold text-text-primary">{t('app.oauthCredentials')}</Text>
         {availableProviders.length > 0 && (
           <TouchableOpacity
-            className="px-3 py-2 min-h-[44px] justify-center"
+            className="px-3 py-2 min-h-11 justify-center"
             onPress={() => setShowAddModal(true)}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             activeOpacity={0.7}
           >
-            <Text className="text-sm font-semibold text-primary-500">+ Add</Text>
+            <Text className="text-sm font-semibold text-primary">+ Add</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -169,7 +170,7 @@ export function OAuthCredentialsSection() {
 
       <Card className="mb-3">
         {isLoading ? (
-          <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
+          <ActivityIndicator size="small" color={colors.tokens.primary} />
         ) : oauthApps.length === 0 ? (
           <Text className="text-sm text-text-secondary text-center py-3">
             {t('app.noOauthCreds')}
@@ -180,7 +181,7 @@ export function OAuthCredentialsSection() {
             return (
               <View
                 key={app.provider}
-                className={`py-2 ${index > 0 ? 'border-t border-border-subtle' : ''}`}
+                className={`py-2 ${index > 0 ? 'border-t border-border-faint' : ''}`}
               >
                 <View className="flex-row items-center mb-1">
                   <View
@@ -222,7 +223,7 @@ export function OAuthCredentialsSection() {
         onRequestClose={handleCloseModal}
       >
         <GestureHandlerRootView className="flex-1">
-          <View className="flex-1 bg-black/70 justify-center px-4">
+          <View className="flex-1 bg-scrim/60 justify-center px-4">
             {modalView === 'form' ? (
               <View className="bg-background-secondary rounded-xl p-4 max-h-[80%]">
                 <Text className="text-xl font-semibold text-text-primary mb-4 text-center">
@@ -232,7 +233,7 @@ export function OAuthCredentialsSection() {
                 {/* Provider Picker */}
                 <Text className="text-sm font-medium text-text-secondary mb-1">{t('app.provider')}</Text>
                 <TouchableOpacity
-                  className="flex-row items-center justify-between bg-background-tertiary rounded-lg p-3 mb-3 border border-border-subtle"
+                  className="flex-row items-center justify-between bg-background-tertiary rounded-lg p-3 mb-3 border border-border-faint"
                   onPress={() => setModalView('providerPicker')}
                   hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
                   activeOpacity={0.7}
@@ -279,7 +280,7 @@ export function OAuthCredentialsSection() {
                 <Text className="text-sm font-medium text-text-secondary mb-1">
                   {t('app.redirectUriHint')}
                 </Text>
-                <View className="bg-background-tertiary rounded-lg p-3 mb-3 border border-border-subtle">
+                <View className="bg-background-tertiary rounded-lg p-3 mb-3 border border-border-faint">
                   <Text className="text-sm text-text-secondary font-mono" selectable>
                     {selectedProvider ? `${DEFAULT_REDIRECT_URI}/${selectedProvider.id}` : DEFAULT_REDIRECT_URI}
                   </Text>
@@ -321,11 +322,11 @@ export function OAuthCredentialsSection() {
                       </View>
                       <Text className="flex-1 text-base text-text-primary ml-2">{item.name}</Text>
                       {selectedProvider?.id === item.id && (
-                        <Text className="text-lg text-primary-500">{'✓'}</Text>
+                        <Text className="text-lg text-primary">{'✓'}</Text>
                       )}
                     </TouchableOpacity>
                   )}
-                  ItemSeparatorComponent={() => <View className="h-px bg-border-subtle" />}
+                  ItemSeparatorComponent={() => <View className="h-px bg-border-faint" />}
                 />
                 <Button
                   title={t('common.back')}

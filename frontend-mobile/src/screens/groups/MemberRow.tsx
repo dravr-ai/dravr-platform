@@ -78,14 +78,14 @@ export function MemberRow({
         </Text>
         <View className="flex-row items-center mt-0.5">
           <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: `${roleBadge.fill}20` }}>
-            <Text className="text-[10px] font-semibold" style={{ color: roleBadge.ink }}>
+            <Text className="text-xs font-semibold" style={{ color: roleBadge.ink }}>
               {t(ROLE_LABEL_KEYS[member.role])}
             </Text>
           </View>
           {member.peer_sharing_consent && (
             <View className="flex-row items-center ml-2">
               <Feather name="eye" size={10} color={colors.text.tertiary} />
-              <Text className="text-[10px] text-text-tertiary ml-0.5">{t('app.sharing')}</Text>
+              <Text className="text-xs text-text-tertiary ml-0.5">{t('app.sharing')}</Text>
             </View>
           )}
         </View>

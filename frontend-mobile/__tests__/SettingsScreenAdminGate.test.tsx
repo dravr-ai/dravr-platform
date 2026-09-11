@@ -4,15 +4,6 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
-
-// Mock LinearGradient
-jest.mock('expo-linear-gradient', () => ({
-  LinearGradient: ({ children, ...props }: { children: React.ReactNode }) => {
-    const { View } = require('react-native');
-    return <View {...props}>{children}</View>;
-  },
-}));
-
 // Mock Feather icons
 jest.mock('@expo/vector-icons', () => ({
   Feather: () => null,

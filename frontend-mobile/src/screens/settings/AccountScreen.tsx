@@ -166,11 +166,11 @@ export function AccountScreen() {
       style={[
         rowStyle,
         { justifyContent: 'space-between' },
-        isLast ? {} : { borderBottomWidth: 1, borderBottomColor: colors.border.subtle },
+        isLast ? {} : { borderBottomWidth: 1, borderBottomColor: colors.border.faint },
       ]}
     >
-      <Text style={{ fontSize: 15, color: colors.text.secondary }}>{label}</Text>
-      <Text style={{ fontSize: 15, color: colors.text.primary }}>{value}</Text>
+      <Text className="text-base" style={{ color: colors.text.secondary }}>{label}</Text>
+      <Text className="text-base" style={{ color: colors.text.primary }}>{value}</Text>
     </View>
   );
 
@@ -179,7 +179,7 @@ export function AccountScreen() {
       case 'account-status':
         return (
           <View key={section} testID="account-section-account-status">
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>
+            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
               {t('profile.accountStatus')}
             </Text>
             <View style={cardStyle}>
@@ -197,7 +197,7 @@ export function AccountScreen() {
       case 'usage':
         return (
           <View key={section} testID="account-section-usage">
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>
+            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
               {t('app.usage')}
             </Text>
             <View style={cardStyle}>
@@ -207,7 +207,7 @@ export function AccountScreen() {
                 </View>
               ) : !usageData ? (
                 <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.usageDataUnavailable')}</Text>
+                  <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('app.usageDataUnavailable')}</Text>
                 </View>
               ) : (
                 <View style={{ padding: 16 }}>
@@ -216,8 +216,8 @@ export function AccountScreen() {
                     return (
                       <View key={label} style={{ marginBottom: 16 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.secondary }}>{label}</Text>
-                          <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
+                          <Text className="text-sm font-medium" style={{ color: colors.text.secondary }}>{label}</Text>
+                          <Text className="text-sm" style={{ color: colors.text.tertiary }}>
                             {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
                             {' / '}
                             {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
@@ -246,7 +246,7 @@ export function AccountScreen() {
                     );
                   })}
 
-                  <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 16 }}>
+                  <Text className="text-xs" style={{ color: colors.text.tertiary, marginBottom: 16 }}>
                     {t('app.dailyLimitsResetAt', {
                       time: formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc')),
                     })}
@@ -255,14 +255,14 @@ export function AccountScreen() {
                   <View style={{ borderTopWidth: 1, borderTopColor: colors.border.default, paddingTop: 16 }}>
                     <View style={{ flexDirection: 'row', gap: 12 }}>
                       <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
-                        <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>{t('app.agents')}</Text>
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
+                        <Text className="text-xs" style={{ color: colors.text.tertiary, marginBottom: 4 }}>{t('app.agents')}</Text>
+                        <Text className="text-sm font-medium" style={{ color: colors.text.primary }}>
                           {usageData.resources.coaches} / {usageData.resources.max_coaches}
                         </Text>
                       </View>
                       <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
-                        <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>{t('app.conversations')}</Text>
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
+                        <Text className="text-xs" style={{ color: colors.text.tertiary, marginBottom: 4 }}>{t('app.conversations')}</Text>
+                        <Text className="text-sm font-medium" style={{ color: colors.text.primary }}>
                           {usageData.resources.conversations} / {usageData.resources.max_conversations}
                         </Text>
                       </View>
@@ -277,7 +277,7 @@ export function AccountScreen() {
       case 'security':
         return (
           <View key={section} testID="account-section-security">
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>
+            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
               {t('settingsUi.security')}
             </Text>
             <View style={cardStyle}>
@@ -290,8 +290,8 @@ export function AccountScreen() {
                   <Feather name="lock" size={20} color={colors.text.secondary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.changePassword')}</Text>
-                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('password.changeHint')}</Text>
+                  <Text className="text-base" style={{ color: colors.text.primary }}>{t('app.changePassword')}</Text>
+                  <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('password.changeHint')}</Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
               </TouchableOpacity>
@@ -302,7 +302,7 @@ export function AccountScreen() {
       case 'connected-mcp-apps':
         return (
           <View key={section} testID="account-section-connected-mcp-apps">
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>
+            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
               {t('tokens.connectedMcpApps')}
             </Text>
             <View style={cardStyle}>
@@ -315,8 +315,8 @@ export function AccountScreen() {
                   <Feather name="grid" size={20} color={colors.text.secondary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.connectedApps')}</Text>
-                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('tokens.connectedAppsHint')}</Text>
+                  <Text className="text-base" style={{ color: colors.text.primary }}>{t('app.connectedApps')}</Text>
+                  <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('tokens.connectedAppsHint')}</Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
               </TouchableOpacity>
@@ -337,9 +337,9 @@ export function AccountScreen() {
               onPress={handleLogout}
               testID="account-logout-button"
             >
-              <Text style={{ fontSize: 16, fontWeight: '600', color: colors.pierre.red }}>{t('app.logOut')}</Text>
+              <Text className="text-base font-semibold" style={{ color: colors.pierre.red }}>{t('app.logOut')}</Text>
             </TouchableOpacity>
-            <Text style={{ fontSize: 13, color: colors.text.tertiary, marginTop: 8, textAlign: 'center' }}>
+            <Text className="text-sm" style={{ color: colors.text.tertiary, marginTop: 8, textAlign: 'center' }}>
               {t('account.signOutHint')}
             </Text>
           </View>
@@ -362,7 +362,7 @@ export function AccountScreen() {
         transparent
         onRequestClose={() => setShowChangePassword(false)}
       >
-        <View className="flex-1 bg-black/70 justify-center" style={{ paddingHorizontal: spacing.lg }}>
+        <View className="flex-1 bg-scrim/60 justify-center" style={{ paddingHorizontal: spacing.lg }}>
           <View className="bg-surface-container-low p-5" style={{ borderRadius: borderRadius.xl }}>
             <Text className="text-xl font-semibold text-on-surface mb-5 text-center">
               {t('app.changePassword')}

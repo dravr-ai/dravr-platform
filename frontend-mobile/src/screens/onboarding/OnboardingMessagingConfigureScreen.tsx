@@ -14,8 +14,11 @@ import { Card, Button } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagingApi } from '../../services/api';
 import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
-import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { BOREAL_LIGHT, CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
+
+// A QR ground is not themed: the phone camera needs white behind the code in both schemes.
+const QR_GROUND = BOREAL_LIGHT.surfaceContainerLowest;
 
 /**
  * Connect the chosen messaging channel (mobile). On a phone the whole screen is
@@ -114,9 +117,9 @@ export function OnboardingMessagingConfigureScreen() {
               <WebView
                 originWhitelist={['*']}
                 source={{
-                  html: `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;height:100%">${link.qr_svg}</body></html>`,
+                  html: `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;background:${QR_GROUND};display:flex;align-items:center;justify-content:center;height:100%">${link.qr_svg}</body></html>`,
                 }}
-                style={{ width: 176, height: 176, backgroundColor: '#fff' }}
+                style={{ width: 176, height: 176, backgroundColor: QR_GROUND }}
                 scrollEnabled={false}
                 testID="messaging-qr"
               />

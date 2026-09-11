@@ -350,11 +350,11 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               activeInvites.map((invite) => (
                 <View
                   key={invite.id}
-                  className="flex-row items-center py-2.5 border-b border-border-subtle"
+                  className="flex-row items-center py-2.5 border-b border-border-faint"
                   testID={`group-invite-${invite.id}`}
                 >
                   <View className="flex-1 pr-3">
-                    <Text className="text-sm font-mono text-text-primary">{invite.code}</Text>
+                    <Text className="text-sm font-mono tabular-nums text-text-primary">{invite.code}</Text>
                     <Text className="text-xs text-text-tertiary mt-0.5">
                       {invite.kind === 'coach' ? t('humanCoach.invite') : t('app.memberInvite')} · used {invite.use_count}×
                     </Text>
@@ -425,7 +425,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 </Text>
               </TouchableOpacity>
 
-              <View className="flex-row items-center justify-between py-3 border-b border-border-subtle">
+              <View className="flex-row items-center justify-between py-3 border-b border-border-faint">
                 <View className="flex-1 pr-3">
                   <Text className="text-sm font-semibold text-text-primary">{t('app.peerDataSharing')}</Text>
                   <Text className="text-xs text-text-tertiary mt-1">
@@ -441,7 +441,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 />
               </View>
 
-              <View className="flex-row items-center justify-between py-3 border-b border-border-subtle">
+              <View className="flex-row items-center justify-between py-3 border-b border-border-faint">
                 <View className="flex-1 pr-3">
                   <Text className="text-sm font-semibold text-text-primary">{t('app.replyOnMentionOnly')}</Text>
                   <Text className="text-xs text-text-tertiary mt-1">
@@ -486,19 +486,19 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         <CollapsibleSection title={t('app.analytics')} testID="group-info-analytics">
           <View className="flex-row py-2">
             <View className="flex-1 items-center">
-              <Text className="text-lg font-bold text-text-primary" testID="group-stat-members">
+              <Text className="text-lg font-bold font-mono tabular-nums text-text-primary" testID="group-stat-members">
                 {members.length}
               </Text>
               <Text className="text-xs text-text-tertiary mt-0.5">{t('app.members')}</Text>
             </View>
             <View className="flex-1 items-center">
-              <Text className="text-lg font-bold text-text-primary" testID="group-stat-active">
+              <Text className="text-lg font-bold font-mono tabular-nums text-text-primary" testID="group-stat-active">
                 {isLoadingStats ? '…' : String(stats?.active_members ?? members.length)}
               </Text>
               <Text className="text-xs text-text-tertiary mt-0.5">{t('app.active')}</Text>
             </View>
             <View className="flex-1 items-center">
-              <Text className="text-lg font-bold text-text-primary" testID="group-stat-volume">
+              <Text className="text-lg font-bold font-mono tabular-nums text-text-primary" testID="group-stat-volume">
                 {isLoadingStats
                   ? '…'
                   : stats?.avg_weekly_volume_km !== undefined

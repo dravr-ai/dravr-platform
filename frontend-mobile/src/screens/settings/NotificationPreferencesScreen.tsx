@@ -126,7 +126,7 @@ export function NotificationPreferencesScreen() {
         </View>
       ) : (
         <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
-          <Text style={{ fontSize: 14, color: colors.text.tertiary, lineHeight: 20 }}>
+          <Text className="text-sm" style={{ color: colors.text.tertiary }}>
             {t('notifPrefs.intro')}
           </Text>
 
@@ -139,7 +139,7 @@ export function NotificationPreferencesScreen() {
                   key={pref.category}
                   style={
                     index < rows.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
                       : undefined
                   }
                   testID={`notification-pref-${pref.category}`}
@@ -162,10 +162,10 @@ export function NotificationPreferencesScreen() {
                       }}
                     />
                     <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text style={{ fontSize: 16, color: colors.text.primary }}>
+                      <Text className="text-base" style={{ color: colors.text.primary }}>
                         {meta ? t(meta.labelKey) : pref.category}
                       </Text>
-                      <Text style={{ fontSize: 13, color: colors.text.tertiary, marginTop: 2 }}>
+                      <Text className="text-sm" style={{ color: colors.text.tertiary, marginTop: 2 }}>
                         {CATEGORY_BLURB_KEYS[pref.category]
                           ? t(CATEGORY_BLURB_KEYS[pref.category])
                           : t('notifPrefs.categoryBlurbFallback')}
@@ -192,7 +192,7 @@ export function NotificationPreferencesScreen() {
                       testID={`notification-pref-details-${pref.category}`}
                       style={{ paddingHorizontal: 16, paddingBottom: 12 }}
                     >
-                      <Text style={{ fontSize: 13, color: colors.pierre.violet }}>
+                      <Text className="text-sm" style={{ color: colors.pierre.violet }}>
                         {isOpen ? t('notifPrefs.hideQuietHours') : t('notifPrefs.quietHoursAndLimit')}
                       </Text>
                     </TouchableOpacity>
@@ -201,17 +201,7 @@ export function NotificationPreferencesScreen() {
                   {pref.enabled && isOpen && (
                     <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
                       <View>
-                        <Text style={{
-                            fontSize: 12,
-                            color: colors.text.tertiary,
-                            marginBottom: 6,
-                            // The literals here were typed in capitals; the
-                            // corpus strings are sentence case, so the capitals
-                            // move to the style where they belong. Uppercasing
-                            // the string instead would have shouted in five
-                            // languages whose rules for it are not English's.
-                            textTransform: 'uppercase',
-                          }}>
+                        <Text className="text-sm font-medium" style={{ color: colors.text.tertiary, marginBottom: 6 }}>
                           {t('notifPrefs.maxPerDay')}
                         </Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -229,8 +219,8 @@ export function NotificationPreferencesScreen() {
                               }
                             >
                               <Text
+                                className="text-sm"
                                 style={{
-                                  fontSize: 13,
                                   color:
                                     pref.max_per_day === choice
                                       ? colors.pierre.violet
@@ -245,17 +235,7 @@ export function NotificationPreferencesScreen() {
                       </View>
 
                       <View>
-                        <Text style={{
-                            fontSize: 12,
-                            color: colors.text.tertiary,
-                            marginBottom: 6,
-                            // The literals here were typed in capitals; the
-                            // corpus strings are sentence case, so the capitals
-                            // move to the style where they belong. Uppercasing
-                            // the string instead would have shouted in five
-                            // languages whose rules for it are not English's.
-                            textTransform: 'uppercase',
-                          }}>
+                        <Text className="text-sm font-medium" style={{ color: colors.text.tertiary, marginBottom: 6 }}>
                           {t('notifPrefs.quietFrom')}
                         </Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -274,8 +254,8 @@ export function NotificationPreferencesScreen() {
                               }
                             >
                               <Text
+                                className="text-sm"
                                 style={{
-                                  fontSize: 13,
                                   color:
                                     (pref.quiet_hours_start ?? '') === value
                                       ? colors.pierre.violet
@@ -290,17 +270,7 @@ export function NotificationPreferencesScreen() {
                       </View>
 
                       <View>
-                        <Text style={{
-                            fontSize: 12,
-                            color: colors.text.tertiary,
-                            marginBottom: 6,
-                            // The literals here were typed in capitals; the
-                            // corpus strings are sentence case, so the capitals
-                            // move to the style where they belong. Uppercasing
-                            // the string instead would have shouted in five
-                            // languages whose rules for it are not English's.
-                            textTransform: 'uppercase',
-                          }}>
+                        <Text className="text-sm font-medium" style={{ color: colors.text.tertiary, marginBottom: 6 }}>
                           {t('notifPrefs.quietUntil')}
                         </Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -319,8 +289,8 @@ export function NotificationPreferencesScreen() {
                               }
                             >
                               <Text
+                                className="text-sm"
                                 style={{
-                                  fontSize: 13,
                                   color:
                                     (pref.quiet_hours_end ?? '') === value
                                       ? colors.pierre.violet

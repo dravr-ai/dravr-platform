@@ -3,18 +3,17 @@
 
 import React from 'react';
 import { View } from 'react-native';
+import { useThemeColors } from '../../constants/theme';
 
 interface DragIndicatorProps {
   testID?: string;
 }
 
 export function DragIndicator({ testID }: DragIndicatorProps) {
+  const colors = useThemeColors();
   return (
     <View className="items-center pt-2 pb-1" testID={testID}>
-      <View
-        className="w-9 h-1 rounded-full"
-        style={{ backgroundColor: 'rgba(255, 255, 255, 0.3)' }}
-      />
+      <View className="w-9 h-1 rounded-full" style={{ backgroundColor: colors.border.strong }} />
     </View>
   );
 }

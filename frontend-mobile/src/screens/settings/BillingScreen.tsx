@@ -186,8 +186,8 @@ export function BillingScreen(): React.ReactElement {
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       {hasPaymentProblem && (
         <View style={[styles.card, styles.dunningCard]}>
-          <Text style={styles.dunningTitle}>{t('app.paymentProblem')}</Text>
-          <Text style={styles.muted}>
+          <Text className="text-sm font-semibold" style={styles.dunningTitle}>{t('app.paymentProblem')}</Text>
+          <Text className="text-sm" style={styles.muted}>
             {t('app.lastPaymentFailed', {
               plan: TIER_LABEL_KEY[tier] ? t(TIER_LABEL_KEY[tier]) : tier,
               status: sub?.status ?? '',
@@ -207,7 +207,7 @@ export function BillingScreen(): React.ReactElement {
       {showBillingHeader && (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>{t('app.currentPlan')}</Text>
+          <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.currentPlan')}</Text>
           <Text style={styles.tierBadge}>{t(TIER_LABEL_KEY[tier]) ?? tier}</Text>
         </View>
         {subscriptionQuery.isLoading ? (
@@ -218,7 +218,7 @@ export function BillingScreen(): React.ReactElement {
             <Text style={styles.value}>{sub.status}</Text>
           </View>
         ) : (
-          <Text style={styles.muted}>
+          <Text className="text-sm" style={styles.muted}>
             {t('app.onStarterUpgrade')}
           </Text>
         )}
@@ -248,20 +248,20 @@ export function BillingScreen(): React.ReactElement {
         )}
 
         {sub != null && (
-          <Text style={styles.fineprint}>
+          <Text className="text-xs" style={styles.fineprint}>
             {sub.cancel_at_period_end
               ? t('app.planCancelScheduled')
               : t('app.useManageSubscription')}
           </Text>
         )}
 
-        {error != null && <Text style={styles.error}>{t('app.errorWithReason', { reason: error })}</Text>}
+        {error != null && <Text className="text-sm" style={styles.error}>{t('app.errorWithReason', { reason: error })}</Text>}
       </View>
       )}
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('app.plans')}</Text>
-        <Text style={styles.muted}>
+        <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.plans')}</Text>
+        <Text className="text-sm" style={styles.muted}>
           {t('app.planCompareBlurb')}
         </Text>
         {plansQuery.isLoading ? (
@@ -282,7 +282,7 @@ export function BillingScreen(): React.ReactElement {
                 style={[styles.planCard, isCurrent && styles.planCardCurrent]}
               >
                 <View style={styles.cardHeader}>
-                  <Text style={styles.planTitle}>{plan.label}</Text>
+                  <Text className="text-base font-semibold" style={styles.planTitle}>{plan.label}</Text>
                   {isCurrent && <Text style={styles.tierBadge}>{t('app.current')}</Text>}
                 </View>
                 {(
@@ -323,12 +323,12 @@ export function BillingScreen(): React.ReactElement {
             );
           })
         ) : (
-          <Text style={styles.muted}>{t('app.planInfoUnavailable')}</Text>
+          <Text className="text-sm" style={styles.muted}>{t('app.planInfoUnavailable')}</Text>
         )}
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('app.usageQuota')}</Text>
+        <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.usageQuota')}</Text>
         {quotaQuery.isLoading ? (
           <ActivityIndicator />
         ) : quotaQuery.data ? (
@@ -355,12 +355,12 @@ export function BillingScreen(): React.ReactElement {
             );
           })
         ) : (
-          <Text style={styles.muted}>{t('app.quotaInfoUnavailable')}</Text>
+          <Text className="text-sm" style={styles.muted}>{t('app.quotaInfoUnavailable')}</Text>
         )}
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('app.invoices')}</Text>
+        <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.invoices')}</Text>
         {invoicesQuery.isLoading ? (
           <ActivityIndicator />
         ) : invoicesQuery.data && invoicesQuery.data.invoices.length > 0 ? (
@@ -388,7 +388,7 @@ export function BillingScreen(): React.ReactElement {
             </TouchableOpacity>
           ))
         ) : (
-          <Text style={styles.muted}>
+          <Text className="text-sm" style={styles.muted}>
             {sub ? t('app.noInvoicesYet') : t('app.invoicesAppearAfter')}
           </Text>
         )}
@@ -409,16 +409,16 @@ const styles = StyleSheet.create({
     borderColor: '#2a2a2a',
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardTitle: { color: '#f5f5f5', fontSize: 16, fontWeight: '600' },
+  cardTitle: { color: '#f5f5f5' },
   tierBadge: { color: '#10b981', fontWeight: '600' },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   label: { color: '#a1a1aa', textTransform: 'capitalize' },
   value: { color: '#f5f5f5' },
-  muted: { color: '#a1a1aa', fontSize: 14 },
-  fineprint: { color: '#a1a1aa', fontSize: 12 },
-  error: { color: '#ef4444', fontSize: 14 },
+  muted: { color: '#a1a1aa' },
+  fineprint: { color: '#a1a1aa' },
+  error: { color: '#ef4444' },
   dunningCard: { borderColor: 'rgba(239,68,68,0.6)', backgroundColor: 'rgba(239,68,68,0.1)' },
-  dunningTitle: { color: '#ef4444', fontSize: 14, fontWeight: '600' },
+  dunningTitle: { color: '#ef4444' },
   planCard: {
     borderWidth: 1,
     borderColor: '#2a2a2a',
@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   planCardCurrent: { borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.05)' },
-  planTitle: { color: '#f5f5f5', fontSize: 15, fontWeight: '600' },
+  planTitle: { color: '#f5f5f5' },
   button: {
     paddingVertical: 12,
     borderRadius: 10,

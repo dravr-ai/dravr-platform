@@ -304,7 +304,7 @@ export function ConversationsScreen() {
 
       {/* Long-press menu */}
       <Modal visible={actionMenuVisible} animationType="fade" transparent onRequestClose={closeActionMenu}>
-        <TouchableOpacity className="flex-1 bg-black/50 justify-center items-center" activeOpacity={1} onPress={closeActionMenu}>
+        <TouchableOpacity className="flex-1 bg-scrim/60 justify-center items-center" activeOpacity={1} onPress={closeActionMenu}>
           <View className="min-w-[240px] overflow-hidden" style={menuStyle} testID="conversation-action-menu">
             <View className="py-2">
               <TouchableOpacity

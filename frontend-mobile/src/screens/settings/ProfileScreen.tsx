@@ -93,11 +93,11 @@ export function ProfileScreen() {
           >
             <Text style={{ fontSize: 36, fontWeight: 'bold', color: colors.text.primary }}>{initial}</Text>
           </View>
-          <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{user?.email}</Text>
+          <Text className="text-sm" style={{ color: colors.text.tertiary }}>{user?.email}</Text>
         </View>
 
         <View style={cardStyle}>
-          <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.secondary, marginBottom: 8 }}>
+          <Text className="text-sm font-semibold" style={{ color: colors.text.secondary, marginBottom: 8 }}>
             {t('app.displayName')}
           </Text>
           <Input
@@ -108,7 +108,7 @@ export function ProfileScreen() {
             testID="profile-display-name-input"
           />
 
-          <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.secondary, marginTop: 20, marginBottom: 8 }}>
+          <Text className="text-sm font-semibold" style={{ color: colors.text.secondary, marginTop: 20, marginBottom: 8 }}>
             {t('common.email')}
           </Text>
           {/* Read-only: the email identifies the account and is not editable here. */}
@@ -116,14 +116,14 @@ export function ProfileScreen() {
             style={{
               backgroundColor: colors.background.secondary,
               borderWidth: 1,
-              borderColor: colors.border.subtle,
+              borderColor: colors.border.faint,
               borderRadius: 12,
               paddingHorizontal: 16,
               paddingVertical: 14,
             }}
             testID="profile-email-readonly"
           >
-            <Text style={{ fontSize: 16, color: colors.text.tertiary }}>{user?.email}</Text>
+            <Text className="text-base" style={{ color: colors.text.tertiary }}>{user?.email}</Text>
           </View>
         </View>
 
@@ -131,7 +131,7 @@ export function ProfileScreen() {
             how the athlete's own copy of the app reads, not a pane of their
             own. */}
         <View testID="profile-appearance-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>
+          <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
             {t('settings.appearance')}
           </Text>
           <View style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
@@ -160,7 +160,7 @@ export function ProfileScreen() {
                   style={[
                     { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
                     idx < arr.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
                       : {},
                   ]}
                 >
@@ -178,8 +178,8 @@ export function ProfileScreen() {
                     <Feather name={icon} size={20} color={colors.text.secondary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 16, color: colors.text.primary }}>{label}</Text>
-                    <Text style={{ fontSize: 13, color: colors.text.tertiary, marginTop: 2 }}>{description}</Text>
+                    <Text className="text-base" style={{ color: colors.text.primary }}>{label}</Text>
+                    <Text className="text-sm" style={{ color: colors.text.tertiary, marginTop: 2 }}>{description}</Text>
                   </View>
                   <Feather
                     name={isSelected ? 'check-circle' : 'circle'}
@@ -195,10 +195,10 @@ export function ProfileScreen() {
         {/* The switcher sets the chrome language AND `users.locale`, so the
             coach answers in the language the athlete reads the app in. */}
         <View testID="profile-language-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 4 }}>
+          <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 4 }}>
             {t('settings.language')}
           </Text>
-          <Text style={{ fontSize: 13, color: colors.text.tertiary, marginBottom: 12 }}>
+          <Text className="text-sm" style={{ color: colors.text.tertiary, marginBottom: 12 }}>
             {t('settings.languageDescription')}
           </Text>
           <LanguageSwitcher serverLocale={user?.locale} />
@@ -219,11 +219,8 @@ export function ProfileScreen() {
             <ActivityIndicator color={colors.tokens.onPrimary} />
           ) : (
             <Text
-              style={{
-                fontSize: 16,
-                fontWeight: '600',
-                color: isDirty ? colors.tokens.onPrimary : colors.text.tertiary,
-              }}
+              className="text-base font-semibold"
+              style={{ color: isDirty ? colors.tokens.onPrimary : colors.text.tertiary }}
             >
               {t('app.saveChanges')}
             </Text>

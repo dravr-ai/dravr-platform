@@ -40,7 +40,7 @@ export function ConnectPreview() {
 
       {open && (
         <View className="mt-4 rounded-xl border border-outline-variant bg-surface-container-low p-4">
-          <Text className="text-xs uppercase text-text-tertiary">{t('app.previewNotYourData')}</Text>
+          <Text className="text-xs text-text-tertiary">{t('app.previewNotYourData')}</Text>
           <Text className="mt-1 text-xs text-text-tertiary">
             {t('app.previewAthlete')}
           </Text>

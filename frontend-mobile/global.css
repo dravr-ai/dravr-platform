@@ -1,4 +1,4 @@
-/* ABOUTME: NativeWind v4 global stylesheet — Boreal Editorial CSS variables */
+/* ABOUTME: NativeWind v4 global stylesheet — Boreal v2.2 CSS variables for the phone */
 /* ABOUTME: Light defaults under :root, dark overrides under .dark; flips via class */
 
 @tailwind base;
@@ -60,47 +60,19 @@
     --color-outline: 82 90 85;
     --color-outline-variant: 192 200 195;
 
-    /* Pillar tints — Product Tier lift (~15% chroma) so semantic colors
-       remain readable in dense data UIs. WCAG AA against surface (#F9F9F6). */
-    --color-pillar-activity: 15 125 104;
-    --color-pillar-nutrition: 176 131 38;
-    --color-pillar-recovery: 62 114 131;
-    --color-pillar-mobility: 155 70 102;
+    /* The veil behind a sheet or a dialog — the web's `--color-scrim`. */
+    --color-scrim: 26 28 27;
 
-    /* Pierre legacy gray ladder — light direction. */
-    --color-gray-50: 249 249 246;
-    --color-gray-100: 244 244 241;
-    --color-gray-200: 238 238 235;
-    --color-gray-300: 232 232 229;
-    --color-gray-400: 192 200 195;
-    --color-gray-500: 113 121 116;
-    --color-gray-600: 65 72 69;
-    --color-gray-700: 47 49 47;
-    --color-gray-800: 26 28 27;
-    --color-gray-900: 17 19 15;
-
-    --color-green-50: 238 244 241;
-    --color-green-100: 214 227 220;
-    --color-green-500: 60 102 88;
-    --color-green-600: 35 78 64;
-    --color-green-700: 13 59 46;
-
-    --color-yellow-50: 245 239 223;
-    --color-yellow-100: 233 220 176;
-    --color-yellow-500: 143 106 46;
-    --color-yellow-600: 110 80 32;
-    --color-yellow-700: 76 55 22;
-
-    --color-blue-50: 238 244 241;
-    --color-blue-100: 214 227 220;
-    --color-blue-500: 60 102 88;
-    --color-blue-600: 35 78 64;
-    --color-blue-700: 13 59 46;
-
-    /* Ghost-border base — `<alpha-value>` slot is set in tailwind.config.js.
-       Light needs the darker grey-green of DESIGN.md's ghost border: the pale
-       192 200 195 the dark scheme uses is invisible on a white card. */
+    /* Hairlines — the web's three strengths, verbatim (frontend/src/index.css).
+       Light takes the darker grey-green: the pale line the dark scheme uses is
+       invisible on a white card. `faint` is for the dividers INSIDE a list,
+       where a 0.40 rule between every row reads as a stack of boxes.
+       `--color-border` is the ink triple the three carry; the web's
+       DesignTokens test reads it as the mirror of DESIGN.md §2. */
     --color-border: 155 165 159;
+    --ghost-border: rgba(155, 165, 159, 0.40);
+    --ghost-border-strong: rgba(155, 165, 159, 0.55);
+    --ghost-border-faint: rgba(155, 165, 159, 0.26);
 
     --color-success: 46 125 91;
     --color-warning: 176 131 38;
@@ -157,41 +129,13 @@
     --color-outline: 138 147 137;
     --color-outline-variant: 65 72 69;
 
-    --color-pillar-activity: 121 166 148;
-    --color-pillar-nutrition: 214 184 122;
-    --color-pillar-recovery: 155 182 189;
-    --color-pillar-mobility: 196 146 158;
+    --color-scrim: 0 0 0;
 
-    --color-gray-50: 17 19 15;
-    --color-gray-100: 25 28 25;
-    --color-gray-200: 29 32 29;
-    --color-gray-300: 39 43 39;
-    --color-gray-400: 65 72 69;
-    --color-gray-500: 138 147 137;
-    --color-gray-600: 192 200 195;
-    --color-gray-700: 218 218 215;
-    --color-gray-800: 225 227 222;
-    --color-gray-900: 249 249 246;
-
-    --color-green-50: 13 59 46;
-    --color-green-100: 35 78 64;
-    --color-green-500: 121 166 148;
-    --color-green-600: 163 208 190;
-    --color-green-700: 190 237 217;
-
-    --color-yellow-50: 58 45 16;
-    --color-yellow-100: 76 55 22;
-    --color-yellow-500: 214 184 122;
-    --color-yellow-600: 233 220 176;
-    --color-yellow-700: 245 239 223;
-
-    --color-blue-50: 13 59 46;
-    --color-blue-100: 35 78 64;
-    --color-blue-500: 121 166 148;
-    --color-blue-600: 163 208 190;
-    --color-blue-700: 190 237 217;
-
+    /* A pale hairline, because the ground is near-black. */
     --color-border: 192 200 195;
+    --ghost-border: rgba(192, 200, 195, 0.22);
+    --ghost-border-strong: rgba(192, 200, 195, 0.34);
+    --ghost-border-faint: rgba(192, 200, 195, 0.14);
 
     --color-success: 121 166 148;
     --color-warning: 214 184 122;
@@ -200,76 +144,5 @@
     --color-nutrition: 214 184 122;
     --color-recovery: 155 182 189;
     --color-mobility: 196 146 158;
-  }
-}
-
-@layer components {
-  /* ==========================================================================
-     Cards — DESIGN.md §4 tonal layering
-     ========================================================================== */
-
-  .card-glass {
-    @apply bg-surface-container-lowest rounded-lg;
-  }
-
-  .card-glow {
-    @apply bg-surface-container-lowest rounded-lg;
-  }
-
-  .card-boreal-overlay {
-    @apply bg-primary-container rounded-lg;
-  }
-
-  .card-activity {
-    @apply bg-surface-container-low rounded-lg;
-  }
-
-  .card-nutrition {
-    @apply bg-surface-container-low rounded-lg;
-  }
-
-  .card-recovery {
-    @apply bg-surface-container-low rounded-lg;
-  }
-
-  /* ==========================================================================
-     Buttons — DESIGN.md §5
-     ========================================================================== */
-
-  .btn-gradient,
-  .btn-primary {
-    @apply bg-primary rounded-md px-6 py-3 font-semibold;
-  }
-
-  /* ==========================================================================
-     Chat bubbles — tonal layering
-     ========================================================================== */
-
-  .chat-bubble-ai {
-    @apply bg-surface-container-lowest rounded-lg p-4;
-  }
-
-  .chat-bubble-user {
-    @apply bg-primary rounded-lg p-4;
-  }
-
-  /* ==========================================================================
-     AI legacy classes — flattened to tonal washes
-     ========================================================================== */
-
-  .card-ai {
-    @apply bg-surface-container-lowest rounded-lg;
-  }
-
-  .ai-avatar {
-    @apply bg-surface-container rounded-full items-center justify-center;
-  }
-
-  .ai-typing-container {
-    @apply flex-row gap-1 items-center px-4 py-2;
-  }
-
-  .ai-gradient-border {
-    @apply rounded-lg;
   }
 }

@@ -65,7 +65,7 @@ export function NotificationDetailModal({
       <TouchableOpacity
         activeOpacity={1}
         onPress={onClose}
-        className="flex-1 bg-black/60 justify-center items-center px-6"
+        className="flex-1 bg-scrim/60 justify-center items-center px-6"
       >
         <View
           className="w-full max-w-[380px] rounded-2xl overflow-hidden"
@@ -80,7 +80,7 @@ export function NotificationDetailModal({
                 style={{ backgroundColor: meta.color }}
               />
               <Text className="text-xs font-semibold" style={{ color: meta.color }}>
-                {t(meta.labelKey).toUpperCase()}
+                {t(meta.labelKey)}
               </Text>
             </View>
             <TouchableOpacity

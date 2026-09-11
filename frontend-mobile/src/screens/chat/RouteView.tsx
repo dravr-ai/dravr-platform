@@ -8,6 +8,7 @@ import type { LineString, MultiLineString, Position } from 'geojson';
 import Svg, { Line } from 'react-native-svg';
 import type { RouteBounds, RouteClimb, RouteView as RouteBlock } from '@pierre/scene-types';
 import { useTranslation } from '@pierre/i18n';
+import { BOREAL_LIGHT } from '@pierre/shared-constants';
 
 import { useTheme } from '../../constants/theme';
 
@@ -28,12 +29,13 @@ const BASEMAP_STYLE = {
 };
 
 /**
- * The halo under the line. White in both schemes, and deliberately not a
- * palette token: this is not a surface paired with an ink, it is the device
- * that keeps a thin line readable where it crosses a park, a lake or a
- * built-up block whose fill the renderer never chose.
+ * The halo under the line. White in both schemes, read from the light palette
+ * directly rather than through the theme: map tiles are not themed, and the
+ * casing is not a surface paired with an ink, it is the device that keeps a
+ * thin line readable where it crosses a park, a lake or a built-up block
+ * whose fill the renderer never chose.
  */
-const CASING_COLOR = '#ffffff';
+const CASING_COLOR = BOREAL_LIGHT.surfaceContainerLowest;
 
 /**
  * Stroke widths, in points.

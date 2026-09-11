@@ -100,7 +100,7 @@ export function AboutScreen() {
   const renderSection = (section: string, index: number) => {
     const divider =
       index < sections.length - 1
-        ? { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }
+        ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
         : {};
 
     switch (section) {
@@ -109,8 +109,8 @@ export function AboutScreen() {
           <View key={section} style={[rowStyle, divider]} testID="about-section-version">
             {iconBox('info')}
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.version')}</Text>
-              <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{APP_VERSION}</Text>
+              <Text className="text-base" style={{ color: colors.text.primary }}>{t('app.version')}</Text>
+              <Text className="text-sm" style={{ color: colors.text.tertiary }}>{APP_VERSION}</Text>
             </View>
           </View>
         );
@@ -120,9 +120,9 @@ export function AboutScreen() {
           <View key={section} style={[rowStyle, divider]} testID="about-section-coach-model">
             {iconBox('cpu')}
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('about.agentModel')}</Text>
+              <Text className="text-base" style={{ color: colors.text.primary }}>{t('about.agentModel')}</Text>
               <Text
-                style={{ fontSize: 14, color: colors.text.tertiary }}
+                className="text-sm" style={{ color: colors.text.tertiary }}
                 testID="about-coach-model-value"
               >
                 {coachModelLabel ?? t('about.agentModelUnknown')}
@@ -141,8 +141,8 @@ export function AboutScreen() {
           >
             {iconBox('help-circle')}
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('about.helpCenter')}</Text>
-              <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('about.helpHint')}</Text>
+              <Text className="text-base" style={{ color: colors.text.primary }}>{t('about.helpCenter')}</Text>
+              <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('about.helpHint')}</Text>
             </View>
             <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
           </TouchableOpacity>
@@ -158,8 +158,8 @@ export function AboutScreen() {
           >
             {iconBox('file-text')}
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('about.legalDocuments')}</Text>
-              <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('about.legalHint')}</Text>
+              <Text className="text-base" style={{ color: colors.text.primary }}>{t('about.legalDocuments')}</Text>
+              <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('about.legalHint')}</Text>
             </View>
             <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
           </TouchableOpacity>

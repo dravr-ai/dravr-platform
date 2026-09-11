@@ -42,7 +42,7 @@ export function NotificationBellButton({
           style={{ backgroundColor: colors.pierre.violet }}
         >
           <Text
-            className="text-[10px] font-bold"
+            className="text-xs font-bold font-mono tabular-nums"
             style={{ color: colors.tokens.onPrimary }}
           >
             {unreadCount > 99 ? '99+' : unreadCount}

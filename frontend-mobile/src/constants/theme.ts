@@ -1,26 +1,10 @@
-// ABOUTME: Theme constants for the Dravr mobile app — Boreal Editorial tokens
+// ABOUTME: Theme constants for the Dravr mobile app — Boreal v2.2 scale tokens
 // ABOUTME: Scale tokens are module constants; every colour comes from useThemeColors(), which follows the appearance setting
 
 // Relative import — mobile is isolated from workspaces for Jest compatibility.
 // Metro resolves @pierre/* via extraNodeModules at runtime.
 import {
-  BOREAL_LIGHT,
-  BOREAL_DARK,
-  PIERRE_COLORS,
-  PILLAR_COLORS,
-  PRIMARY_PALETTE,
-  BACKGROUND_COLORS,
-  TEXT_COLORS,
-  BORDER_COLORS,
-  SEMANTIC_COLORS,
   PROVIDER_COLORS,
-  GRADIENT_COLORS,
-  AMBIENT_SHADOW,
-  AI_GLOW,
-  BUTTON_GLOW,
-  TYPOGRAPHY,
-  BRAND_TRACKING,
-  SURFACE_HIERARCHY,
   SPACING,
   BORDER_RADIUS,
   FONT_SIZE,
@@ -31,9 +15,6 @@ export const spacing = SPACING;
 export const borderRadius = BORDER_RADIUS;
 export const fontSize = FONT_SIZE;
 export const fontWeight = FONT_WEIGHT;
-export const typography = TYPOGRAPHY;
-export const brandTracking = BRAND_TRACKING;
-export const surfaceHierarchy = SURFACE_HIERARCHY;
 
 /**
  * The resting-card recipe: a filled sheet with a hairline and no shadow.
@@ -66,71 +47,8 @@ export function useCardStyle(): ViewStyle {
   };
 }
 
-// Flat button baseline — ambient shadow only
-export const buttonGlow = {
-  shadowColor: BUTTON_GLOW.shadowColor,
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: BUTTON_GLOW.shadowOpacity,
-  shadowRadius: BUTTON_GLOW.shadowRadius,
-  elevation: 4,
-} as const;
-
-// Ambient shadow recipes (replaces violet-glow AI_GLOW stack)
-export const ambientShadow = {
-  ambient: {
-    shadowColor: AMBIENT_SHADOW.ambient.shadowColor,
-    shadowOffset: AMBIENT_SHADOW.ambient.shadowOffset,
-    shadowOpacity: AMBIENT_SHADOW.ambient.shadowOpacity,
-    shadowRadius: AMBIENT_SHADOW.ambient.shadowRadius,
-    elevation: 6,
-  },
-  card: {
-    shadowColor: AMBIENT_SHADOW.card.shadowColor,
-    shadowOffset: AMBIENT_SHADOW.card.shadowOffset,
-    shadowOpacity: AMBIENT_SHADOW.card.shadowOpacity,
-    shadowRadius: AMBIENT_SHADOW.card.shadowRadius,
-    elevation: 10,
-  },
-} as const;
-
-// Legacy aiGlow export — every entry now resolves to the ambient spec so
-// existing consumers render quietly during the sweep. Migrate to ambientShadow.
-export const aiGlow = {
-  ambient: ambientShadow.ambient,
-  strong: ambientShadow.card,
-  avatar: ambientShadow.ambient,
-  thinking: ambientShadow.ambient,
-  response: ambientShadow.ambient,
-} as const;
-
-// AI card style — subtle tonal wash instead of violet glow
-export const aiCard = {
-  backgroundColor: GRADIENT_COLORS.aiGradient.start,
-  borderColor: 'rgba(192, 200, 195, 0.15)',
-  borderWidth: 1,
-  borderRadius: borderRadius.xl,
-  ...ambientShadow.ambient,
-} as const;
-
-// Raw re-exports for direct access
-export {
-  BOREAL_LIGHT,
-  BOREAL_DARK,
-  PIERRE_COLORS,
-  PILLAR_COLORS,
-  PRIMARY_PALETTE,
-  BACKGROUND_COLORS,
-  TEXT_COLORS,
-  BORDER_COLORS,
-  SEMANTIC_COLORS,
-  PROVIDER_COLORS,
-  GRADIENT_COLORS,
-  AMBIENT_SHADOW,
-  AI_GLOW,
-  BUTTON_GLOW,
-  TYPOGRAPHY,
-  BRAND_TRACKING,
-};
+// Provider brand colours belong to third parties and do not follow the scheme.
+export { PROVIDER_COLORS };
 
 // The live palette hook — the one source of colour on the phone. Every value
 // flips when the athlete toggles appearance from Settings, which a module-level

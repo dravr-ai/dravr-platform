@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
-import { spacing, useCardStyle, buttonGlow, useThemeColors } from '../../constants/theme';
+import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
@@ -94,8 +94,7 @@ export function ResetPasswordScreen() {
     overflow: 'hidden',
   };
 
-  const glowButtonStyle: ViewStyle = {
-    ...buttonGlow,
+  const submitButtonStyle: ViewStyle = {
     marginTop: spacing.md,
   };
 
@@ -115,7 +114,7 @@ export function ResetPasswordScreen() {
             <View className="px-6 py-8">
               {/* Header */}
               <View className="items-center mb-6">
-                <View className="w-14 h-14 rounded-xl items-center justify-center mb-3 bg-success-500/20">
+                <View className="w-14 h-14 rounded-xl items-center justify-center mb-3 bg-success/20">
                   <Ionicons name="shield-checkmark-outline" size={28} color={colors.success} />
                 </View>
                 <Text className="text-xl font-bold text-text-primary mb-1">
@@ -169,7 +168,7 @@ export function ResetPasswordScreen() {
                   onPress={handleSubmit}
                   loading={isLoading}
                   fullWidth
-                  style={glowButtonStyle}
+                  style={submitButtonStyle}
                   testID="reset-password-button"
                 />
               </View>
@@ -180,7 +179,7 @@ export function ResetPasswordScreen() {
                   <Text className="text-sm text-text-tertiary">{t('app.resendCode')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-                  <Text className="text-sm font-semibold text-primary-500">{t('app.backToSignIn')}</Text>
+                  <Text className="text-sm font-semibold text-primary">{t('app.backToSignIn')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

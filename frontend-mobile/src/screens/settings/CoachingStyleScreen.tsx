@@ -106,14 +106,14 @@ export function CoachingStyleScreen() {
           <View
             className={`mb-4 p-3 rounded-lg border ${
               message.type === 'success'
-                ? 'bg-emerald-500/10 border-emerald-500/30'
-                : 'bg-red-500/10 border-red-500/30'
+                ? 'bg-success/15 border-success/30'
+                : 'bg-error-container border-error/30'
             }`}
             testID="persona-status"
           >
             <Text
               className={`text-sm ${
-                message.type === 'success' ? 'text-emerald-400' : 'text-red-400'
+                message.type === 'success' ? 'text-success' : 'text-on-error-container'
               }`}
             >
               {message.text}
@@ -155,7 +155,7 @@ export function CoachingStyleScreen() {
                       <ActivityIndicator size="small" color={colors.pierre.violet} />
                     ) : (
                       <Text
-                        className="text-xs font-semibold uppercase tracking-wide"
+                        className="text-xs font-semibold"
                         style={{ color: colors.pierre.violet }}
                       >
                         {t('app.active')}
@@ -192,7 +192,7 @@ export function CoachingStyleScreen() {
                 testID={`persona-enforcement-${persona.enforcement}`}
               >
                 <Text
-                  className={`text-[11px] font-medium ${
+                  className={`text-xs font-medium ${
                     persona.enforcement === 'verified' ? 'text-success' : 'text-text-tertiary'
                   }`}
                 >

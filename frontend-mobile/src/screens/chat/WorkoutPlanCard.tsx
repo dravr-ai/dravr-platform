@@ -114,7 +114,7 @@ function Season({ plan }: { plan: WorkoutPlan }) {
   return (
     <View
       className="px-4 py-3"
-      style={{ borderBottomWidth: 1, borderBottomColor: colors.border.subtle }}
+      style={{ borderBottomWidth: 1, borderBottomColor: colors.border.faint }}
     >
       {flavour ? (
         <Text className="text-sm mb-2">
@@ -161,7 +161,7 @@ function DayRow({ day }: { day: PlanDay }) {
   return (
     <View
       className="flex-row py-2"
-      style={{ borderTopWidth: 1, borderTopColor: colors.border.subtle }}
+      style={{ borderTopWidth: 1, borderTopColor: colors.border.faint }}
     >
       <Text className="w-20 text-xs text-text-secondary">{day.date}</Text>
       <View className="flex-1">
@@ -245,7 +245,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
       style={{
         backgroundColor: colors.tokens.surfaceContainer,
         borderWidth: 1,
-        borderColor: colors.border.subtle,
+        borderColor: colors.border.faint,
       }}
     >
       <View
@@ -264,7 +264,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
       {plan.races !== undefined && plan.races.length > 0 ? (
         <Text
           className="px-4 py-2 text-xs text-text-secondary"
-          style={{ borderBottomWidth: 1, borderBottomColor: colors.border.subtle }}
+          style={{ borderBottomWidth: 1, borderBottomColor: colors.border.faint }}
         >
           <Text className="font-semibold text-text-primary">{t('plan.card.alsoRacing')}</Text>{' '}
           {plan.races
@@ -291,7 +291,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
       {plan.weeks_deferred > 0 ? (
         <Text
           className="px-4 py-2 text-xs text-text-secondary"
-          style={{ borderTopWidth: 1, borderTopColor: colors.border.subtle }}
+          style={{ borderTopWidth: 1, borderTopColor: colors.border.faint }}
         >
           {t('plan.card.moreWeeks', { count: plan.weeks_deferred })}
         </Text>

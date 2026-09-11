@@ -42,8 +42,8 @@ export function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: P
           {' for one turn'}
         </Text>
         <View className="flex-row gap-2 mt-3">
-          <Button title={t('app.openChat')} size="sm" onPress={() => onOpenChat(draft)} testID="post-install-open-chat" />
-          <Button title={t('app.dismiss')} size="sm" variant="secondary" onPress={onDismiss} testID="post-install-dismiss" />
+          <Button title={t('app.openChat')} onPress={() => onOpenChat(draft)} testID="post-install-open-chat" />
+          <Button title={t('app.dismiss')} variant="secondary" onPress={onDismiss} testID="post-install-dismiss" />
         </View>
       </Card>
     </View>

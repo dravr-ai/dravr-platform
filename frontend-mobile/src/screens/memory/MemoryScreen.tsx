@@ -12,15 +12,15 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  StyleSheet,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import type { MemoryFactRow } from '@pierre/api-client';
 import { formatDateTime } from '@pierre/chat-utils';
 import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
-import { spacing, borderRadius, fontSize, fontWeight, useThemeColors } from '../../constants/theme';
+import { spacing, borderRadius, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
@@ -32,13 +32,6 @@ export function MemoryScreen(): React.JSX.Element {
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
-  // Whether the chip row still has chips off the right edge. Measured rather
-  // than assumed: nine kinds fit on a tablet and overflow a phone, so a fade
-  // painted unconditionally would sit over nothing on the wider one.
-  const [chipsViewportWidth, setChipsViewportWidth] = useState(0);
-  const [chipsContentWidth, setChipsContentWidth] = useState(0);
-  const [chipsScrollX, setChipsScrollX] = useState(0);
-  const chipsHaveMoreRight = chipsContentWidth - chipsViewportWidth - chipsScrollX > 1;
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: [...MEMORY_FACTS_QUERY_KEY, kindFilter],
@@ -117,23 +110,17 @@ export function MemoryScreen(): React.JSX.Element {
         }
       >
         <View style={{ marginBottom: spacing.lg }}>
-          <Text style={{ fontSize: fontSize.sm, color: colors.text.secondary }}>
+          <Text className="text-sm" style={{ color: colors.text.secondary }}>
             {t('app.memoryPanelBlurb')}
           </Text>
         </View>
 
-        {/* The row scrolls, and the chip at the right edge is cut mid-word when
-            it does. A cut with nothing over it reads as a rendering fault, so
-            the fade sits on that edge for exactly as long as there is more to
-            reach — it disappears once the last chip is in view. */}
+        {/* Nine kinds fit on a tablet and overflow a phone, so the chip row
+            scrolls; the chip cut at the right edge is what says there is more. */}
         <View style={{ marginBottom: spacing.md }}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            scrollEventThrottle={16}
-            onLayout={(e) => setChipsViewportWidth(e.nativeEvent.layout.width)}
-            onContentSizeChange={(width) => setChipsContentWidth(width)}
-            onScroll={(e) => setChipsScrollX(e.nativeEvent.contentOffset.x)}
             contentContainerStyle={{ gap: spacing.sm, paddingRight: spacing.lg }}
           >
             {kindOptions.map((opt) => {
@@ -144,25 +131,18 @@ export function MemoryScreen(): React.JSX.Element {
                   onPress={() => setKindFilter(opt.value)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
+                  className={active ? 'bg-primary' : 'bg-surface-container'}
                   style={{
                     paddingHorizontal: spacing.md,
                     paddingVertical: spacing.sm,
                     borderRadius: borderRadius.full,
-                    backgroundColor: active
-                      ? colors.pierre.violet
-                      : 'rgba(255,255,255,0.08)',
                     borderWidth: 1,
-                    borderColor: active
-                      ? colors.pierre.violet
-                      : 'rgba(255,255,255,0.15)',
+                    borderColor: active ? colors.tokens.primary : colors.border.default,
                   }}
                 >
                   <Text
-                    style={{
-                      color: active ? '#ffffff' : colors.text.secondary,
-                      fontSize: fontSize.sm,
-                      fontWeight: fontWeight.medium,
-                    }}
+                    className="text-sm font-medium"
+                    style={{ color: active ? colors.tokens.onPrimary : colors.text.secondary }}
                   >
                     {opt.label}
                   </Text>
@@ -170,22 +150,6 @@ export function MemoryScreen(): React.JSX.Element {
               );
             })}
           </ScrollView>
-          {chipsHaveMoreRight ? (
-            <LinearGradient
-              testID="memory-kind-scroll-fade"
-              pointerEvents="none"
-              colors={[`${colors.background.primary}00`, colors.background.primary]}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={{
-                position: 'absolute',
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: spacing.xl,
-              }}
-            />
-          ) : null}
         </View>
 
         {isLoading ? (
@@ -223,11 +187,11 @@ export function MemoryScreen(): React.JSX.Element {
               {kindFilter === '' ? t('shell.memoryEmpty') : t('shell.memoryEmptyFiltered')}
             </Text>
             <Text
+              className="text-xs"
               style={{
                 color: colors.text.tertiary,
                 marginTop: spacing.xs,
                 textAlign: 'center',
-                fontSize: fontSize.xs,
               }}
             >
               {kindFilter === '' ? t('shell.memoryEmptyHint') : t('shell.memoryEmptyFilteredHint')}
@@ -246,7 +210,7 @@ export function MemoryScreen(): React.JSX.Element {
                   borderColor: colors.pierre.violet,
                 }}
               >
-                <Text style={{ color: colors.pierre.violet, fontSize: fontSize.sm }}>
+                <Text className="text-sm" style={{ color: colors.pierre.violet }}>
                   {t('shell.memoryShowAllKinds')}
                 </Text>
               </TouchableOpacity>
@@ -256,37 +220,32 @@ export function MemoryScreen(): React.JSX.Element {
           groupedByKind.map(([kind, items]) => (
             <View
               key={kind}
+              className="bg-surface-container-low"
               style={{
-                backgroundColor: 'rgba(255,255,255,0.04)',
                 borderRadius: borderRadius.lg,
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.08)',
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.border.faint,
                 marginBottom: spacing.md,
                 overflow: 'hidden',
               }}
             >
               <View
+                className="bg-surface-container"
                 style={{
                   paddingHorizontal: spacing.md,
                   paddingVertical: spacing.sm,
-                  backgroundColor: 'rgba(255,255,255,0.06)',
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                 }}
               >
-                <Text
-                  style={{
-                    color: colors.text.primary,
-                    fontSize: fontSize.sm,
-                    fontWeight: fontWeight.semibold,
-                  }}
-                >
+                <Text className="text-sm font-semibold" style={{ color: colors.text.primary }}>
                   {t(MEMORY_KIND_LABEL_KEY[kind])}
                 </Text>
                 <Text
                   testID="memory-fact-count"
-                  style={{ color: colors.text.tertiary, fontSize: fontSize.xs }}
+                  className="text-xs font-mono tabular-nums"
+                  style={{ color: colors.text.tertiary }}
                 >
                   {t(items.length === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', {
                     count: items.length,
@@ -300,8 +259,8 @@ export function MemoryScreen(): React.JSX.Element {
                   style={{
                     paddingHorizontal: spacing.md,
                     paddingVertical: spacing.md,
-                    borderTopWidth: idx === 0 ? 0 : 1,
-                    borderTopColor: 'rgba(255,255,255,0.06)',
+                    borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
+                    borderTopColor: colors.border.faint,
                     flexDirection: 'row',
                     alignItems: 'flex-start',
                     justifyContent: 'space-between',
@@ -309,21 +268,13 @@ export function MemoryScreen(): React.JSX.Element {
                   }}
                 >
                   <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        color: colors.text.primary,
-                        fontSize: fontSize.sm,
-                      }}
-                    >
+                    <Text className="text-sm" style={{ color: colors.text.primary }}>
                       {fact.sentence}
                     </Text>
                     <Text
                       testID="memory-fact-meta"
-                      style={{
-                        color: colors.text.tertiary,
-                        fontSize: fontSize.xs,
-                        marginTop: spacing.xs,
-                      }}
+                      className="text-xs"
+                      style={{ color: colors.text.tertiary, marginTop: spacing.xs }}
                     >
                       {t('shell.memoryFactMeta', {
                         confidence: (fact.confidence * 100).toFixed(0),
@@ -338,16 +289,16 @@ export function MemoryScreen(): React.JSX.Element {
                     accessibilityLabel={t('shell.memoryForgetFactLabel', { fact: fact.sentence })}
                     onPress={() => handleForget(fact)}
                     disabled={forgetMutation.isPending}
+                    className="bg-error/15"
                     style={{
                       padding: spacing.sm,
                       borderRadius: borderRadius.md,
-                      backgroundColor: 'rgba(255,64,64,0.12)',
                     }}
                   >
                     <Feather
                       name="trash-2"
                       size={16}
-                      color={colors.pierre.red}
+                      color={colors.error}
                     />
                   </TouchableOpacity>
                 </View>

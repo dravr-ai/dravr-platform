@@ -26,7 +26,7 @@ import {
   Brain,
   Clock,
 } from 'lucide-react-native';
-import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import {
   useNotificationFeed,
   useNotificationActions,
@@ -73,7 +73,7 @@ function NotificationRow({
 
   return (
     <TouchableOpacity
-      className="flex-row items-start px-4 py-3 border-b ghost-border"
+      className="flex-row items-start px-4 py-3 border-b border-border-faint"
       style={{ backgroundColor: isUnread ? colors.background.secondary : 'transparent' }}
       onPress={() => onPress(item)}
       activeOpacity={0.7}
@@ -105,14 +105,14 @@ function NotificationRow({
             className="text-xs font-medium mr-2"
             style={{ color: meta.color }}
           >
-            {t(meta.labelKey).toUpperCase()}
+            {t(meta.labelKey)}
           </Text>
           <Text className="text-xs text-outline">
             {formatNotificationTime(item.created_at, t)}
           </Text>
           {collapsedLabel && (
             <View className="ml-2 px-1.5 py-0.5 rounded bg-surface-container-low">
-              <Text className="text-[10px] text-outline">{collapsedLabel}</Text>
+              <Text className="text-xs font-mono tabular-nums text-outline">{collapsedLabel}</Text>
             </View>
           )}
         </View>
@@ -226,7 +226,7 @@ export function NotificationCenterScreen() {
           this row exists only while something is unread: the count, and
           the one action that clears it. */}
       {unreadCount > 0 && (
-        <View className="flex-row items-center px-4 py-3 border-b ghost-border">
+        <View className="flex-row items-center px-4 py-3 border-b border-border-faint">
           <View className="flex-1 flex-row items-center">
             <View
               className="ml-2 px-2 py-0.5 rounded-full"
@@ -256,7 +256,7 @@ export function NotificationCenterScreen() {
       )}
 
       {/* Category filter tabs */}
-      <View className="border-b ghost-border">
+      <View className="border-b border-border-faint">
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -297,7 +297,7 @@ export function NotificationCenterScreen() {
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            tintColor={PRIMARY_PALETTE[400]}
+            tintColor={colors.tokens.primary}
           />
         }
       >
@@ -307,7 +307,7 @@ export function NotificationCenterScreen() {
           </View>
         ) : notifications.length === 0 ? (
           <View className="items-center py-16">
-            <Bell size={48} color="#475569" />
+            <Bell size={48} color={colors.tokens.outline} />
             <Text className="text-on-surface-variant mt-4 text-base">{t('app.noNotificationsYet')}</Text>
             <Text className="text-outline mt-1 text-sm">
               {selectedCategory === 'all'

@@ -37,23 +37,13 @@ jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(),
   hideAsync: jest.fn(),
 }));
-jest.mock('@expo-google-fonts/space-grotesk', () => ({
+jest.mock('@expo-google-fonts/schibsted-grotesk', () => ({
   useFonts: () => [true],
-  SpaceGrotesk_400Regular: 'font',
-  SpaceGrotesk_500Medium: 'font',
-  SpaceGrotesk_600SemiBold: 'font',
-  SpaceGrotesk_700Bold: 'font',
+  SchibstedGrotesk_600SemiBold: 'font',
 }));
-jest.mock('@expo-google-fonts/plus-jakarta-sans', () => ({
-  PlusJakartaSans_400Regular: 'font',
-  PlusJakartaSans_500Medium: 'font',
-  PlusJakartaSans_600SemiBold: 'font',
-  PlusJakartaSans_700Bold: 'font',
-}));
-jest.mock('@expo-google-fonts/inter', () => ({
-  Inter_400Regular: 'font',
-  Inter_500Medium: 'font',
-  Inter_600SemiBold: 'font',
+jest.mock('@expo-google-fonts/jetbrains-mono', () => ({
+  JetBrainsMono_400Regular: 'font',
+  JetBrainsMono_500Medium: 'font',
 }));
 
 jest.mock('../src/contexts/AuthContext', () => ({

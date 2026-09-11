@@ -55,7 +55,7 @@ export function ConversationInfoSheet({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <TouchableOpacity
-        className="flex-1 justify-end bg-black/40"
+        className="flex-1 justify-end bg-scrim/60"
         activeOpacity={1}
         onPress={onClose}
         testID="conversation-info-backdrop"

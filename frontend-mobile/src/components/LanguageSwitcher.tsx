@@ -86,7 +86,7 @@ export function LanguageSwitcher({ serverLocale }: LanguageSwitcherProps) {
                 className={`py-2 px-2 rounded-xl items-center ${
                   isSelected
                     ? 'bg-primary'
-                    : 'bg-surface-container-high border border-pierre-gray-700'
+                    : 'bg-surface-container-high border border-border'
                 }`}
                 activeOpacity={0.7}
               >
@@ -94,7 +94,7 @@ export function LanguageSwitcher({ serverLocale }: LanguageSwitcherProps) {
                 <Text
                   numberOfLines={1}
                   className={`text-xs font-medium ${
-                    isSelected ? 'text-on-surface' : 'text-pierre-gray-300'
+                    isSelected ? 'text-on-surface' : 'text-text-secondary'
                   }`}
                 >
                   {LANGUAGE_NAMES[lang]}
@@ -110,7 +110,7 @@ export function LanguageSwitcher({ serverLocale }: LanguageSwitcherProps) {
         </View>
       ))}
       {syncState === 'saving' && (
-        <Text className="mt-2 text-xs text-pierre-gray-300">{t('settings.languageSaving')}</Text>
+        <Text className="mt-2 text-xs text-text-secondary">{t('settings.languageSaving')}</Text>
       )}
       {syncState === 'error' && (
         <Text testID="language-sync-error" className="mt-2 text-xs text-error">

@@ -14,7 +14,7 @@ import {
 import { FlashList } from '@shopify/flash-list';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 
-import { PRIMARY_PALETTE, spacing, useCardStyle, categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
+import { spacing, useCardStyle, categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoach, CoachCategory } from '../../types';
@@ -176,15 +176,15 @@ export function StoreScreen() {
       key={key}
       className={`px-3 py-1 rounded-full mr-1 border ${
         selectedCategory === key
-          ? 'bg-primary-500 border-primary-500'
-          : 'bg-background-secondary border-border-default'
+          ? 'bg-primary border-primary'
+          : 'bg-background-secondary border-border'
       }`}
       onPress={() => setSelectedCategory(key)}
     >
       <Text
         className={`text-sm ${
           selectedCategory === key
-            ? 'text-text-primary font-medium'
+            ? 'text-on-primary font-medium'
             : 'text-text-secondary'
         }`}
       >
@@ -197,14 +197,14 @@ export function StoreScreen() {
     <TouchableOpacity
       key={key}
       className={`px-2 py-1 rounded mr-1 ${
-        selectedSort === key ? 'bg-primary-500/20' : ''
+        selectedSort === key ? 'bg-primary/20' : ''
       }`}
       onPress={() => setSelectedSort(key)}
     >
       <Text
         className={`text-sm ${
           selectedSort === key
-            ? 'text-primary-500 font-medium'
+            ? 'text-primary font-medium'
             : 'text-text-secondary'
         }`}
       >
@@ -322,7 +322,7 @@ export function StoreScreen() {
       <View className="flex-1 bg-background-primary" testID="store-screen">
         {headerSearch}
         <View className="flex-1 justify-center items-center" testID="loading-indicator">
-          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+          <ActivityIndicator size="large" color={colors.tokens.primary} />
           <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgents')}</Text>
         </View>
       </View>
@@ -334,7 +334,7 @@ export function StoreScreen() {
       {headerSearch}
 
       {/* Category Filters */}
-      <View className="border-b border-border-default">
+      <View className="border-b border-border-faint">
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -369,7 +369,7 @@ export function StoreScreen() {
         ListFooterComponent={
           isLoadingMore ? (
             <View className="flex-row items-center justify-center py-4 gap-2">
-              <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
+              <ActivityIndicator size="small" color={colors.tokens.primary} />
               <Text className="text-sm text-text-secondary">{t('app.loadingMoreAgents')}</Text>
             </View>
           ) : null
@@ -378,7 +378,7 @@ export function StoreScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={() => loadCoaches(true)}
-            tintColor={PRIMARY_PALETTE[500]}
+            tintColor={colors.tokens.primary}
           />
         }
       />

@@ -36,7 +36,7 @@ export function HeaderCloseButton({ testID = 'back-button' }: HeaderCloseButtonP
       accessibilityLabel={t('common.close')}
       testID={testID}
     >
-      <Text style={{ fontSize: 17, color: colors.tokens.primary }}>{t('common.close')}</Text>
+      <Text className="text-lg" style={{ color: colors.tokens.primary }}>{t('common.close')}</Text>
     </TouchableOpacity>
   );
 }

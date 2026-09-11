@@ -576,7 +576,7 @@ export function ChatScreen() {
 
         {providerStatus.needsCredentialsProvider !== null && (
           <Modal visible animationType="slide" transparent onRequestClose={() => providerStatus.setNeedsCredentialsProvider(null)}>
-            <View className="flex-1 bg-black/60 justify-end">
+            <View className="flex-1 bg-scrim/60 justify-end">
               <View
                 className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
                 onStartShouldSetResponder={() => true}

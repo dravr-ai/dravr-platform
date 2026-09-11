@@ -31,12 +31,12 @@ export function ChatProgressStrip({ statusText }: ChatProgressStripProps) {
 
   return (
     <View
-      className="flex-row items-center gap-2 px-4 py-2 bg-neutral-900/5 border-t border-neutral-900/10"
+      className="flex-row items-center gap-2 px-4 py-2 bg-surface-container-low border-t border-border-faint"
       accessibilityLiveRegion="polite"
     >
       <ActivityIndicator size="small" />
       <Text
-        className="flex-1 text-xs italic text-neutral-500"
+        className="flex-1 text-xs italic text-text-secondary"
         numberOfLines={1}
       >
         {statusText}

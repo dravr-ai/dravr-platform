@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Activity, X, CheckCircle2 } from 'lucide-react-native';
 import { describeApiError } from '@pierre/ui-logic';
-import { useThemeColors } from '../constants/theme';
+import { PROVIDER_COLORS, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { Input } from './ui';
 import { useTranslation } from '@pierre/i18n';
@@ -69,7 +69,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        className="flex-1 bg-black/60 justify-end"
+        className="flex-1 bg-scrim/60 justify-end"
       >
         <View
           className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
@@ -84,9 +84,9 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
             <View className="flex-row items-center">
               <View
                 className="w-9 h-9 rounded-xl items-center justify-center mr-3"
-                style={{ backgroundColor: '#1273DE' }}
+                style={{ backgroundColor: PROVIDER_COLORS.intervals_icu }}
               >
-                <Activity size={18} color="#FFFFFF" />
+                <Activity size={18} color={colors.tokens.onPrimary} />
               </View>
               <View>
                 <Text className="text-lg font-semibold text-text-primary">Connect Intervals.icu</Text>
@@ -100,7 +100,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
 
           {success ? (
             <View className="items-center py-6">
-              <CheckCircle2 size={40} color="#34D399" />
+              <CheckCircle2 size={40} color={colors.success} />
               <Text className="mt-3 text-base font-medium text-text-primary">{success}</Text>
             </View>
           ) : (

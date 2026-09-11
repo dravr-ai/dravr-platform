@@ -96,9 +96,10 @@ describe('the resting-card recipe', () => {
     expect(light.borderWidth).toBe(1);
     expect(dark.borderWidth).toBe(1);
     // The hairline is scheme-bound too: light takes the darker Product-tier
-    // ghost border, dark the pale one. A fixed border is the same bug one
-    // layer out.
+    // ghost border, dark the pale one, at the web's default strength in each
+    // (`--ghost-border` in frontend/src/index.css). A fixed border is the same
+    // bug one layer out.
     expect(light.borderColor).toBe('rgba(155, 165, 159, 0.4)');
-    expect(dark.borderColor).toBe('rgba(192, 200, 195, 0.14)');
+    expect(dark.borderColor).toBe('rgba(192, 200, 195, 0.22)');
   });
 });

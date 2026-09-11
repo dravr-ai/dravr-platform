@@ -75,7 +75,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
     return (
       <View
         testID={`connected-app-${item.id}`}
-        className="flex-row items-start justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 mb-3"
+        className="flex-row items-start justify-between gap-3 rounded-xl border border-border bg-surface-container-low p-4 mb-3"
       >
         <View className="flex-1">
           <Text
@@ -96,7 +96,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
           accessibilityLabel={t('app.revokeAppLabel', { app: item.client_id })}
           onPress={() => handleRevoke(item)}
           disabled={revoking}
-          className="flex-row items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2"
+          className="flex-row items-center gap-1.5 rounded-lg bg-error/10 px-3 py-2"
           testID={`revoke-${item.id}`}
         >
           {revoking ? (
@@ -104,7 +104,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
           ) : (
             <>
               <Feather name="trash-2" size={16} color={colors.pierre.red} />
-              <Text className="text-sm font-semibold text-red-400">{t('app.revoke')}</Text>
+              <Text className="text-sm font-semibold text-error">{t('app.revoke')}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -120,7 +120,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
         </View>
       ) : isError ? (
         <View className="flex-1 items-center justify-center px-6">
-          <Text className="text-red-400 text-center">
+          <Text className="text-error text-center">
             {t('app.failedLoadConnectedApps')}{' '}
             {error instanceof Error ? error.message : String(error)}
           </Text>

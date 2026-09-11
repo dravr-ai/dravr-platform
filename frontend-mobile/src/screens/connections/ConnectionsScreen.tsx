@@ -12,7 +12,7 @@ import {
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
-import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, useCardStyle, useThemeColors } from '../../constants/theme';
+import { PROVIDER_COLORS, spacing, useCardStyle, useThemeColors } from '../../constants/theme';
 import { Modal } from 'react-native';
 import { Card, PaneScrollView } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
@@ -197,15 +197,15 @@ export function ConnectionsScreen() {
   // Provider display config (colors, icons, descriptions). After the 2026-Q2
   // provider cleanup the API surfaces only three: `sciotte` (Strava-branded),
   // `sciotte_garmin` (Garmin-branded), and `whoop`. Unknown ids fall back to a
-  // neutral slate tile so the screen never crashes on an unexpected payload.
+  // neutral outline-grey tile so the screen never crashes on an unexpected payload.
   const getProviderConfig = (providerId: string) => {
     const configs: Record<string, { color: string; icon: string; description: string }> = {
       sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: t('app.provStravaBlurb') },
       sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: t('app.provGarminBlurb') },
       whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: t('app.provWhoopBlurb') },
-      intervals_icu: { color: '#1273DE', icon: 'I', description: t('app.provIntervalsBlurb') },
+      intervals_icu: { color: PROVIDER_COLORS.intervals_icu, icon: 'I', description: t('app.provIntervalsBlurb') },
     };
-    return configs[providerId] || { color: '#607D8B', icon: '?', description: t('app.fitnessDataProvider') };
+    return configs[providerId] || { color: colors.tokens.outline, icon: '?', description: t('app.fitnessDataProvider') };
   };
 
   const renderProvider = (provider: ExtendedProviderStatus) => {
@@ -324,7 +324,7 @@ export function ConnectionsScreen() {
 
         {isLoading ? (
           <View className="items-center py-12">
-            <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+            <ActivityIndicator size="large" color={colors.tokens.primary} />
             <Text className="mt-3 text-text-secondary text-base">{t('app.loadingConnections')}</Text>
           </View>
         ) : error ? (
@@ -390,7 +390,7 @@ export function ConnectionsScreen() {
       />
 
       <Modal visible={showCredentials} animationType="slide" transparent onRequestClose={() => setShowCredentials(false)}>
-        <View className="flex-1 bg-black/60 justify-end">
+        <View className="flex-1 bg-scrim/60 justify-end">
           <View
             className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
             onStartShouldSetResponder={() => true}
@@ -431,7 +431,7 @@ export function ConnectionsScreen() {
         onRequestClose={() => setJustConnected(null)}
       >
         <View className="flex-1 bg-background-primary items-center justify-center px-8">
-          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+          <ActivityIndicator size="large" color={colors.tokens.primary} />
           <Text className="mt-4 text-base font-medium text-text-primary text-center">
             {justConnected} connected — preparing your dashboard…
           </Text>

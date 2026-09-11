@@ -51,7 +51,7 @@ function ErrorFallback({ errorText, onReload }: { errorText?: string; onReload: 
         <TouchableOpacity
           testID="error-boundary-reload"
           onPress={onReload}
-          className="bg-primary-500 rounded-lg px-8 py-3"
+          className="bg-primary rounded-lg px-8 py-3"
         >
           <Text className="text-base font-semibold text-on-surface">{t('app.reloadApp')}</Text>
         </TouchableOpacity>

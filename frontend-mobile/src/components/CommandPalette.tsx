@@ -63,30 +63,26 @@ export function CommandPalette({ matches, highlightedIndex, onSelect }: CommandP
               paddingHorizontal: 16,
               paddingVertical: 10,
               borderBottomWidth: index < matches.length - 1 ? 1 : 0,
-              borderBottomColor: colors.border.subtle,
+              borderBottomColor: colors.border.faint,
               backgroundColor:
                 index === highlightedIndex ? colors.background.elevated : 'transparent',
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-              <Text style={{ fontSize: 14, color: colors.text.primary, fontWeight: '600' }}>
+              <Text className="text-sm font-semibold" style={{ color: colors.text.primary }}>
                 {entry.command}
               </Text>
               {entry.args !== null && (
-                <Text style={{ fontSize: 13, color: colors.text.tertiary }}> {entry.args}</Text>
+                <Text className="text-sm" style={{ color: colors.text.tertiary }}> {entry.args}</Text>
               )}
               <Text
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: 10,
-                  textTransform: 'uppercase',
-                  color: colors.text.tertiary,
-                }}
+                className="text-xs"
+                style={{ marginLeft: 'auto', color: colors.text.tertiary }}
               >
                 {domainLabel(entry.domain)}
               </Text>
             </View>
-            <Text style={{ fontSize: 12, color: colors.text.secondary, marginTop: 2 }} numberOfLines={1}>
+            <Text className="text-xs" style={{ color: colors.text.secondary, marginTop: 2 }} numberOfLines={1}>
               {entry.description}
             </Text>
           </TouchableOpacity>

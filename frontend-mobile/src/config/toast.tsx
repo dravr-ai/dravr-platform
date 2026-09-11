@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { View, Text, TouchableOpacity, type ViewStyle } from 'react-native';
-import { PRIMARY_PALETTE, useThemeColors } from '../constants/theme';
+import { useThemeColors } from '../constants/theme';
 import type { ToastConfig, ToastConfigParams, BaseToastProps } from 'react-native-toast-message';
 import { useTranslation } from '@pierre/i18n';
 
@@ -31,7 +31,7 @@ function VoiceToast({ text1, text2, onRetry, onOpenSettings }: VoiceToastProps) 
   const toastShadow = useToastShadow();
   return (
     <View
-      className="w-[90%] bg-background-secondary rounded-lg px-3 py-2 flex-row items-center justify-between border border-border-default"
+      className="w-[90%] bg-background-secondary rounded-lg px-3 py-2 flex-row items-center justify-between border border-border"
       style={toastShadow}
     >
       <View className="flex-1 mr-2">
@@ -41,12 +41,12 @@ function VoiceToast({ text1, text2, onRetry, onOpenSettings }: VoiceToastProps) 
       <View className="flex-row gap-2">
         {onOpenSettings && (
           <TouchableOpacity onPress={onOpenSettings} className="bg-background-tertiary px-3 py-1 rounded-lg">
-            <Text className="text-sm font-medium text-primary-400">{t('common.settings')}</Text>
+            <Text className="text-sm font-medium text-primary">{t('common.settings')}</Text>
           </TouchableOpacity>
         )}
         {onRetry && (
           <TouchableOpacity onPress={onRetry} className="bg-background-tertiary px-3 py-1 rounded-lg">
-            <Text className="text-sm font-medium text-primary-400">{t('common.retry')}</Text>
+            <Text className="text-sm font-medium text-primary">{t('common.retry')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -73,10 +73,11 @@ function ErrorToast({ text1, text2 }: BaseToastProps) {
 // Info toast
 function InfoToast({ text1, text2 }: BaseToastProps) {
   const toastShadow = useToastShadow();
+  const colors = useThemeColors();
   return (
     <View
       className="w-[90%] bg-background-secondary rounded-lg px-3 py-2 flex-row items-center justify-between"
-      style={[{ borderWidth: 1, borderColor: PRIMARY_PALETTE[500] }, toastShadow]}
+      style={[{ borderWidth: 1, borderColor: colors.tokens.primary }, toastShadow]}
     >
       <View className="flex-1 mr-2">
         <Text className="text-base font-semibold text-text-primary">{text1}</Text>

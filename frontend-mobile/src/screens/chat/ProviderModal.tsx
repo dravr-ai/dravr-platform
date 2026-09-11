@@ -4,7 +4,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import type { ViewStyle } from 'react-native';
-import { PRIMARY_PALETTE, spacing, borderRadius, useThemeColors } from '../../constants/theme';
+import { spacing, borderRadius, useThemeColors } from '../../constants/theme';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 
@@ -61,7 +61,7 @@ export function ProviderModal({
       onRequestClose={onClose}
     >
       <TouchableOpacity
-        className="flex-1 bg-black/50 justify-center items-center"
+        className="flex-1 bg-scrim/60 justify-center items-center"
         activeOpacity={1}
         onPress={onClose}
       >
@@ -89,7 +89,7 @@ export function ProviderModal({
               <TouchableOpacity
                 key={provider.provider}
                 className={`flex-row items-center bg-background-secondary rounded-lg p-4 mb-2 border ${
-                  isConnected ? 'border-accent-primary' : isConnecting ? 'border-accent-secondary' : 'border-border-default'
+                  isConnected ? 'border-primary' : isConnecting ? 'border-primary/50' : 'border-border'
                 }`}
                 onPress={() => {
                   if (isConnected) {
@@ -105,7 +105,7 @@ export function ProviderModal({
                 disabled={!isConnectable || isOtherConnecting || isConnecting}
               >
                 {isConnecting ? (
-                  <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} className="mr-4" />
+                  <ActivityIndicator size="small" color={colors.tokens.primary} className="mr-4" />
                 ) : (
                   <Text className="text-2xl mr-4">{icon}</Text>
                 )}

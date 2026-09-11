@@ -141,16 +141,18 @@ export function LoginScreen() {
   };
 
   // The headline that says what the product is.
+  // The one place the display face carries a sentence: 26/32 in Schibsted
+  // Grotesk 600, the top of the ladder. The lead under it is reading text in
+  // the system face.
   const heroHeadlineStyle: TextStyle = {
-    fontFamily: 'SpaceGrotesk_SemiBold',
+    fontFamily: 'SchibstedGrotesk',
     fontSize: 26,
     lineHeight: 32,
     color: tokens.onSurface,
   };
 
   const heroLeadStyle: TextStyle = {
-    fontFamily: 'PlusJakartaSans',
-    fontSize: 14,
+    fontSize: 16,
     lineHeight: 22,
     color: tokens.onSurfaceVariant,
   };
@@ -205,17 +207,10 @@ export function LoginScreen() {
           <View style={cardStyle} testID="login-card">
             <View className="px-6 py-7">
               <View className="mb-5">
-                <Text
-                  style={{
-                    fontFamily: 'SpaceGrotesk_SemiBold',
-                    fontSize: 24,
-                    marginBottom: 4,
-                    color: tokens.onSurface,
-                  }}
-                >
+                <Text className="font-display text-2xl mb-1" style={{ color: tokens.onSurface }}>
                   {t('common.login')}
                 </Text>
-                <Text style={{ fontSize: 14, color: tokens.onSurfaceVariant }}>
+                <Text className="text-sm" style={{ color: tokens.onSurfaceVariant }}>
                   {t('app.welcomeBack')}
                 </Text>
               </View>
@@ -252,7 +247,7 @@ export function LoginScreen() {
                   className="self-end mb-2"
                   testID="forgot-password-link"
                 >
-                  <Text style={{ fontSize: 12, color: tokens.primary }}>
+                  <Text className="text-sm font-medium" style={{ color: tokens.primary }}>
                     {t('app.forgotPasswordLink')}
                   </Text>
                 </TouchableOpacity>
@@ -274,8 +269,8 @@ export function LoginScreen() {
                         style={{ flex: 1, height: 1, backgroundColor: colors.border.default }}
                       />
                       <Text
-                        className="px-3"
-                        style={{ fontSize: 13, color: tokens.onSurfaceVariant }}
+                        className="px-3 text-sm"
+                        style={{ color: tokens.onSurfaceVariant }}
                       >
                         {t('app.orContinueWith')}
                       </Text>
@@ -296,7 +291,7 @@ export function LoginScreen() {
                         gap: 10,
                         paddingVertical: 12,
                         paddingHorizontal: 20,
-                        borderRadius: 12,
+                        borderRadius: 8,
                         borderWidth: 1,
                         borderColor: colors.border.strong,
                         backgroundColor: 'transparent',
@@ -307,13 +302,7 @@ export function LoginScreen() {
                       ) : (
                         <AntDesign name="google" size={20} color={PROVIDER_COLORS.google} />
                       )}
-                      <Text
-                        style={{
-                          fontSize: 15,
-                          fontWeight: '500',
-                          color: tokens.onSurface,
-                        }}
-                      >
+                      <Text className="text-base font-medium" style={{ color: tokens.onSurface }}>
                         {isGoogleLoading ? t('app.signingIn') : t('app.continueWithGoogle')}
                       </Text>
                     </TouchableOpacity>
@@ -323,13 +312,11 @@ export function LoginScreen() {
 
               {/* Register Link */}
               <View className="flex-row justify-center items-center gap-1 pt-4">
-                <Text style={{ fontSize: 13, color: tokens.onSurfaceVariant }}>
+                <Text className="text-sm" style={{ color: tokens.onSurfaceVariant }}>
                   {t('app.noAccountYet')}
                 </Text>
                 <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-                  <Text
-                    style={{ fontSize: 13, fontWeight: '600', color: tokens.primary }}
-                  >
+                  <Text className="text-sm font-semibold" style={{ color: tokens.primary }}>
                     {t('app.createOne')}
                   </Text>
                 </TouchableOpacity>
@@ -350,7 +337,7 @@ export function LoginScreen() {
                     ·
                   </Text>
                 )}
-                <Text style={{ fontFamily: 'PlusJakartaSans', fontSize: 13, color: tokens.onSurfaceVariant }}>
+                <Text className="text-sm font-medium" style={{ color: tokens.onSurfaceVariant }}>
                   {pillar}
                 </Text>
               </React.Fragment>

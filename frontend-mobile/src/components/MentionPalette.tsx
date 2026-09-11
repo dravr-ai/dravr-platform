@@ -56,17 +56,17 @@ export function MentionPalette({ matches, highlightedIndex, onSelect }: MentionP
               paddingHorizontal: 16,
               paddingVertical: 10,
               borderBottomWidth: index < matches.length - 1 ? 1 : 0,
-              borderBottomColor: colors.border.subtle,
+              borderBottomColor: colors.border.faint,
               backgroundColor:
                 index === highlightedIndex ? colors.background.elevated : 'transparent',
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-              <Text style={{ fontSize: 14, color: colors.text.primary, fontWeight: '600' }}>
+              <Text className="text-sm font-semibold" style={{ color: colors.text.primary }}>
                 @{coach.handle}
               </Text>
               <Text
-                style={{ marginLeft: 8, fontSize: 13, color: colors.text.secondary, flexShrink: 1 }}
+                className="text-sm" style={{ marginLeft: 8, color: colors.text.secondary, flexShrink: 1 }}
                 numberOfLines={1}
               >
                 {coach.title}

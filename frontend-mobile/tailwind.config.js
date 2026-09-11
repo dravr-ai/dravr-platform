@@ -1,4 +1,4 @@
-// ABOUTME: NativeWind v4 Tailwind config — Dravr Boreal Editorial tokens
+// ABOUTME: NativeWind v4 Tailwind config — Dravr Boreal v2.2 tokens for the phone
 // ABOUTME: CSS variables drive light/dark — values declared in global.css
 
 /** @type {import('tailwindcss').Config} */
@@ -64,69 +64,9 @@ module.exports = {
           variant: 'rgb(var(--color-outline-variant) / <alpha-value>)',
         },
 
-        // ── Legacy `pierre.*` namespace — repointed at Boreal CSS variables ──
-        // Keeps in-tree bg-pierre-* class references valid during the sweep.
-        // Pillar tints harmonize on both canvases via the --color-pillar-* vars.
-        pierre: {
-          violet: 'rgb(var(--color-primary) / <alpha-value>)',
-          cyan: 'rgb(var(--color-primary-container) / <alpha-value>)',
-          activity: 'rgb(var(--color-pillar-activity) / <alpha-value>)',
-          nutrition: 'rgb(var(--color-pillar-nutrition) / <alpha-value>)',
-          recovery: 'rgb(var(--color-pillar-recovery) / <alpha-value>)',
-          mobility: 'rgb(var(--color-pillar-mobility) / <alpha-value>)',
-          red: 'rgb(var(--color-error) / <alpha-value>)',
-          dark: 'rgb(var(--color-on-surface) / <alpha-value>)',
-          slate: 'rgb(var(--color-surface-container) / <alpha-value>)',
-          gray: {
-            50: 'rgb(var(--color-gray-50) / <alpha-value>)',
-            100: 'rgb(var(--color-gray-100) / <alpha-value>)',
-            200: 'rgb(var(--color-gray-200) / <alpha-value>)',
-            300: 'rgb(var(--color-gray-300) / <alpha-value>)',
-            400: 'rgb(var(--color-gray-400) / <alpha-value>)',
-            500: 'rgb(var(--color-gray-500) / <alpha-value>)',
-            600: 'rgb(var(--color-gray-600) / <alpha-value>)',
-            700: 'rgb(var(--color-gray-700) / <alpha-value>)',
-            800: 'rgb(var(--color-gray-800) / <alpha-value>)',
-            900: 'rgb(var(--color-gray-900) / <alpha-value>)',
-          },
-          green: {
-            50: 'rgb(var(--color-green-50) / <alpha-value>)',
-            100: 'rgb(var(--color-green-100) / <alpha-value>)',
-            500: 'rgb(var(--color-green-500) / <alpha-value>)',
-            600: 'rgb(var(--color-green-600) / <alpha-value>)',
-            700: 'rgb(var(--color-green-700) / <alpha-value>)',
-          },
-          yellow: {
-            50: 'rgb(var(--color-yellow-50) / <alpha-value>)',
-            100: 'rgb(var(--color-yellow-100) / <alpha-value>)',
-            500: 'rgb(var(--color-yellow-500) / <alpha-value>)',
-            600: 'rgb(var(--color-yellow-600) / <alpha-value>)',
-            700: 'rgb(var(--color-yellow-700) / <alpha-value>)',
-          },
-          blue: {
-            50: 'rgb(var(--color-blue-50) / <alpha-value>)',
-            100: 'rgb(var(--color-blue-100) / <alpha-value>)',
-            500: 'rgb(var(--color-blue-500) / <alpha-value>)',
-            600: 'rgb(var(--color-blue-600) / <alpha-value>)',
-            700: 'rgb(var(--color-blue-700) / <alpha-value>)',
-          },
-        },
-
-        // Legacy primary_scale — full ladder kept stable across both canvases
-        // (used in JS-side gradient endpoints that don't flip).
-        primary_scale: {
-          50: '#eef4f1',
-          100: '#d6e3dc',
-          200: '#a3d0be',
-          300: '#79a694',
-          400: '#5e8a78',
-          500: '#3c6658',
-          600: '#234e40',
-          700: '#0d3b2e',
-          800: '#002117',
-          900: '#00241a',
-          950: '#001812',
-        },
+        // The one veil behind a sheet or a dialog: `bg-scrim/60`, the web's
+        // value. Near-ink in light, black in dark (global.css).
+        scrim: 'rgb(var(--color-scrim) / <alpha-value>)',
 
         background: {
           primary: 'rgb(var(--color-surface) / <alpha-value>)',
@@ -142,12 +82,16 @@ module.exports = {
           accent: 'rgb(var(--color-primary) / <alpha-value>)',
         },
 
-        // Product Tier border opacities — lifted from the 0.08/0.14/0.22 marketing
-        // values that left mobile cards floating without anchor. See DESIGN.md §4.
+        // Hairlines, the web's three strengths (frontend/src/index.css
+        // `--ghost-border*`): `faint` for the dividers inside a list, the
+        // default for pane edges, fields and the composer, `strong` for a
+        // control's outline. Each variable carries its own alpha per scheme,
+        // because a pale line needs more opacity on near-black than a dark
+        // line needs on paper; the runtime twin is `useThemeColors().border`.
         border: {
-          subtle: 'rgb(var(--color-border) / 0.22)',
-          DEFAULT: 'rgb(var(--color-border) / 0.40)',
-          strong: 'rgb(var(--color-border) / 0.55)',
+          faint: 'var(--ghost-border-faint)',
+          DEFAULT: 'var(--ghost-border)',
+          strong: 'var(--ghost-border-strong)',
         },
 
         success: 'rgb(var(--color-success) / <alpha-value>)',
@@ -183,21 +127,36 @@ module.exports = {
           terra: '#6366F1',
         },
       },
+      // Two faces beside the system one, loaded in app/_layout.tsx under these
+      // family names: Schibsted Grotesk 600 for the wordmark and the auth and
+      // onboarding headline, JetBrains Mono for counts, times and code. Every
+      // other string renders in the platform face (SF, Roboto), which is what
+      // Dynamic Type and the native chrome already use.
       fontFamily: {
-        // Space Grotesk for display/headlines, Plus Jakarta Sans for body,
-        // Inter for labels, Newsreader for editorial serif accents.
-        // Loaded at runtime via expo-font in app/_layout.tsx.
-        display: ['SpaceGrotesk', 'System', 'sans-serif'],
-        headline: ['SpaceGrotesk', 'System', 'sans-serif'],
-        sans: ['PlusJakartaSans', 'System', 'sans-serif'],
-        label: ['Inter', 'System', 'sans-serif'],
-        serif: ['Newsreader', 'Georgia', 'serif'],
-        mono: ['JetBrainsMono', 'Menlo', 'monospace'],
+        display: ['SchibstedGrotesk'],
+        mono: ['JetBrainsMono'],
+      },
+      // The platform ladder in the system face (Design/Boreal v2.2 — Mobile
+      // Less, "The scale"). Every step carries its line-height so a bare
+      // `text-sm` is complete without a `leading-*` beside it. Reading text is
+      // `base` 16/22; interface text is `sm` 13/18 at weight 500 on anything
+      // navigable; `xs` 12/16 is the floor — nothing goes under it but a native
+      // badge. `2xl` and up are reserved for the auth and onboarding headline.
+      fontSize: {
+        xs: ['12px', { lineHeight: '16px' }],
+        sm: ['13px', { lineHeight: '18px' }],
+        base: ['16px', { lineHeight: '22px' }],
+        lg: ['17px', { lineHeight: '22px' }],
+        xl: ['20px', { lineHeight: '25px' }],
+        '2xl': ['22px', { lineHeight: '28px' }],
+        '3xl': ['26px', { lineHeight: '32px' }],
       },
       letterSpacing: {
-        brand: '0.15em',      // DRAVR wordmark
-        label: '0.05em',      // small-caps buttons
+        brand: '0.15em',      // DRAVR wordmark — the only tracked text in the product
       },
+      // 4 chips · 8 buttons and fields · 12 floating cards · 20 a sheet's top
+      // and the composer field · full for avatars and badges. `2xl` is pinned
+      // to `xl` so nothing between a card and a sheet exists.
       borderRadius: {
         none: '0',
         sm: '2px',
@@ -206,21 +165,13 @@ module.exports = {
         lg: '8px',
         xl: '12px',
         '2xl': '12px',
+        '3xl': '20px',
         full: '9999px',
       },
+      // The only shadow in the system: what floats over the page. A resting
+      // card is lifted by its hairline (DESIGN.md §4).
       boxShadow: {
-        // Product Tier elevation — two-layer recipe collapsed for RN's single-shadow
-        // model. JS theme tokens in design-system.ts carry the fully tuned values
-        // for runtime style props; these utilities cover legacy className use.
-        ambient: '0 1px 3px rgba(0, 0, 0, 0.40)',
-        card: '0 1px 3px rgba(0, 0, 0, 0.40)',
-        'card-hover': '0 4px 8px rgba(0, 0, 0, 0.45)',
         floating: '0 12px 24px rgba(0, 0, 0, 0.55)',
-        'glow-violet': '0 1px 3px rgba(0, 0, 0, 0.40)',
-        'glow-cyan': '0 1px 3px rgba(0, 0, 0, 0.40)',
-        'glow-activity': '0 1px 3px rgba(0, 0, 0, 0.40)',
-        'glow-nutrition': '0 1px 3px rgba(0, 0, 0, 0.40)',
-        'glow-recovery': '0 1px 3px rgba(0, 0, 0, 0.40)',
       },
     },
   },

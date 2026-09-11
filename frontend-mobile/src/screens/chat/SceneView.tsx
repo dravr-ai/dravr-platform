@@ -215,7 +215,7 @@ function ChartView({ scene, colors }: { scene: Scene; colors: ThemeColors }) {
           ))}
         </View>
       ) : null}
-      <Text className="mt-1 text-[11px]" style={{ color: colors.tokens.outline }}>
+      <Text className="mt-1 text-xs" style={{ color: colors.tokens.outline }}>
         source: {scene.source_tool}
       </Text>
     </View>
@@ -249,7 +249,7 @@ function SceneTable({ view, colors }: { view: TableView; colors: ThemeColors }) 
             {view.columns.map((column, i) => (
               <Text
                 key={column}
-                className="min-w-[96px] px-3 py-2 text-xs font-medium uppercase"
+                className="min-w-[96px] px-3 py-2 text-xs font-medium"
                 style={{
                   color: colors.tokens.onSurfaceVariant,
                   textAlign: view.alignments[i] === 'right' ? 'right' : 'left',
@@ -277,7 +277,7 @@ function SceneTable({ view, colors }: { view: TableView; colors: ThemeColors }) 
           ))}
         </View>
       </ScrollView>
-      <Text className="mt-1 text-[11px]" style={{ color: colors.tokens.outline }}>
+      <Text className="mt-1 text-xs" style={{ color: colors.tokens.outline }}>
         source: {view.source_tool}
       </Text>
     </View>

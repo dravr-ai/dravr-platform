@@ -40,7 +40,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # ============================================================================
 BASELINE_WEB_RAW_INPUT=30
 BASELINE_WEB_RAW_PALETTE=2
-BASELINE_MOBILE_RAW_PALETTE=26
+BASELINE_MOBILE_RAW_PALETTE=0
 BASELINE_MOBILE_RAW_TEXTINPUT=14
 BASELINE_WEB_LEGACY_PIERRE=0
 # Boreal v2 (DESIGN.md §4, §5): backdrop blur belongs to overlays over

@@ -12,8 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { PRIMARY_PALETTE, useCardStyle, buttonGlow, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
+import { useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
@@ -145,7 +144,7 @@ export function StoreCoachDetailScreen() {
     return (
       <View className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+          <ActivityIndicator size="large" color={colors.tokens.primary} />
           <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgentDetails')}</Text>
         </View>
       </View>
@@ -158,10 +157,10 @@ export function StoreCoachDetailScreen() {
         <View className="flex-1 justify-center items-center p-6">
           <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
           <TouchableOpacity
-            className="px-5 py-2 bg-primary-500 rounded-lg"
+            className="px-5 py-2 bg-primary rounded-lg"
             onPress={() => router.push('/(app)/(tabs)/(discover)')}
           >
-            <Text className="text-text-primary text-base font-medium">{t('app.goBack')}</Text>
+            <Text className="text-on-primary text-base font-medium">{t('app.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -213,7 +212,7 @@ export function StoreCoachDetailScreen() {
         {/* Tags */}
         {coach.tags.length > 0 && (
           <View className="px-4 py-3">
-            <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.tags')}</Text>
+            <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.tags')}</Text>
             <View className="flex-row flex-wrap">
               {coach.tags.map((tag) => (
                 <View
@@ -235,7 +234,7 @@ export function StoreCoachDetailScreen() {
         {/* Sample Prompts */}
         {coach.sample_prompts.length > 0 && (
           <View className="px-4 py-3">
-            <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.samplePrompts')}</Text>
+            <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.samplePrompts')}</Text>
             {coach.sample_prompts.map((prompt) => (
               <View
                 key={prompt}
@@ -254,7 +253,7 @@ export function StoreCoachDetailScreen() {
 
         {/* System Prompt Preview */}
         <View className="px-4 py-3">
-          <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.systemPrompt')}</Text>
+          <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.systemPrompt')}</Text>
           <View
             className="rounded-xl overflow-hidden"
             style={{
@@ -263,12 +262,6 @@ export function StoreCoachDetailScreen() {
               borderColor: `${categoryFill}30`,
             }}
           >
-            <LinearGradient
-              colors={[categoryFill, `${categoryFill}40`] as [string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: 2, width: '100%' }}
-            />
             <View className="p-3">
               <Text className="text-sm text-text-secondary leading-5 font-mono" numberOfLines={10}>
                 {coach.system_prompt}
@@ -284,7 +277,7 @@ export function StoreCoachDetailScreen() {
 
         {/* Metadata */}
         <View className="px-4 py-3">
-          <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.details')}</Text>
+          <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.details')}</Text>
           <View
             className="rounded-xl overflow-hidden"
             style={{
@@ -293,7 +286,7 @@ export function StoreCoachDetailScreen() {
               borderColor: colors.border.default,
             }}
           >
-            <View className="flex-row justify-between items-center px-4 py-3 border-b border-border-subtle">
+            <View className="flex-row justify-between items-center px-4 py-3 border-b border-border-faint">
               <Text className="text-sm text-text-secondary">{t('app.tokenCount')}</Text>
               <Text className="text-sm text-text-primary font-medium">{coach.token_count}</Text>
             </View>
@@ -315,7 +308,7 @@ export function StoreCoachDetailScreen() {
       {/* Post-install hint + Install/Uninstall/Edit actions, in the flow above
           the system tab bar: the screen ends where the bar begins. */}
       <View
-        className="bg-background-primary border-t border-border-subtle p-3"
+        className="bg-background-primary border-t border-border-faint p-3"
         style={{ paddingBottom: actionBarBottom }}
         testID="coach-detail-action-bar"
       >
@@ -374,7 +367,6 @@ export function StoreCoachDetailScreen() {
             className="flex-row items-center justify-center py-3.5 rounded-xl"
             style={{
               backgroundColor: colors.pierre.violet,
-              ...buttonGlow,
             }}
             onPress={handleInstall}
             disabled={isInstalling}

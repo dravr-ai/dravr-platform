@@ -165,7 +165,7 @@ export function GroupInsightsSection({
                 style={{ backgroundColor: `${severityBadges[flag.severity].fill}20` }}
               >
                 <Text
-                  className="text-[10px] font-semibold"
+                  className="text-xs font-semibold"
                   style={{ color: severityBadges[flag.severity].ink }}
                 >
                   {t(FLAG_LABEL_KEYS[flag.flag_type])}

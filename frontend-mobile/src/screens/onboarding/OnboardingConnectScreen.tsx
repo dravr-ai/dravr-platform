@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { PRIMARY_PALETTE, PROVIDER_COLORS, useThemeColors } from '../../constants/theme';
+import { PROVIDER_COLORS, useThemeColors } from '../../constants/theme';
 import { Card, Button } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
@@ -239,15 +239,15 @@ export function OnboardingConnectScreen() {
 
   const renderProvider = (provider: ExtendedProviderStatus) => {
     // Provider display config (colors, icons, descriptions). Unknown ids fall
-    // back to a neutral slate tile so the screen never crashes on an
+    // back to a neutral outline-grey tile so the screen never crashes on an
     // unexpected payload.
     const config: Record<string, { color: string; icon: string; description: string }> = {
       sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: t('app.provRunCycleSwim') },
       sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: t('app.provActivitiesHealth') },
       whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: t('app.provRecoveryStrainSleep') },
-      intervals_icu: { color: '#1273DE', icon: 'I', description: t('app.provEnduranceWellness') },
+      intervals_icu: { color: PROVIDER_COLORS.intervals_icu, icon: 'I', description: t('app.provEnduranceWellness') },
     };
-    const c = config[provider.provider] ?? { color: '#607D8B', icon: '?', description: t('app.provFitnessData') };
+    const c = config[provider.provider] ?? { color: colors.tokens.outline, icon: '?', description: t('app.provFitnessData') };
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
 
@@ -278,7 +278,7 @@ export function OnboardingConnectScreen() {
               accessibilityLabel={`Connect ${provider.display_name}`}
             >
               {isConnecting ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
               ) : (
                 <Text className="text-sm font-semibold text-on-surface">{t('app.connect')}</Text>
               )}
@@ -294,7 +294,7 @@ export function OnboardingConnectScreen() {
   if (justConnected) {
     return (
       <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
-        <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+        <ActivityIndicator size="large" color={colors.tokens.primary} />
         <Text className="mt-4 text-base font-medium text-text-primary text-center">
           {justConnected} connected — preparing your dashboard…
         </Text>
@@ -309,7 +309,7 @@ export function OnboardingConnectScreen() {
     const friendlyName = awaitingOAuthFor.charAt(0).toUpperCase() + awaitingOAuthFor.slice(1);
     return (
       <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
-        <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+        <ActivityIndicator size="large" color={colors.tokens.primary} />
         <Text className="mt-4 text-base font-semibold text-text-primary text-center">
           {t('app.awaiting')} {friendlyName} consent…
         </Text>

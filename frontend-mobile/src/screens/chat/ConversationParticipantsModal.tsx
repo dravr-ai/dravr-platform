@@ -92,7 +92,7 @@ export function ConversationParticipantsModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View className="flex-1 justify-end bg-black/40">
+      <View className="flex-1 justify-end bg-scrim/60">
         <View
           className="rounded-t-2xl px-4 pt-4 pb-8"
           style={{ backgroundColor: colors.background.secondary, maxHeight: '75%' }}
@@ -112,7 +112,7 @@ export function ConversationParticipantsModal({
               data={participants}
               keyExtractor={p => p.user_id}
               renderItem={({ item }) => (
-                <View className="flex-row items-center justify-between py-2 border-b border-border-subtle">
+                <View className="flex-row items-center justify-between py-2 border-b border-border-faint">
                   <View className="flex-1 mr-2">
                     <Text className="text-sm text-text-primary" numberOfLines={1} testID={`participant-${item.user_id}`}>
                       {item.user_id}

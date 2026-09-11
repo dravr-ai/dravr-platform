@@ -16,7 +16,7 @@ import { useAsyncAction } from '@pierre/ui-logic';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
-import { spacing, useCardStyle, buttonGlow } from '../../constants/theme';
+import { spacing, useCardStyle } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
@@ -89,9 +89,7 @@ export function RegisterScreen() {
     overflow: 'hidden',
   };
 
-  // Button with glow effect
-  const glowButtonStyle: ViewStyle = {
-    ...buttonGlow,
+  const submitButtonStyle: ViewStyle = {
     marginTop: spacing.md,
   };
 
@@ -169,7 +167,7 @@ export function RegisterScreen() {
                   onPress={handleRegister}
                   loading={registerAction.isLoading}
                   fullWidth
-                  style={glowButtonStyle}
+                  style={submitButtonStyle}
                 />
               </View>
 
@@ -177,7 +175,7 @@ export function RegisterScreen() {
               <View className="flex-row justify-center items-center gap-1 pt-2">
                 <Text className="text-sm text-text-secondary">{t('app.alreadyHaveAccount')}</Text>
                 <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-                  <Text className="text-sm font-semibold text-primary-500">{t('common.login')}</Text>
+                  <Text className="text-sm font-semibold text-primary">{t('common.login')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

@@ -89,7 +89,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
   return (
     <SwipeableRow leftActions={leftActions} rightActions={rightActions} testID={`swipeable-conversation-${row.id}`}>
       <TouchableOpacity
-        className="flex-row items-center px-4 py-3 border-b border-border-subtle bg-background-primary"
+        className="flex-row items-center px-4 py-3 border-b border-border-faint bg-background-primary"
         onPress={() => onPress(row)}
         onLongPress={() => onLongPress(row)}
         delayLongPress={300}
@@ -128,7 +128,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
               </Text>
             )}
             <Text
-              className={`text-xs ml-2 ${unread ? 'text-primary font-semibold' : 'text-text-tertiary'}`}
+              className={`text-xs font-mono tabular-nums ml-2 ${unread ? 'text-primary font-semibold' : 'text-text-tertiary'}`}
               style={{ marginLeft: 'auto' }}
               testID={`conversation-time-${row.id}`}
             >
@@ -144,7 +144,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
                 accessibilityLabel={t('app.fromChannel', { channel: row.channel.label })}
                 testID={`conversation-channel-badge-${row.id}`}
               >
-                <Text className="text-[10px] font-medium" style={{ color: colors.pierre.violet }}>
+                <Text className="text-xs font-medium" style={{ color: colors.pierre.violet }}>
                   {row.channel.label}
                 </Text>
               </View>
@@ -170,7 +170,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
                 accessibilityLabel={t('app.rowMentionsYou')}
                 testID={`conversation-mention-${row.id}`}
               >
-                <Text className="text-[11px] font-bold" style={{ color: colors.ink.nutrition }}>
+                <Text className="text-xs font-bold" style={{ color: colors.ink.nutrition }}>
                   {MENTION_PREFIX}
                 </Text>
               </View>
@@ -182,7 +182,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
                 accessibilityLabel={`${row.unreadCount} unread`}
                 testID={`conversation-unread-${row.id}`}
               >
-                <Text className="text-[10px] font-bold" style={{ color: colors.tokens.onPrimary }}>
+                <Text className="text-xs font-bold font-mono tabular-nums" style={{ color: colors.tokens.onPrimary }}>
                   {badgeLabel(row.unreadCount)}
                 </Text>
               </View>

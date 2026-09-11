@@ -37,7 +37,7 @@ interface BrandLockupProps {
  * forest-ink mark hold on the near-black canvas. `splash-icon.png` is the same
  * artwork with an alpha channel and would sink into that canvas.
  *
- * The wordmark is Space Grotesk SemiBold at `0.15em`, in the `primary` ink —
+ * The wordmark is Schibsted Grotesk 600 at `0.15em`, in the `primary` ink —
  * sage-forest in light, mint in dark, the one green legible at text sizes in
  * both schemes.
  */
@@ -45,7 +45,7 @@ export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityL
   const colors = useThemeColors();
 
   const wordmarkStyle: TextStyle = {
-    fontFamily: 'SpaceGrotesk_SemiBold',
+    fontFamily: 'SchibstedGrotesk',
     fontSize: size * 0.72,
     letterSpacing: size * 0.72 * BRAND_TRACKING_RATIO,
     color: colors.text.accent,

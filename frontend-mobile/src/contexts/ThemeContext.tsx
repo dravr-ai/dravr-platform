@@ -55,12 +55,16 @@ export interface ThemeColors {
     /** Links and active state — the brand ink, legible in both schemes. */
     accent: string;
   };
-  /** Hairline border families (RN style strings include alpha). */
+  /** Hairline border families (RN style strings include alpha): `faint` for
+   *  the dividers inside a list, the default for pane edges and fields,
+   *  `strong` for a control's outline. */
   border: {
-    subtle: string;
+    faint: string;
     default: string;
     strong: string;
   };
+  /** The veil behind a sheet or a dialog, drawn at 60 %. */
+  scrim: string;
   /** Semantic flags. */
   success: string;
   warning: string;
@@ -93,18 +97,22 @@ interface ThemeContextValue {
 }
 
 /**
- * Ghost-border recipes, per scheme (DESIGN.md §2 "Outline / borders").
+ * Ghost-border recipes, per scheme — the web's three strengths verbatim
+ * (`frontend/src/index.css` `--ghost-border-faint` / `--ghost-border` /
+ * `--ghost-border-strong`), so a divider measures the same on both clients.
+ * `global.css` carries the same values for the class path (`border-border-*`);
+ * `TypeScaleParity.test.ts` pins all three sources to each other.
  *
  * A hairline only reads when it contrasts with what it sits on, and the two
  * schemes need opposite ink for that: a pale grey-green line carries on the
  * near-black canvas and disappears on a white card, which is how the light
  * theme lost the only separation its near-identical surface tiers had. Light
  * therefore takes the darker Product Tier ghost border; dark keeps the pale
- * one at the lower opacities a near-black ground needs.
+ * one at the opacities a near-black ground needs.
  */
-const BORDER_INK: Record<ColorScheme, { rgb: string; subtle: number; default: number; strong: number }> = {
-  light: { rgb: '155, 165, 159', subtle: 0.22, default: 0.4, strong: 0.55 },
-  dark: { rgb: '192, 200, 195', subtle: 0.08, default: 0.14, strong: 0.22 },
+export const BORDER_INK: Record<ColorScheme, { rgb: string; faint: number; default: number; strong: number }> = {
+  light: { rgb: '155, 165, 159', faint: 0.26, default: 0.4, strong: 0.55 },
+  dark: { rgb: '192, 200, 195', faint: 0.14, default: 0.22, strong: 0.34 },
 };
 
 function buildPalette(scheme: ColorScheme): ThemeColors {
@@ -143,10 +151,11 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
       accent: tokens.primary,
     },
     border: {
-      subtle: `rgba(${ink.rgb}, ${ink.subtle})`,
+      faint: `rgba(${ink.rgb}, ${ink.faint})`,
       default: `rgba(${ink.rgb}, ${ink.default})`,
       strong: `rgba(${ink.rgb}, ${ink.strong})`,
     },
+    scrim: tokens.scrim,
     // Read the shared feedback set rather than restating it. These were four
     // hardcoded ternaries, and one of them had drifted: light `warning` was
     // `#8f6a2e`, the EDITORIAL tier value, while global.css and

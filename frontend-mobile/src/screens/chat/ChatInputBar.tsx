@@ -107,9 +107,7 @@ export function ChatInputBar({
   // a hairline outline-variant edge in both schemes. The accent ring uses the
   // active primary so the input reads as the primary action surface.
   const pillBackground = isDark ? colors.background.elevated : colors.background.primary;
-  const pillBorder = isDark
-    ? 'rgba(192, 200, 195, 0.18)'
-    : 'rgba(26, 28, 27, 0.10)';
+  const pillBorder = colors.border.default;
 
   // How far the composer must rise above its resting place. `bottom` stays
   // fixed and the movement is a transform, because `bottom` cannot be animated
@@ -151,13 +149,13 @@ export function ChatInputBar({
         onSelect={mentions.select}
       />
       <View
-        className="flex-row items-center rounded-full px-3 min-h-[44px] max-h-[100px]"
+        className="flex-row items-center rounded-full px-3 min-h-11 max-h-[100px]"
         style={{
           backgroundColor: pillBackground,
           borderColor: pillBorder,
           borderWidth: 1,
           borderRadius: 9999,
-          shadowColor: isDark ? '#000000' : '#1a1c1b',
+          shadowColor: colors.tokens.scrim,
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: isDark ? 0.4 : 0.06,
           shadowRadius: 12,

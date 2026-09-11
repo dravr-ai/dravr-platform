@@ -183,7 +183,7 @@ export function SwipeableRow({
       testID={testID ? `${testID}-action-${action.label.toLowerCase().replace(/\s/g, '-')}` : undefined}
     >
       <Feather name={action.icon} size={20} color={action.color} />
-      <Text style={{ color: action.color, fontSize: 11, fontWeight: '600', marginTop: 4 }}>
+      <Text className="text-xs font-semibold" style={{ color: action.color, marginTop: 4 }}>
         {action.label}
       </Text>
     </TouchableOpacity>

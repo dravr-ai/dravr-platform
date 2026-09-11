@@ -9,7 +9,7 @@ import { render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
-import { BOREAL_LIGHT, BOREAL_DARK } from '../src/constants/theme';
+import { BOREAL_LIGHT, BOREAL_DARK } from '@pierre/shared-constants';
 
 // NativeWind's own hook needs a stub under jest; the resolved scheme comes
 // from the persisted preference below, which is what the app really reads.
@@ -125,7 +125,7 @@ describe('the Dravr lockup on the phone', () => {
   });
 
   describe('the lockup type spec (DESIGN.md §1 / §3)', () => {
-    it('sets Space Grotesk 600 at 0.15em in the primary ink — dark', async () => {
+    it('sets Schibsted Grotesk 600 at 0.15em in the primary ink — dark', async () => {
       await AsyncStorage.setItem(APPEARANCE_KEY, 'dark');
       const screen = renderInTheme(<BrandLockup size={28} />);
 
@@ -137,7 +137,7 @@ describe('the Dravr lockup on the phone', () => {
         color: string;
       };
 
-      expect(style.fontFamily).toBe('SpaceGrotesk_SemiBold');
+      expect(style.fontFamily).toBe('SchibstedGrotesk');
       expect(style.letterSpacing).toBeCloseTo(style.fontSize * BRAND_TRACKING_RATIO, 5);
       expect(style.color).toBe(BOREAL_DARK.primary);
       expect(style.color).toBe('#a3d0be');
@@ -161,7 +161,7 @@ describe('the Dravr lockup on the phone', () => {
         color: string;
       };
 
-      expect(style.fontFamily).toBe('SpaceGrotesk_SemiBold');
+      expect(style.fontFamily).toBe('SchibstedGrotesk');
       expect(style.letterSpacing).toBeCloseTo(style.fontSize * BRAND_TRACKING_RATIO, 5);
       // Sage-forest: the v1 primary (#00241a) read as black at this size, so
       // the green lived in a separate `brand` ink; v2 promoted that ink to

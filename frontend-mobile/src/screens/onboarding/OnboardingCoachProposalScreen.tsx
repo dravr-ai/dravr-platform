@@ -199,7 +199,7 @@ function CoachProposalCard({
           <Text className="text-base font-semibold text-on-surface" numberOfLines={1}>
             {coach.title}
           </Text>
-          <Text className="mt-0.5 text-xs uppercase text-on-surface-variant">
+          <Text className="mt-0.5 text-xs text-on-surface-variant">
             {t(coachCategoryLabelKey(coach.category))}
           </Text>
         </View>

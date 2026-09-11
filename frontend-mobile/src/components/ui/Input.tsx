@@ -11,7 +11,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
@@ -75,7 +75,6 @@ export function Input({
     borderBottomColor: error ? fieldColors.errorBorder : fieldColors.border,
     backgroundColor: 'transparent',
     color: fieldColors.text,
-    fontSize: 16,
     paddingRight: showPasswordToggle ? 64 : undefined,
   };
 
@@ -95,9 +94,10 @@ export function Input({
       )}
       <View className="relative flex-row items-center">
         <TextInput
+          className="text-base"
           style={inputBaseStyle}
           placeholderTextColor={fieldColors.tertiary}
-          selectionColor={PRIMARY_PALETTE[500]}
+          selectionColor={themeColors.tokens.primary}
           secureTextEntry={shouldHidePassword}
           testID={testID}
           {...props}

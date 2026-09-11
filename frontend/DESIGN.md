@@ -250,17 +250,18 @@ measured 4.25:1 on the canvas and 2.9:1 on the darkest tier.
 The wordmark is the only tracked text in the product (`tracking-brand`,
 0.15em). Uppercase tracked labels — the Inter 11px caps of v1 — are retired.
 
-**Mobile** still loads Space Grotesk and Inter via `expo-font`; its switch to
-this pairing is a separate change (see the vault `Design/` plan). The native
-font fallback chain in `tailwind.config.js` is `'System', 'sans-serif'` so
-unloaded screens still render correctly.
+**Mobile** loads two of these — Schibsted Grotesk 600 for the wordmark and
+the auth and onboarding headline, JetBrains Mono for compared numbers — and
+renders every other string in the platform face (SF on iOS, Roboto on
+Android), which is what Dynamic Type and the native chrome already use. Plus
+Jakarta Sans is a web choice: on a phone a third family fights the system
+ladder for no gain. §10 carries the phone's scale.
 
-**The label step is not part of that deferral, and it already moved.** The
-retired 11px caps at 0.08em were a *label* rule, not a family choice, so the
-phone's `Input` primitive now renders the same 14px sentence-case label the
-web one does. Deferring the family is what the vault plan covers; leaving one
-client in tracked caps meant the same sign-in form read as two products
-depending on which one an athlete opened.
+**The label rule is shared.** The retired 11px caps at 0.08em were a *label*
+rule, not a family choice, so the phone's `Input` primitive renders the same
+sentence-case label the web one does; leaving one client in tracked caps meant
+the same sign-in form read as two products depending on which one an athlete
+opened.
 
 ### Scale
 
@@ -753,3 +754,45 @@ violet, `#06B6D4` cyan, deep-space backgrounds, backdrop-blur cards), retired
 in commit `cf8c01d8` when the platform rebranded to dravr.ai. It introduced the
 Product Tier over the marketing site's Editorial Tier: 40 % card borders,
 lifted pillar saturation, mandatory on-colour pairings, 12px card radius.
+
+---
+
+## 10. Phone
+
+The phone shares every token above and differs where a thumb and a system
+ladder make it differ. The mirrors are `frontend-mobile/tailwind.config.js`
+(the class path) and `frontend-mobile/src/contexts/ThemeContext.tsx` (the
+runtime path, `useThemeColors()`); `__tests__/TypeScaleParity.test.ts` pins
+both to this table and to `index.css`. The decisions behind it are in the
+vault under `Design/Boreal v2.2 — Mobile Less`.
+
+### Scale
+
+| Token | Size / line | Use |
+|---|---|---|
+| `text-xs` | 12 / 16 | Captions, timestamps, badge numbers — **the floor**; only a native badge goes under it |
+| `text-sm` | 13 / 18 | **Interface text**: a row's second line, hints, tabs, section titles, chips — `font-medium` on anything navigable |
+| `text-base` | 16 / 22 | **Reading text**: messages, descriptions, row titles, field values, button labels |
+| `text-lg` | 17 / 22 | An inline title in body; the native header's inline title |
+| `text-xl` | 20 / 25 | A hero number inside a screen |
+| `text-2xl` | 22 / 28 | Auth and onboarding only |
+| `text-3xl` | 26 / 32 | The auth and onboarding headline, in Schibsted Grotesk 600 |
+
+Reading text is 16, one step above the web's 15: Apple's body is 17 and
+Material's 16, and the phone is read at arm's length. The page title is the
+native large title (34 → 17 semibold inline), never a class. Numbers that get
+compared — an unread count, a token total, a time in a row — are
+`font-mono tabular-nums`.
+
+### Shape and ground
+
+| | Value |
+|---|---|
+| Radii | 4 chips · 8 buttons and fields · 12 floating cards · 20 a sheet's top and the composer field · full avatars and badges (`2xl` = `xl`, so nothing sits between a card and a sheet) |
+| Hairlines | the web's three, verbatim: `border-border-faint` (.26 light / .14 dark) inside a list, `border-border` (.40 / .22) at pane edges and fields, `border-border-strong` (.55 / .34) on a control's outline; `StyleSheet.hairlineWidth` |
+| Scrim | one, `bg-scrim/60` — `#1a1c1b` in light, black in dark |
+| Shadow | `shadow-floating` only, for what floats; a resting surface is lifted by its hairline |
+| Button | 44 tall, radius 8, no shadow; `primary` · `secondary` (hairline) · `ghost` · `danger`; the spinner takes the label's ink |
+| Colour | every value through a token — the class path or `useThemeColors()`; no hex outside `BrandIcons`, the Sciotte login modal and the flag-gated billing screen; brand colour lives inside a brand glyph |
+| Labels | sentence case, no tracking, no `textTransform`; a section title is 13 / 600 |
+| Gradients | none on a resting surface; `expo-linear-gradient` exists for the Sciotte modal's brand sweeps and the two functional edge fades of `ScrollFadeContainer` |
