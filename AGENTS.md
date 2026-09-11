@@ -228,6 +228,10 @@ act on. For CI on your own commit, ask for that sha by name.
 - **An issue you filed is work you owe.** `carnet.sh create` records it; it caps at 6 until you
   close it with the fix. A session does not file its way out of work — fix first, file only the
   residue, and if something truly cannot be fixed here, put that decision in front of ChefFamille.
+  **The exception is a registered limitation**, which the register contract requires to stay open:
+  an issue labelled `limitation` that a `LIMITATION(registre#n)` marker in source names is a
+  register entry, not deferred work, and is reported as a note instead of capping. Both halves are
+  required — a label alone still caps, so this is not a way to relabel a bug out of the score.
 - **Background tasks and subagents still running cap at 7.** They leave no trace in git, the
   ledger or CI, and closing the session loses them. Session-scoped: your terminal, your tasks.
 - **`--cheap` and the full run give the same number** — the only difference is whether the CI

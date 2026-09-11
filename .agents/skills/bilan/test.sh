@@ -129,6 +129,72 @@ check "filed is reported separately from held" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("filed this session and still open"))] | length')"
 rm -f "$CFG/carnet-claims/$SID.jsonl"
 
+# ---- a registered limitation is a register entry, not work owed
+#
+# The LIMITATION procedure requires an OPEN issue for as long as a marker names it, so a session
+# that followed that procedure correctly was capped at 6 for complying, with no action available.
+# carnet#406 held a session there for hours on 2026-09-11: keyword narrowing was deleted for
+# starving a turn, a classifier was rejected for failing the same way, static narrowing was already
+# done — nothing to fix, and nothing honest to close.
+#
+# The exemption needs the `limitation` LABEL *and* a marker in source naming that issue. Either
+# half alone still caps, which is what stops a bug being relabelled out of the score. These three
+# cases are the whole contract, and they need the full run: --cheap cannot consult the tracker, so
+# it keeps the cap, which is the safe direction and is asserted last.
+STUB=$(mktemp -d -t bilan-gh) || exit 1
+cat > "$STUB/gh" <<'GH'
+#!/usr/bin/env bash
+# Smallest gh that can answer the filed-issue path. Every issue is OPEN; only 2001 is labelled
+# `limitation`. Anything else (run list, api) fails, so CI reads as absent — which is why the
+# assertions below are on the presence of a CAP, never on the score.
+want=""
+for a in "$@"; do case "$a" in labels) want=labels;; state) want=state;; esac; done
+if [ "${1:-}" = issue ] && [ "${2:-}" = view ]; then
+    case "$want" in
+        state)  echo OPEN; exit 0 ;;
+        labels) if [ "${3:-}" = 2001 ]; then echo limitation; else echo bug; fi; exit 0 ;;
+    esac
+fi
+exit 1
+GH
+chmod +x "$STUB/gh"
+# Args pass through verbatim: `run_full "$R" --json` for the machine form, `run_full "$R"` for the
+# human one. A "${2:---json}" default would have substituted on an EMPTY second argument too, so
+# the human call would silently have been a --json call and the note assertion below would have
+# passed against output that never contained notes.
+run_full() { local repo=$1; shift; ( cd "$repo" && CLAUDE_CONFIG_DIR="$CFG" \
+    CLAUDE_CODE_SESSION_ID="$SID" PATH="$STUB:$PATH" bash "$BILAN" "$@" 2>/dev/null ); }
+filed_caps() { printf '%s' "$1" | jq '[.caps[] | select(.evidence | test("filed this session and still open"))] | length'; }
+
+cat > "$CFG/carnet-claims/$SID.jsonl" <<LEDGER
+{"v":1,"session":"$SID","name":"test","user":"t","host":"h","pid":1,"repo":"dravr-platform","branch":"main","at":"2026-09-08T00:00:00Z","kind":"identity"}
+{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}
+LEDGER
+
+# Label but NO marker in source — still work owed.
+check "a limitation label alone does not exempt a filed issue" 1 "$(filed_caps "$(run_full "$R" --json)")"
+
+# Label AND a marker naming it — a register entry.
+echo 'let x = 1; // LIMITATION(registre#2001): the width this names' >> "$R/a.txt"
+out=$(run_full "$R" --json)
+check "label plus a marker naming it exempts the filed issue" 0 "$(filed_caps "$out")"
+check "and the registered limitation is still REPORTED, not silently dropped" 1 \
+    "$(run_full "$R" | grep -c 'carnet#2001 is a registered limitation')"
+
+# A marker naming an issue that is NOT labelled `limitation` — still work owed, so a bug cannot
+# be exempted by dropping a marker next to it.
+sed -i.bak 's/registre#2001/registre#2002/' "$R/a.txt" && rm -f "$R/a.txt.bak"
+printf '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2002,"at":"2026-09-08T00:00:00Z"}\n' \
+    >> "$CFG/carnet-claims/$SID.jsonl"
+check "a marker without the limitation label does not exempt" 1 "$(filed_caps "$(run_full "$R" --json)")"
+
+# --cheap cannot reach the tracker, so it must KEEP the cap rather than guess an exemption.
+check "--cheap keeps the cap it cannot verify" 1 "$(filed_caps "$(run "$R")")"
+
+git -C "$R" checkout -q -- a.txt
+rm -rf "$STUB"
+rm -f "$CFG/carnet-claims/$SID.jsonl"
+
 # ---- an unregistered LIMITATION marker caps at 6
 echo 'let x = 1; // LIMITATION(registre#): nothing reads this' >> "$R/a.txt"
 out=$(run "$R")

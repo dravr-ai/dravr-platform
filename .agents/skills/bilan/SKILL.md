@@ -44,7 +44,7 @@ checks switched off is not a completion verdict, and now says so as a standing c
 | Evidence | Caps at |
 |---|---|
 | carnet issue claimed by this session, neither closed nor released | **6** |
-| carnet issue **filed** by this session and still open | **6** |
+| carnet issue **filed** by this session and still open (unless a registered limitation) | **6** |
 | background task or subagent still running | **7** |
 | `LIMITATION(registre#…)` marker added in source naming no live issue | **6** |
 | tracked files modified and uncommitted | **7** |
@@ -144,6 +144,22 @@ process ancestry is this invocation, not a task.
 work wearing a label. The standing rule is *fix first, file only the residue*; if something
 genuinely cannot be fixed here, that is a decision to put in front of ChefFamille, not a cap to
 slip past.
+
+**Except a registered limitation, which is the one filed issue that is not work owed.** The
+LIMITATION procedure *requires* an open issue for as long as a marker names it, so this cap
+punished a session for obeying it — and there was nothing the session could do, because the fix
+is to close an issue the rules say must stay open. carnet#406 held a session at 6 for hours on
+2026-09-11: keyword narrowing of the tool surface had been deleted for starving a turn, a
+classifier was rejected for failing the same way, static narrowing was already done and the tools
+are provider-agnostic. Nothing to fix, and nothing honest to close.
+
+So the exemption needs **both** halves: the issue carries the `limitation` label, *and* a
+`LIMITATION(registre#n)` marker in source names that issue. A label alone still caps, so a bug
+cannot be relabelled out of the score; a marker naming a dead issue is already caught by the
+marker check from the other side. Both together mean the issue is a register entry rather than
+deferred work, and it prints as a **note** — the gap stays visible instead of disappearing into a
+clean pass, which is the entire point of registering it. `--cheap` cannot consult the tracker, so
+it keeps the cap.
 
 ## When there is nothing to measure
 

@@ -417,6 +417,34 @@ check_carnet_held() {
 # The standing rule is fix first and file only the residue; this is what makes the second half
 # of it visible. If something genuinely cannot be fixed here, that is a decision to put in front
 # of ChefFamille, not a cap to slip past.
+# A registered limitation is the one filed issue that is NOT work owed, and it has to be exempt.
+# The LIMITATION procedure REQUIRES an open issue for as long as a marker names it — a marker must
+# be "backed by an issue" in the tracker — so a session that followed that procedure correctly was
+# capped at 6 for complying, with no action available to it. carnet#406 is the case that surfaced
+# it on 2026-09-11: keyword narrowing was deleted for starving a turn, an LLM classifier was
+# rejected for failing the same way, static category narrowing is already done and the tools are
+# provider-agnostic, so there was nothing to fix AND nothing honest to close. The score sat at 6
+# for a whole session over an issue whose own body says it is a registration and not a task.
+#
+# The exemption needs BOTH halves, which is what keeps it from being a loophole:
+#   - the `limitation` label on the issue, and
+#   - a LIMITATION(registre#n) marker in source naming that same issue.
+# A label alone still caps, so a bug cannot be relabelled out of the score. A marker naming a dead
+# issue is already caught by check_limitation_markers, from the other side. Both together mean the
+# issue is a register entry rather than deferred work — and it is printed as a NOTE, so the gap
+# stays visible instead of disappearing into a clean pass, which is the whole point of registering.
+registered_limitation() { # <issue-number> -> 0 when this is a register entry, not work owed
+    local n="$1" skip=() hits
+    command -v gh >/dev/null 2>&1 || return 1
+    gh issue view "$n" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" --json labels \
+        -q '.labels[].name' 2>/dev/null | grep -qx limitation || return 1
+    # Same exclusions the marker scan uses: a marker lives at the limited item's declaration in
+    # source, never in prose, a fixture, or this skill's own tree.
+    while IFS= read -r p; do [ -n "$p" ] && skip+=("$p"); done <<< "$LIMITATION_SKIP"
+    hits=$(git grep -l "LIMITATION(registre#$n)" -- . "${skip[@]}" 2>/dev/null | wc -l | tr -d ' ')
+    [ "${hits:-0}" -gt 0 ]
+}
+
 check_carnet_filed() {
     local f n list="" state
     f=$(ledger_file) || return 0
@@ -428,6 +456,10 @@ check_carnet_filed() {
             state=$(gh issue view "$n" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" \
                     --json state -q .state 2>/dev/null || echo OPEN)
             [ "$state" = CLOSED ] && continue
+            if registered_limitation "$n"; then
+                say_note "carnet#$n is a registered limitation, not work owed: labelled \`limitation\` and named by a LIMITATION(registre#$n) marker in source, which the register contract requires to stay open"
+                continue
+            fi
         fi
         list="$list carnet#$n"
     done
