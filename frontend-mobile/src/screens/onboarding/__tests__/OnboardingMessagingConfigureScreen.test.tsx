@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingMessagingConfigureScreen — QR/deep-link configure + poll-to-complete
-// ABOUTME: Verifies the QR (WebView) renders for a deep-link channel and the poll auto-advances via completeConfigure
+// ABOUTME: Unit tests for the mobile OnboardingMessagingConfigureScreen — deep-link configure + poll-to-complete
+// ABOUTME: Verifies a phone taps straight through (no QR), a tablet gets the QR handoff, and the poll auto-advances
 
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react-native';
@@ -17,6 +17,15 @@ jest.mock('../../../hooks/useMessagingOnboarding', () => ({
 }));
 jest.mock('../../../services/api', () => ({
   messagingApi: { initLink: jest.fn(), listLinks: jest.fn() },
+}));
+// The QR is a device-to-device handoff, so which device this is decides whether
+// it renders at all. Backed by a mutable so a test can be a tablet.
+let mockDeviceType = 1; // Device.DeviceType.PHONE
+jest.mock('expo-device', () => ({
+  get deviceType() {
+    return mockDeviceType;
+  },
+  DeviceType: { UNKNOWN: 0, PHONE: 1, TABLET: 2, DESKTOP: 3, TV: 4 },
 }));
 jest.mock('react-native-webview', () => {
   const ReactMock = require('react');
@@ -55,6 +64,7 @@ function renderScreen() {
 
 describe('OnboardingMessagingConfigureScreen', () => {
   beforeEach(() => {
+    mockDeviceType = 1; // PHONE — the common case; a test opts into TABLET
     completeConfigure.mockClear();
     skipMessaging.mockClear();
     (useMessagingOnboarding as jest.Mock).mockReturnValue(state);
@@ -69,7 +79,17 @@ describe('OnboardingMessagingConfigureScreen', () => {
     listLinks.mockReset().mockResolvedValue([]);
   });
 
-  it('renders the QR (WebView) and the open button for a deep-link channel', async () => {
+  it('leads a phone straight to the open button, with no QR to scan', async () => {
+    renderScreen();
+    // The button is the whole flow on a phone: the deep link carries the pairing
+    // code, so one tap opens Telegram with it already in hand.
+    expect(await screen.findByText('Open Telegram')).toBeTruthy();
+    // A QR here would ask the athlete to scan the screen they are holding.
+    expect(screen.queryByTestId('messaging-qr')).toBeNull();
+  });
+
+  it('offers the QR handoff on a tablet, where the chat app may live elsewhere', async () => {
+    mockDeviceType = 2; // TABLET
     renderScreen();
     expect(await screen.findByTestId('messaging-qr')).toBeTruthy();
     expect(screen.getByText('Open Telegram')).toBeTruthy();

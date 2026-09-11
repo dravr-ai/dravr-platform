@@ -1,5 +1,5 @@
-// ABOUTME: Onboarding step (mobile) — connect the chosen messaging app via QR (deep link) or OAuth, poll-to-complete
-// ABOUTME: Renders the backend qr_svg in a WebView; polls GET /api/messaging/links to auto-advance when the link lands
+// ABOUTME: Onboarding step (mobile) — connect the chosen messaging app via deep link or OAuth, poll-to-complete
+// ABOUTME: Taps straight through to the chat app on a phone, offers the qr_svg handoff on a tablet; polls GET /api/messaging/links to auto-advance
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,6 +8,7 @@ import React, { useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import * as Device from 'expo-device';
 import { useQuery } from '@tanstack/react-query';
 import { Card, Button } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,10 +18,12 @@ import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 /**
- * Connect the chosen messaging channel (mobile). Deep-link channels show a QR
- * (rendered from the backend `qr_svg` in a WebView) plus an "Open app" button;
- * OAuth channels show a single connect button. Polls the user's linked channels
- * and flips the shared cache the instant the link lands, routing on to chat.
+ * Connect the chosen messaging channel (mobile). On a phone the whole screen is
+ * one "Open app" button — the deep link carries the pairing code, so the chat
+ * app opens with it already in hand. A tablet additionally gets the backend
+ * `qr_svg` (rendered in a WebView) to hand the link off to a phone; OAuth
+ * channels show a single connect button. Polls the user's linked channels and
+ * flips the shared cache the instant the link lands, routing on to chat.
  */
 export function OnboardingMessagingConfigureScreen() {
   const { t } = useTranslation();
@@ -91,10 +94,21 @@ export function OnboardingMessagingConfigureScreen() {
 
   const isDeepLink = link.method === 'deep_link';
 
+  // The QR exists to hand the link off to a DIFFERENT device — it is how someone
+  // onboarding on a laptop reaches the chat app that only lives on their phone.
+  // On a phone it is the opposite of useful: the athlete cannot scan the screen
+  // they are holding, and "scan with another device" reads as an instruction to
+  // go find one, burying the single tap that actually works. A tablet keeps it,
+  // because `supportsTablet` is on and an iPad athlete plausibly runs Telegram
+  // on their phone. An unknown device type keeps it too: hiding a handoff that
+  // was needed is the worse of the two failures.
+  const showQr =
+    isDeepLink && Boolean(link.qr_svg) && Device.deviceType !== Device.DeviceType.PHONE;
+
   return (
     <Shell heading={`Connect ${displayName}`}>
       <View className="mt-5 items-center gap-5">
-        {isDeepLink && link.qr_svg ? (
+        {showQr ? (
           <>
             <View className="rounded-2xl bg-white p-3" style={{ width: 200, height: 200 }}>
               <WebView
