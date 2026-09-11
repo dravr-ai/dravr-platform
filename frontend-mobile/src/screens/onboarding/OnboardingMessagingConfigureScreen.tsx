@@ -69,7 +69,7 @@ export function OnboardingMessagingConfigureScreen() {
 
   if (isLoading || !channel) {
     return (
-      <Shell heading={`Connect ${displayName}`}>
+      <Shell heading={t('app.connectChannelTitle', { channel: displayName })}>
         <View className="items-center gap-4 py-10">
           <ActivityIndicator size="large" />
           <Text className="text-sm text-on-surface">{t('app.preparingLink', { channel: displayName })}</Text>
@@ -80,7 +80,7 @@ export function OnboardingMessagingConfigureScreen() {
 
   if (isError || !link) {
     return (
-      <Shell heading={`Connect ${displayName}`}>
+      <Shell heading={t('app.connectChannelTitle', { channel: displayName })}>
         <View className="items-center gap-4 py-10">
           <Text className="text-base text-on-surface font-medium text-center">
             {t('app.couldNotStartConnection', { channel: displayName })}
@@ -106,7 +106,7 @@ export function OnboardingMessagingConfigureScreen() {
     isDeepLink && Boolean(link.qr_svg) && Device.deviceType !== Device.DeviceType.PHONE;
 
   return (
-    <Shell heading={`Connect ${displayName}`}>
+    <Shell heading={t('app.connectChannelTitle', { channel: displayName })}>
       <View className="mt-5 items-center gap-5">
         {showQr ? (
           <>
@@ -122,14 +122,12 @@ export function OnboardingMessagingConfigureScreen() {
               />
             </View>
             <Text className="max-w-xs text-center text-sm text-on-surface-variant">
-              {t('app.scanQrOtherDevice')} {displayName}. Then press Start to
-              finish.
+              {t('app.scanQrThenStart', { channel: displayName })}
             </Text>
           </>
         ) : (
           <Text className="max-w-xs text-center text-sm text-on-surface-variant">
-            {t('app.tapBelowToConnect')} {displayName}. You&apos;ll come back here automatically once it&apos;s
-            done.
+            {t('app.tapToConnectAutoReturn', { channel: displayName })}
           </Text>
         )}
 

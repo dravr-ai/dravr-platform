@@ -202,8 +202,23 @@ describe('client locale corpus', () => {
     // polarization, easy floor, gut training, week, % of threshold).
     // +1 for `plan.card.alsoRacing`: the B and C races the athlete named,
     // which the prompt block already carried and the card now shows too.
+    // 2371 until the messaging-connect screen stopped carrying two
+    // vocabularies, neither of which said a whole sentence. Both clients
+    // rendered a translated fragment followed by a hardcoded English tail —
+    // "…{{channel}}. Then press Start to finish.", "…{{channel}}. You'll come
+    // back here automatically once it's done.", " link…", " connection just
+    // now." — so four of five locales read half-English on the screen that
+    // decides whether an athlete ever reaches their coach. The web half held
+    // its own `frag.*` copies of sentences `app.*` already said in full, and
+    // the copies had drifted (`frag.couldntStartThe` vs
+    // `app.couldNotStartConnection`). Six orphaned `frag.*` fragments are
+    // deleted and both clients read the `app.*` survivors, -6;
+    // `app.scanQrOtherDevice` and `app.tapBelowToConnect` became whole
+    // sentences under names that say so, +0; `app.connectChannelTitle`
+    // replaces the `Connect ${displayName}` template literal that was English
+    // in all five locales at three call sites, +1. Net -5.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2371);
+    expect(reference).toHaveLength(2366);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

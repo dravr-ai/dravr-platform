@@ -65,10 +65,10 @@ export default function OnboardingMessagingConfigure({
 
   if (isLoading) {
     return (
-      <OnboardingShell heading={`Connect ${displayName}`}>
+      <OnboardingShell heading={t('app.connectChannelTitle', { channel: displayName })}>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface">{t('frag.preparingYour')} {displayName} link…</p>
+          <p className="text-sm text-on-surface">{t('app.preparingLink', { channel: displayName })}</p>
         </div>
       </OnboardingShell>
     );
@@ -76,10 +76,10 @@ export default function OnboardingMessagingConfigure({
 
   if (isError || !link) {
     return (
-      <OnboardingShell heading={`Connect ${displayName}`}>
+      <OnboardingShell heading={t('app.connectChannelTitle', { channel: displayName })}>
         <div className="flex flex-col items-center gap-4 py-8">
           <p className="text-sm text-on-surface">
-            {t('frag.couldntStartThe')} {displayName} connection just now.
+            {t('app.couldNotStartConnection', { channel: displayName })}
           </p>
           <div className="flex gap-3">
             <Button variant="primary" onClick={() => void refetch()} disabled={isFetching}>
@@ -98,7 +98,11 @@ export default function OnboardingMessagingConfigure({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? t('app.obConnectGreeting', { channel: displayName, name: userDisplayName }) : `Connect ${displayName}`}
+      heading={
+        userDisplayName
+          ? t('app.obConnectGreeting', { channel: displayName, name: userDisplayName })
+          : t('app.connectChannelTitle', { channel: displayName })
+      }
     >
       <div className="mt-6 flex flex-col items-center gap-5">
         {isDeepLink && link.qr_svg ? (
@@ -118,20 +122,21 @@ export default function OnboardingMessagingConfigure({
           </>
         ) : (
           <p className="max-w-sm text-center text-sm text-on-surface-variant">
-            {t('frag.tapBelowToConnect')} {displayName}. You&apos;ll come back here automatically once it&apos;s
-            done.
+            {t('app.tapToConnectAutoReturn', { channel: displayName })}
           </p>
         )}
 
         <a href={link.linking_url} target="_blank" rel="noreferrer" className="w-full sm:w-auto">
           <Button variant="primary" className="w-full">
-            {isDeepLink ? t('frag.openApp', { app: displayName }) : t('frag.connectWithApp', { app: displayName })}
+            {isDeepLink
+              ? t('app.openChannel', { channel: displayName })
+              : t('app.connectWithChannel', { channel: displayName })}
           </Button>
         </a>
 
         <div className="flex items-center gap-2 text-xs text-on-surface-variant">
           <span className="pierre-spinner w-3.5 h-3.5 border-on-surface border-t-transparent" />
-          {t('frag.waitingForYouIn')} {displayName}…
+          {t('app.waitingToFinishIn', { channel: displayName })}
         </div>
       </div>
 
