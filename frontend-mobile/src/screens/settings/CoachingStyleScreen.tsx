@@ -10,9 +10,6 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { PaneScrollView } from '../../components/ui';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
@@ -34,7 +31,6 @@ import { useTranslation } from '@pierre/i18n';
 export function CoachingStyleScreen() {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
-  const router = useRouter();
   const { user, updateUser } = useAuth();
   const cardStyle: ViewStyle = {
     borderRadius: 16,
@@ -96,22 +92,7 @@ export function CoachingStyleScreen() {
   };
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-background-primary"
-      testID="coaching-style-screen"
-    >
-      {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-white/10">
-        <TouchableOpacity
-          className="p-2 mr-2"
-          onPress={() => router.back()}
-          testID="back-button"
-        >
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-lg font-bold text-text-primary">{t('app.coachingStyleLower')}</Text>
-      </View>
-
+    <View className="flex-1 bg-background-primary" testID="coaching-style-screen">
       <PaneScrollView
         className="flex-1 px-4"
         contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl }}
@@ -222,6 +203,6 @@ export function CoachingStyleScreen() {
           );
         })}
       </PaneScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

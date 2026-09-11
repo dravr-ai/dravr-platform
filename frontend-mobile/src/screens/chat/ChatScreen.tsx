@@ -8,20 +8,22 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { View, Text, TextInput, TouchableOpacity, Modal, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
-import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { useAuth } from '../../contexts/AuthContext';
-import { PromptDialog } from '../../components/ui';
+import { HeaderActions, PromptDialog } from '../../components/ui';
+import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
+import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
+import { spacing, useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
 import { defaultConversationTitle, providerStatusLine, trustedActionUrl } from '@pierre/chat-utils';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 
-import { ChatHeader } from './ChatHeader';
+import { ChatHeaderTitle } from './ChatHeaderTitle';
 import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
 import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigation/routes';
 import { ChatInputBar } from './ChatInputBar';
-import { tabBarBottomOffset } from '../../components/ui';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
@@ -48,9 +50,10 @@ export function ChatScreen() {
   // disagree: the composer listened and moved, the list reserved a fixed 140dp
   // and did not, so the newest messages hid behind the raised composer.
   const keyboard = useKeyboardOffset();
-  // The resting position, from the device's REAL bottom inset rather than the
-  // hardcoded 40dp that assumed every phone has a home indicator.
-  const composerResting = tabBarBottomOffset(insets.bottom);
+  // The composer rests on the device's REAL bottom inset. The thread is pushed
+  // over the tab bar, so nothing sits under the composer but the home indicator.
+  const composerResting = Math.max(insets.bottom, spacing.sm);
+  const colors = useThemeColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ conversationId?: string; draft?: string; send?: string }>();
   const inputRef = useRef<TextInput>(null);
@@ -450,12 +453,27 @@ export function ChatScreen() {
       <View
         className="flex-1"
       >
-        <ChatHeader
-          currentConversation={conversations.currentConversation}
-          insetTop={insets.top}
-          providerStatus={headerProviderStatus}
-          onBackPress={goBackToList}
-          onTitlePress={openInfoSheet}
+        {/*
+          The native header: the system back chevron, the thread's avatar and
+          title as the title view, appearance and the bell. Nothing follows the
+          bell — starting a discussion belongs to the list's "+" (carnet#213).
+        */}
+        <Stack.Screen
+          options={{
+            headerTitle: () => (
+              <ChatHeaderTitle
+                currentConversation={conversations.currentConversation}
+                providerStatus={headerProviderStatus}
+                onTitlePress={openInfoSheet}
+              />
+            ),
+            headerRight: () => (
+              <HeaderActions>
+                <AppearanceToggleButton size={20} color={colors.text.secondary} />
+                <NotificationBellButton size={20} color={colors.text.secondary} />
+              </HeaderActions>
+            ),
+          }}
         />
 
         <ChatPlusFlows flows={chatPlus.flows} />

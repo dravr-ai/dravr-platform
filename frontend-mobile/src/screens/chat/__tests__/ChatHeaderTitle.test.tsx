@@ -1,25 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile chat header's subtitle line — group, coach handle, or provider status
+// ABOUTME: Unit tests for the thread's header title view — its subtitle line: group, coach handle, or provider status
 // ABOUTME: The provider line is the one the phone never rendered, so a dead session read as a quiet coach
 
 import React from 'react';
 import { render, screen } from '@testing-library/react-native';
 import type { Conversation } from '../../../types';
-import { ChatHeader } from '../ChatHeader';
+import { ChatHeaderTitle } from '../ChatHeaderTitle';
 
 jest.mock('@pierre/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
-}));
-// The header's trailing controls are their own surfaces — the bell reads the
-// unread count off React Query, the toggle reads the persisted theme. Neither
-// is the subtitle under test here, and both are covered by their own specs.
-jest.mock('../../../components/notifications/NotificationBellButton', () => ({
-  NotificationBellButton: () => null,
-}));
-jest.mock('../../../components/ui/AppearanceToggleButton', () => ({
-  AppearanceToggleButton: () => null,
 }));
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
@@ -38,17 +29,15 @@ function renderHeader(
   providerStatus: string | null,
 ) {
   return render(
-    <ChatHeader
+    <ChatHeaderTitle
       currentConversation={currentConversation}
-      insetTop={0}
       providerStatus={providerStatus}
-      onBackPress={jest.fn()}
       onTitlePress={jest.fn()}
     />,
   );
 }
 
-describe('ChatHeader subtitle', () => {
+describe('ChatHeaderTitle subtitle', () => {
   /**
    * carnet#231: web has reported this since the single-source sweep, the phone
    * reported nothing. An athlete whose Strava session died saw an ordinary

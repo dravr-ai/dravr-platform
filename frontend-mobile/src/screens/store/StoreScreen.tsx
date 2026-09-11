@@ -11,13 +11,10 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useFocusEffect } from 'expo-router';
-import { useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 
 import { PRIMARY_PALETTE, spacing, useCardStyle, categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
-import { FloatingSearchBar } from '../../components/ui';
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoach, CoachCategory } from '../../types';
@@ -57,7 +54,6 @@ export function StoreScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -132,7 +128,6 @@ export function StoreScreen() {
     }
 
     try {
-      setIsSearching(true);
       setError(null);
       const response = await storeApi.search(query.trim(), 50);
       setCoaches(response.coaches);
@@ -142,8 +137,6 @@ export function StoreScreen() {
       const errorMessage = err instanceof Error ? err.message : t('app.failedSearchAgents');
       setError(errorMessage);
       console.error('Failed to search coaches:', err);
-    } finally {
-      setIsSearching(false);
     }
   }, [isAuthenticated, loadCoaches, t]);
 
@@ -308,25 +301,37 @@ export function StoreScreen() {
     </View>
   );
 
+  // The search field is the system's, in the native header: under the large
+  // title on iOS 18, in the bottom toolbar on iOS 26, in the app bar on Android.
+  const headerSearch = (
+    <Stack.Screen
+      options={{
+        headerSearchBarOptions: {
+          placeholder: t('app.searchAgents'),
+          autoCapitalize: 'none',
+          hideWhenScrolling: false,
+          onChangeText: (event) => handleSearch(event.nativeEvent.text),
+          onSearchButtonPress: () => searchCoaches(searchQuery),
+        },
+      }}
+    />
+  );
+
   if (isLoading && coaches.length === 0) {
     return (
-      <SafeAreaView className="flex-1 bg-background-primary" testID="store-screen">
+      <View className="flex-1 bg-background-primary" testID="store-screen">
+        {headerSearch}
         <View className="flex-1 justify-center items-center" testID="loading-indicator">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgents')}</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary" testID="store-screen">
-      {/* Header */}
-      <View className="flex-row items-center px-3 py-2 border-b border-border-default">
-        <View className="w-10" />
-        <Text className="flex-1 text-xl font-semibold text-text-primary text-center">{t('app.discover')}</Text>
-        <View className="w-10" />
-      </View>
+    <View className="flex-1 bg-background-primary" testID="store-screen">
+      {headerSearch}
 
       {/* Category Filters */}
       <View className="border-b border-border-default">
@@ -355,8 +360,9 @@ export function StoreScreen() {
         data={coaches}
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => renderCoachCard({ item, index })}
-
-        contentContainerStyle={{ padding: spacing.md, paddingBottom: 100 }}
+        // The system header and tab bar inset the list themselves.
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ padding: spacing.md }}
         ListEmptyComponent={renderEmptyState}
         onEndReached={loadMoreCoaches}
         onEndReachedThreshold={0.5}
@@ -376,17 +382,7 @@ export function StoreScreen() {
           />
         }
       />
-
-      {/* Floating Search Bar */}
-      <FloatingSearchBar
-        value={searchQuery}
-        onChangeText={handleSearch}
-        onSubmit={() => searchCoaches(searchQuery)}
-        placeholder={t('app.searchAgents')}
-        isSearching={isSearching}
-        testID="search-input"
-      />
-    </SafeAreaView>
+    </View>
   );
 }
 

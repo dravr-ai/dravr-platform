@@ -59,12 +59,13 @@ describe('PrivacySettingsScreen — analytics consent', () => {
     mockUpdateUser.mockResolvedValue(undefined);
   });
 
-  it('renders under Settings, not the social group', () => {
-    const { getByTestId, getByText } = renderScreen();
+  it('renders under Settings with no header of its own', () => {
+    // The native header names the pane and carries the way back (Boreal v2.2
+    // D2); a title or a back button drawn here is a second header idiom.
+    const { getByTestId, queryByTestId, queryByText } = renderScreen();
     expect(getByTestId('privacy-settings-screen')).toBeTruthy();
-    expect(getByText('Privacy & Data')).toBeTruthy();
-    fireEvent.press(getByTestId('back-button'));
-    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(queryByText('Privacy & Data')).toBeNull();
+    expect(queryByTestId('back-button')).toBeNull();
   });
 
   it('seeds the switch from the stored consent flag', () => {

@@ -32,8 +32,8 @@ appId: ai.dravr.app
     timeout: 5000
 
 # Navigate back via the back button (not hardware back which may not work on iOS)
-- tapOn:
-    id: "back-button"
+- runFlow:
+    file: ../helpers/go-back.yaml
 
 # Should be back on settings
 - extendedWaitUntil:

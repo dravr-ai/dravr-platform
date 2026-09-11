@@ -1,7 +1,18 @@
-# ABOUTME: Helper flow to navigate back (press back button)
-# ABOUTME: Platform-aware back navigation
+# ABOUTME: Helper flow to leave a pushed screen through the native header's back button
+# ABOUTME: iOS labels the system chevron with the previous screen's title, so it is tapped by position; Android answers the hardware back
 
 appId: ai.dravr.app
 
 ---
-- back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      # The chevron sits at the leading edge of the inline bar, under the status bar.
+      - tapOn:
+          point: "6%,9%"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back

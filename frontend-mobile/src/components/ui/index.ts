@@ -7,17 +7,15 @@ export { Card } from './Card';
 export { VoiceButton } from './VoiceButton';
 export { PromptDialog } from './PromptDialog';
 export { ScrollFadeContainer } from './ScrollFadeContainer';
-export { FloatingSearchBar } from './FloatingSearchBar';
 export { SwipeableRow } from './SwipeableRow';
 export type { SwipeAction } from './SwipeableRow';
 export { InitialsAvatar, avatarSlotColors } from './InitialsAvatar';
 
 export { DragIndicator } from './DragIndicator';
 export { CollapsibleSection } from './CollapsibleSection';
-export { GlassContainer } from './GlassContainer';
-export { TabMenuItem } from './TabMenuItem';
-export { ExpandableTabBar, TAB_BAR_BOTTOM_OFFSET, TAB_BAR_GAP, tabBarBottomOffset } from './ExpandableTabBar';
-// The scroll container that reserves the floating tab bar's clearance.
+// The scroll container that insets itself for the native header and tab bar.
 export { PaneScrollView } from './PaneScrollView';
 export { AppearanceToggleButton } from './AppearanceToggleButton';
 export { BrandLockup } from './BrandLockup';
+export { HeaderActions } from './HeaderActions';
+export { HeaderCloseButton } from './HeaderCloseButton';

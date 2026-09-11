@@ -6,12 +6,11 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 // Per-file expo-router mock override with spyable router methods
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
-jest.mock('expo-router', () => ({
-  ...jest.requireActual('expo-router'),
-  useRouter: () => mockRouter,
-  useLocalSearchParams: () => ({}),
-  useFocusEffect: (cb: () => void) => { require('react').useEffect(() => { return cb(); }, [cb]); },
-}));
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
+    useRouter: () => mockRouter,
+  }),
+);
 
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -65,13 +64,14 @@ describe('StoreScreen', () => {
   });
 
   describe('rendering', () => {
-    it('should render header with Discover title', async () => {
-      const { getByText } = render(
+    it('draws no header of its own — the large title is the native one', async () => {
+      const { getByTestId, queryByText } = render(
         <StoreScreen />
       );
       await waitFor(() => {
-        expect(getByText('Discover')).toBeTruthy();
+        expect(getByTestId('store-screen')).toBeTruthy();
       });
+      expect(queryByText('Discover')).toBeNull();
     });
 
     it('should render category filters', async () => {
@@ -97,12 +97,12 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should render search input', async () => {
-      const { getByPlaceholderText } = render(
+    it('puts the search field in the native header', async () => {
+      const { getByTestId } = render(
         <StoreScreen />
       );
       await waitFor(() => {
-        expect(getByPlaceholderText('Search agents...')).toBeTruthy();
+        expect(getByTestId('header-search-input').props.placeholder).toBe('Search agents...');
       });
     });
 

@@ -13,7 +13,6 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
@@ -23,14 +22,13 @@ import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { spacing, borderRadius, fontSize, fontWeight, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
-import { useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
 export function MemoryScreen(): React.JSX.Element {
   const { t, language } = useTranslation();
-  const router = useRouter();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
@@ -100,37 +98,13 @@ export function MemoryScreen(): React.JSX.Element {
   ];
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background.primary }}
-      edges={['top']}
-      testID="memory-screen"
-    >
-      {/* Memory is a settings pane like Notifications or About, and carries the
-          same way back: it is reached by a push from the settings list, where
-          the tab bar is not rendered. */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => router.back()}
-          testID="back-button"
-          accessibilityRole="button"
-          accessibilityLabel={t('common.back')}
-          style={{ padding: 8, marginRight: 8 }}
-        >
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>
-          {t('shell.memoryTitle')}
-        </Text>
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="memory-screen">
+      {/* Memory is a settings pane like Notifications or About; the native
+          header names it — the same `shell.memoryTitle` the web panel reads —
+          and carries the way back. */}
+      <Stack.Screen options={{ title: t('shell.memoryTitle') }} />
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ padding: spacing.lg }}
         refreshControl={
           <RefreshControl
@@ -382,6 +356,6 @@ export function MemoryScreen(): React.JSX.Element {
           ))
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

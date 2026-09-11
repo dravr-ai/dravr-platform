@@ -320,38 +320,13 @@ jest.mock('@maplibre/maplibre-react-native', () => {
   };
 });
 
-// Mock expo-router - provides all routing hooks used by screen components
-jest.mock('expo-router', () => {
-  const React = require('react');
-  const View = require('react-native').View;
-  return {
-    useRouter: () => ({
-      push: jest.fn(),
-      replace: jest.fn(),
-      back: jest.fn(),
-      navigate: jest.fn(),
-      canGoBack: () => true,
-    }),
-    useLocalSearchParams: () => ({}),
-    useGlobalSearchParams: () => ({}),
-    useSegments: () => [],
-    usePathname: () => '/',
-    useFocusEffect: (cb) => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      React.useEffect(() => { return cb(); }, [cb]);
-    },
-    Link: ({ children }) => children,
-    Slot: ({ children }) => React.createElement(View, null, children),
-    Stack: Object.assign(
-      ({ children }) => React.createElement(View, null, children),
-      { Screen: () => null }
-    ),
-    Tabs: Object.assign(
-      ({ children }) => React.createElement(View, null, children),
-      { Screen: () => null }
-    ),
-  };
-});
+// Mock expo-router - the routing hooks screens use, and a Stack.Screen that
+// renders the native header's parts so a test can reach them. A test that
+// needs its own router builds its mock from the same factory.
+jest.mock('expo-router', () => require('./jest.expo-router').createExpoRouterMock());
+jest.mock('expo-router/unstable-native-tabs', () =>
+  require('./jest.expo-router').createNativeTabsMock(),
+);
 
 
 // Initialize i18next once per test file. The root layout does this before any

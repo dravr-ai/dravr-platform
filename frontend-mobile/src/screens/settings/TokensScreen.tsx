@@ -11,9 +11,6 @@ import {
   Modal,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
 import { spacing, borderRadius, useThemeColors } from '../../constants/theme';
 import { Input, PaneScrollView } from '../../components/ui';
@@ -31,7 +28,6 @@ import type { McpToken } from '../../types';
  */
 export function TokensScreen() {
   const { t } = useTranslation();
-  const router = useRouter();
   const colors = useThemeColors();
   const { isAuthenticated } = useAuth();
 
@@ -127,18 +123,7 @@ export function TokensScreen() {
   };
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background.primary }}
-      edges={['top']}
-      testID="tokens-screen"
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-        <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('app.mcpTokens')}</Text>
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="tokens-screen">
       <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
         <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.mcpTokenBlurb')}</Text>
 
@@ -292,6 +277,6 @@ export function TokensScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }

@@ -22,8 +22,17 @@ appId: ai.dravr.app
 - assertVisible: "Discover"
 
 # Test: should show search input
-- assertVisible:
-    id: "search-input"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - assertVisible: "Search agents...|Rechercher des agents…"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertVisible:
+          id: ".*:id/search_button"
 
 # Test: should show category filters
 - assertVisible: "All"

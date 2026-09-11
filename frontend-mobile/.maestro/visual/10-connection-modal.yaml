@@ -14,15 +14,15 @@ appId: ai.dravr.app
 - runFlow:
     when:
       visible:
-        id: "tab-settings"
+        text: "Réglages|Settings"
     commands:
       - tapOn:
-          id: "tab-settings"
+          text: "Réglages|Settings"
 
 - runFlow:
     when:
       notVisible:
-        id: "tab-settings"
+        text: "Réglages|Settings"
     commands:
       - tapOn: "Settings"
 

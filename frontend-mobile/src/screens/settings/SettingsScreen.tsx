@@ -3,7 +3,6 @@
 
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, type ViewStyle } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
@@ -16,7 +15,6 @@ import {
   type SettingsPaneId,
 } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
-import { tabBarBottomOffset } from '../../components/ui/ExpandableTabBar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 import { BILLING_ENABLED } from '../../constants/features';
@@ -55,7 +53,6 @@ const rowStyle: ViewStyle = {
 export function SettingsScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const { t } = useTranslation();
   const { flags: featureFlags } = useFeatureFlags();
@@ -117,29 +114,13 @@ export function SettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="settings-screen">
-      {/* An opaque band the height of the status bar, outside the scroll, so
-          nothing scrolls up behind the notch. A safe-area inset applied inside
-          the scroll moves with the content and stops covering it. */}
-      <View
-        testID="settings-safe-header"
-        style={{
-          paddingTop: insets.top,
-          paddingHorizontal: spacing.md,
-          paddingBottom: spacing.sm,
-          backgroundColor: colors.background.primary,
-        }}
-      >
-        <Text style={{ fontSize: 22, fontWeight: '700', color: colors.text.primary }}>
-          {t('common.settings')}
-        </Text>
-      </View>
-
+      {/* The title is the native large title above; the header and the tab
+          bar inset the scroll themselves. */}
       <ScrollView
         style={{ flex: 1 }}
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
-          // The tab bar floats over the scroll, so the last row would otherwise
-          // sit half-hidden behind it.
-          paddingBottom: tabBarBottomOffset(insets.bottom),
+          paddingBottom: spacing.lg,
           paddingHorizontal: spacing.md,
         }}
         showsVerticalScrollIndicator={false}

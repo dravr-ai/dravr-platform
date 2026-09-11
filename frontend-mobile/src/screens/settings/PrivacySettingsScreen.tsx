@@ -7,14 +7,11 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   Switch,
   Alert,
   type ViewStyle,
 } from 'react-native';
 import { PaneScrollView } from '../../components/ui';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
@@ -44,7 +41,6 @@ export function PrivacySettingsScreen(): React.JSX.Element {
     padding: spacing.md,
     ...useCardStyle(),
   };
-  const router = useRouter();
   const { user, updateUser } = useAuth();
 
   // Analytics consent is stored on the user record, so the switch is seeded
@@ -81,15 +77,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary" testID="privacy-settings-screen">
-      {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-white/10">
-        <TouchableOpacity className="p-2 mr-2" onPress={() => router.back()} testID="back-button">
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-lg font-bold text-text-primary">{t('app.privacyAndData')}</Text>
-      </View>
-
+    <View className="flex-1 bg-background-primary" testID="privacy-settings-screen">
       <PaneScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Analytics consent */}
         <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
@@ -147,6 +135,6 @@ export function PrivacySettingsScreen(): React.JSX.Element {
 
         <View className="h-6" />
       </PaneScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

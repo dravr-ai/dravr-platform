@@ -30,8 +30,6 @@ appId: ai.dravr.app
 
 # Test: should show header elements with proper visibility (safe area handling)
 - assertVisible:
-    id: "back-button"
-- assertVisible:
     id: "chat-title"
 - assertVisible:
     id: "notification-bell"

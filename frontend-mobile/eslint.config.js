@@ -141,6 +141,7 @@ export default [
       'metro.config.js',
       'jest.config.js',
       'jest.setup.js',
+      'jest.expo-router.js',
       'jest.env.js',
       'jest.css.js',
       'react-native.config.js',

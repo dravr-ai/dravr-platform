@@ -16,7 +16,7 @@ import {
   Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { PRIMARY_PALETTE, spacing, useCardStyle, buttonGlow, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
@@ -239,7 +239,7 @@ export function CoachEditorScreen() {
 
   if (!coachId) {
     return (
-      <SafeAreaView className="flex-1 bg-background-primary" testID="coach-editor-missing">
+      <View className="flex-1 bg-background-primary" testID="coach-editor-missing">
         <View className="flex-1 justify-center items-center p-6">
           <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
           <TouchableOpacity
@@ -250,57 +250,50 @@ export function CoachEditorScreen() {
             <Text className="text-text-primary text-base font-medium">{t('app.goBack')}</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 bg-background-primary">
+      <View className="flex-1 bg-background-primary">
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           <Text className="text-text-secondary mt-3 text-base">{t('app.loadingAgent')}</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary" testID="coach-editor-screen">
+    <View className="flex-1 bg-background-primary" testID="coach-editor-screen">
+      {/* The native header names the sheet and carries the way back; Save is
+          its trailing button. */}
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <TouchableOpacity
+              className={`px-2 py-1.5 items-center ${isSaving ? 'opacity-60' : ''}`}
+              onPress={handleSave}
+              disabled={isSaving || isDeleting}
+              accessibilityRole="button"
+              testID={canSave ? 'save-button' : 'save-button-disabled'}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color={colors.tokens.primary} />
+              ) : (
+                <Text className="text-base font-semibold" style={{ color: colors.tokens.primary }}>
+                  {t('common.save')}
+                </Text>
+              )}
+            </TouchableOpacity>
+          ),
+        }}
+      />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* Header */}
-        <View className="flex-row items-center px-3 py-2 border-b border-border-subtle">
-          <TouchableOpacity
-            className="w-10 h-10 items-center justify-center"
-            onPress={() => router.back()}
-            testID="back-button"
-          >
-            <Text className="text-2xl text-text-primary">{'←'}</Text>
-          </TouchableOpacity>
-          <Text className="flex-1 text-lg font-semibold text-text-primary text-center">
-            {t('app.editAgentTitle')}
-          </Text>
-          <TouchableOpacity
-            className={`px-4 py-1.5 rounded-xl min-w-[60px] items-center ${isSaving ? 'opacity-60' : ''}`}
-            style={{
-              backgroundColor: colors.pierre.violet,
-              ...buttonGlow,
-            }}
-            onPress={handleSave}
-            disabled={isSaving || isDeleting}
-            testID={canSave ? 'save-button' : 'save-button-disabled'}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
-            ) : (
-              <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>{t('common.save')}</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
         <ScrollView
           className="flex-1"
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }}
@@ -760,6 +753,6 @@ export function CoachEditorScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }

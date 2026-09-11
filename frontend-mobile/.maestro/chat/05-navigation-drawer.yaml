@@ -19,8 +19,8 @@ appId: ai.dravr.app
     file: ../helpers/new-chat.yaml
 
 # Test: the thread's back button returns to the conversation list
-- tapOn:
-    id: "back-button"
+- runFlow:
+    file: ../helpers/go-back.yaml
 
 - extendedWaitUntil:
     visible:

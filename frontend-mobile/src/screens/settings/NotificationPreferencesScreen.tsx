@@ -12,9 +12,6 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { PaneScrollView } from '../../components/ui';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import type { NotificationCategory } from '@pierre/shared-types';
 import {
   NOTIFICATION_CATEGORY_META,
@@ -83,7 +80,6 @@ function capLabel(choice: number | null, t: (key: string, opts?: Record<string, 
  */
 export function NotificationPreferencesScreen() {
   const { t } = useTranslation();
-  const router = useRouter();
   const colors = useThemeColors();
   const { preferences, isLoading, isError, updatePreference, isUpdating } =
     useNotificationPreferences();
@@ -114,31 +110,7 @@ export function NotificationPreferencesScreen() {
   });
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background.primary }}
-      edges={['top']}
-      testID="notification-preferences-screen"
-    >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => router.back()}
-          testID="back-button"
-          style={{ padding: 8, marginRight: 8 }}
-        >
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>
-          {t('notifPrefs.title')}
-        </Text>
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="notification-preferences-screen">
       {isLoading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator size="large" color={colors.pierre.violet} testID="notification-prefs-loading" />
@@ -369,6 +341,6 @@ export function NotificationPreferencesScreen() {
           </View>
         </PaneScrollView>
       )}
-    </SafeAreaView>
+    </View>
   );
 }

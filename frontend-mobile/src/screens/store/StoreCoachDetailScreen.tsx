@@ -10,14 +10,13 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { PRIMARY_PALETTE, useCardStyle, buttonGlow, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
-import { TAB_BAR_BOTTOM_OFFSET, tabBarBottomOffset } from '../../components/ui/ExpandableTabBar';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
@@ -48,9 +47,9 @@ export function StoreCoachDetailScreen() {
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
   const { isAuthenticated } = useAuth();
-  // The action bar is positioned absolutely, so no safe-area padding reaches
-  // it and it carries the device inset itself to clear the tab bar.
-  const actionBarBottom = tabBarBottomOffset(useSafeAreaInsets().bottom);
+  // The action bar sits in the flow above the system tab bar; its own padding
+  // keeps the buttons clear of the home indicator on a phone without a bar.
+  const actionBarBottom = Math.max(useSafeAreaInsets().bottom, 12);
   const [coach, setCoach] = useState<StoreCoachDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isInstalling, setIsInstalling] = useState(false);
@@ -144,18 +143,18 @@ export function StoreCoachDetailScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 bg-background-primary">
+      <View className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgentDetails')}</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!coach) {
     return (
-      <SafeAreaView className="flex-1 bg-background-primary">
+      <View className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center p-6">
           <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
           <TouchableOpacity
@@ -165,7 +164,7 @@ export function StoreCoachDetailScreen() {
             <Text className="text-text-primary text-base font-medium">{t('app.goBack')}</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -176,23 +175,15 @@ export function StoreCoachDetailScreen() {
   const categoryLabelInk = categoryInk(colors, coach.category);
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary" testID="store-coach-detail-screen">
-      {/* Header */}
-      <View className="flex-row items-center px-3 py-2 border-b border-border-subtle">
-        <TouchableOpacity
-          testID="back-button"
-          className="w-10 h-10 items-center justify-center"
-          onPress={() => router.push('/(app)/(tabs)/(discover)')}
-        >
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-lg font-semibold text-text-primary text-center mx-2" numberOfLines={1}>
-          {coach.title}
-        </Text>
-        <View className="w-10" />
-      </View>
+    <View className="flex-1 bg-background-primary" testID="store-coach-detail-screen">
+      {/* The native header names the agent and carries the way back. */}
+      <Stack.Screen options={{ title: coach.title }} />
 
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        className="flex-1"
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+      >
         {/* Category & Stats */}
         <View className="flex-row justify-between items-center px-4 pt-4 pb-2">
           <View
@@ -317,16 +308,15 @@ export function StoreCoachDetailScreen() {
           </View>
         </View>
 
-        {/* Scrolls the last card clear of the action bar and the tab bar. The
-            scroll view flows inside the safe area, so the inset is already
-            spent on it and the safe-area-relative constant is the right one. */}
-        <View style={{ height: TAB_BAR_BOTTOM_OFFSET + 80 }} />
+        {/* Scrolls the last card clear of the action bar below. */}
+        <View style={{ height: 96 }} />
       </ScrollView>
 
-      {/* Post-install hint + Install/Uninstall/Edit actions - Fixed above floating tab bar */}
+      {/* Post-install hint + Install/Uninstall/Edit actions, in the flow above
+          the system tab bar: the screen ends where the bar begins. */}
       <View
-        className="absolute left-0 right-0 bg-background-primary border-t border-border-subtle p-3"
-        style={{ bottom: actionBarBottom }}
+        className="bg-background-primary border-t border-border-subtle p-3"
+        style={{ paddingBottom: actionBarBottom }}
         testID="coach-detail-action-bar"
       >
         {postInstall && (
@@ -400,7 +390,7 @@ export function StoreCoachDetailScreen() {
           </TouchableOpacity>
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 

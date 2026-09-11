@@ -66,13 +66,15 @@ describe('NotificationPreferencesScreen in French', () => {
     });
   });
 
-  it('renders the screen title and intro from the corpus', async () => {
+  it('renders the intro from the corpus, and leaves the title to the native header', async () => {
     render(<NotificationPreferencesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText(i18n.t('notifPrefs.title'))).toBeTruthy();
+      expect(screen.getByText(i18n.t('notifPrefs.intro'))).toBeTruthy();
     });
-    expect(screen.getByText(i18n.t('notifPrefs.intro'))).toBeTruthy();
+    // The settings layout names the pane in the system bar; the screen
+    // draws no title of its own (Boreal v2.2 D2).
+    expect(screen.queryByText(i18n.t('notifPrefs.title'))).toBeNull();
   });
 
   it('tells a phone to go back, never to reload a page it does not have', async () => {

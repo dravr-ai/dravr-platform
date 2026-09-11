@@ -39,8 +39,8 @@ appId: ai.dravr.app
     timeout: 15000
 
 # Back returns to the store rather than leaving the detail on screen.
-- tapOn:
-    id: "back-button"
+- runFlow:
+    file: ../helpers/go-back.yaml
 - extendedWaitUntil:
     visible:
       id: "coach-card-0"

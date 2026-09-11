@@ -4,11 +4,20 @@
 // ABOUTME: The expo-router paths the chat tab and the agent edit sheet live at, in one place
 // ABOUTME: Screens, the tab bar, deep links and tests read these so a moved route changes one line
 
+import { MOBILE_THREAD_PATHNAME } from '@pierre/shared-constants';
+
 /** The chat tab: the conversation list, and where the app lands after onboarding. */
 export const CHAT_LIST_ROUTE = '/(app)/(tabs)/(chat)' as const;
 
-/** One thread; `conversationId` is a stored id or {@link NEW_CONVERSATION_ID}. */
-export const CHAT_THREAD_ROUTE = '/(app)/(tabs)/(chat)/[conversationId]' as const;
+/**
+ * One thread; `conversationId` is a stored id or {@link NEW_CONVERSATION_ID}.
+ *
+ * The thread lives beside the tabs, not inside the chat tab: pushed in the
+ * app stack it covers the tab bar, so the composer is the only chrome at the
+ * bottom of a discussion. The value is the shared one a notification targets,
+ * so a push and a row cannot open different screens.
+ */
+export const CHAT_THREAD_ROUTE = MOBILE_THREAD_PATHNAME;
 
 /** The `conversationId` that opens an empty composer instead of a stored thread. */
 export const NEW_CONVERSATION_ID = 'new';

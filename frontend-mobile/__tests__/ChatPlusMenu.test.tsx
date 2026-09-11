@@ -2,9 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests the chat "+" — new chat, new group chat by name, add someone to the open thread
-// ABOUTME: Covers the conversation list's sheet, the flows each action opens, and the chat header that carries none
+// ABOUTME: Covers the header "+" and the empty list's call to action, the platform menu both present, and the flows each action opens
 
 import React from 'react';
+import { ActionSheetIOS } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -15,16 +16,12 @@ const mockRouter = {
   navigate: jest.fn(),
   canGoBack: () => true,
 };
-jest.mock('expo-router', () => {
-  const React = require('react');
-  return {
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
     useRouter: () => mockRouter,
-    useLocalSearchParams: () => ({}),
-    useFocusEffect: (cb: () => void | (() => void)) => {
-      React.useEffect(() => cb(), [cb]);
-    },
-  };
-});
+  }),
+);
+
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true }),
 }));
@@ -47,9 +44,9 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
-import { ChatHeader } from '../src/screens/chat/ChatHeader';
-import { ChatPlusSheet } from '../src/screens/chat/ChatPlusSheet';
+import { ChatHeaderTitle } from '../src/screens/chat/ChatHeaderTitle';
 import { ChatPlusFlows } from '../src/screens/chat/ChatPlusFlows';
+import { presentChatPlusMenu } from '../src/screens/chat/presentChatPlusMenu';
 import { useChatPlusActions } from '../src/screens/chat/useChatPlusActions';
 import { CHAT_THREAD_ROUTE } from '../src/navigation/routes';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
@@ -59,47 +56,65 @@ function withClient(ui: React.ReactElement) {
   return <QueryClientProvider client={client}>{ui}</QueryClientProvider>;
 }
 
-/** The thread's "+": the same sheet, with a conversation open. */
+type SheetOptions = { options: string[]; cancelButtonIndex?: number };
+type SheetCallback = (index: number) => void;
+
+/** The rows the platform menu last offered, and a way to pick one. */
+function presentedMenu() {
+  const spy = ActionSheetIOS.showActionSheetWithOptions as unknown as jest.Mock;
+  expect(spy).toHaveBeenCalled();
+  const [options, callback] = spy.mock.calls[spy.mock.calls.length - 1] as [SheetOptions, SheetCallback];
+  return {
+    labels: options.options,
+    cancelButtonIndex: options.cancelButtonIndex,
+    pick: (label: string) => callback(options.options.indexOf(label)),
+  };
+}
+
+/** The thread's "+": the same menu, with a conversation open. */
 function ThreadPlus({ conversationId }: { conversationId: string }) {
   const chatPlus = useChatPlusActions(conversationId);
-  const [visible, setVisible] = React.useState(true);
-  return (
-    <>
-      <ChatPlusSheet visible={visible} onClose={() => setVisible(false)} actions={chatPlus.actions} />
-      <ChatPlusFlows flows={chatPlus.flows} />
-    </>
-  );
+  React.useEffect(() => {
+    presentChatPlusMenu({ actions: chatPlus.actions, cancelLabel: 'Cancel', title: 'New' });
+  }, [chatPlus.actions]);
+  return <ChatPlusFlows flows={chatPlus.flows} />;
 }
 
 describe('the chat "+"', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => undefined);
     mockGetConversations.mockResolvedValue({ conversations: [], total: 0, limit: 50, offset: 0 });
     mockListParticipants.mockResolvedValue([]);
   });
 
-  // The list header's "+" is gone — the tab bar's is the app's one entry point
-  // for starting something (carnet#213). On an empty list the call-to-action
-  // "+" opens the same sheet, which is what these tests are about.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // The "+" is the header's (Boreal v2.2 D1): the tab bar that used to carry
+  // it is the system's now. On an empty list the call-to-action "+" presents
+  // the same menu, which is what these tests are about.
   it('offers exactly new chat and new group chat from the conversation list', async () => {
-    const { findByTestId, getByTestId, queryByTestId, getByText } = render(withClient(<ConversationsScreen />));
+    const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
+    fireEvent.press(await findByTestId('new-chat-button'));
+
+    const header = presentedMenu();
+    expect(header.labels).toEqual(['New chat', 'New group chat', 'Cancel']);
+    expect(header.cancelButtonIndex).toBe(2);
+
+    // The empty state's "+" presents the same rows, in the same order.
     fireEvent.press(await findByTestId('conversations-empty-plus'));
-
-    expect(getByTestId('chat-plus-sheet')).toBeTruthy();
-    expect(getByText('New chat')).toBeTruthy();
-    expect(getByText('New group chat')).toBeTruthy();
-    expect(getByTestId('chat-plus-action-new-chat')).toBeTruthy();
-    expect(getByTestId('chat-plus-action-new-group-chat')).toBeTruthy();
-    // No thread is open on the list, so there is nothing to add someone to.
-    expect(queryByTestId('chat-plus-action-add-participant')).toBeNull();
+    expect(presentedMenu().labels).toEqual(header.labels);
+    expect(getByTestId('conversations-screen')).toBeTruthy();
   });
 
   it('new chat opens an empty thread', async () => {
-    const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
+    const { findByTestId } = render(withClient(<ConversationsScreen />));
 
     fireEvent.press(await findByTestId('conversations-empty-plus'));
-    fireEvent.press(getByTestId('chat-plus-action-new-chat'));
+    presentedMenu().pick('New chat');
 
     expect(mockRouter.push).toHaveBeenCalledWith({
       pathname: CHAT_THREAD_ROUTE,
@@ -114,7 +129,7 @@ describe('the chat "+"', () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
     fireEvent.press(await findByTestId('conversations-empty-plus'));
-    fireEvent.press(getByTestId('chat-plus-action-new-group-chat'));
+    presentedMenu().pick('New group chat');
 
     const dialog = await findByTestId('new-group-name-dialog-input');
     fireEvent.changeText(dialog, 'Marathon Squad');
@@ -134,10 +149,19 @@ describe('the chat "+"', () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
     fireEvent.press(await findByTestId('conversations-empty-plus'));
-    fireEvent.press(getByTestId('chat-plus-action-new-group-chat'));
+    presentedMenu().pick('New group chat');
 
     fireEvent.changeText(await findByTestId('new-group-name-dialog-input'), '   ');
     fireEvent.press(getByTestId('new-group-name-dialog-submit'));
+
+    expect(mockRouter.push).not.toHaveBeenCalled();
+  });
+
+  it('cancel runs nothing', async () => {
+    const { findByTestId } = render(withClient(<ConversationsScreen />));
+
+    fireEvent.press(await findByTestId('conversations-empty-plus'));
+    presentedMenu().pick('Cancel');
 
     expect(mockRouter.push).not.toHaveBeenCalled();
   });
@@ -149,46 +173,31 @@ describe('the chat "+"', () => {
       { user_id: 'owner-1', role: 'owner', added_by: 'owner-1', added_at: '2026-08-26T00:00:00Z' },
       { user_id: 'friend-2', role: 'member', added_by: 'owner-1', added_at: '2026-08-26T00:00:00Z' },
     ]);
-    const { getByTestId, getByText, findByTestId } = render(withClient(<ThreadPlus conversationId="conv-1" />));
+    const { findByTestId } = render(withClient(<ThreadPlus conversationId="conv-1" />));
 
-    expect(getByText('Add someone to this discussion')).toBeTruthy();
-    fireEvent.press(getByTestId('chat-plus-action-add-participant'));
+    const menu = presentedMenu();
+    expect(menu.labels).toEqual(['New chat', 'New group chat', 'Add someone to this discussion', 'Cancel']);
+    menu.pick('Add someone to this discussion');
 
     expect(await findByTestId('conversation-participants-modal')).toBeTruthy();
     expect(await findByTestId('participant-friend-2')).toBeTruthy();
     expect(mockListParticipants).toHaveBeenCalledWith('conv-1');
   });
 
-  // The thread showed two "+" at once — one here, one in the tab bar — and
-  // both opened this same sheet. The header's was the copy out of thumb reach,
-  // so it went; the tab bar's is the app's one entry point (carnet#213).
-  it('the thread header carries no add control, only back, title, appearance and the bell', () => {
-    const onBackPress = jest.fn();
-    const { getAllByTestId, getByTestId, queryByTestId } = render(
+  // The thread showed two "+" at once — one in its header, one in the tab bar
+  // — and both opened this same sheet (carnet#213). The header's title view
+  // carries the thread and nothing else; the bar is the system's.
+  it('the thread title view carries no add control, only the avatar and the title', () => {
+    const { getAllByTestId, queryByTestId } = render(
       withClient(
-        <ChatHeader
-          currentConversation={null}
-          insetTop={0}
-          providerStatus={null}
-          onBackPress={onBackPress}
-          onTitlePress={jest.fn()}
-        />,
+        <ChatHeaderTitle currentConversation={null} providerStatus={null} onTitlePress={jest.fn()} />,
       ),
     );
 
-    // The whole header, named: a control that grows back here fails this.
+    // The whole title view, named: a control that grows back here fails this.
     const rendered = getAllByTestId(/./).map((node) => node.props.testID);
-    expect(rendered).toEqual([
-      'back-button',
-      'chat-title-button',
-      'chat-title',
-      'appearance-toggle-button',
-      'notification-bell',
-    ]);
+    expect(rendered).toEqual(['chat-title-button', 'chat-title']);
     expect(queryByTestId('chat-plus-button')).toBeNull();
     expect(queryByTestId('history-button')).toBeNull();
-
-    fireEvent.press(getByTestId('back-button'));
-    expect(onBackPress).toHaveBeenCalledTimes(1);
   });
 });

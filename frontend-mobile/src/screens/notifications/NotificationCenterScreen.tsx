@@ -17,7 +17,6 @@ import { useRouter } from 'expo-router';
 import {
   Bell,
   CheckCheck,
-  ChevronLeft,
   Trash2,
   Dumbbell,
   Heart,
@@ -222,21 +221,13 @@ export function NotificationCenterScreen() {
   ];
 
   return (
-    <View className="flex-1 bg-background-primary" style={{ paddingTop: insets.top }}>
-      {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b ghost-border">
-        <TouchableOpacity
-          className="w-10 h-10 items-center justify-center mr-2"
-          onPress={() => router.back()}
-          testID="notifications-back"
-        >
-          <ChevronLeft size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-
-        <View className="flex-1 flex-row items-center">
-          <Bell size={20} color={colors.pierre.violet} />
-          <Text className="text-lg font-semibold text-on-surface ml-2">{t('common.notifications')}</Text>
-          {unreadCount > 0 && (
+    <View className="flex-1 bg-background-primary">
+      {/* The native header names the screen and carries the close button;
+          this row exists only while something is unread: the count, and
+          the one action that clears it. */}
+      {unreadCount > 0 && (
+        <View className="flex-row items-center px-4 py-3 border-b ghost-border">
+          <View className="flex-1 flex-row items-center">
             <View
               className="ml-2 px-2 py-0.5 rounded-full"
               style={{ backgroundColor: colors.pierre.violet }}
@@ -248,10 +239,8 @@ export function NotificationCenterScreen() {
                 {unreadCount}
               </Text>
             </View>
-          )}
-        </View>
+          </View>
 
-        {unreadCount > 0 && (
           <TouchableOpacity
             className="flex-row items-center px-3 py-1.5 rounded-lg bg-surface-container-low"
             onPress={() => markAllAsRead()}
@@ -263,8 +252,8 @@ export function NotificationCenterScreen() {
               {t('app.readAll')}
             </Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* Category filter tabs */}
       <View className="border-b ghost-border">

@@ -18,14 +18,11 @@ jest.mock('nativewind', () => ({
 }));
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
-jest.mock('expo-router', () => ({
-  useRouter: () => mockRouter,
-  useLocalSearchParams: () => ({}),
-  useFocusEffect: (cb: () => void) => {
-    const React = require('react');
-    React.useEffect(() => cb(), [cb]);
-  },
-}));
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
+    useRouter: () => mockRouter,
+  }),
+);
 
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true }),
@@ -59,7 +56,7 @@ import { ThemeProvider } from '../src/contexts/ThemeContext';
 import { BrandLockup } from '../src/components/ui/BrandLockup';
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
 import { StoreScreen } from '../src/screens/store/StoreScreen';
-import { ChatHeader } from '../src/screens/chat/ChatHeader';
+import { ChatHeaderTitle } from '../src/screens/chat/ChatHeaderTitle';
 
 const APPEARANCE_KEY = 'pierre.appearance_pref';
 
@@ -103,13 +100,14 @@ describe('the Dravr lockup on the phone', () => {
       expect(screen.getByTestId('conversations-title').props.accessibilityRole).toBe('header');
     });
 
-    it('carries no "+" of its own — the tab bar holds the only one', async () => {
+    it('carries the one "+" of the app, trailing in the native header', async () => {
       const screen = renderInTheme(<ConversationsScreen />);
       await waitFor(() => expect(screen.getByTestId('conversations-title')).toBeTruthy());
 
-      // carnet#213 took the "+" out of the THREAD header; the list header kept
-      // one, so the same sheet was still offered twice on this screen — once
-      // here and once in the tab bar under it, which is the reachable one.
+      // carnet#213 took the "+" out of the THREAD header; the tab bar's "+"
+      // then left with the tab bar (Boreal v2.2 D1). The header button is the
+      // app's one entry point for starting something.
+      expect(screen.getByTestId('new-chat-button')).toBeTruthy();
       expect(screen.queryByTestId('chat-plus-button')).toBeNull();
 
       // The empty state's own "+" is a call to action, not chrome, and stays.
@@ -180,19 +178,15 @@ describe('the Dravr lockup on the phone', () => {
       await waitFor(() => expect(screen.getByTestId('store-screen')).toBeTruthy());
       expect(screen.queryByText(PRODUCT_WORDMARK)).toBeNull();
       expect(screen.queryByTestId('brand-lockup')).toBeNull();
-      // Its own screen title stays.
-      expect(screen.getByText('Discover')).toBeTruthy();
+      // Its title is the native large title the discover layout sets; the
+      // screen configures only the header's search field.
+      expect(screen.queryByTestId('stack-header-title-view')).toBeNull();
+      expect(screen.getByTestId('header-search-input')).toBeTruthy();
     });
 
     it('leaves an open thread showing the thread, not the brand', async () => {
       const screen = renderInTheme(
-        <ChatHeader
-          currentConversation={null}
-          insetTop={0}
-          providerStatus={null}
-          onBackPress={jest.fn()}
-          onTitlePress={jest.fn()}
-        />,
+        <ChatHeaderTitle currentConversation={null} providerStatus={null} onTitlePress={jest.fn()} />,
       );
 
       expect(screen.queryByText(PRODUCT_WORDMARK)).toBeNull();

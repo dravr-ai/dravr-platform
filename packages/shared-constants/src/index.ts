@@ -117,6 +117,7 @@ export type {
 
 // Notification → destination, resolved once for both platforms.
 export {
+  MOBILE_THREAD_PATHNAME,
   resolveNotificationDestination,
   webNotificationRoute,
   mobileNotificationTarget,

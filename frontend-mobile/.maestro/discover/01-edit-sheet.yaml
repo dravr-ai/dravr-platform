@@ -79,8 +79,8 @@ appId: ai.dravr.app
     id: "delete-coach-button"
 
 # Leave without saving
-- tapOn:
-    id: "back-button"
+- runFlow:
+    file: ../helpers/go-back.yaml
 - extendedWaitUntil:
     visible:
       id: "store-coach-detail-screen"

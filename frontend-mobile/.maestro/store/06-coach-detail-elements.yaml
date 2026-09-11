@@ -36,8 +36,8 @@ appId: ai.dravr.app
 - assertVisible: "System Prompt"
 
 # Navigate back
-- tapOn:
-    id: "back-button"
+- runFlow:
+    file: ../helpers/go-back.yaml
 - extendedWaitUntil:
     visible:
       id: "coach-card-0"

@@ -34,10 +34,9 @@ appId: ai.dravr.app
 - assertNotVisible: "Your Coaches"
 
 # The search field is pinned above the list and filters the rows.
-- assertVisible:
-    id: "conversation-search-input"
-- tapOn:
-    id: "conversation-search-input"
+# The search field is the system's, in the native header
+- assertVisible: "Search chats|Rechercher une discussion"
+- tapOn: "Search chats|Rechercher une discussion"
 - inputText: "zzz-no-such-conversation"
 - extendedWaitUntil:
     visible:

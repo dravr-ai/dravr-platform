@@ -182,9 +182,9 @@ describe('CoachingStyleScreen', () => {
     expect(mockSetCoachingPersona).not.toHaveBeenCalled();
   });
 
-  it('navigates back when the back button is pressed', () => {
-    const { getByTestId } = renderScreen();
-    fireEvent.press(getByTestId('back-button'));
-    expect(mockBack).toHaveBeenCalled();
+  it('draws no back button of its own — the native header carries the chevron', () => {
+    const { queryByTestId } = renderScreen();
+    expect(queryByTestId('back-button')).toBeNull();
+    expect(mockBack).not.toHaveBeenCalled();
   });
 });

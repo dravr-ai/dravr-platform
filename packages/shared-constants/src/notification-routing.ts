@@ -92,12 +92,21 @@ export function webNotificationRoute(
     : (surface.web as string);
 }
 
+/**
+ * The thread route on the phone. It lives beside the tabs rather than under
+ * the chat tab: pushed in the app stack it covers the tab bar, so the
+ * composer is the only chrome at the bottom of a discussion. The app's
+ * `CHAT_THREAD_ROUTE` is this value, so a notification and a row open the
+ * same screen.
+ */
+export const MOBILE_THREAD_PATHNAME = '/(app)/chat/[conversationId]' as const;
+
 /** An expo-router navigation target: a grouped pathname plus optional params. */
 export interface NotificationNavTarget {
   /**
    * The grouped pathname, e.g. `/(app)/(tabs)/(chat)` — or, for an agent
-   * message that names its conversation, the thread route beneath it,
-   * `/(app)/(tabs)/(chat)/[conversationId]`.
+   * message that names its conversation, the thread route,
+   * {@link MOBILE_THREAD_PATHNAME}.
    */
   pathname: string;
   /** Route params, e.g. the conversation an agent message reopens. */
@@ -121,8 +130,8 @@ export function mobileNotificationTarget(
   const { surface, conversationId } = destination;
   const pathname = surface.mobile as string;
   // The chat tab lands on the conversation list since the Chat-First Cutover;
-  // a named conversation opens the thread route beneath it, not the list.
+  // a named conversation opens the thread route, not the list.
   return conversationId
-    ? { pathname: `${pathname}/[conversationId]`, params: { conversationId } }
+    ? { pathname: MOBILE_THREAD_PATHNAME, params: { conversationId } }
     : { pathname };
 }

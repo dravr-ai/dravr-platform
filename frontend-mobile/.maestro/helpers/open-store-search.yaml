@@ -1,0 +1,22 @@
+# ABOUTME: Helper flow that focuses the Discover screen's native header search field, in either app language
+# ABOUTME: iOS shows the field with its placeholder; Android's app-bar search is an icon until tapped
+
+appId: ai.dravr.app
+
+---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Search agents...|Rechercher des agents…"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      # The appcompat SearchView: its magnifier expands the field.
+      - tapOn:
+          id: ".*:id/search_button"
+      - extendedWaitUntil:
+          visible:
+            id: ".*:id/search_src_text"
+          timeout: 5000

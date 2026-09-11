@@ -1,22 +1,37 @@
 # ABOUTME: Helper flow to start a fresh chat conversation
-# ABOUTME: Expands the floating tab bar and taps the New Chat quick action
+# ABOUTME: Opens the chat "+" menu — the header "+", or the empty list's own — and picks New chat in either app language
 
 appId: host.exp.Exponent
 
 ---
-# Expand the floating tab bar menu
-- tapOn:
-    id: "expandable-tab-bar-plus"
+# The header "+" and the empty list's "+" present the same menu. On a
+# non-empty list only the header one exists; on an empty list the mid-screen
+# one is preferred because Expo Go's floating dev-tools button sits over the
+# header's trailing buttons on the CI simulator. The header branch runs first
+# so the sheet the empty "+" opens never hides the condition of a later step.
+- runFlow:
+    when:
+      notVisible:
+        id: "conversations-empty-plus"
+    commands:
+      - tapOn:
+          id: "new-chat-button"
+- runFlow:
+    when:
+      visible:
+        id: "conversations-empty-plus"
+    commands:
+      - tapOn:
+          id: "conversations-empty-plus"
 
-# Wait for the New Chat quick action to appear (animated entrance)
+# The platform menu (an action sheet on iOS, a dialog on Android — whose
+# buttons Material may print in capitals) offers the rows in the athlete's
+# language; the seeded tester runs the app in French.
 - extendedWaitUntil:
-    visible:
-      id: "quick-action-new-chat"
-    timeout: 3000
+    visible: "(?i)new chat|nouvelle discussion"
+    timeout: 5000
 
-# Tap the New Chat quick action
-- tapOn:
-    id: "quick-action-new-chat"
+- tapOn: "(?i)new chat|nouvelle discussion"
 
 # Verify we're in a new chat
 - extendedWaitUntil:

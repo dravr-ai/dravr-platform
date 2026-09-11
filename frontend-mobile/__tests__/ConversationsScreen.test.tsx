@@ -29,17 +29,11 @@ jest.mock('../src/services/api', () => ({
   notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
 }));
 
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: jest.fn(), navigate: jest.fn(), replace: jest.fn() }),
-  useFocusEffect: (cb: () => void) => {
-    // Run the effect body once on mount, the way a screen is focused when it appears.
-    const React = require('react');
-    React.useEffect(() => {
-      const cleanup = cb();
-      return cleanup;
-    }, [cb]);
-  },
-}));
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
+    useRouter: () => ({ push: mockPush, back: jest.fn(), navigate: jest.fn(), replace: jest.fn() }),
+  }),
+);
 
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
 import { threadHref } from '../src/navigation/routes';
@@ -301,16 +295,16 @@ describe('ConversationsScreen — one flat list', () => {
     const { findByTestId, getByTestId, queryByTestId, findByText } = render(<ConversationsScreen />);
     await findByTestId('conversation-row-c1');
 
-    fireEvent.changeText(getByTestId('conversation-search-input'), '@tempo');
+    fireEvent.changeText(getByTestId('header-search-input'), '@tempo');
     await waitFor(() => expect(queryByTestId('conversation-row-c3')).toBeNull());
     expect(getByTestId('conversation-row-c1')).toBeTruthy();
     expect(queryByTestId('conversation-row-c2')).toBeNull();
 
-    fireEvent.changeText(getByTestId('conversation-search-input'), 'carbs');
+    fireEvent.changeText(getByTestId('header-search-input'), 'carbs');
     await waitFor(() => expect(queryByTestId('conversation-row-c1')).toBeNull());
     expect(getByTestId('conversation-row-c2')).toBeTruthy();
 
-    fireEvent.changeText(getByTestId('conversation-search-input'), 'nothing here');
+    fireEvent.changeText(getByTestId('header-search-input'), 'nothing here');
     // Typographic quotes: the line is a corpus string now, and every locale
     // uses its own pair — « » in French, „ " in German.
     expect(await findByText('No chat matches \u201Cnothing here\u201D')).toBeTruthy();

@@ -11,10 +11,8 @@ import { installHttpStub, type HttpStub } from './helpers/httpStub';
 const mockPush = jest.fn();
 let mockSegments: string[] = ['(app)', '(tabs)', '(chat)'];
 
-jest.mock('expo-router', () => {
-  const React = require('react');
-  const { View } = require('react-native');
-  return {
+jest.mock('expo-router', () =>
+  require('../../jest.expo-router').createExpoRouterMock({
     useRouter: () => ({
       push: mockPush,
       replace: jest.fn(),
@@ -22,21 +20,18 @@ jest.mock('expo-router', () => {
       navigate: jest.fn(),
       canGoBack: () => true,
     }),
-    useLocalSearchParams: () => ({}),
-    useGlobalSearchParams: () => ({}),
     useSegments: () => mockSegments,
-    useFocusEffect: (cb: () => void | (() => void)) => {
-      React.useEffect(() => cb(), [cb]);
-    },
-    Tabs: Object.assign(
-      ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children),
-      { Screen: () => null },
-    ),
-  };
-});
+  }),
+);
+jest.mock('expo-router/unstable-native-tabs', () =>
+  require('../../jest.expo-router').createNativeTabsMock(),
+);
+jest.mock('../../src/hooks/useServerStatus', () => ({
+  useServerStatus: () => ({ isServerReachable: true, isChecking: false, checkNow: jest.fn() }),
+}));
 
 import { ConversationsScreen } from '../../src/screens/conversations/ConversationsScreen';
-import { ExpandableTabBar } from '../../src/components/ui/ExpandableTabBar';
+import TabsLayout from '../../app/(app)/(tabs)/_layout';
 
 function conversation(overrides: Partial<Conversation> & { id: string }): Conversation {
   return {
@@ -58,7 +53,7 @@ function renderShell() {
   return render(
     <QueryClientProvider client={client}>
       <ConversationsScreen />
-      <ExpandableTabBar />
+      <TabsLayout />
     </QueryClientProvider>,
   );
 }
@@ -131,7 +126,7 @@ describe('the unified conversation list and its read marker', () => {
 
   it('badges the chat tab with the unread total of the same rows', async () => {
     const { findByTestId } = renderShell();
-    expect(await findByTestId('tab-chat-badge')).toHaveTextContent('5');
+    expect(await findByTestId('tab-badge')).toHaveTextContent('5');
   });
 
   // The whole point of the marker: opening a thread posts it, the row's badge
@@ -144,7 +139,7 @@ describe('the unified conversation list and its read marker', () => {
     });
 
     expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/(app)/(tabs)/(chat)/[conversationId]',
+      pathname: '/(app)/chat/[conversationId]',
       params: { conversationId: 'conv-coach' },
     });
     await waitFor(() => {
@@ -154,7 +149,7 @@ describe('the unified conversation list and its read marker', () => {
     });
 
     await waitFor(() => expect(queryByTestId('conversation-unread-conv-coach')).toBeNull());
-    expect(await findByTestId('tab-chat-badge')).toHaveTextContent('2');
+    expect(await findByTestId('tab-badge')).toHaveTextContent('2');
   });
 
   it('leaves a read thread alone when it is opened', async () => {

@@ -9,13 +9,12 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, useCardStyle, useThemeColors } from '../../constants/theme';
 import { Modal } from 'react-native';
-import { Card, DragIndicator, PaneScrollView } from '../../components/ui';
+import { Card, PaneScrollView } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
@@ -23,7 +22,6 @@ import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
-import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
 
@@ -31,7 +29,6 @@ export function ConnectionsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const cardStyle = useCardStyle();
-  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -315,21 +312,7 @@ export function ConnectionsScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary">
-      <DragIndicator testID="connections-drag-indicator" />
-      {/* Header */}
-      <View className="flex-row items-center px-3 py-2 border-b border-border-subtle">
-        <TouchableOpacity
-          className="w-10 h-10 items-center justify-center"
-          onPress={() => router.back()}
-          testID="back-button"
-        >
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-lg font-semibold text-text-primary text-center">{t('app.connections')}</Text>
-        <View className="w-10" />
-      </View>
-
+    <View className="flex-1 bg-background-primary" testID="connections-screen">
       <PaneScrollView
         contentContainerStyle={{ padding: spacing.lg }}
         showsVerticalScrollIndicator={false}
@@ -461,6 +444,6 @@ export function ConnectionsScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }

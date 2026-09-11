@@ -25,8 +25,8 @@ appId: ai.dravr.app
 # A term no agent title or description can match must empty the list. This is
 # the assertion the flow existed for and never made: waiting for `coach-list`
 # proved nothing, because the container is present before the search too.
-- tapOn:
-    id: "search-input"
+- runFlow:
+    file: ../helpers/open-store-search.yaml
 - eraseText
 - inputText: "zzqqxx-no-such-agent"
 

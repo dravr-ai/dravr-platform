@@ -12,8 +12,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { PaneScrollView } from '../../components/ui';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import type { AvailableChannel, ChannelLink } from '@pierre/api-client';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -30,7 +29,6 @@ import { useTranslation } from '@pierre/i18n';
  */
 export function MessagingChannelsScreen() {
   const { t } = useTranslation();
-  const router = useRouter();
   const colors = useThemeColors();
 
   const [links, setLinks] = useState<ChannelLink[]>([]);
@@ -141,14 +139,7 @@ export function MessagingChannelsScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.primary }} edges={['top']} testID="messaging-channels-screen">
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-        <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('app.messaging')}</Text>
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="messaging-channels-screen">
       {isLoading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator size="large" color={colors.pierre.violet} />
@@ -255,6 +246,6 @@ export function MessagingChannelsScreen() {
           </View>
         </PaneScrollView>
       )}
-    </SafeAreaView>
+    </View>
   );
 }

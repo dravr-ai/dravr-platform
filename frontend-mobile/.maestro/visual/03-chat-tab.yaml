@@ -12,9 +12,9 @@ appId: ai.dravr.app
 
 # Test: chat - tab icon visible and tappable
 - assertVisible:
-    id: "tab-chat"
+    text: "Discussion|Chat"
 - tapOn:
-    id: "tab-chat"
+    text: "Discussion|Chat"
 
 # Test: chat - the tab shows the conversation list with its "+"
 - extendedWaitUntil:

@@ -6,7 +6,7 @@ appId: ai.dravr.app
 ---
 # Tap the Discover tab in bottom navigation
 - tapOn:
-    id: "tab-discover"
+    text: "Découvrir|Discover"
 
 # Wait for store screen to load
 - extendedWaitUntil:

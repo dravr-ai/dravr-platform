@@ -7,7 +7,6 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { Keyboard, Platform } from 'react-native';
 import { useKeyboardOffset } from '../useKeyboardOffset';
-import { tabBarBottomOffset, TAB_BAR_GAP } from '../../components/ui/ExpandableTabBar';
 
 type Listener = (event: { endCoordinates: { height: number }; duration?: number }) => void;
 
@@ -63,22 +62,15 @@ describe('useKeyboardOffset', () => {
   });
 });
 
-describe('tabBarBottomOffset', () => {
-  it('follows the device inset instead of assuming a home indicator', () => {
-    // The constant it replaces was COLLAPSED_HEIGHT + 40, which gave an
-    // iPhone SE (inset 0) forty points of dead space under the tab bar.
-    const se = tabBarBottomOffset(0);
-    const notched = tabBarBottomOffset(34);
-    expect(notched - se).toBe(34);
-    expect(se).toBe(56 + TAB_BAR_GAP);
-  });
-
+describe('the composer resting offset', () => {
   it('keeps the list clear of the composer whichever is taller', () => {
-    // What ChatScreen passes as MessageList's bottomInset.
-    const resting = tabBarBottomOffset(34);
+    // What ChatScreen passes as MessageList's bottomInset: the composer rests
+    // on the device inset now that nothing sits under it but the home
+    // indicator, and the keyboard replaces that when it is up.
+    const resting = Math.max(34, 8);
     const closed = Math.max(resting, 0);
     const open = Math.max(resting, 336);
-    expect(closed).toBe(resting);
+    expect(closed).toBe(34);
     // With the keyboard up the list must reserve the KEYBOARD, not the bar —
     // the old fixed 140 reserved neither.
     expect(open).toBe(336);

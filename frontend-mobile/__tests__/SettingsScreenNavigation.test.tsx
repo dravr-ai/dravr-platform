@@ -13,12 +13,6 @@ jest.mock('expo-router', () => ({
   useFocusEffect: () => undefined,
 }));
 
-// jest.setup.js mocks the safe-area context with a real phone's geometry —
-// 44pt of status bar, 34pt of home indicator. Zeroes would let both layout
-// assertions pass on a screen that clips on every real device.
-const TOP_INSET = 44;
-const BOTTOM_INSET = 34;
-
 jest.mock('../src/services/api', () => ({
   userApi: {
     getMcpTokens: jest.fn().mockResolvedValue({ tokens: [] }),
@@ -44,7 +38,6 @@ jest.mock('../src/hooks/useFeatureFlags', () => ({
 }));
 
 import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
-import { tabBarBottomOffset } from '../src/components/ui/ExpandableTabBar';
 
 const baseUser: Partial<User> = {
   id: 'user-1',
@@ -99,23 +92,15 @@ describe('SettingsScreen navigation', () => {
     expect(queryByTestId('settings-ai-provider-button')).toBeNull();
   });
 
-  it('keeps the top of the screen clear of the status bar', () => {
-    // The title and first card scrolled up behind the notch: the safe-area
-    // inset was padding inside the scroll, so it moved with the content.
-    const { getByTestId } = render(<SettingsScreen />);
-    const header = getByTestId('settings-safe-header');
-    expect(header.props.style.paddingTop).toBe(TOP_INSET);
-  });
-
-  it('clears the floating tab bar at the bottom of the scroll', () => {
-    // The tab bar floats over the scroll with no scrim, so the last row sat
-    // half-hidden behind it.
-    const { getByTestId } = render(<SettingsScreen />);
-    const scroll = getByTestId('settings-scroll');
-    expect(scroll.props.contentContainerStyle.paddingBottom).toBe(
-      tabBarBottomOffset(BOTTOM_INSET),
-    );
-    expect(tabBarBottomOffset(BOTTOM_INSET)).toBeGreaterThan(BOTTOM_INSET);
+  it('draws no header of its own and lets the platform inset the scroll', () => {
+    // The title is the native large title; the system header above and the
+    // system tab bar below inset the scroll themselves. A hand-drawn band
+    // under the status bar, or a padding sized for a floating bar, means a
+    // second header idiom came back (Boreal v2.2 D2).
+    const { getByTestId, queryByTestId, queryByText } = render(<SettingsScreen />);
+    expect(queryByTestId('settings-safe-header')).toBeNull();
+    expect(queryByText('Settings')).toBeNull();
+    expect(getByTestId('settings-scroll').props.contentInsetAdjustmentBehavior).toBe('automatic');
   });
 
   it('routes the header button to the profile pane the list also serves', () => {

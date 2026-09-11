@@ -9,7 +9,7 @@ import { mobileNotificationTarget } from '@pierre/shared-constants';
 const CHAT_ROUTE = '/(app)/(tabs)/(chat)';
 // The chat tab lands on the conversation list; a coach message that names its
 // conversation opens the thread route beneath it.
-const THREAD_ROUTE = '/(app)/(tabs)/(chat)/[conversationId]';
+const THREAD_ROUTE = '/(app)/chat/[conversationId]';
 const PROFILE_ROUTE = '/(app)/(tabs)/(settings)/profile';
 const CONNECTIONS_ROUTE = '/(app)/(tabs)/(settings)/connections';
 

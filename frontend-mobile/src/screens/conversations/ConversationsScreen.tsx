@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The chat tab's landing screen — every conversation the athlete takes part in, one flat Telegram-shaped list
-// ABOUTME: A row opens its thread; the "+" starts a chat or a group chat; search, swipe and long-press act on rows
+// ABOUTME: A row opens its thread; the header "+" starts a chat or a group chat; the native search, swipe and long-press act on rows
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -15,17 +15,18 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { filterRows, type ConversationRowModel } from '@pierre/chat-utils';
-import { useCardStyle, useThemeColors } from '../../constants/theme';
-import { BrandLockup, FloatingSearchBar, PromptDialog, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
+import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
+import { BrandLockup, PromptDialog } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
+import { HeaderActions } from '../../components/ui/HeaderActions';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
 import { threadHref } from '../../navigation/routes';
-import { ChatPlusSheet } from '../chat/ChatPlusSheet';
 import { ChatPlusFlows } from '../chat/ChatPlusFlows';
+import { NewChatButton } from '../chat/NewChatButton';
+import { presentChatPlusMenu } from '../chat/presentChatPlusMenu';
 import { useChatPlusActions } from '../chat/useChatPlusActions';
 import { ConversationRow } from './ConversationRow';
 import { useConversationList } from './useConversationList';
@@ -53,12 +54,20 @@ export function ConversationsScreen() {
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [selectedRow, setSelectedRow] = useState<ConversationRowModel | null>(null);
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
-  const [plusVisible, setPlusVisible] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // No conversation is open on the list, so the "+" offers new chat and new
   // group chat; "add someone" belongs to the thread that is being read.
   const chatPlus = useChatPlusActions(null);
+  const openPlusMenu = useCallback(
+    () =>
+      presentChatPlusMenu({
+        actions: chatPlus.actions,
+        cancelLabel: t('common.cancel'),
+        title: t('app.convNewAria'),
+      }),
+    [chatPlus.actions, t],
+  );
 
   // The query fetches on mount; a focus after that — coming back from a
   // thread, from Discover, from a notification — re-reads the list so a row
@@ -184,12 +193,14 @@ export function ConversationsScreen() {
   const errorMessage = actionError ?? (list.isError ? describeError(list.error, t('app.failedLoadConversations')) : null);
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary" testID="conversations-screen">
+    <View className="flex-1 bg-background-primary" testID="conversations-screen">
       {/*
-        Header — the landing screen's chrome: the lockup, appearance, bell, and
-        the chat "+".
+        The native header carries the landing screen's chrome: the lockup as
+        its title view, then appearance, the bell and the chat "+"; the search
+        field is the system's, under the bar on iOS 18 and in the bottom
+        toolbar on iOS 26.
 
-        The lockup stands where the screen title used to, the way every
+        The lockup stands where the screen title would, the way every
         messenger writes its own name across the top of its conversation list.
         The chat tab is the only one that carries it (DESIGN.md §5): the phone
         has no icon rail to hold the mark, so this header is the single place
@@ -197,13 +208,26 @@ export function ConversationsScreen() {
         would make it chrome instead. The destination's name stays the spoken
         one, so a screen reader still says which tab this is.
       */}
-      <View className="flex-row items-center px-4 py-2 border-b border-border-subtle">
-        <View className="flex-1">
-          <BrandLockup accessibilityLabel={t('app.convListTitle')} testID="conversations-title" />
-        </View>
-        <AppearanceToggleButton size={20} color={colors.text.secondary} />
-        <NotificationBellButton size={20} color={colors.text.secondary} />
-      </View>
+      <Stack.Screen
+        options={{
+          headerTitle: () => (
+            <BrandLockup accessibilityLabel={t('app.convListTitle')} testID="conversations-title" />
+          ),
+          headerRight: () => (
+            <HeaderActions>
+              <AppearanceToggleButton size={20} color={colors.text.secondary} />
+              <NotificationBellButton size={20} color={colors.text.secondary} />
+              <NewChatButton actions={chatPlus.actions} />
+            </HeaderActions>
+          ),
+          headerSearchBarOptions: {
+            placeholder: t('app.convSearchPlaceholder'),
+            autoCapitalize: 'none',
+            hideWhenScrolling: false,
+            onChangeText: (event) => setSearchQuery(event.nativeEvent.text),
+          },
+        }}
+      />
 
       {errorMessage && (
         <View
@@ -233,7 +257,9 @@ export function ConversationsScreen() {
           data={visibleRows}
           renderItem={renderRow}
           keyExtractor={keyExtractor}
-          contentContainerStyle={{ paddingBottom: TAB_BAR_BOTTOM_OFFSET + 64 }}
+          // The system header, search field and tab bar inset the list themselves.
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{ paddingBottom: spacing.lg }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           onEndReached={list.loadMore}
@@ -260,7 +286,7 @@ export function ConversationsScreen() {
                   <TouchableOpacity
                     className="w-12 h-12 rounded-full items-center justify-center mt-4"
                     style={{ backgroundColor: `${colors.pierre.violet}26` }}
-                    onPress={() => setPlusVisible(true)}
+                    onPress={openPlusMenu}
                     accessibilityRole="button"
                     accessibilityLabel={t('app.convNewAria')}
                     testID="conversations-empty-plus"
@@ -274,15 +300,6 @@ export function ConversationsScreen() {
         />
       )}
 
-      {/* Floating search bar — sits above the tab bar, rides the keyboard */}
-      <FloatingSearchBar
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        placeholder={t('app.convSearchPlaceholder')}
-        testID="conversation-search-input"
-      />
-
-      <ChatPlusSheet visible={plusVisible} onClose={() => setPlusVisible(false)} actions={chatPlus.actions} />
       <ChatPlusFlows flows={chatPlus.flows} />
 
       {/* Long-press menu */}
@@ -332,6 +349,6 @@ export function ConversationsScreen() {
         onCancel={handleRenameCancel}
         testID="rename-conversation-dialog"
       />
-    </SafeAreaView>
+    </View>
   );
 }

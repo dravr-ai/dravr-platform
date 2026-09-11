@@ -7,11 +7,12 @@ import { Alert } from 'react-native';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
 let mockParams: { coachId?: string } = { coachId: 'coach-1' };
-jest.mock('expo-router', () => ({
-  ...jest.requireActual('expo-router'),
-  useRouter: () => mockRouter,
-  useLocalSearchParams: () => mockParams,
-}));
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
+    useRouter: () => mockRouter,
+    useLocalSearchParams: () => mockParams,
+  }),
+);
 
 const mockGet = jest.fn();
 const mockUpdate = jest.fn();
@@ -77,7 +78,10 @@ describe('CoachEditorScreen', () => {
     expect(await findByTestId('coach-editor-screen')).toBeTruthy();
     expect(mockGet).toHaveBeenCalledWith('coach-1');
     expect((await findByTestId('coach-title-input')).props.value).toBe('Coach Tempo');
-    expect(getByText('Edit Agent')).toBeTruthy();
+    // The sheet's title is the native header's, set by the discover layout;
+    // the screen draws none of its own.
+    expect(queryByText('Edit Agent')).toBeNull();
+    expect(getByText('Title *')).toBeTruthy();
     // No create mode, no version history, no fork wording. The two strings are
     // the retired wizard's own, as it spelled them before b460057d3 deleted it;
     // neither is in the catalogue now, so the new vocabulary would name text no

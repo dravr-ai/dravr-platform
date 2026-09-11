@@ -16,11 +16,12 @@ jest.mock('@expo/vector-icons', () => {
 });
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
-jest.mock('expo-router', () => ({
-  useRouter: () => mockRouter,
-  useLocalSearchParams: () => ({}),
-  useFocusEffect: () => {},
-}));
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
+    useRouter: () => mockRouter,
+    useFocusEffect: () => {},
+  }),
+);
 jest.mock('expo-linking', () => ({ openURL: jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),

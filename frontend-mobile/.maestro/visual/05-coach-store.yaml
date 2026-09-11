@@ -12,7 +12,7 @@ appId: ai.dravr.app
 
 # Navigate to store via Discover tab
 - tapOn:
-    id: "tab-discover"
+    text: "Découvrir|Discover"
 
 # Test: store - displays agent grid
 - extendedWaitUntil:
@@ -36,10 +36,8 @@ appId: ai.dravr.app
 # Test: store - search agents works
 - runFlow:
     when:
-      visible:
-        id: "store-search-input"
+      visible: "Search agents...|Rechercher des agents…"
     commands:
-      - tapOn:
-          id: "store-search-input"
+      - tapOn: "Search agents...|Rechercher des agents…"
       - inputText: "training"
       - eraseText

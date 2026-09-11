@@ -6,7 +6,7 @@ appId: ai.dravr.app
 ---
 # Tap the Settings tab in bottom navigation
 - tapOn:
-    id: "tab-settings"
+    text: "Réglages|Settings"
 
 # Wait for settings screen to load
 - extendedWaitUntil:

@@ -12,7 +12,7 @@ appId: ai.dravr.app
 
 # Navigate to Settings tab
 - tapOn:
-    id: "tab-settings"
+    text: "Réglages|Settings"
 - extendedWaitUntil:
     visible:
       id: "settings-screen"

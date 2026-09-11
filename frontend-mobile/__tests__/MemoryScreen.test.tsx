@@ -13,9 +13,11 @@ const mockListMemoryFacts = jest.fn();
 const mockForgetMemoryFact = jest.fn();
 
 const mockRouterBack = jest.fn();
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ back: mockRouterBack, push: jest.fn(), replace: jest.fn() }),
-}));
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
+    useRouter: () => ({ back: mockRouterBack, push: jest.fn(), replace: jest.fn() }),
+  }),
+);
 
 jest.mock('../src/services/api', () => ({
   userApi: {
@@ -232,14 +234,14 @@ describe('MemoryScreen', () => {
     alertSpy.mockRestore();
   });
 
-  it('offers the way back every other settings pane offers', async () => {
-    // Memory is reached by a push from the settings list, where the tab bar is
-    // not rendered, so without this control the pane is a dead end.
-    const { getByTestId } = renderScreen();
+  it('draws no back button of its own — the native header carries the way back', async () => {
+    // Memory is presented over the tabs; the system header names it and
+    // carries Close, so a control drawn here would be a second header idiom.
+    const { getByTestId, queryByTestId } = renderScreen();
     await waitFor(() => {
-      expect(getByTestId('back-button')).toBeTruthy();
+      expect(getByTestId('memory-screen')).toBeTruthy();
     });
-    fireEvent.press(getByTestId('back-button'));
-    expect(mockRouterBack).toHaveBeenCalled();
+    expect(queryByTestId('back-button')).toBeNull();
+    expect(mockRouterBack).not.toHaveBeenCalled();
   });
 });

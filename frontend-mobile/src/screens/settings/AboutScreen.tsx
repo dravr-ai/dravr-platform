@@ -11,8 +11,6 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { PaneScrollView } from '../../components/ui';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
@@ -53,7 +51,6 @@ async function openExternal(
  */
 export function AboutScreen() {
   const { t } = useTranslation();
-  const router = useRouter();
   const colors = useThemeColors();
   const { isAuthenticated } = useAuth();
 
@@ -174,21 +171,10 @@ export function AboutScreen() {
   };
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background.primary }}
-      edges={['top']}
-      testID="about-screen"
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-        <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('about.title')}</Text>
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="about-screen">
       <PaneScrollView contentContainerStyle={{ padding: spacing.md }}>
         <View style={cardStyle}>{sections.map(renderSection)}</View>
       </PaneScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

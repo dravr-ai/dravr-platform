@@ -21,29 +21,16 @@ let mockSegments: string[] = ['(auth)', 'login'];
 jest.mock('expo-router', () => {
   const React = require('react');
   const { View } = require('react-native');
-  return {
+  return require('../jest.expo-router').createExpoRouterMock({
     useRouter: () => mockRouter,
     useSegments: () => mockSegments,
-    useLocalSearchParams: () => ({}),
-    useGlobalSearchParams: () => ({}),
-    useFocusEffect: (cb: () => void | (() => void)) => {
-      React.useEffect(() => cb(), [cb]);
-    },
     useNavigationContainerRef: () => ({
       addListener: () => () => {},
       isReady: () => false,
       getCurrentRoute: () => undefined,
     }),
     Slot: () => React.createElement(View, { testID: 'slot' }),
-    Stack: Object.assign(
-      ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children),
-      { Screen: () => null },
-    ),
-    Tabs: Object.assign(
-      ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children),
-      { Screen: () => null },
-    ),
-  };
+  });
 });
 
 jest.mock('expo-splash-screen', () => ({
@@ -127,7 +114,7 @@ jest.mock('../src/services/api', () => ({
 import RootLayout from '../app/_layout';
 import ChatIndexRoute from '../app/(app)/(tabs)/(chat)/index';
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
-import { TAB_BAR_TABS } from '../src/components/ui/ExpandableTabBar';
+import { TAB_BAR_TABS } from '../src/navigation/tabs';
 import { CHAT_LIST_ROUTE } from '../src/navigation/routes';
 
 describe('chat-first landing', () => {

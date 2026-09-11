@@ -11,7 +11,6 @@ import {
   Modal,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
@@ -352,18 +351,7 @@ export function AccountScreen() {
   };
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background.primary }}
-      edges={['top']}
-      testID="account-screen"
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-        <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('app.account')}</Text>
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="account-screen">
       <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
         {settingsPaneSections('account').map(renderSection)}
       </PaneScrollView>
@@ -428,6 +416,6 @@ export function AccountScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }

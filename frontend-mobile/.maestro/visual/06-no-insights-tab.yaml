@@ -13,12 +13,12 @@ appId: ai.dravr.app
 # The athlete lands on chat; the bar offers exactly the surviving tabs.
 - extendedWaitUntil:
     visible:
-      id: "tab-chat"
+      text: "Discussion|Chat"
     timeout: 15000
 - assertVisible:
-    id: "tab-discover"
+    text: "Découvrir|Discover"
 - assertVisible:
-    id: "tab-settings"
+    text: "Réglages|Settings"
 
 # Test: no Insights tab, no feed, no Coaches tab. Unconditional — the retired
 # flows reached the feed behind `when: visible` guards, which is how a deleted

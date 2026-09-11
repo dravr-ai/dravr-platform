@@ -13,8 +13,6 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import type { OAuthGrant } from '@pierre/shared-types';
@@ -34,7 +32,6 @@ function formatGrantedDate(iso: string): string {
 
 export function ConnectedAppsScreen(): React.JSX.Element {
   const { t } = useTranslation();
-  const router = useRouter();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
 
@@ -116,24 +113,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
   };
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-background-primary"
-      testID="connected-apps-screen"
-    >
-      {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-white/10">
-        <TouchableOpacity
-          className="p-2 mr-2"
-          onPress={() => router.back()}
-          testID="back-button"
-        >
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-lg font-bold text-text-primary">
-          {t('app.connectedAppsLower')}
-        </Text>
-      </View>
-
+    <View className="flex-1 bg-background-primary" testID="connected-apps-screen">
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={colors.text.primary} />
@@ -182,6 +162,6 @@ export function ConnectedAppsScreen(): React.JSX.Element {
           }
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }

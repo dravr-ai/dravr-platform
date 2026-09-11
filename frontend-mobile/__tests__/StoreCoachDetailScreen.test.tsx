@@ -7,12 +7,12 @@ import { Alert } from 'react-native';
 
 // Per-file expo-router mock override with spyable router methods
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
-jest.mock('expo-router', () => ({
-  ...jest.requireActual('expo-router'),
-  useRouter: () => mockRouter,
-  useLocalSearchParams: () => ({ coachId: 'test-coach-id' }),
-  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
-}));
+jest.mock('expo-router', () =>
+  require('../jest.expo-router').createExpoRouterMock({
+    useRouter: () => mockRouter,
+    useLocalSearchParams: () => ({ coachId: 'test-coach-id' }),
+  }),
+);
 
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -45,7 +45,6 @@ jest.mock('../src/services/api', () => ({
 jest.spyOn(Alert, 'alert');
 
 import { StoreCoachDetailScreen } from '../src/screens/store/StoreCoachDetailScreen';
-import { tabBarBottomOffset } from '../src/components/ui/ExpandableTabBar';
 import { CHAT_THREAD_ROUTE, COACH_EDIT_ROUTE } from '../src/navigation/routes';
 import type { StoreCoach, StoreCoachDetail, CoachCategory } from '../src/types';
 
@@ -135,18 +134,27 @@ describe('StoreCoachDetailScreen', () => {
       });
     });
 
-    // The action bar is absolute, so its parent's safe-area padding never
-    // reaches it. Pinned to the bare 68pt constant it sat inside the floating
-    // tab bar, which occupies 34..90 above the screen edge here (carnet#208).
-    it('floats its action bar above the tab bar rather than inside it', async () => {
+    // The bar used to float over the list and had to clear a floating tab bar
+    // by a constant that once put it inside that bar (carnet#208). The system
+    // tab bar ends the screen now, so the bar just sits at the bottom of it.
+    it('keeps its action bar in the flow, padded for the home indicator', async () => {
       const { findByTestId } = render(<StoreCoachDetailScreen />);
 
       const bar = await findByTestId('coach-detail-action-bar');
       const style = bar.props.style as Record<string, unknown> | Array<Record<string, unknown>>;
       const flat = Array.isArray(style) ? Object.assign({}, ...style) : style;
 
-      expect(flat.bottom).toBe(102);
-      expect(flat.bottom).toBe(tabBarBottomOffset(34));
+      // Nothing floats: the system tab bar sits below the screen, and the bar
+      // carries only the device inset the safe-area mock reports.
+      expect(flat.bottom).toBeUndefined();
+      expect(flat.position).toBeUndefined();
+      expect(flat.paddingBottom).toBe(34);
+    });
+
+    it('names the native header after the agent', async () => {
+      const { findByTestId } = render(<StoreCoachDetailScreen />);
+
+      expect(await findByTestId('stack-header-title')).toHaveTextContent('Marathon Training Agent');
     });
 
     it('should render agent description', async () => {
@@ -458,8 +466,8 @@ describe('StoreCoachDetailScreen', () => {
   });
 
   describe('navigation', () => {
-    it('should go back when back button is pressed', async () => {
-      const { getAllByText, getByTestId } = render(
+    it('draws no back button of its own — the native header carries the chevron', async () => {
+      const { getAllByText, queryByTestId } = render(
         <StoreCoachDetailScreen />
       );
 
@@ -468,10 +476,7 @@ describe('StoreCoachDetailScreen', () => {
         expect(getAllByText('Marathon Training Agent').length).toBeGreaterThan(0);
       });
 
-      // Find and press back button via testID
-      fireEvent.press(getByTestId('back-button'));
-
-      expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(discover)');
+      expect(queryByTestId('back-button')).toBeNull();
     });
   });
 
