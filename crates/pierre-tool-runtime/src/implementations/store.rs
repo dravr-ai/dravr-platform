@@ -417,7 +417,7 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
                 .filter(|c| !c.is_empty())
             else {
                 return Ok(ToolResult::error(json!({
-                    "error": "Missing required 'coach_id' argument (the store agent's UUID)."
+                    "error": "Missing required 'agent_id' argument (the store agent's UUID)."
                 })));
             };
 

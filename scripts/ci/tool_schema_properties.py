@@ -63,8 +63,18 @@ REQUIRED_VEC = re.compile(r"Some\(vec!\[(.*?)\]\)", re.S)
 STRING_LIT = re.compile(r'"([a-z0-9_]+)"')
 
 # How a handler says "you did not give me X".
+#
+# Every phrasing the handlers actually use has to be here, because a phrasing
+# the scan cannot see is a rejection it cannot check -- and the check then
+# reports green over exactly the drift it exists to catch. The coach -> agent
+# rename left three messages naming `coach_id` for parameters called
+# `agent_id`, and this list matched none of them: two spell it
+# "Missing required 'X' argument" and one "X is required to ...".
 REJECTIONS = [
     re.compile(r"Missing required parameter:\s*([a-z0-9_]+)"),
+    re.compile(r"Missing required '([a-z0-9_]+)' argument"),
+    re.compile(r'"([a-z0-9_]+) is required\b'),
+    re.compile(r'"([a-z0-9_]+) must be a UUID'),
     re.compile(r'missing_parameter\(\s*[^,]+,\s*"([a-z0-9_]+)"'),
     re.compile(r'require_string_field\(\s*&?args\s*,\s*"([a-z0-9_]+)"'),
 ]
@@ -200,6 +210,14 @@ def scan(pattern="crates/**/*.rs", skip_tests=True):
         )
     if not tools:
         raise ScanError(f"no tools resolved from {pattern!r} — refusing to pass")
+
+    # An orphan belongs to a tool only if its module has one. The branch above
+    # takes every file without a tool_definition, which is right for a helper
+    # sitting beside the tools it serves and wrong for a module that declares
+    # no tools at all -- an HTTP route handler validating its own JSON body
+    # names fields that no tool schema was ever meant to declare.
+    tool_modules = {e["module"] for e in tools.values()}
+    orphans = {m: v for m, v in orphans.items() if m in tool_modules}
 
     return tools, {
         "files": files_scanned,

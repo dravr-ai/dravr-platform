@@ -996,7 +996,7 @@ impl McpTool<dyn ToolRuntime> for AdminListAgentAssignmentsTool {
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AppError::invalid_input("coach_id is required to list assignments".to_owned())
+                    AppError::invalid_input("agent_id is required to list assignments".to_owned())
                 })?;
 
             let manager = ctx.resources.agents_manager();

@@ -151,7 +151,7 @@ pub(crate) async fn handle_list_claim_verdicts(
         .filter(|s| !s.is_empty())
         .map(|raw| {
             Uuid::parse_str(raw).map(|_| raw.to_owned()).map_err(|_| {
-                AppError::invalid_input(format!("coach_id must be a UUID, got `{raw}`"))
+                AppError::invalid_input(format!("agent_id must be a UUID, got `{raw}`"))
             })
         })
         .transpose()?;

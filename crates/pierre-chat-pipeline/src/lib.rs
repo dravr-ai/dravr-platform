@@ -664,7 +664,7 @@ pub(crate) fn call_type_for_profile(profile: &SurfaceProfile) -> &'static str {
 fn record_turn_span_context(agent_id: Option<&str>, group_id: Option<&str>) {
     let span = tracing::Span::current();
     if let Some(agent_id) = agent_id {
-        span.record("coach_id", agent_id);
+        span.record("agent_id", agent_id);
     }
     if let Some(group_id) = group_id {
         span.record("group_id", group_id);
