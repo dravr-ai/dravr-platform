@@ -24,10 +24,20 @@ appId: ai.dravr.app
       # the flow wants anyway -- you cannot search a screen that is not in
       # front of you -- and when the sheet is up the app views are absent
       # from the tree, so it fails there and dumps the tree at that moment.
-      - takeScreenshot: before-store-search
       - assertVisible:
           id: "store-screen"
-      - tapOn: "Search|Rechercher"
+      # Tap the magnifier by position, not by any selector. The selector is
+      # what has been wrong all along: `.*:id/search_button` and the
+      # contentDescription both resolved to Expo Go's own chrome, and tapping
+      # it raises the developer menu. The run that proved it is c8804f8f7 --
+      # the assertVisible above PASSED, so the app's views were in the tree and
+      # the menu was not, and the menu is in the tree captured right after the
+      # tap. A point inside this app's app bar cannot match Expo Go's chrome.
+      #
+      # The magnifier sits at the trailing edge of the Discover app bar, the
+      # row carrying the large title.
+      - tapOn:
+          point: "92%,8%"
       - extendedWaitUntil:
           visible: "Search agents...|Rechercher des agents…"
           timeout: 10000
